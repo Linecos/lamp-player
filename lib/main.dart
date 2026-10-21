@@ -8,6 +8,15 @@ import 'package:lamp_player/src/rust/frb_generated.dart';
 /// 业务逻辑与页面请放到 `lib/src/` 对应目录（见 docs/ARCHITECTURE.md）。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await RustLib.init();
+
+  try {
+    await RustLib.init();
+  } catch (error) {
+    // DLL 缺失、架构不匹配等会走到这里：给一个能看懂的界面，而不是白屏
+    debugPrint('Rust 桥接初始化失败：$error');
+    runApp(LampStartupErrorApp(message: '$error'));
+    return;
+  }
+
   runApp(const LampApp());
 }

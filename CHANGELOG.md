@@ -9,11 +9,15 @@
 
 - Rust API 契约冻结：`db::*`、`scan::scan_folder`、`player::*`，签名见 `docs/API_CONTRACT.md`（`player::*` 仍为存根）
 - 扫描实现：`scan_folder` 支持 9 种扩展名、递归子目录、不跟随软链接；`lofty` 读标签、无标签用文件名兜底；整批单事务入库，单文件解析失败只计入 `failed` 不中断
-- 内部模块 `rust/src/scanner.rs`（遍历 + 标签解析，可脱离数据库测试）与 `rust/tests/scan.rs`（遍历过滤、缺失目录、扫描→入库→中文前缀检索全链路）
-- Dart 应用外壳：`LampApp` + 主题（Material 3，随系统深浅色）+ 路由表
+- 扫描增量：记录 mtime/大小指纹，未变化文件跳过解析；扫描后清理该目录下已删除的记录（`ScanReport.unchanged` / `walk_errors` / `pruned`）
+- `db::close_db`：释放曲库连接，支持切换库路径；`init_db` 带结构版本（`PRAGMA user_version`）与老库自动升级 + FTS 重建
+- `rust/tests/db.rs`：upsert 去重、FTS 触发器同步、搜索容错、prune、路径切换、老库迁移
+- 内部模块 `rust/src/scanner.rs`（遍历 + 标签解析，可脱离数据库测试）与 `rust/tests/scan.rs`（遍历过滤、缺失目录、扫描→入库→中文前缀检索、增量与清理）
+- Dart 应用外壳：`LampApp` + 主题（Material 3，随系统深浅色）+ 路由表；桥接初始化失败时显示 `LampStartupErrorApp` 而不是白屏
 - 曲库页占位实现，纯 Dart 环境可渲染
 - 协作设施：`CONTRIBUTING.md`、Issue 模板、CODEOWNERS、PR 模板、路线图与接口契约文档
 - 一键脚本：`scripts/bootstrap.ps1`（环境准备）、`scripts/check.ps1`（本地全套检查）、`scripts/setup-labels.ps1`（标签初始化）
+- CI：Windows 任务增加真实原生库的 `integration_test`
 
 ### 变更
 
@@ -21,12 +25,22 @@
 - `main.dart` 精简为「初始化桥接 + 挂载 `LampApp`」，去掉 frb 模板残留注释
 - `analysis_options.yaml`：排除生成代码、启用单引号与 `unawaited_futures`
 - CI：新增 `dart format` 检查；`cargo clippy -D warnings` 转为阻塞；缓存 codegen 二进制
+- BASS 运行时：`setup-bass.ps1` 下载并校验官方 add-on（flac/opus/ape/wma），构建时由 CMake 把 DLL 拷进 bundle
+- Windows 应用身份与窗口标题改为 `Lamp Player`（`path_provider` 的数据目录名随之确定）
+- 移除未使用的 `dirs` 依赖
 
 ### 修复
 
 - `db::upsert_tracks` 失败时不回滚事务，可能留下半批数据（现改为失败即回滚）
 - 曲库连接获取不再 panic（未初始化 / 锁中毒时返回错误）
 - `db::prune_missing_tracks` 返回值类型不匹配（`usize` → `i32`）
+- 搜索含空串、`-`、`+`、`:`、引号等字符时 FTS5 直接报语法错误；现按词包成短语做前缀匹配，并按 bm25 排序
+- `init_db` 忽略重复初始化结果，切换路径时会静默继续写旧库
+- `upsert` / `prune` 改用 `transaction()`；prune 的磁盘检查移出全局锁
+- 单个文件解析时底层库 panic 会终止进程；现按文件隔离为 `failed`
+- Windows 构建产物缺少 `bass.dll`；`setup-bass.ps1` 不装 add-on，导致 flac/opus/ape/wma 无法播放（AAC/M4A 在 Windows 上走系统 codec）
+- `check.ps1` 只设 `no_proxy` 不清代理变量，本机开着代理时 `flutter test` 失败
+- 测试在曲库连接未关闭时删除临时目录（Windows 上失败且泄漏文件）
 
 ## [0.1.0] - 2026-10-21
 
