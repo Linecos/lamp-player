@@ -1,30 +1,14 @@
-// This is a basic Flutter widget test.
+// TODO(M1): 曲库 UI 落地后替换为真实测试（页面渲染、搜索交互等）。
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// 现状说明：当前 main.dart 是 flutter_rust_bridge 快速开始示例，
+// 其入口需要先初始化 Rust 库（RustLib.init），纯 Dart 单测环境无法
+// 加载原生库，因此暂不对其做 widget 测试；真实场景由
+// integration_test/simple_test.dart 在设备/桌面端覆盖。
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lamp_player/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('占位冒烟测试：本地 flutter test 环境可用', () {
+    expect(true, isTrue);
   });
 }
