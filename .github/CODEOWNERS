@@ -1,0 +1,27 @@
+# PR review 路由。默认所有改动都请 owner 看。
+#
+# 说明：只有对仓库有写权限的账号才会被 GitHub 自动指派为 reviewer；
+# 协作者受邀但未接受时，对应行会提示无效，不影响 PR 本身。
+*                                   @Linecos
+
+# 曲库 / 数据模型 / 扫描（接口契约相关，改动需要 owner 确认）
+/rust/src/api/db.rs                 @Linecos
+/rust/src/api/model.rs              @Linecos
+/rust/src/api/scan.rs               @Linecos
+/rust/Cargo.toml                    @Linecos
+/docs/API_CONTRACT.md               @Linecos
+
+# 播放引擎（BASS）
+/rust/src/bass.rs                   @qiya7698
+/rust/src/api/player.rs             @qiya7698
+/windows/runner/CMakeLists.txt      @qiya7698
+
+# Flutter 界面
+/lib/src/app/                       @starry688
+/lib/src/theme/                     @starry688
+/lib/src/features/library/          @starry688
+
+# 构建、CI、脚本、协作文档
+/.github/                           @Linecos
+/scripts/                           @Linecos
+/flutter_rust_bridge.yaml           @Linecos
