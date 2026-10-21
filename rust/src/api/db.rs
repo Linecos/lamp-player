@@ -205,22 +205,16 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
 /// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
 ///
 /// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
-/// 注意 `path UNIQUE` 的冲突判定是区分大小写的：Windows 下同一文件写成
-/// `E:\Music\a.mp3` 和 `e:\music\a.mp3` 不会撞上，所以写入前先删掉
-/// 「忽略大小写后与目标路径相同、但字面不同」的历史遗留行，避免重复记录。
 pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
     if tracks.is_empty() {
         return Ok(0);
     }
+    let paths: Vec<&str> = tracks.iter().map(|t| t.path.as_str()).collect();
 
     with_conn(|conn| {
         let tx = conn.transaction()?;
+        reconcile_paths(&tx, &paths)?;
         {
-            // 见函数 doc：删掉同一文件的大小写孪生行
-            // （必须与 stmt 同一作用域，Drop 在 commit 之前发生）
-            let mut twin = tx.prepare_cached(
-                "DELETE FROM tracks WHERE path = ?1 COLLATE NOCASE AND path <> ?1",
-            )?;
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at)
@@ -234,7 +228,6 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                 "#,
             )?;
             for t in &tracks {
-                twin.execute(params![t.path])?;
                 stmt.execute(params![
                     t.path,
                     t.title,
@@ -253,19 +246,17 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
 
 /// 扫描链路专用写入：额外记录文件指纹，供下次增量扫描比对。
 ///
-/// 大小写孪生行的处理同 [`upsert_tracks`]。
+/// 路径归一化处理同 [`upsert_tracks`]。
 pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
     if items.is_empty() {
         return Ok(0);
     }
+    let paths: Vec<&str> = items.iter().map(|item| item.track.path.as_str()).collect();
 
     with_conn(|conn| {
         let tx = conn.transaction()?;
+        reconcile_paths(&tx, &paths)?;
         {
-            // 见 upsert_tracks：删掉同一文件的大小写孪生行
-            let mut twin = tx.prepare_cached(
-                "DELETE FROM tracks WHERE path = ?1 COLLATE NOCASE AND path <> ?1",
-            )?;
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks
@@ -283,7 +274,6 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
             )?;
             for item in items {
                 let t = &item.track;
-                twin.execute(params![t.path])?;
                 stmt.execute(params![
                     t.path,
                     t.title,
@@ -350,10 +340,8 @@ pub fn prune_missing_tracks() -> anyhow::Result<i32> {
 /// 传入的目录只在大小写/斜杠上不同时，也要能清到，且边界要用分隔符挡住
 /// 「`E:\Music` 误匹配 `E:\Music2`」这种情况。
 pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyhow::Result<i32> {
-    // 末尾的分隔符去掉，避免拼出「..\..\」导致前缀比对永远失配
     let folder_key = path_key(&folder.to_string_lossy());
-    let folder_key = folder_key.trim_end_matches(['\\', '/']);
-    let prefix = format!("{folder_key}\\");
+    let prefix = folder_prefix(&folder_key, std::path::MAIN_SEPARATOR);
 
     let rows: Vec<(i64, String)> = with_conn(|conn| {
         let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
@@ -371,6 +359,56 @@ pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyho
         .collect();
 
     delete_tracks(&stale)
+}
+
+/// 目录前缀：去掉末尾分隔符后统一补一个分隔符，
+/// 既能匹配子文件，又挡住「`E:\Music` 误匹配 `E:\Music2`」。
+///
+/// `sep` 必须传 [`std::path::MAIN_SEPARATOR`]：`path_key` 在 Windows 下会把 `/`
+/// 归一成 `\`，在其它平台保持 `/`；写死反斜杠会让非 Windows 的前缀永远失配。
+fn folder_prefix(folder_key: &str, sep: char) -> String {
+    let trimmed = folder_key.trim_end_matches(sep);
+    format!("{trimmed}{sep}")
+}
+
+/// 合并「同一文件、不同字面路径」的历史行（大小写、`/` 与 `\` 差异）。
+///
+/// `path UNIQUE` 是按字节比较的：Windows 上老记录可能存成 `e:/music/a.mp3`，
+/// 本次扫描写入的是 canonicalize 后的 `E:\Music\a.mp3`，不处理就会留下两条。
+/// 这里一次读出库里的行（每批只扫一次，不是每首歌一次），按 [`path_key`]
+/// 找到本批次涉及的孪生行并删除；字面完全一致的行保留，交给
+/// `ON CONFLICT(path)` 原地更新（保住 id 与 `added_at`）。
+fn reconcile_paths(tx: &rusqlite::Transaction<'_>, paths: &[&str]) -> anyhow::Result<()> {
+    let targets: HashMap<String, &str> = paths.iter().map(|path| (path_key(path), *path)).collect();
+    if targets.is_empty() {
+        return Ok(());
+    }
+
+    let stale: Vec<i64> = {
+        let mut stmt = tx.prepare_cached("SELECT id, path FROM tracks")?;
+        let mut rows = stmt.query([])?;
+        let mut stale = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let path: String = row.get(1)?;
+            if let Some(target) = targets.get(&path_key(&path)) {
+                if path.as_str() != *target {
+                    stale.push(id);
+                }
+            }
+        }
+        stale
+    };
+
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE id = ?1")?;
+    for id in &stale {
+        stmt.execute([id])?;
+    }
+    Ok(())
 }
 
 fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {
@@ -407,4 +445,21 @@ fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
 
 fn some_if_not_empty(s: String) -> Option<String> {
     (!s.is_empty()).then_some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::folder_prefix;
+
+    #[test]
+    fn folder_prefix_uses_given_separator() {
+        // 非 Windows 分支：旧实现写死 '\' 时这里会失败
+        assert_eq!(folder_prefix("/music", '/'), "/music/");
+        assert_eq!(folder_prefix("/", '/'), "/");
+
+        // Windows 分支：末尾分隔符不重复，根目录也能用
+        assert_eq!(folder_prefix("e:\\music", '\\'), "e:\\music\\");
+        assert_eq!(folder_prefix("e:\\music\\", '\\'), "e:\\music\\");
+        assert_eq!(folder_prefix("\\", '\\'), "\\");
+    }
 }

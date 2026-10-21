@@ -229,9 +229,26 @@ fn now_secs() -> i64 {
 /// 曲库侧取指纹（`file_signatures`）与清理（`prune_tracks_under`）使用同一口径。
 #[must_use]
 pub(crate) fn path_key(path: &str) -> String {
-    if cfg!(windows) {
+    path_key_with(path, cfg!(windows))
+}
+
+/// [`path_key`] 的可测试版本：`windows` 由调用方传入，
+/// 这样在任意平台上都能验证两种归一化规则。
+fn path_key_with(path: &str, windows: bool) -> String {
+    if windows {
         path.replace('/', "\\").to_lowercase()
     } else {
         path.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_key_with;
+
+    #[test]
+    fn path_key_normalizes_only_on_windows() {
+        assert_eq!(path_key_with("E:/Music/A.mp3", true), "e:\\music\\a.mp3");
+        assert_eq!(path_key_with("/Music/A.mp3", false), "/Music/A.mp3");
     }
 }

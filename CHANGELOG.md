@@ -31,6 +31,9 @@
 
 ### 修复
 
+- 非 Windows 上扫描清理恒不生效：目录前缀写死 `\`，与 `path_key` 的 `/` 口径不一致（ubuntu CI 的 `cargo test` 会失败）
+- 历史库里正斜杠或非 ASCII 大小写的路径无法与 canonicalize 后的路径合并（`COLLATE NOCASE` 只处理 ASCII、也不认分隔符），会残留重复记录；现按归一化 key 每批一次对账，顺带去掉了「每首歌一次全表扫描」
+- `canonicalize` 会解析 junction/软链接：升级后首次扫描建议清库重扫，旧链接路径的记录不会自动迁移
 - 扫描器声明支持 `wma`，但标签解析库 lofty 不支持 ASF/WMA，`.wma` 永远解析失败、不入库；现从候选扩展名中移除（契约文档同步）
 - 路径比较区分大小写：`E:\Music` 与 `e:/music` 指同一目录时，增量指纹全部 miss、清理失配、`path UNIQUE` 不命中产生重复记录；现扫描入口 canonicalize 目录 + 路径 key 大小写无关归一化，并兼容历史大小写孪生行
 - `.gitignore` 漏了 SQLite WAL 的 sidecar 文件（`*.lampdb-wal` / `*.lampdb-shm`）
