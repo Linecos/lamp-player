@@ -8,6 +8,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 anyhow = "1.0.100"
+# canonicalize 但不带 \\?\ 前缀（Windows）
+dunce = "1.0.4"
 flutter_rust_bridge = "=2.13.0"
 # M2：BASS 用运行时动态加载，免链接 .lib
 libloading = "0.9.0"

@@ -6,7 +6,6 @@
 use crate::api::db;
 use crate::scanner;
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 use std::time::Instant;
 
 /// 单次扫描的统计结果
@@ -29,6 +28,10 @@ pub struct ScanReport {
 
 /// 扫描目录（递归子目录），解析元数据后写入曲库，返回统计。
 ///
+/// 入口先把目录路径 canonicalize（解析出磁盘上的真实大小写与正斜杠写法），
+/// 避免调用方传 `E:\Music` 与 `e:/music` 之类仅大小写/分隔符差异的字符串时，
+/// 存库路径口径不一致导致增量指纹失效、清理失配、产生重复记录。
+///
 /// 已存在的曲目按 `path` 更新，不会产生重复记录；mtime 和大小都没变的文件
 /// 直接跳过解析（`unchanged`）。扫描结束后会清理该目录下磁盘上已不存在的记录；
 /// 遍历过程中出现权限/IO 错误时跳过清理，避免误删读不到的文件。
@@ -39,10 +42,13 @@ pub struct ScanReport {
 /// 目录不存在、无读取权限，或曲库未初始化（未调用 `init_db`）时返回错误。
 pub fn scan_folder(folder: String) -> Result<ScanReport> {
     let started = Instant::now();
-    let folder = PathBuf::from(folder);
 
     // 先取存量指纹：曲库未初始化时这里就会报错，符合契约
     let known = db::file_signatures()?;
+
+    // 归一化入口目录；目录不存在时 canonicalize 就会报错（保留原始字符串便于定位）
+    let folder =
+        dunce::canonicalize(&folder).with_context(|| format!("目录不存在或无权访问: {folder}"))?;
     let collected = scanner::collect_tracks_incremental(&folder, &known)?;
 
     let upserted = db::upsert_scanned(&collected.tracks)

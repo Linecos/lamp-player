@@ -31,6 +31,9 @@
 
 ### 修复
 
+- 扫描器声明支持 `wma`，但标签解析库 lofty 不支持 ASF/WMA，`.wma` 永远解析失败、不入库；现从候选扩展名中移除（契约文档同步）
+- 路径比较区分大小写：`E:\Music` 与 `e:/music` 指同一目录时，增量指纹全部 miss、清理失配、`path UNIQUE` 不命中产生重复记录；现扫描入口 canonicalize 目录 + 路径 key 大小写无关归一化，并兼容历史大小写孪生行
+- `.gitignore` 漏了 SQLite WAL 的 sidecar 文件（`*.lampdb-wal` / `*.lampdb-shm`）
 - `db::upsert_tracks` 失败时不回滚事务，可能留下半批数据（现改为失败即回滚）
 - 曲库连接获取不再 panic（未初始化 / 锁中毒时返回错误）
 - `db::prune_missing_tracks` 返回值类型不匹配（`usize` → `i32`）

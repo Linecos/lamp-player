@@ -4,7 +4,7 @@
 //! 不要靠 `CREATE TABLE IF NOT EXISTS` 猜——它不会给老库补列。
 
 use crate::api::model::Track;
-use crate::scanner::ScannedTrack;
+use crate::scanner::{path_key, ScannedTrack};
 use anyhow::{bail, Context};
 use rusqlite::{params, Connection, Row};
 use std::collections::{HashMap, HashSet};
@@ -205,6 +205,9 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
 /// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
 ///
 /// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
+/// 注意 `path UNIQUE` 的冲突判定是区分大小写的：Windows 下同一文件写成
+/// `E:\Music\a.mp3` 和 `e:\music\a.mp3` 不会撞上，所以写入前先删掉
+/// 「忽略大小写后与目标路径相同、但字面不同」的历史遗留行，避免重复记录。
 pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
     if tracks.is_empty() {
         return Ok(0);
@@ -213,6 +216,11 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
     with_conn(|conn| {
         let tx = conn.transaction()?;
         {
+            // 见函数 doc：删掉同一文件的大小写孪生行
+            // （必须与 stmt 同一作用域，Drop 在 commit 之前发生）
+            let mut twin = tx.prepare_cached(
+                "DELETE FROM tracks WHERE path = ?1 COLLATE NOCASE AND path <> ?1",
+            )?;
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at)
@@ -226,6 +234,7 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                 "#,
             )?;
             for t in &tracks {
+                twin.execute(params![t.path])?;
                 stmt.execute(params![
                     t.path,
                     t.title,
@@ -243,6 +252,8 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
 }
 
 /// 扫描链路专用写入：额外记录文件指纹，供下次增量扫描比对。
+///
+/// 大小写孪生行的处理同 [`upsert_tracks`]。
 pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
     if items.is_empty() {
         return Ok(0);
@@ -251,6 +262,10 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
     with_conn(|conn| {
         let tx = conn.transaction()?;
         {
+            // 见 upsert_tracks：删掉同一文件的大小写孪生行
+            let mut twin = tx.prepare_cached(
+                "DELETE FROM tracks WHERE path = ?1 COLLATE NOCASE AND path <> ?1",
+            )?;
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks
@@ -268,6 +283,7 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
             )?;
             for item in items {
                 let t = &item.track;
+                twin.execute(params![t.path])?;
                 stmt.execute(params![
                     t.path,
                     t.title,
@@ -302,7 +318,8 @@ pub(crate) fn file_signatures() -> anyhow::Result<HashMap<String, (i64, i64)>> {
         let mut map = HashMap::new();
         for row in rows {
             let (path, mtime, size) = row?;
-            map.insert(path, (mtime, size));
+            // key 归一化，配合 scanner::path_key 的同口径比对
+            map.insert(path_key(&path), (mtime, size));
         }
         Ok(map)
     })
@@ -328,7 +345,16 @@ pub fn prune_missing_tracks() -> anyhow::Result<i32> {
 }
 
 /// 清理某个目录下「本次扫描没看到」的记录（文件被删除/移走），返回删除数。
+///
+/// 比较基于 [`path_key`] 归一化后的 key：Windows 下库里的历史路径与本次扫描
+/// 传入的目录只在大小写/斜杠上不同时，也要能清到，且边界要用分隔符挡住
+/// 「`E:\Music` 误匹配 `E:\Music2`」这种情况。
 pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyhow::Result<i32> {
+    // 末尾的分隔符去掉，避免拼出「..\..\」导致前缀比对永远失配
+    let folder_key = path_key(&folder.to_string_lossy());
+    let folder_key = folder_key.trim_end_matches(['\\', '/']);
+    let prefix = format!("{folder_key}\\");
+
     let rows: Vec<(i64, String)> = with_conn(|conn| {
         let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -337,7 +363,10 @@ pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyho
 
     let stale: Vec<i64> = rows
         .into_iter()
-        .filter(|(_, path)| Path::new(path).starts_with(folder) && !seen.contains(path))
+        .filter(|(_, path)| {
+            let key = path_key(path);
+            key.starts_with(&prefix) && !seen.contains(&key)
+        })
         .map(|(id, _)| id)
         .collect();
 
