@@ -1,0 +1,64 @@
+name: Bug 报告
+description: 崩溃、播放异常、曲库数据错乱、界面卡死等
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。信息越具体，定位越快。**如果是最新 main 上没复现，请先更新再试一次。**
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么，期望是什么
+      placeholder: 搜索「周杰伦」时列表空白，但曲库里确实有这些歌。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 设置 → 添加目录 D:\Music
+        2. 等待扫描完成
+        3. 搜索框输入「周杰伦」
+        4. 列表为空
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      description: 应用版本，或 `git rev-parse --short HEAD` 的结果
+      placeholder: v0.1.0 / 261c50f
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 系统
+      options:
+        - Windows 11
+        - Windows 10
+        - 其它（在下面说明）
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 控制台输出、错误弹窗截图。脱敏后再贴（不要带个人路径或隐私信息）
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查
+      options:
+        - label: 已在最新 main 上复现
+        - label: 已搜索现有 issue，没有重复
+        - label: 已确认 bass.dll 已就位（`third_party/bass/windows/x64/bass.dll`）

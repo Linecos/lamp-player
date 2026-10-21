@@ -2,12 +2,18 @@
 
 基于 **Flutter + Rust + BASS** 的本地音乐播放器。
 
+[![CI](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+> **当前状态**：M0 骨架完成，M1（曲库闭环）进行中。接口契约已冻结，扫描/播放为存根实现。
+> 任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+
 ## 特性
 
-- 🎨 Material 3 界面（Flutter），自适应主题
-- 🦀 Rust 负责核心逻辑：音乐文件扫描、元数据解析、系统集成
+- 🎨 Material 3 界面（Flutter），浅色/深色跟随系统
+- 🦀 Rust 负责核心逻辑：文件扫描、元数据解析、曲库、系统集成
 - ⚡ BASS 底层音频解码，低延迟输出
-- 🗄️ SQLite 曲库存储，支持 **FTS5 全文检索**（歌名/歌手/专辑即时搜索）
+- 🗄️ SQLite 曲库，支持 **FTS5 全文检索**（歌名/歌手/专辑）
 - 🖥️ 首先支持 Windows，后续可扩展 Android / Linux
 
 ## 架构
@@ -19,69 +25,89 @@
                │ flutter_rust_bridge (类型安全 FFI)
 ┌──────────────▼──────────────┐
 │          Rust Core          │
-│  ├─ scanner   文件扫描       │
-│  ├─ metadata  标签解析(lofty)│
-│  ├─ db        SQLite+FTS5   │
-│  └─ player    BASS 播放引擎  │
+│  ├─ scan      文件扫描/标签  │
+│  ├─ db        SQLite + FTS5 │
+│  ├─ player    BASS 播放控制  │
+│  └─ bass.rs   DLL 动态加载   │
 └──────────────┬──────────────┘
-               │ FFI
+               │ FFI (libloading)
 ┌──────────────▼──────────────┐
 │     BASS (bass.dll)         │  解码 / 混音 / 低延迟输出
 └─────────────────────────────┘
 ```
 
+详细分层、数据流与扩展方式见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；
+Rust 与 Dart 之间的接口约定见 [docs/API_CONTRACT.md](docs/API_CONTRACT.md)。
+
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 界面 | Flutter 3.x + Material 3 |
-| 桥接 | flutter_rust_bridge v2 |
-| 扫描/元数据 | Rust + `walkdir` / `lofty` |
+| 界面 | Flutter 3.47 + Material 3 |
+| 桥接 | flutter_rust_bridge v2.13 |
+| 扫描 / 元数据 | Rust + `walkdir` / `lofty` |
 | 曲库 | `rusqlite`（bundled SQLite + FTS5） |
 | 音频 | [BASS](https://www.un4seen.com/) 2.4 |
 
-## 开始使用
+## 快速开始
 
-### 前置要求
-
-- Flutter SDK（含 Windows 桌面支持）
-- Rust 工具链（MSVC）
-- Visual Studio 2022 及 C++ 构建工具
-
-### 1. 准备 Rust 环境
-
-```bash
-flutter pub get
-flutter_rust_bridge_codegen generate   # 首次运行前安装：cargo install flutter_rust_bridge_codegen
-```
-
-### 2. 下载 BASS 库
-
-BASS 为闭源第三方库，不随仓库分发，运行脚本自动下载：
+前置要求：Flutter SDK（含 Windows 桌面支持）、Rust（MSVC 工具链）、
+Visual Studio 2022（C++ 桌面开发）、开启 Windows 开发者模式。
 
 ```powershell
-.\scripts\setup-bass.ps1
-```
-
-### 3. 构建运行
-
-```bash
+git clone https://github.com/Linecos/lamp-player.git
+cd lamp-player
+.\scripts\bootstrap.ps1        # pub get + cargo fetch + 下载 BASS
 flutter run -d windows
 ```
+
+手动步骤（脚本做了什么）：
+
+```powershell
+flutter pub get
+cargo fetch --manifest-path rust/Cargo.toml
+.\scripts\setup-bass.ps1       # 从 un4seen 官网下载 BASS 2.4
+```
+
+> BASS 为闭源第三方库，不随仓库分发（`third_party/bass/` 已 gitignore）。
+> Rust 装在非默认位置时，需设置 `RUSTUP_HOME` / `CARGO_HOME`。
 
 ## 目录结构
 
 ```
-├── lib/            Flutter 界面与业务逻辑
-├── rust/           Rust 核心（扫描、元数据、曲库、播放）
-├── windows/        Windows 宿主工程
-├── scripts/        辅助脚本（BASS 下载等）
-├── third_party/    第三方二进制（BASS，不入库）
-└── bridge/         flutter_rust_bridge 生成的绑定
+├── lib/
+│   ├── main.dart              入口：初始化桥接 + 挂载应用
+│   └── src/
+│       ├── app/               应用外壳、路由表
+│       ├── theme/             Material 3 主题
+│       ├── features/          页面（曲库、播放、设置）
+│       ├── common/            通用组件与工具
+│       └── rust/              frb 生成代码（禁止手改）
+├── rust/
+│   ├── src/api/               对 Dart 暴露的接口（db / scan / player / model）
+│   ├── src/bass.rs            BASS 动态加载封装
+│   └── tests/                 Rust 集成测试
+├── test/                      纯 Dart 测试（不依赖原生库，CI 跑这个）
+├── integration_test/          桌面端集成测试（需真实原生库）
+├── windows/                   Windows 宿主工程
+├── scripts/                   环境与检查脚本
+├── docs/                      架构、接口契约、路线图
+└── third_party/               第三方二进制（BASS，不入库）
 ```
+
+## 参与贡献
+
+欢迎任何人 fork 后提 PR，流程见 [CONTRIBUTING.md](CONTRIBUTING.md)：
+
+1. 从 [docs/ROADMAP.md](docs/ROADMAP.md) 挑一个任务（标 **[入门]** 的适合第一次）；
+2. 拉分支 `feat/xxx`，改完跑 `.\scripts\check.ps1`（等价 CI）；
+3. 按 PR 模板提交，CI 四项全绿后由 owner review 合并。
+
+提交信息用中文 + Conventional Commits，例如 `feat(曲库): 支持按目录增量扫描`。
 
 ## 许可证
 
 本项目代码以 [MIT](LICENSE) 许可发布。
 
-注意：BASS 音频库由 [Un4seen Developments](https://www.un4seen.com/) 版权所有，采用其自有许可（非商用免费），与本项目的 MIT 许可相互独立。
+注意：BASS 音频库由 [Un4seen Developments](https://www.un4seen.com/) 版权所有，
+采用其自有许可（非商用免费），与本项目的 MIT 许可相互独立。

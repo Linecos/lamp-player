@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 贡献指南（环境、提交流程、编码约定）
+    url: https://github.com/Linecos/lamp-player/blob/main/CONTRIBUTING.md
+    about: 动手之前先看这里，能省掉大部分来回沟通
+  - name: 路线图与可认领任务
+    url: https://github.com/Linecos/lamp-player/blob/main/docs/ROADMAP.md
+    about: 想参与但不知道做什么，从标了 good first issue 的任务挑一个
+  - name: 架构说明 / 接口契约
+    url: https://github.com/Linecos/lamp-player/blob/main/docs/ARCHITECTURE.md
+    about: 模块职责、数据流、Rust 与 Dart 的接口边界
