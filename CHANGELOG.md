@@ -7,7 +7,9 @@
 
 ### 新增
 
-- Rust API 契约冻结：`scan::scan_folder`、`player::*`、`db::*`，签名见 `docs/API_CONTRACT.md`（实现待补）
+- Rust API 契约冻结：`db::*`、`scan::scan_folder`、`player::*`，签名见 `docs/API_CONTRACT.md`（`player::*` 仍为存根）
+- 扫描实现：`scan_folder` 支持 9 种扩展名、递归子目录、不跟随软链接；`lofty` 读标签、无标签用文件名兜底；整批单事务入库，单文件解析失败只计入 `failed` 不中断
+- 内部模块 `rust/src/scanner.rs`（遍历 + 标签解析，可脱离数据库测试）与 `rust/tests/scan.rs`（遍历过滤、缺失目录、扫描→入库→中文前缀检索全链路）
 - Dart 应用外壳：`LampApp` + 主题（Material 3，随系统深浅色）+ 路由表
 - 曲库页占位实现，纯 Dart 环境可渲染
 - 协作设施：`CONTRIBUTING.md`、Issue 模板、CODEOWNERS、PR 模板、路线图与接口契约文档
@@ -15,6 +17,7 @@
 
 ### 变更
 
+- `rust/Cargo.toml` 的 `crate-type` 增加 `rlib`，让 Rust 集成测试能链接本 crate（Flutter 构建不受影响）
 - `main.dart` 精简为「初始化桥接 + 挂载 `LampApp`」，去掉 frb 模板残留注释
 - `analysis_options.yaml`：排除生成代码、启用单引号与 `unawaited_futures`
 - CI：新增 `dart format` 检查；`cargo clippy -D warnings` 转为阻塞；缓存 codegen 二进制
