@@ -1,13 +1,23 @@
+// 桌面端集成测试：会加载真实原生库，验证 Flutter ↔ Rust 桥接可用。
+// 跑法：flutter test integration_test -d windows
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lamp_player/main.dart';
-import 'package:lamp_player/src/rust/frb_generated.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:lamp_player/src/app/app.dart';
+import 'package:lamp_player/src/rust/api/simple.dart';
+import 'package:lamp_player/src/rust/frb_generated.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() async => await RustLib.init());
-  testWidgets('Can call rust function', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
-    expect(find.textContaining('Result: `Hello, Tom!`'), findsOneWidget);
+
+  setUpAll(() async => RustLib.init());
+
+  testWidgets('Rust 桥接自检：greet 调用正常', (WidgetTester tester) async {
+    expect(greet(name: 'Tom'), 'Hello, Tom!');
+  });
+
+  testWidgets('应用外壳可以挂载真实原生库', (WidgetTester tester) async {
+    await tester.pumpWidget(const LampApp());
+    expect(find.text('Lamp Player'), findsOneWidget);
   });
 }
