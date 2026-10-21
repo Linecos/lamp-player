@@ -75,6 +75,8 @@ jobs:
       - run: flutter pub get
       - name: flutter build windows
         run: flutter build windows --release
+      - name: 集成测试（真实原生库，验证 FFI 通路与外壳）
+        run: flutter test integration_test -d windows
 
   frb-check:
     name: frb 生成代码一致性

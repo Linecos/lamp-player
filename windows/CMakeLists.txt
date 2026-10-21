@@ -87,6 +87,19 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# BASS 是闭源运行时，由 scripts/setup-bass.ps1 下载到 third_party（不入库）。
+# 这里把 bass.dll 与各格式 add-on（flac/opus/aac/ape/wma）一起拷到 exe 旁。
+set(BASS_DLL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/bass/windows/x64")
+file(GLOB BASS_DLLS CONFIGURE_DEPENDS "${BASS_DLL_DIR}/*.dll")
+if(BASS_DLLS)
+  install(FILES ${BASS_DLLS} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+else()
+  message(WARNING
+    "未找到 BASS DLL（${BASS_DLL_DIR}），构建产物将无法播放音频。"
+    "先运行 scripts/setup-bass.ps1 再重新构建。")
+endif()
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
