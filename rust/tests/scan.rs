@@ -9,6 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rust_lib_lamp_player::api::{db, scan};
 use rust_lib_lamp_player::scanner;
 
+/// 曲库连接是进程内单例，涉及 DB 的用例必须串行
+static DB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// 生成一个 0.5 秒、8kHz、单声道 16bit 的静音 WAV（lofty 能解析时长，无标签）
 fn write_wav(path: &Path, seconds: f32) {
     let sample_rate: u32 = 8_000;
@@ -63,6 +66,7 @@ fn collects_audio_recursively_and_ignores_other_files() {
     write_wav(&root.join("sub").join("b.WAV"), 1.0); // 扩展名大小写不敏感
     fs::write(root.join("notes.txt"), b"not audio").unwrap();
     fs::write(root.join("sub").join("cover.jpg"), b"not audio").unwrap();
+    fs::write(root.join("legacy.wma"), b"not parsed").unwrap(); // lofty 不支持 ASF，扫描层不接收
 
     let collected = scanner::collect_tracks(&root).expect("扫描应成功");
 
@@ -101,7 +105,8 @@ fn missing_directory_is_an_error() {
 
 #[test]
 fn scan_folder_is_incremental_and_prunes_deleted_files() {
-    // 全局连接只能初始化一次，所以这里独占一个测试文件里的 DB 用例
+    // 全局连接是单例，涉及 DB 的用例都需要拿锁串行
+    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = unique_dir("pipeline");
     let db_path = root.join("library.lampdb");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -137,6 +142,41 @@ fn scan_folder_is_incremental_and_prunes_deleted_files() {
     fs::remove_file(music.join("本地音乐.wav")).expect("删除测试音频");
     let after_delete = scan::scan_folder(music.to_string_lossy().into_owned()).expect("清理扫描");
     assert_eq!(after_delete.scanned, 0);
+    assert_eq!(after_delete.pruned, 1);
+    assert!(db::all_tracks().expect("读取曲库").is_empty());
+
+    db::close_db().expect("关闭曲库");
+    fs::remove_dir_all(&root).ok();
+}
+
+/// Windows 文件系统不区分大小写：同一目录换大小写/正斜杠写法重扫，
+/// 应被视为同一批文件——不重复入库、不重复解析、不误清理。
+#[cfg(windows)]
+#[test]
+fn scan_matches_paths_across_case_and_separator_changes() {
+    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let root = unique_dir("casing");
+    let db_path = root.join("library.lampdb");
+    db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
+
+    let music = root.join("music");
+    write_wav(&music.join("song.wav"), 0.5);
+
+    let first = scan::scan_folder(music.to_string_lossy().into_owned()).expect("首次扫描");
+    assert_eq!(first.upserted, 1);
+
+    // 换成全小写 + 正斜杠的写法重扫
+    let tilted = music.to_string_lossy().to_lowercase().replace('\\', "/");
+    let again = scan::scan_folder(tilted.clone()).expect("重扫");
+    assert_eq!(again.scanned, 1);
+    assert_eq!(again.unchanged, 1, "应命中已有指纹，跳过解析");
+    assert_eq!(again.upserted, 0, "不应产生重复记录");
+    assert_eq!(again.pruned, 0, "不应误清理");
+    assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);
+
+    // 同样写法删文件后清理也应生效
+    fs::remove_file(music.join("song.wav")).expect("删除测试音频");
+    let after_delete = scan::scan_folder(tilted.clone()).expect("清理扫描");
     assert_eq!(after_delete.pruned, 1);
     assert!(db::all_tracks().expect("读取曲库").is_empty());
 

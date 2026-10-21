@@ -180,6 +180,30 @@ fn search_tolerates_fts_syntax_characters() {
     assert_eq!(hits[0].title, "hello", "应按 bm25 相关度排序");
 }
 
+/// Windows 文件系统不区分大小写：同一文件路径写成大小写不同的两份，
+/// UPSERT 的冲突判定是区分大小写的，必须删掉孪生行，否则出现重复记录。
+#[cfg(windows)]
+#[test]
+fn upsert_tracks_removes_case_variant_duplicates() {
+    let (_lock, dir) = begin("twin");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+
+    db::upsert_tracks(vec![track(
+        "C:\\music\\a.mp3",
+        "旧标题",
+        Some("旧歌手"),
+        None,
+    )])
+    .expect("首次写入");
+
+    // 模拟同一文件以不同大小写路径进来（如老版本扫描留下的记录）
+    db::upsert_tracks(vec![track("C:\\MUSIC\\a.mp3", "新标题", None, None)]).expect("孪生路径写入");
+
+    let all = db::all_tracks().expect("读取曲库");
+    assert_eq!(all.len(), 1, "大小写孪生行应被合并");
+    assert_eq!(all[0].title, "新标题");
+}
+
 #[test]
 fn prune_missing_tracks_only_removes_missing_files() {
     let (_lock, dir) = begin("prune");

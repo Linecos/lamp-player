@@ -54,4 +54,6 @@ app.*.map.json
 
 # 曲库运行时数据
 *.lampdb
+*.lampdb-wal
+*.lampdb-shm
 *.db-journal

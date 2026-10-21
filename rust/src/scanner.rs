@@ -14,9 +14,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 /// 支持的音频扩展名（小写，不含点）
-pub const AUDIO_EXTENSIONS: &[&str] = &[
-    "mp3", "flac", "wav", "ogg", "m4a", "aac", "wma", "ape", "opus",
-];
+///
+/// 注意：**不含 wma**。标签解析用的 lofty 不支持 ASF/WMA，把 wma 列进来
+/// 只会让每个文件走一遍注定失败的解析（`failed` 虚高且不产生记录）。
+/// 若将来要支持 wma，需要另配 ASF 解析方案再加入。
+pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "ape", "opus"];
 
 /// 解析成功的一条曲目 + 文件指纹（增量扫描用）。
 pub struct ScannedTrack {
@@ -32,7 +34,7 @@ pub struct ScannedTrack {
 pub struct Collected {
     /// 新解析出来、需要入库的曲目
     pub tracks: Vec<ScannedTrack>,
-    /// 遍历到的所有候选文件路径（含未变化、解析失败的，用于清理）
+    /// 遍历到的所有候选文件路径 key（归一化后，用于清理比对）
     pub seen: HashSet<String>,
     /// 命中扩展名的文件数（含未变化与解析失败的）
     pub scanned: usize,
@@ -53,6 +55,9 @@ pub fn collect_tracks(folder: &Path) -> Result<Collected> {
 ///
 /// `known` 是曲库里已有的文件指纹：mtime/size 都没变的文件跳过解析，只记入
 /// `seen`；单个文件解析失败只计入 `failed`，不影响整体；目录不可用时返回错误。
+///
+/// 指纹与 `seen` 的 key 都经过 [`path_key`] 归一化（Windows 下大小写/斜杠等价），
+/// 因此调用方传入的 `known` 必须同样用 [`path_key`] 归一化过 key。
 pub fn collect_tracks_incremental(
     folder: &Path,
     known: &HashMap<String, (i64, i64)>,
@@ -93,7 +98,7 @@ pub fn collect_tracks_incremental(
         };
         let (mtime_ns, size) = signature(&meta);
 
-        let key = path.to_string_lossy().into_owned();
+        let key = path_key(&path.to_string_lossy());
         collected.scanned += 1;
         collected.seen.insert(key.clone());
 
@@ -212,4 +217,21 @@ fn now_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// 路径归一化 key：同一文件在库里的不同写法要能对上号。
+///
+/// Windows 文件系统不区分大小写，`/` 与 `\` 等价，所以 `E:\Music`、
+/// `e:\music`、`E:/Music` 是同一批文件；不归一化的话增量指纹全部 miss、
+/// 清理比对不上，还会因 `path UNIQUE` 是区分大小写而产生重复记录。
+/// 其它平台路径本就严格区分，原样返回。
+///
+/// 曲库侧取指纹（`file_signatures`）与清理（`prune_tracks_under`）使用同一口径。
+#[must_use]
+pub(crate) fn path_key(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('/', "\\").to_lowercase()
+    } else {
+        path.to_owned()
+    }
 }
