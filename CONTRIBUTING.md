@@ -42,8 +42,10 @@ git remote add upstream https://github.com/Linecos/lamp-player.git
 flutter run -d windows
 ```
 
-> BASS 是闭源第三方库，不随仓库分发，由 `scripts/setup-bass.ps1` 从 un4seen 官网下载到
-> `third_party/bass/`（该目录已 gitignore）。没有它程序能编译，但播放会降级。
+> BASS 是闭源第三方库，不随仓库分发，由 `scripts/setup-bass.ps1` 从 un4seen 官网下载
+> （BASS 本体 + flac/opus/ape/wma add-on，带 SHA256 校验）到 `third_party/bass/`
+> （该目录已 gitignore）。构建时 CMake 会自动把 DLL 拷到 exe 旁；
+> 没有它程序能编译，但播放会降级。
 >
 > Rust 装在非默认位置时，记得设置 `RUSTUP_HOME` / `CARGO_HOME`，否则 `cargo` 会报
 > 「could not choose a version of cargo to run」。
@@ -140,7 +142,7 @@ docs(贡献): 补充 Rust 环境变量说明
 | 现象 | 原因 / 解决 |
 |---|---|
 | `cargo` 报 could not choose a version | 设置 `RUSTUP_HOME`、`CARGO_HOME` 指向你的 Rust 安装位置 |
-| `flutter test` 报 WebSocket upgrade 失败 | 系统代理拦截了 localhost。临时关掉代理，或设置 `no_proxy=localhost,127.0.0.1`（`scripts/check.ps1` 已自动设置）。`flutter test integration_test -d windows` 同样需要 |
-| 运行时提示找不到 bass.dll | 跑 `.\scripts\setup-bass.ps1` |
+| `flutter test` 报 WebSocket upgrade 失败 | 系统代理拦截了 localhost。`scripts/check.ps1` 会自动清空 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 并设置 `no_proxy=localhost,127.0.0.1`；手动跑测试时要自己清。`flutter test integration_test -d windows` 同样需要 |
+| 运行时提示找不到 bass.dll | 跑 `.\scripts\setup-bass.ps1`，然后重新 `flutter build/run`（构建时会把 DLL 拷到 exe 旁） |
 | CI 的 frb 一致性任务红了 | 本地跑 `flutter_rust_bridge_codegen generate`，把生成文件一起提交 |
 | 路径含空格构建失败 | 用 PowerShell 7 执行脚本；已按带空格路径验证过 |

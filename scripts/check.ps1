@@ -43,7 +43,11 @@ if ($CargoHome) {
     $env:Path = (Join-Path $CargoHome 'bin') + ';' + $env:Path
 }
 
-# 系统代理拦 localhost 时 flutter test 会报 WebSocket upgrade 失败
+# 系统代理拦 localhost 时 flutter test 会报 WebSocket upgrade 失败：
+# 光设 no_proxy 不够，必须把代理变量本身清掉（CI 上没有这些变量）。
+foreach ($name in 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy') {
+    Remove-Item ("env:" + $name) -ErrorAction SilentlyContinue
+}
 $env:no_proxy = 'localhost,127.0.0.1,::1'
 
 $failed = New-Object System.Collections.ArrayList

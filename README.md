@@ -70,6 +70,8 @@ cargo fetch --manifest-path rust/Cargo.toml
 ```
 
 > BASS 为闭源第三方库，不随仓库分发（`third_party/bass/` 已 gitignore）。
+> `scripts/setup-bass.ps1` 会下载 BASS 与官方 add-on（flac/opus/ape/wma）并校验 SHA256；
+> 构建时 CMake 自动把它们拷到 exe 目录。
 > Rust 装在非默认位置时，需设置 `RUSTUP_HOME` / `CARGO_HOME`。
 
 ## 目录结构
@@ -85,7 +87,7 @@ cargo fetch --manifest-path rust/Cargo.toml
 │       └── rust/              frb 生成代码（禁止手改）
 ├── rust/
 │   ├── src/api/               对 Dart 暴露的接口（db / scan / player / model）
-│   ├── src/bass.rs            BASS 动态加载封装
+│   ├── src/bass.rs            BASS 动态加载封装（M2 实现）
 │   └── tests/                 Rust 集成测试
 ├── test/                      纯 Dart 测试（不依赖原生库，CI 跑这个）
 ├── integration_test/          桌面端集成测试（需真实原生库）
