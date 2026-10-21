@@ -22,8 +22,7 @@ void main() {
     late Directory temp;
 
     setUp(() async {
-      temp = await Directory.systemTemp
-          .createTemp('lamp_library_db_test_');
+      temp = await Directory.systemTemp.createTemp('lamp_library_db_test_');
       addTearDown(() => temp.delete(recursive: true));
     });
 

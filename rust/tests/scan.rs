@@ -6,6 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// 与下方 cfg(windows) 用例一起编译，非 Windows 上没有用武之地
+#[cfg(windows)]
 use rust_lib_lamp_player::api::model::Track;
 use rust_lib_lamp_player::api::{db, scan};
 use rust_lib_lamp_player::scanner;

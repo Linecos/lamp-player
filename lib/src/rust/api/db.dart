@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `delete_tracks`, `file_signatures`, `fts_prefix_query`, `migrate`, `prune_tracks_under`, `row_to_track`, `some_if_not_empty`, `upsert_scanned`, `with_conn`
+// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `delete_tracks`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `migrate`, `prune_tracks_under`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `upsert_scanned`, `with_conn`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 
 /// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
