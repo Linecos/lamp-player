@@ -28,9 +28,16 @@ class LampApp extends StatelessWidget {
 /// 原生库加载失败（DLL 缺失、架构不匹配等）时 `runApp` 还没执行，
 /// 直接用这个界面把原因显示出来，避免用户看到白屏。
 class LampStartupErrorApp extends StatelessWidget {
-  const LampStartupErrorApp({super.key, required this.message});
+  const LampStartupErrorApp({
+    super.key,
+    required this.message,
+    this.title = '启动失败：Rust 核心未能加载',
+  });
 
   final String message;
+
+  /// 失败环节的描述，如「曲库未能打开」
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +66,7 @@ class LampStartupErrorApp extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '启动失败：Rust 核心未能加载',
+                      title,
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),

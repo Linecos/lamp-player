@@ -7,6 +7,8 @@
 
 ### 新增
 
+- 启动时初始化曲库：`path_provider` 取应用支持目录 → `initDb`（新增依赖 `path` / `path_provider`）；曲库打不开时走启动兜底页并注明失败环节（`LampStartupErrorApp` 支持自定义标题）
+- `lib/src/features/library/library_db.dart`：曲库路径解析带目录注入口，目标目录不存在自动创建；`test/features/library_db_test.dart` 覆盖纯 Dart 部分
 - Rust API 契约冻结：`db::*`、`scan::scan_folder`、`player::*`，签名见 `docs/API_CONTRACT.md`（`player::*` 仍为存根）
 - 扫描实现：`scan_folder` 支持 9 种扩展名、递归子目录、不跟随软链接；`lofty` 读标签、无标签用文件名兜底；整批单事务入库，单文件解析失败只计入 `failed` 不中断
 - 扫描增量：记录 mtime/大小指纹，未变化文件跳过解析；扫描后清理该目录下已删除的记录（`ScanReport.unchanged` / `walk_errors` / `pruned`）
