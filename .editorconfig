@@ -1,0 +1,24 @@
+# 统一编辑器行为，减少无意义的格式 diff
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{rs,toml}]
+indent_size = 4
+
+[*.{bat,cmd,ps1,psm1}]
+end_of_line = crlf
+indent_size = 4
+
+[*.md]
+# Markdown 行尾两个空格代表换行，不要裁掉
+trim_trailing_whitespace = false
+
+[*.{vcxproj,filters,sln,rc,manifest}]
+end_of_line = crlf

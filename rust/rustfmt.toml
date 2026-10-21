@@ -1,0 +1,2 @@
+# Rust 格式化配置（CI 的 rust 任务会跑 cargo fmt --check）
+edition = "2021"
