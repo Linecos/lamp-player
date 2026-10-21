@@ -65,10 +65,7 @@ class LampStartupErrorApp extends StatelessWidget {
                       color: theme.colorScheme.error,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      title,
-                      style: theme.textTheme.titleMedium,
-                    ),
+                    Text(title, style: theme.textTheme.titleMedium),
                     const SizedBox(height: 8),
                     SelectableText(
                       message,

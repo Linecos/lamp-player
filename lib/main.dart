@@ -24,10 +24,7 @@ Future<void> main() async {
   } catch (error) {
     // 支持目录不可写、数据库损坏等
     debugPrint('曲库初始化失败：$error');
-    runApp(LampStartupErrorApp(
-      title: '启动失败：曲库未能打开',
-      message: '$error',
-    ));
+    runApp(LampStartupErrorApp(title: '启动失败：曲库未能打开', message: '$error'));
     return;
   }
 
