@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rust_lib_lamp_player::api::model::Track;
 use rust_lib_lamp_player::api::{db, scan};
 use rust_lib_lamp_player::scanner;
 
@@ -144,6 +145,54 @@ fn scan_folder_is_incremental_and_prunes_deleted_files() {
     assert_eq!(after_delete.scanned, 0);
     assert_eq!(after_delete.pruned, 1);
     assert!(db::all_tracks().expect("读取曲库").is_empty());
+
+    db::close_db().expect("关闭曲库");
+    fs::remove_dir_all(&root).ok();
+}
+
+/// 老版本可能把正斜杠路径写进库；重新扫描后应按归一化 key 合并成一条。
+#[cfg(windows)]
+#[test]
+fn scan_merges_legacy_separator_variants() {
+    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let root = unique_dir("legacy_sep");
+    let db_path = root.join("library.lampdb");
+    db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
+
+    let music = root.join("music");
+    write_wav(&music.join("song.wav"), 0.5);
+    // 用 canonicalize 后的目录构造旧记录：只差分隔符，模拟老版本存下的正斜杠路径
+    // （temp 目录的短路径 8.3 形式属于另一类差异，不在本用例范围内）
+    let canonical = dunce::canonicalize(&music)
+        .expect("解析真实路径")
+        .to_string_lossy()
+        .into_owned();
+    let legacy = format!("{}/song.wav", canonical.replace('\\', "/"));
+
+    // 先塞一条正斜杠的旧记录（指纹为 0，因此不会被当成 unchanged）
+    db::upsert_tracks(vec![Track {
+        path: legacy.clone(),
+        title: "旧记录".to_string(),
+        artist: None,
+        album: None,
+        duration_secs: 1.0,
+        track_num: None,
+        added_at: 1,
+    }])
+    .expect("写入旧记录");
+    assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);
+
+    let report = scan::scan_folder(canonical).expect("扫描");
+    assert_eq!(report.upserted, 1);
+    assert_eq!(report.pruned, 0, "旧记录应被合并，而不是当成已删除");
+
+    let all = db::all_tracks().expect("读取曲库");
+    assert_eq!(all.len(), 1, "不应留下正斜杠孪生行");
+    assert_eq!(
+        all[0].path.replace('/', "\\").to_lowercase(),
+        legacy.replace('/', "\\").to_lowercase()
+    );
+    assert_eq!(all[0].title, "song", "应保留本次扫描解析出的标题");
 
     db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();

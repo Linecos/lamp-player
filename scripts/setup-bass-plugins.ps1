@@ -1,14 +1,15 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    下载 BASS 音频格式插件，补齐 scanner.rs 中九种格式的播放能力。
+    下载 BASS 音频格式插件，补齐 scanner.rs 中八种格式的播放能力。
+    （wma 不参与扫描，basswma 插件只为将来播放保留。）
 
 .DESCRIPTION
     bass.dll 本体只解 mp3 / ogg / wav / aiff，其余格式由 un4seen 的 addon DLL 解码，
     运行时用 BASS_PluginLoad 注册即可，Rust 侧解码逻辑无需改动。
 
     本脚本只负责把 DLL 放进 third_party/bass/windows/{x64,x86}/，
-    拷到构建产物目录由 windows/runner/CMakeLists.txt 的 POST_BUILD 完成。
+    拷到构建产物目录由 windows/CMakeLists.txt 的 install 规则完成。
 
 .PARAMETER Dest
     目标根目录，默认 <仓库根>\third_party\bass\windows
@@ -206,5 +207,5 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
-Write-Host '全部九种格式的依赖 DLL 已就位。' -ForegroundColor Green
+Write-Host '扫描所需 + 播放插件的依赖 DLL 已就位。' -ForegroundColor Green
 exit 0

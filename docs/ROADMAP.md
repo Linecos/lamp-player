@@ -49,7 +49,7 @@
 | 模块 | 文件域 | 负责人 |
 |---|---|---|
 | 曲库 / 数据模型 / 扫描 | `rust/src/api/{db,model,scan}.rs`、`docs/API_CONTRACT.md` | [@Linecos](https://github.com/Linecos) |
-| 播放引擎（BASS） | `rust/src/bass.rs`、`rust/src/api/player.rs`、`windows/runner/CMakeLists.txt` | [@qiya7698](https://github.com/qiya7698) |
+| 播放引擎（BASS） | `rust/src/bass.rs`、`rust/src/api/player.rs`、`windows/CMakeLists.txt` | [@qiya7698](https://github.com/qiya7698) |
 | 主界面 | `lib/src/app/`、`lib/src/theme/`、`lib/src/features/` | [@starry688](https://github.com/starry688) |
 | 设置页 / 通用组件 | `lib/src/features/settings/`、`lib/src/common/`、`test/` | [@yjxnb1](https://github.com/yjxnb1) |
 

@@ -71,6 +71,7 @@ cargo fetch --manifest-path rust/Cargo.toml
 
 > BASS 为闭源第三方库，不随仓库分发（`third_party/bass/` 已 gitignore）。
 > `scripts/setup-bass.ps1` 会下载 BASS 与官方 add-on（flac/opus/ape/wma）并校验 SHA256；
+> m4a/aac 播放还需要 `scripts/setup-bass-plugins.ps1` 补 `bass_aac.dll`。
 > 构建时 CMake 自动把它们拷到 exe 目录。
 > Rust 装在非默认位置时，需设置 `RUSTUP_HOME` / `CARGO_HOME`。
 
