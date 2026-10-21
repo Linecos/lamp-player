@@ -1,173 +1,367 @@
 //! 曲库持久化：SQLite + FTS5 全文检索
+//!
+//! 表结构有版本号（`PRAGMA user_version`），升级时在 [`migrate`] 里追加一段，
+//! 不要靠 `CREATE TABLE IF NOT EXISTS` 猜——它不会给老库补列。
 
 use crate::api::model::Track;
-use once_cell::sync::OnceCell;
+use crate::scanner::ScannedTrack;
+use anyhow::{bail, Context};
 use rusqlite::{params, Connection, Row};
-use std::sync::{Mutex, MutexGuard};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
-static DB: OnceCell<Mutex<Connection>> = OnceCell::new();
+/// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
+const SCHEMA_VERSION: i32 = 1;
 
-/// 取全局连接（所有 db 函数唯一的入口）。
-///
-/// 未初始化或锁中毒都转成普通错误返回，避免在库代码里 panic。
-fn conn() -> anyhow::Result<MutexGuard<'static, Connection>> {
-    let db = DB
-        .get()
-        .ok_or_else(|| anyhow::anyhow!("曲库未初始化：请先调用 init_db(path)"))?;
-    db.lock()
-        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))
+struct Database {
+    path: String,
+    conn: Connection,
 }
 
-/// 初始化数据库（建表 + FTS5 虚表 + 同步触发器）
+/// 全局单例；`None` 表示尚未初始化或已 [`close_db`]。
+static DB: OnceLock<Mutex<Option<Database>>> = OnceLock::new();
+
+fn cell() -> &'static Mutex<Option<Database>> {
+    DB.get_or_init(|| Mutex::new(None))
+}
+
+/// 曲库操作唯一入口：持有全局锁执行一次闭包。
+///
+/// 未初始化、锁中毒都转成普通错误返回，避免在库代码里 panic。
+fn with_conn<T>(f: impl FnOnce(&mut Connection) -> anyhow::Result<T>) -> anyhow::Result<T> {
+    let mut guard = cell()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let db = guard
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("曲库未初始化：请先调用 init_db(path)"))?;
+    f(&mut db.conn)
+}
+
+/// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
+///
+/// 同一个路径重复调用是幂等的；换路径必须先 [`close_db`]，否则报错，
+/// 避免「以为切了库、其实还在写旧库」。
 pub fn init_db(path: String) -> anyhow::Result<()> {
-    let conn = Connection::open(&path)?;
+    let mut guard = cell()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
 
-    conn.execute_batch(
-        r#"
-        PRAGMA journal_mode = WAL;
+    if let Some(db) = guard.as_ref() {
+        if db.path == path {
+            return Ok(());
+        }
+        bail!("曲库已初始化为 {}，切换路径前请先调用 close_db()", db.path);
+    }
 
-        CREATE TABLE IF NOT EXISTS tracks (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            path          TEXT    NOT NULL UNIQUE,
-            title         TEXT    NOT NULL DEFAULT '',
-            artist        TEXT    NOT NULL DEFAULT '',
-            album         TEXT    NOT NULL DEFAULT '',
-            duration_secs REAL    NOT NULL DEFAULT 0,
-            track_num     INTEGER NOT NULL DEFAULT 0,
-            added_at      INTEGER NOT NULL DEFAULT 0
-        );
+    let mut conn = Connection::open(&path).with_context(|| format!("打开曲库失败: {path}"))?;
+    conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    migrate(&mut conn)?;
 
-        CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5 (
-            title, artist, album,
-            content = 'tracks',
-            content_rowid = 'id'
-        );
-
-        CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
-            INSERT INTO tracks_fts(rowid, title, artist, album)
-            VALUES (new.id, new.title, new.artist, new.album);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
-            INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
-            VALUES ('delete', old.id, old.title, old.artist, old.album);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
-            INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
-            VALUES ('delete', old.id, old.title, old.artist, old.album);
-            INSERT INTO tracks_fts(rowid, title, artist, album)
-            VALUES (new.id, new.title, new.artist, new.album);
-        END;
-        "#,
-    )?;
-
-    // 设置 _DB；若重复初始化则直接复用已有连接
-    let _ = DB.set(Mutex::new(conn));
+    *guard = Some(Database { path, conn });
     Ok(())
 }
 
-/// FTS5 全文检索
-pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
-    // 传入的用户词按"前缀匹配"处理：huo => huo*
-    let q = format!("{}*", query.replace('"', "\"\"").trim());
-    let sql = format!(
-        r#"
-        SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at
-        FROM tracks t
-        JOIN tracks_fts f ON f.rowid = t.id
-        WHERE tracks_fts = ?1
-        LIMIT {}
-        "#,
-        limit.clamp(1, 2000)
-    );
+/// 关闭曲库连接，释放文件句柄；之后可以再次 `init_db` 到别的路径。
+pub fn close_db() -> anyhow::Result<()> {
+    let mut guard = cell()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    *guard = None;
+    Ok(())
+}
 
-    let conn = conn()?;
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map([&q], row_to_track)?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+const SCHEMA_V1: &str = r#"
+CREATE TABLE IF NOT EXISTS tracks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    path          TEXT    NOT NULL UNIQUE,
+    title         TEXT    NOT NULL DEFAULT '',
+    artist        TEXT    NOT NULL DEFAULT '',
+    album         TEXT    NOT NULL DEFAULT '',
+    duration_secs REAL    NOT NULL DEFAULT 0,
+    track_num     INTEGER NOT NULL DEFAULT 0,
+    added_at      INTEGER NOT NULL DEFAULT 0,
+    file_mtime    INTEGER NOT NULL DEFAULT 0,
+    file_size     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5 (
+    title, artist, album,
+    content = 'tracks',
+    content_rowid = 'id'
+);
+
+CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
+    INSERT INTO tracks_fts(rowid, title, artist, album)
+    VALUES (new.id, new.title, new.artist, new.album);
+END;
+
+CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
+    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+    VALUES ('delete', old.id, old.title, old.artist, old.album);
+END;
+
+CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
+    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+    VALUES ('delete', old.id, old.title, old.artist, old.album);
+    INSERT INTO tracks_fts(rowid, title, artist, album)
+    VALUES (new.id, new.title, new.artist, new.album);
+END;
+"#;
+
+/// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
+fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
+    let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+
+    if version > SCHEMA_VERSION {
+        bail!("曲库结构版本 {version} 高于当前程序支持的 {SCHEMA_VERSION}，请升级 Lamp Player");
+    }
+
+    if version < 1 {
+        conn.execute_batch(SCHEMA_V1)?;
+        // v1 之前建的库没有增量扫描需要的两列
+        if !column_exists(conn, "tracks", "file_mtime")? {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN file_mtime INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        if !column_exists(conn, "tracks", "file_size")? {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        // 老库可能缺触发器或索引漂移，重建一次最省心（只发生在升级那一次）
+        conn.execute_batch("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild');")?;
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name.eq_ignore_ascii_case(column) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// FTS5 全文检索（歌名/歌手/专辑）。
+///
+/// 每个词都包成短语并做前缀匹配（`"周杰"*`），因此 `-`、`+`、`:`、引号
+/// 等字符只会被当字面量，不会变成 FTS5 查询语法；空查询直接返回空列表。
+pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
+    let Some(fts_query) = fts_prefix_query(&query) else {
+        return Ok(Vec::new());
+    };
+
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at
+            FROM tracks t
+            JOIN tracks_fts f ON f.rowid = t.id
+            WHERE tracks_fts MATCH ?1
+            ORDER BY bm25(tracks_fts), t.id
+            LIMIT ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![fts_query, limit.clamp(1, 2000)], row_to_track)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+/// 把用户输入转成 FTS5 前缀查询；没有任何可检索词时返回 `None`。
+fn fts_prefix_query(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .map(|term| term.replace('"', ""))
+        .filter(|term| term.chars().any(char::is_alphanumeric))
+        .map(|term| format!("\"{term}\"*"))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
 }
 
 /// 全量曲库（按歌手、专辑、曲号排序）
 pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
-    let conn = conn()?;
-    let mut stmt = conn.prepare_cached(
-        r#"
-        SELECT path, title, artist, album, duration_secs, track_num, added_at
-        FROM tracks
-        ORDER BY artist, album, track_num, title
-        "#,
-    )?;
-    let rows = stmt.query_map([], row_to_track)?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
-}
-
-/// 批量写入/更新（按 path 去重），整个批次在一个事务里完成
-pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
-    let conn = conn()?;
-    conn.execute("BEGIN IMMEDIATE", [])?;
-    let inserted = (|| -> anyhow::Result<()> {
+    with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-        INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        ON CONFLICT(path) DO UPDATE SET
-            title         = excluded.title,
-            artist        = excluded.artist,
-            album         = excluded.album,
-            duration_secs = excluded.duration_secs,
-            track_num     = excluded.track_num
-        "#,
+            SELECT path, title, artist, album, duration_secs, track_num, added_at
+            FROM tracks
+            ORDER BY artist, album, track_num, title
+            "#,
         )?;
-        for t in &tracks {
-            stmt.execute(params![
-                t.path,
-                t.title,
-                t.artist.as_deref().unwrap_or(""),
-                t.album.as_deref().unwrap_or(""),
-                t.duration_secs,
-                t.track_num.unwrap_or(0),
-                t.added_at
-            ])?;
-        }
-        Ok(())
-    })();
-
-    match inserted {
-        Ok(()) => {
-            conn.execute("COMMIT", [])?;
-            Ok(tracks.len() as i32)
-        }
-        Err(err) => {
-            // 失败时回滚，避免半批数据落库
-            let _ = conn.execute("ROLLBACK", []);
-            Err(err)
-        }
-    }
+        let rows = stmt.query_map([], row_to_track)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
 }
 
-/// 清理已不存在的文件记录，返回删除数
+/// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
+///
+/// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
+pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
+    if tracks.is_empty() {
+        return Ok(0);
+    }
+
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                r#"
+                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(path) DO UPDATE SET
+                    title         = excluded.title,
+                    artist        = excluded.artist,
+                    album         = excluded.album,
+                    duration_secs = excluded.duration_secs,
+                    track_num     = excluded.track_num
+                "#,
+            )?;
+            for t in &tracks {
+                stmt.execute(params![
+                    t.path,
+                    t.title,
+                    t.artist.as_deref().unwrap_or(""),
+                    t.album.as_deref().unwrap_or(""),
+                    t.duration_secs,
+                    t.track_num.unwrap_or(0),
+                    t.added_at
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(tracks.len() as i32)
+    })
+}
+
+/// 扫描链路专用写入：额外记录文件指纹，供下次增量扫描比对。
+pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
+    if items.is_empty() {
+        return Ok(0);
+    }
+
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                r#"
+                INSERT INTO tracks
+                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                ON CONFLICT(path) DO UPDATE SET
+                    title         = excluded.title,
+                    artist        = excluded.artist,
+                    album         = excluded.album,
+                    duration_secs = excluded.duration_secs,
+                    track_num     = excluded.track_num,
+                    file_mtime    = excluded.file_mtime,
+                    file_size     = excluded.file_size
+                "#,
+            )?;
+            for item in items {
+                let t = &item.track;
+                stmt.execute(params![
+                    t.path,
+                    t.title,
+                    t.artist.as_deref().unwrap_or(""),
+                    t.album.as_deref().unwrap_or(""),
+                    t.duration_secs,
+                    t.track_num.unwrap_or(0),
+                    t.added_at,
+                    item.mtime_ns,
+                    item.size
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(items.len() as i32)
+    })
+}
+
+/// 已入库文件的指纹（path → (mtime_ns, size)），供扫描时跳过未变文件。
+pub(crate) fn file_signatures() -> anyhow::Result<HashMap<String, (i64, i64)>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(
+            "SELECT path, file_mtime, file_size FROM tracks WHERE file_mtime > 0",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        let mut map = HashMap::new();
+        for row in rows {
+            let (path, mtime, size) = row?;
+            map.insert(path, (mtime, size));
+        }
+        Ok(map)
+    })
+}
+
+/// 清理已不存在的文件记录，返回删除数。
+///
+/// 磁盘检查在锁外完成，避免网络盘/大曲库把其它查询一起卡住；删除在单事务里。
 pub fn prune_missing_tracks() -> anyhow::Result<i32> {
-    let conn = conn()?;
-    let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
-    let missing: Vec<i64> = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
+    let rows: Vec<(i64, String)> = with_conn(|conn| {
+        let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+
+    let missing: Vec<i64> = rows
         .into_iter()
-        .filter(|(_, p)| !std::path::Path::new(p).exists())
+        .filter(|(_, path)| !Path::new(path).exists())
         .map(|(id, _)| id)
         .collect();
-    drop(stmt);
-    let mut deleted = 0;
-    {
-        let mut stmt = conn.prepare_cached("DELETE FROM tracks WHERE id = ?1")?;
-        for id in missing {
-            deleted += stmt.execute([id])?;
-        }
+
+    delete_tracks(&missing)
+}
+
+/// 清理某个目录下「本次扫描没看到」的记录（文件被删除/移走），返回删除数。
+pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyhow::Result<i32> {
+    let rows: Vec<(i64, String)> = with_conn(|conn| {
+        let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+
+    let stale: Vec<i64> = rows
+        .into_iter()
+        .filter(|(_, path)| Path::new(path).starts_with(folder) && !seen.contains(path))
+        .map(|(id, _)| id)
+        .collect();
+
+    delete_tracks(&stale)
+}
+
+fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {
+    if ids.is_empty() {
+        return Ok(0);
     }
-    Ok(deleted as i32)
+
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        let deleted = {
+            let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE id = ?1")?;
+            let mut count = 0;
+            for id in ids {
+                count += stmt.execute([id])?;
+            }
+            count
+        };
+        tx.commit()?;
+        Ok(deleted as i32)
+    })
 }
 
 fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
@@ -184,10 +378,4 @@ fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
 
 fn some_if_not_empty(s: String) -> Option<String> {
     (!s.is_empty()).then_some(s)
-}
-
-/// 确认 bundled SQLite 带 FTS5
-#[cfg(test)]
-mod tests {
-    // 单元测试见 tests/fts5.rs
 }

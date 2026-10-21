@@ -49,24 +49,26 @@
 | `rust/tests/` | 集成级 Rust 测试 | 需要真实依赖（如 bundled FTS5）的用例 |
 | `scripts/` | 环境与检查脚本 | 保持可重复执行（幂等） |
 | `third_party/` | 第三方二进制（BASS） | gitignore，脚本下载 |
-| `windows/` | Windows 宿主工程 | 拷 bass.dll 的 POST_BUILD 在这里 |
+| `windows/` | Windows 宿主工程 | 把 `bass.dll` 及 add-on 拷进 bundle 的 install 规则在这里 |
 
 ## 3. 主要数据流
 
 **启动**
 
 ```
-main() → RustLib.init() → LampApp
-      → LibraryPage → 调 db.init_db(路径)（路径由 Dart 侧 path_provider 决定）
+main() → RustLib.init()（失败则显示 LampStartupErrorApp，避免白屏）
+      → LampApp → LibraryPage → 调 db.init_db(路径)（路径由 Dart 侧 path_provider 决定）
 ```
 
 **扫描入库**
 
 ```
 Dart: scanFolder(folder)
-  → Rust: walkdir 遍历 → lofty 解析标签 → 组装 Track
-  → db.upsert_tracks(tracks)（单事务，按 path 去重）
-  → 返回 ScanReport { scanned, upserted, failed, elapsed_ms }
+  → Rust: 读出存量文件指纹（path → mtime/size）
+  → walkdir 遍历 → 未变化的文件跳过 → lofty 解析标签 → 组装 Track
+  → db.upsert_scanned（单事务，按 path 去重，写入文件指纹）
+  → 清理该目录下本次没看到的记录（有遍历错误时跳过）
+  → 返回 ScanReport { scanned, unchanged, upserted, failed, walk_errors, pruned, elapsed_ms }
 Dart: 用 all_tracks() 刷新列表
 ```
 
@@ -89,11 +91,18 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（M2 先用轮询，
 | 决策 | 原因 |
 |---|---|
 | BASS 用 `libloading` 运行时加载 | 免链接 `.lib`，绕开工具链格式问题；DLL 缺失时可降级而不是启动失败 |
+| BASS 调用收敛到专用线程 | frb 的 async 函数跑在线程池，线程不固定；BASS 的初始化和通道操作要求同线程 |
+| BASS DLL 优先从 exe 同级目录加载 | 构建时由 CMake 拷入，开发态再从 `third_party` 回退，避免发布版找不到 DLL |
 | SQLite 用 `rusqlite` bundled | 自带编译的 SQLite 保证 FTS5 可用，不依赖系统库 |
+| 曲库结构带 `PRAGMA user_version` | 加字段时能升级老库并重建索引，`CREATE TABLE IF NOT EXISTS` 做不到 |
 | FTS5 用外部内容表 + 三个触发器 | 曲目表与索引表自动同步，无需手写索引维护 |
-| 搜索统一前缀匹配 | FTS5 默认分词器对 CJK 整段切一个 token，必须 `xxx*`；中期可换 trigram 分词器支持中间词 |
-| 单一 `Mutex<Connection>` | 曲库操作量不大，串行化最省心；所有 db 函数统一走 `db::conn()` |
+| 搜索统一前缀匹配 + bm25 排序 | FTS5 默认分词器对 CJK 整段切一个 token，必须 `xxx*`；中期可换 trigram 分词器支持中间词 |
+| 搜索词按短语包引号 | 用户输入里的 `-`、`+`、`:`、引号等不能变成 FTS5 查询语法 |
+| 扫描按 mtime + 大小增量 | 万级曲库重复扫描不必重读全部文件；扫描后顺带清理已删除记录 |
+| 单一 `Mutex<Option<Database>>` | 曲库操作量不大，串行化最省心；所有 db 函数统一走 `db::with_conn()`，`close_db` 后还能换路径 |
+| 锁内不做磁盘 IO | `prune_missing_tracks` 先取 id、锁外 stat、再单事务删除，避免卡住其它查询 |
 | 错误用 `anyhow::Result` 跨语言 | frb 会把 `Err` 转成 Dart 异常，UI 侧统一 catch 后提示 |
+| 单文件解析包 `catch_unwind` | panic 穿过 FFI 会 abort 进程；损坏文件只应算一个 `failed` |
 | 生成代码不入 lint、不手改 | 避免 codegen 与手工修改互相覆盖；CI 有专门一致性校验 |
 
 ## 5. 加一个功能的典型路径

@@ -14,11 +14,12 @@
 | 任务 | 负责模块 | 难度 | 状态 |
 |---|---|---|---|
 | 实现 `scan::scan_folder`（walkdir 遍历 + lofty 标签 + 批量入库） | Rust `api/scan.rs` + `scanner.rs` | 中 | 已完成（`rust/tests/scan.rs` 覆盖） |
+| 扫描增量（mtime + 大小）与扫描后清理已删除记录 | Rust `scanner.rs` + `api/db.rs` | 中 | 已完成（`ScanReport.unchanged` / `pruned`） |
 | 启动时初始化曲库（取应用支持目录 → `init_db`） | Dart + 构建（需加 `path_provider`） | 中 | 待认领 |
 | 添加音乐目录（`file_selector`）+ 扫描中提示 | Dart `features/settings` | 中 | 待认领 |
 | 曲库列表页（虚拟滚动，万级曲目不卡） | Dart `features/library` | 中 | 待认领 |
 | 搜索框接 `search_tracks`，输入防抖 300ms | Dart `features/library` | 小 | 待认领 |
-| `db` 单元测试：upsert 去重/更新、FTS 触发器同步、prune | Rust `rust/tests/` | 小 | **[入门]** 待认领 |
+| `db` 单元测试：upsert 去重/更新、FTS 触发器同步、prune、迁移 | Rust `rust/tests/` | 小 | 已完成（`rust/tests/db.rs`） |
 | 时长/文件大小格式化工具 + 单测 | Dart `common/` + `test/` | 小 | **[入门]** 待认领 |
 
 ## M2 · 出声与播放控制
@@ -27,7 +28,7 @@
 |---|---|---|---|
 | `bass.rs`：libloading 加载 DLL、符号表、初始化/释放 | Rust | 大 | 待认领 |
 | `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 待认领 |
-| CMake POST_BUILD 拷贝 `bass.dll` 到 exe 目录 | `windows/runner` | 小 | **[入门]** 待认领 |
+| CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
 | 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 待认领 |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
 | 设置页 + 深浅色主题切换（`shared_preferences` 持久化） | Dart `features/settings` | 中 | 待认领 |

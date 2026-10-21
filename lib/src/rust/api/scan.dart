@@ -11,7 +11,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// 扫描目录（递归子目录），解析元数据后写入曲库，返回统计。
 ///
-/// 已存在的曲目按 `path` 更新，不会产生重复记录；
+/// 已存在的曲目按 `path` 更新，不会产生重复记录；mtime 和大小都没变的文件
+/// 直接跳过解析（`unchanged`）。扫描结束后会清理该目录下磁盘上已不存在的记录；
+/// 遍历过程中出现权限/IO 错误时跳过清理，避免误删读不到的文件。
+///
 /// 单个文件解析失败只计入 `failed`，不影响其它文件入库。
 ///
 /// # Errors
@@ -21,8 +24,11 @@ Future<ScanReport> scanFolder({required String folder}) =>
 
 /// 单次扫描的统计结果
 class ScanReport {
-  /// 遍历到的候选音频文件数
+  /// 遍历到的候选音频文件数（含未变化与解析失败的）
   final int scanned;
+
+  /// 因 mtime/size 未变而跳过解析的文件数
+  final int unchanged;
 
   /// 新入库或更新的曲目数
   final int upserted;
@@ -30,21 +36,33 @@ class ScanReport {
   /// 解析失败被跳过的文件数
   final int failed;
 
+  /// 遍历时读不到的条目数（权限、IO 错误等）
+  final int walkErrors;
+
+  /// 本次清理掉的「文件已不存在」记录数
+  final int pruned;
+
   /// 本次扫描耗时（毫秒）
   final PlatformInt64 elapsedMs;
 
   const ScanReport({
     required this.scanned,
+    required this.unchanged,
     required this.upserted,
     required this.failed,
+    required this.walkErrors,
+    required this.pruned,
     required this.elapsedMs,
   });
 
   @override
   int get hashCode =>
       scanned.hashCode ^
+      unchanged.hashCode ^
       upserted.hashCode ^
       failed.hashCode ^
+      walkErrors.hashCode ^
+      pruned.hashCode ^
       elapsedMs.hashCode;
 
   @override
@@ -53,7 +71,10 @@ class ScanReport {
       other is ScanReport &&
           runtimeType == other.runtimeType &&
           scanned == other.scanned &&
+          unchanged == other.unchanged &&
           upserted == other.upserted &&
           failed == other.failed &&
+          walkErrors == other.walkErrors &&
+          pruned == other.pruned &&
           elapsedMs == other.elapsedMs;
 }

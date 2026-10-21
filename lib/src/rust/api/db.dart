@@ -8,23 +8,37 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `conn`, `row_to_track`, `some_if_not_empty`
+// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `delete_tracks`, `file_signatures`, `fts_prefix_query`, `migrate`, `prune_tracks_under`, `row_to_track`, `some_if_not_empty`, `upsert_scanned`, `with_conn`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 
-/// 初始化数据库（建表 + FTS5 虚表 + 同步触发器）
+/// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
+///
+/// 同一个路径重复调用是幂等的；换路径必须先 [`close_db`]，否则报错，
+/// 避免「以为切了库、其实还在写旧库」。
 Future<void> initDb({required String path}) =>
     RustLib.instance.api.crateApiDbInitDb(path: path);
 
-/// FTS5 全文检索
+/// 关闭曲库连接，释放文件句柄；之后可以再次 `init_db` 到别的路径。
+Future<void> closeDb() => RustLib.instance.api.crateApiDbCloseDb();
+
+/// FTS5 全文检索（歌名/歌手/专辑）。
+///
+/// 每个词都包成短语并做前缀匹配（`"周杰"*`），因此 `-`、`+`、`:`、引号
+/// 等字符只会被当字面量，不会变成 FTS5 查询语法；空查询直接返回空列表。
 Future<List<Track>> searchTracks({required String query, required int limit}) =>
     RustLib.instance.api.crateApiDbSearchTracks(query: query, limit: limit);
 
 /// 全量曲库（按歌手、专辑、曲号排序）
 Future<List<Track>> allTracks() => RustLib.instance.api.crateApiDbAllTracks();
 
-/// 批量写入/更新（按 path 去重），整个批次在一个事务里完成
+/// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
+///
+/// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
 Future<int> upsertTracks({required List<Track> tracks}) =>
     RustLib.instance.api.crateApiDbUpsertTracks(tracks: tracks);
 
-/// 清理已不存在的文件记录，返回删除数
+/// 清理已不存在的文件记录，返回删除数。
+///
+/// 磁盘检查在锁外完成，避免网络盘/大曲库把其它查询一起卡住；删除在单事务里。
 Future<int> pruneMissingTracks() =>
     RustLib.instance.api.crateApiDbPruneMissingTracks();
