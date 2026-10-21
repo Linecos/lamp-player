@@ -13,7 +13,7 @@
 
 | 任务 | 负责模块 | 难度 | 状态 |
 |---|---|---|---|
-| 实现 `scan::scan_folder`（walkdir 遍历 + lofty 标签 + 批量入库） | Rust `api/scan.rs` | 中 | 进行中 |
+| 实现 `scan::scan_folder`（walkdir 遍历 + lofty 标签 + 批量入库） | Rust `api/scan.rs` + `scanner.rs` | 中 | 已完成（`rust/tests/scan.rs` 覆盖） |
 | 启动时初始化曲库（取应用支持目录 → `init_db`） | Dart + 构建（需加 `path_provider`） | 中 | 待认领 |
 | 添加音乐目录（`file_selector`）+ 扫描中提示 | Dart `features/settings` | 中 | 待认领 |
 | 曲库列表页（虚拟滚动，万级曲目不卡） | Dart `features/library` | 中 | 待认领 |

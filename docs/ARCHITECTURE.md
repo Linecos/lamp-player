@@ -16,9 +16,10 @@
 │ Rust 核心（rust/src）                     │
 │   api/    对 Dart 暴露的唯一接口面         │
 │     db     曲库持久化（SQLite + FTS5）     │
-│     scan   目录扫描 + 元数据解析（lofty）  │
+│     scan   扫描入库（统计 + 写库）         │
 │     player 播放控制（状态与参数校验）      │
-│   bass.rs BASS 动态加载与调用封装          │
+│   scanner.rs 遍历与标签解析（内部模块）    │
+│   bass.rs    BASS 动态加载与调用封装       │
 └───────────────┬──────────────────────────┘
                 │ libloading 运行时加载
 ┌───────────────▼──────────────────────────┐
@@ -43,6 +44,7 @@
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
 | `lib/src/rust/` | **生成代码**，禁止手改 | `flutter_rust_bridge_codegen generate` |
 | `rust/src/api/` | 对 Dart 的接口面 | 每个模块一个文件 |
+| `rust/src/scanner.rs` | 目录遍历 + 标签解析（walkdir + lofty） | 内部模块，不经 frb 导出，便于脱离数据库测试 |
 | `rust/src/bass.rs` | BASS 单例、符号表、状态查询 | 平台相关代码加 `cfg` |
 | `rust/tests/` | 集成级 Rust 测试 | 需要真实依赖（如 bundled FTS5）的用例 |
 | `scripts/` | 环境与检查脚本 | 保持可重复执行（幂等） |

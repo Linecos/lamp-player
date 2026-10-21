@@ -7,12 +7,15 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `to_i32`
+
 /// 扫描目录（递归子目录），解析元数据后写入曲库，返回统计。
 ///
-/// 已存在的曲目按 `path` 更新，不会产生重复记录。
+/// 已存在的曲目按 `path` 更新，不会产生重复记录；
+/// 单个文件解析失败只计入 `failed`，不影响其它文件入库。
 ///
 /// # Errors
-/// 目录不存在、无读取权限或数据库未初始化（未调用 `init_db`）时返回错误。
+/// 目录不存在、无读取权限，或曲库未初始化（未调用 `init_db`）时返回错误。
 Future<ScanReport> scanFolder({required String folder}) =>
     RustLib.instance.api.crateApiScanScanFolder(folder: folder);
 

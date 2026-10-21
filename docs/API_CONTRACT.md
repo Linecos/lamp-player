@@ -75,14 +75,18 @@
 
 | Rust 签名 | Dart 签名 | 状态 |
 |---|---|---|
-| `scan_folder(folder: String) -> Result<ScanReport>` | `Future<ScanReport> scanFolder({required String folder})` | **存根，待实现** |
+| `scan_folder(folder: String) -> Result<ScanReport>` | `Future<ScanReport> scanFolder({required String folder})` | 已实现 |
 
 语义补充：
 
-- 递归子目录；支持的扩展名：`mp3 flac wav ogg m4a aac wma ape opus`。
-- 解析结果直接入库（内部调 `upsert_tracks`），调用方拿 `ScanReport` 刷新列表即可。
-- 大目录扫描应放在 `Future` 里等（frb 默认在 worker 线程执行，不阻塞 UI）；
-  进度上报留待后续**新增** `StreamSink` 接口，不改动本签名。
+- 递归子目录，**不跟随软链接**（避免目录环）；支持的扩展名：
+  `mp3 flac wav ogg m4a aac wma ape opus`（不区分大小写）。
+- 解析结果直接入库（内部调 `upsert_tracks`），调用方拿 `ScanReport` 刷新列表即可；
+  已存在的曲目按 `path` 更新，重复扫描不会产生重复记录。
+- **单个文件解析失败只计入 `failed`，不影响其它文件入库**；目录不存在或曲库未初始化才整体报错。
+- 无标签时标题用文件名（去扩展名）兜底；解析出的 `duration_secs` 为真实时长。
+- 大目录扫描在 frb 的 worker 线程执行，不阻塞 UI；进度上报留待后续**新增** `StreamSink`
+  接口，不改动本签名。
 
 ## 6. 播放 `api::player`
 
