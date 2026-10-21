@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.1（2026-10-21 冻结）**
+> **当前版本：v0.2（2026-10-21）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.2 变更：新增 `db::close_db`；`ScanReport` 新增 `unchanged` / `walk_errors` / `pruned`；
+> `search_tracks` 修正特殊字符处理（不再报 FTS5 语法错误）并改为 bm25 排序。
 
 ## 1. 改动契约的流程
 
@@ -38,16 +41,19 @@
 | `album` | `album` | `String?` | 可空 |
 | `duration_secs` | `durationSecs` | `double` | 时长（秒），未知为 `0` |
 | `track_num` | `trackNum` | `int?` | 专辑内曲目号，未知为空或 `0` |
-| `added_at` | `addedAt` | `int` | 入库时间戳（Unix 秒） |
+| `added_at` | `addedAt` | `PlatformInt64` | 入库时间戳（Unix 秒；native 上就是 `int`，web 上是 `BigInt`） |
 
 ### `ScanReport`（`rust/src/api/scan.rs`）
 
 | Rust | Dart | 类型 | 说明 |
 |---|---|---|---|
-| `scanned` | `scanned` | `int` | 遍历到的候选文件数 |
-| `upserted` | `upserted` | `int` | 入库/更新的曲目数 |
+| `scanned` | `scanned` | `int` | 遍历到的候选文件数（含未变化与解析失败的） |
+| `unchanged` | `unchanged` | `int` | 因 mtime/大小未变而跳过解析的文件数 |
+| `upserted` | `upserted` | `int` | 本次入库/更新的曲目数 |
 | `failed` | `failed` | `int` | 解析失败被跳过的文件数 |
-| `elapsed_ms` | `elapsedMs` | `int` | 耗时（毫秒） |
+| `walk_errors` | `walkErrors` | `int` | 遍历时读不到的条目数（权限、IO 错误等） |
+| `pruned` | `pruned` | `int` | 本次清理掉的「文件已不存在」记录数 |
+| `elapsed_ms` | `elapsedMs` | `PlatformInt64` | 耗时（毫秒；native 上就是 `int`） |
 
 ### `PlaybackState`（枚举）
 
@@ -58,6 +64,7 @@
 | Rust 签名 | Dart 签名 | 状态 |
 |---|---|---|
 | `init_db(path: String) -> Result<()>` | `Future<void> initDb({required String path})` | 已实现 |
+| `close_db() -> Result<()>` | `Future<void> closeDb()` | 已实现 |
 | `all_tracks() -> Result<Vec<Track>>` | `Future<List<Track>> allTracks()` | 已实现 |
 | `search_tracks(query: String, limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> searchTracks({required String query, required int limit})` | 已实现 |
 | `upsert_tracks(tracks: Vec<Track>) -> Result<i32>` | `Future<int> upsertTracks({required List<Track> tracks})` | 已实现 |
@@ -65,11 +72,18 @@
 
 语义补充：
 
-- `init_db` 幂等：重复调用复用已有连接；未初始化就调用其它 db 函数会返回错误而不是 panic。
-- `search_tracks` 采用**前缀匹配**（`query` 自动补 `*`），`limit` 截断到 `1..=2000`。
+- `init_db` 幂等：**同一路径**重复调用复用已有连接；换成别的路径会返回错误，
+  必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
+- 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
+  库版本高于程序支持的版本时报错，提示升级。
+- `search_tracks` 采用**前缀匹配**（每个词包成短语再补 `*`），`limit` 截断到 `1..=2000`。
+  查询词里的 `-`、`+`、`:`、引号等按字面量处理，不会触发 FTS5 语法错误；
+  空查询直接返回空列表。结果按 `bm25` 相关度排序。
   中文不做分词，搜「周杰」能命中「周杰伦」，搜「杰伦」命中不了 —— 这是已知限制。
 - `upsert_tracks` 在单个事务里完成，失败回滚；返回本次处理的条数（不等于实际新增数）。
-- `prune_missing_tracks` 只清理磁盘上已不存在的 `path` 记录。
+  它不携带文件指纹（mtime/大小），因此不会破坏扫描记录的增量信息。
+- `prune_missing_tracks` 只清理磁盘上已不存在的 `path` 记录；磁盘检查在锁外完成，
+  删除在单事务里完成。
 
 ## 5. 扫描 `api::scan`
 
@@ -81,9 +95,14 @@
 
 - 递归子目录，**不跟随软链接**（避免目录环）；支持的扩展名：
   `mp3 flac wav ogg m4a aac wma ape opus`（不区分大小写）。
-- 解析结果直接入库（内部调 `upsert_tracks`），调用方拿 `ScanReport` 刷新列表即可；
-  已存在的曲目按 `path` 更新，重复扫描不会产生重复记录。
+- **增量**：曲库里记录了每个文件的 mtime（纳秒）与大小，两者都没变的文件直接跳过解析，
+  只计入 `unchanged`；改过标签/换过文件才会重新解析。
+- **自动清理**：扫描结束后删除「该目录下、本次没遍历到」的记录（`pruned`）。
+  遍历过程中有权限/IO 错误（`walk_errors > 0`）时跳过清理，避免误删读不到的文件。
+- 解析结果直接入库，调用方拿 `ScanReport` 刷新列表即可；已存在的曲目按 `path` 更新，
+  重复扫描不会产生重复记录。
 - **单个文件解析失败只计入 `failed`，不影响其它文件入库**；目录不存在或曲库未初始化才整体报错。
+  单个文件解析时如果底层库 panic，也会被隔离成该文件的 `failed`，不会带走整个进程。
 - 无标签时标题用文件名（去扩展名）兜底；解析出的 `duration_secs` 为真实时长。
 - 大目录扫描在 frb 的 worker 线程执行，不阻塞 UI；进度上报留待后续**新增** `StreamSink`
   接口，不改动本签名。
@@ -107,6 +126,10 @@
 
 - `player_is_available` / `player_state` 是**同步**函数（只读状态），可以在 `build` 里直接用；
   其余均为 `Future`，不要在 `build` 里调用。
+- frb 的 `Future` 函数跑在线程池上，同一串调用可能落在不同线程；实现必须把 BASS 的
+  初始化与通道操作收敛到**自己创建的专用线程**，本组函数只负责投递命令并等待回执。
+- `bass.dll` 优先从 exe 同级目录加载（构建时由 `windows/CMakeLists.txt` 拷入），
+  开发态再回退 `third_party/bass/windows/x64/`；不要依赖当前工作目录。
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
 - 状态推进由 Dart 侧轮询（M2 先用轮询，后续可换事件流）。

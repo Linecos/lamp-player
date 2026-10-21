@@ -1,4 +1,4 @@
-//! 扫描链路测试：目录遍历 → 标签解析 → 入库 → 检索。
+//! 扫描链路测试：目录遍历 → 标签解析 → 入库 → 检索 → 增量与清理。
 //!
 //! 用例自己生成最小可解析的 WAV（无标签），所以不依赖仓库里带音频样本。
 
@@ -67,18 +67,27 @@ fn collects_audio_recursively_and_ignores_other_files() {
     let collected = scanner::collect_tracks(&root).expect("扫描应成功");
 
     assert_eq!(collected.scanned, 2, "只统计命中扩展名的文件");
+    assert_eq!(collected.unchanged, 0);
     assert_eq!(collected.failed, 0);
+    assert_eq!(collected.walk_errors, 0);
+    assert_eq!(collected.seen.len(), 2, "候选文件都要记入 seen");
     assert_eq!(collected.tracks.len(), 2);
 
-    let mut titles: Vec<&str> = collected.tracks.iter().map(|t| t.title.as_str()).collect();
+    let mut titles: Vec<&str> = collected
+        .tracks
+        .iter()
+        .map(|t| t.track.title.as_str())
+        .collect();
     titles.sort_unstable();
     assert_eq!(titles, vec!["a", "b"], "无标签时用文件名兜底");
 
-    for track in &collected.tracks {
-        assert!(track.path.ends_with(".wav") || track.path.ends_with(".WAV"));
-        assert!(track.duration_secs > 0.4, "时长应被解析出来");
-        assert!(track.added_at > 0);
-        assert!(track.artist.is_none());
+    for item in &collected.tracks {
+        assert!(item.track.path.ends_with(".wav") || item.track.path.ends_with(".WAV"));
+        assert!(item.track.duration_secs > 0.4, "时长应被解析出来");
+        assert!(item.track.added_at > 0);
+        assert!(item.track.artist.is_none());
+        assert!(item.size > 0, "应记录文件大小");
+        assert!(item.mtime_ns > 0, "应记录修改时间");
     }
 
     fs::remove_dir_all(&root).ok();
@@ -91,7 +100,7 @@ fn missing_directory_is_an_error() {
 }
 
 #[test]
-fn scan_folder_upserts_and_search_finds_tracks() {
+fn scan_folder_is_incremental_and_prunes_deleted_files() {
     // 全局连接只能初始化一次，所以这里独占一个测试文件里的 DB 用例
     let root = unique_dir("pipeline");
     let db_path = root.join("library.lampdb");
@@ -102,8 +111,11 @@ fn scan_folder_upserts_and_search_finds_tracks() {
 
     let report = scan::scan_folder(music.to_string_lossy().into_owned()).expect("扫描应成功");
     assert_eq!(report.scanned, 1);
+    assert_eq!(report.unchanged, 0);
     assert_eq!(report.upserted, 1);
     assert_eq!(report.failed, 0);
+    assert_eq!(report.walk_errors, 0);
+    assert_eq!(report.pruned, 0);
     assert!(report.elapsed_ms >= 0);
 
     let tracks = db::all_tracks().expect("读取曲库");
@@ -114,13 +126,20 @@ fn scan_folder_upserts_and_search_finds_tracks() {
     let hits = db::search_tracks("本地".to_string(), 10).expect("检索");
     assert_eq!(hits.len(), 1, "中文前缀应命中");
 
-    // 再扫一次不应产生重复记录
+    // 再扫一次：文件没变，不重新解析、不产生重复记录
     let again = scan::scan_folder(music.to_string_lossy().into_owned()).expect("重复扫描");
-    assert_eq!(again.upserted, 1);
+    assert_eq!(again.scanned, 1);
+    assert_eq!(again.unchanged, 1);
+    assert_eq!(again.upserted, 0);
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);
 
+    // 删掉文件再扫：记录被清理
+    fs::remove_file(music.join("本地音乐.wav")).expect("删除测试音频");
+    let after_delete = scan::scan_folder(music.to_string_lossy().into_owned()).expect("清理扫描");
+    assert_eq!(after_delete.scanned, 0);
+    assert_eq!(after_delete.pruned, 1);
+    assert!(db::all_tracks().expect("读取曲库").is_empty());
+
+    db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();
-    for suffix in ["", "-wal", "-shm"] {
-        fs::remove_file(format!("{}{}", db_path.display(), suffix)).ok();
-    }
 }

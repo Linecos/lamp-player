@@ -6,9 +6,15 @@
 //! 实现要点（供接手的人参考）：
 //! - BASS 是闭源 DLL，不入库：用 `libloading` 在运行时加载
 //!   `third_party/bass/windows/x64/bass.dll`（`scripts/setup-bass.ps1` 下载）
-//! - 所有 BASS 调用都在**同一个线程**里做；UI 侧禁止阻塞等待
+//! - **线程模型**：frb 的 async 函数跑在线程池里，同一个调用序列可能落在不同
+//!   线程上。BASS 的初始化和通道操作必须在**自己创建的专用线程**上执行，
+//!   这些函数只负责把命令发到该线程并等待结果（mpsc + 回执），不要直接调 BASS
+//! - 同步函数（`player_is_available` / `player_state`）在 Dart UI 线程执行，
+//!   只能读原子状态位，不要做 DLL 加载、`BASS_Init` 之类的重活
 //! - 引擎单例放 `rust/src/bass.rs`，本文件只做参数校验与状态映射
 //! - `volume` 统一用 `0.0..=1.0` 的浮点，内部再换算成 BASS 的 `0..10000`
+//! - DLL 定位：先找 exe 同级目录（构建时由 `windows/CMakeLists.txt` 拷入），
+//!   找不到再回退开发态的 `third_party` 路径；不要依赖当前工作目录
 
 use anyhow::Result;
 
