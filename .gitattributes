@@ -1,0 +1,10 @@
+# 统一以 LF 入库
+* text=auto eol=lf
+
+# Windows 专属文件保持 CRLF
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.rc text eol=crlf
+*.manifest text eol=crlf
+*.vcxproj text eol=crlf
+*.sln text eol=crlf
