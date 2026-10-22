@@ -7,15 +7,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
+
+import 'support/fake_library.dart';
 
 void main() {
-  testWidgets('应用外壳可渲染：主题、首页占位都在', (WidgetTester tester) async {
-    await tester.pumpWidget(const LampApp());
+  testWidgets('应用外壳可渲染：导航、搜索、播放条都在', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-    // 标题栏
-    expect(find.text('Lamp Player'), findsOneWidget);
-    // 首页占位内容
-    expect(find.text('曲库尚未接入'), findsOneWidget);
-    expect(find.byIcon(Icons.library_music_outlined), findsOneWidget);
+    await tester.pumpWidget(
+      LampApp(
+        libraryRepository: FakeLibraryRepository(
+          tracks: <Track>[sampleTrack(title: '夜航', album: '夜之专辑')],
+        ),
+        playbackService: FakePlaybackService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 标题栏与搜索
+    expect(find.text('Lamp'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    // 侧边导航与曲库页标题
+    expect(find.text('音乐'), findsWidgets);
+    expect(find.text('夜航'), findsOneWidget);
+    // 播放条占位
+    expect(find.text('尚未播放'), findsOneWidget);
   });
 }
