@@ -8,6 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // 与下方 cfg(windows) 用例一起编译，非 Windows 上没有用武之地
 #[cfg(windows)]
+use rust_lib_lamp_player::api::collections;
+#[cfg(windows)]
 use rust_lib_lamp_player::api::model::Track;
 use rust_lib_lamp_player::api::{db, scan};
 use rust_lib_lamp_player::scanner;
@@ -184,6 +186,11 @@ fn scan_merges_legacy_separator_variants() {
     .expect("写入旧记录");
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);
 
+    let playlist = collections::create_playlist("Legacy".to_string()).expect("新建歌单");
+    collections::add_track_to_playlist(playlist.id, legacy.clone()).expect("旧路径加入歌单");
+    collections::set_favorite(legacy.clone(), true).expect("收藏旧路径");
+    collections::record_play(legacy.clone()).expect("记录旧路径历史");
+
     let report = scan::scan_folder(canonical).expect("扫描");
     assert_eq!(report.upserted, 1);
     assert_eq!(report.pruned, 0, "旧记录应被合并，而不是当成已删除");
@@ -195,6 +202,17 @@ fn scan_merges_legacy_separator_variants() {
         legacy.replace('/', "\\").to_lowercase()
     );
     assert_eq!(all[0].title, "song", "应保留本次扫描解析出的标题");
+
+    // 路径合并不能把用户数据级联删掉，引用应迁到新路径
+    let favorites = collections::list_favorites().expect("收藏列表");
+    assert_eq!(favorites.len(), 1, "收藏应保留");
+    assert_eq!(favorites[0].path, all[0].path);
+    let items = collections::playlist_tracks(playlist.id).expect("歌单曲目");
+    assert_eq!(items.len(), 1, "歌单条目应保留");
+    assert_eq!(items[0].path, all[0].path);
+    let recent = collections::recent_tracks(10).expect("播放历史");
+    assert_eq!(recent.len(), 1, "播放历史应保留");
+    assert_eq!(recent[0].path, all[0].path);
 
     db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();

@@ -11,12 +11,19 @@ class ThemeController extends ChangeNotifier {
 
   ThemeMode _mode;
 
+  /// 防止异步恢复晚于用户操作或销毁：恢复不再覆盖新选择，也不在销毁后通知。
+  bool _disposed = false;
+  bool _userChanged = false;
+
   ThemeMode get mode => _mode;
 
   /// 从本地存储恢复；读取失败（插件不可用、值非法）时保持当前值。
   Future<void> restore() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
+      if (_disposed || _userChanged) {
+        return;
+      }
       final ThemeMode? saved = _decode(prefs.getString(prefsKey));
       if (saved != null && saved != _mode) {
         _mode = saved;
@@ -28,9 +35,10 @@ class ThemeController extends ChangeNotifier {
   }
 
   Future<void> setMode(ThemeMode mode) async {
-    if (mode == _mode) {
+    if (_disposed || mode == _mode) {
       return;
     }
+    _userChanged = true;
     _mode = mode;
     notifyListeners();
     try {
@@ -39,6 +47,12 @@ class ThemeController extends ChangeNotifier {
     } catch (error) {
       debugPrint('保存主题设置失败：$error');
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   static ThemeMode? _decode(String? raw) {

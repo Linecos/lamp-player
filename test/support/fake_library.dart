@@ -2,6 +2,7 @@ import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
+import 'package:lamp_player/src/rust/api/scan.dart';
 
 /// 构造测试曲目；字段默认值与真实扫描结果保持一致（path 唯一）。
 Track sampleTrack({
@@ -36,6 +37,7 @@ class FakeLibraryRepository implements LibraryRepository {
   int loadCalls = 0;
   int searchCalls = 0;
   String lastQuery = '';
+  final List<String> scannedFolders = <String>[];
 
   @override
   Future<List<Track>> loadTracks() async {
@@ -62,6 +64,20 @@ class FakeLibraryRepository implements LibraryRepository {
         })
         .take(limit)
         .toList();
+  }
+
+  @override
+  Future<ScanReport> scanFolder(String folder) async {
+    scannedFolders.add(folder);
+    return const ScanReport(
+      scanned: 0,
+      unchanged: 0,
+      upserted: 0,
+      failed: 0,
+      walkErrors: 0,
+      pruned: 0,
+      elapsedMs: 0,
+    );
   }
 
   // --- 歌单 / 收藏 / 历史：内存实现，行为与 Rust 侧契约保持一致 ---

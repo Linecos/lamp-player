@@ -12,28 +12,45 @@ import '../theme/app_theme.dart';
 ///
 /// 页面本身不写在此文件，新增页面请改 [LampRouter]。
 /// 数据源与播放能力可从外部注入，方便 widget 测试脱离 Rust 原生库。
+/// 主题控制器也可注入：`main()` 会先恢复已保存的主题再挂载，避免启动闪烁。
 class LampApp extends StatefulWidget {
-  const LampApp({super.key, this.libraryRepository, this.playbackService});
+  const LampApp({
+    super.key,
+    this.libraryRepository,
+    this.playbackService,
+    this.themeController,
+  });
 
   final LibraryRepository? libraryRepository;
   final PlaybackService? playbackService;
+
+  /// 外部传入时由调用方负责生命周期（通常整个应用生命周期）；
+  /// 不传时由 [LampApp] 自己创建并异步恢复。
+  final ThemeController? themeController;
 
   @override
   State<LampApp> createState() => _LampAppState();
 }
 
 class _LampAppState extends State<LampApp> {
-  final ThemeController _theme = ThemeController();
+  late final ThemeController _theme;
+  late final bool _ownsTheme;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_theme.restore());
+    _ownsTheme = widget.themeController == null;
+    _theme = widget.themeController ?? ThemeController();
+    if (_ownsTheme) {
+      unawaited(_theme.restore());
+    }
   }
 
   @override
   void dispose() {
-    _theme.dispose();
+    if (_ownsTheme) {
+      _theme.dispose();
+    }
     super.dispose();
   }
 

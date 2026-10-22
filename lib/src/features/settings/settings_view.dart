@@ -4,83 +4,43 @@ import 'package:flutter/material.dart';
 
 import '../../common/common.dart';
 import '../../rust/api/scan.dart';
-import 'library_scan_service.dart';
 import 'theme_controller.dart';
 
-/// 设置页：曲库统计、引擎状态、添加音乐目录、外观。
+/// 设置页骨架。
 ///
-/// 「添加音乐目录」会递归扫描并把结果写入曲库，扫描完成通过 [SettingsView.onScanned]
-/// 通知外部刷新列表；目录本身暂不做持久化。
-class SettingsView extends StatefulWidget {
+/// 展示曲库统计与引擎状态；「外观 → 主题」可切换并持久化。
+/// 「添加音乐目录」由曲库页负责扫描，本页展示进度、结果与失败重试。
+class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
     required this.trackCount,
     required this.totalDurationSecs,
     required this.engineAvailable,
-    this.scanService,
-    this.onScanned,
+    this.scanning = false,
+    this.onAddFolder,
+    this.scanFolder,
+    this.scanReport,
+    this.scanError,
+    this.onRetry,
   });
 
   final int trackCount;
   final double totalDurationSecs;
   final bool engineAvailable;
+  final bool scanning;
+  final VoidCallback? onAddFolder;
 
-  /// 缺省走平台实现；测试注入假实现，避免依赖原生库与系统对话框。
-  final LibraryScanService? scanService;
+  /// 当前（或最近一次）扫描的目录，用于进度与结果展示。
+  final String? scanFolder;
 
-  /// 扫描成功后的回调，供曲库页重新拉取列表。
-  final ValueChanged<ScanReport>? onScanned;
+  /// 本次扫描结果；为 null 表示还没有成功扫描过。
+  final ScanReport? scanReport;
 
-  @override
-  State<SettingsView> createState() => _SettingsViewState();
-}
+  /// 本次扫描失败原因；为 null 表示没有待处理的失败。
+  final Object? scanError;
 
-class _SettingsViewState extends State<SettingsView> {
-  late final LibraryScanService _scanner =
-      widget.scanService ?? const PlatformScanService();
-
-  bool _scanning = false;
-  String? _folder;
-  ScanReport? _report;
-  Object? _error;
-
-  Future<void> _pickAndScan() async {
-    if (_scanning) {
-      return;
-    }
-    final String? folder = await _scanner.pickFolder();
-    if (folder == null || folder.isEmpty) {
-      return;
-    }
-    await _scan(folder);
-  }
-
-  Future<void> _scan(String folder) async {
-    setState(() {
-      _scanning = true;
-      _folder = folder;
-      _error = null;
-    });
-    try {
-      final ScanReport report = await _scanner.scanFolder(folder);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _scanning = false;
-        _report = report;
-      });
-      widget.onScanned?.call(report);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _scanning = false;
-        _error = error;
-      });
-    }
-  }
+  /// 重新扫描 [scanFolder]；为空时只展示错误，不提供重试。
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -93,33 +53,41 @@ class _SettingsViewState extends State<SettingsView> {
             _InfoRow(
               icon: Icons.library_music_outlined,
               title: '曲目数量',
-              value: '${widget.trackCount} 首',
+              value: '$trackCount 首',
             ),
             _InfoRow(
               icon: Icons.schedule,
               title: '总时长',
-              value: _formatTotal(widget.totalDurationSecs),
+              value: _formatTotal(totalDurationSecs),
             ),
-            _ScanRow(busy: _scanning, onTap: _scanning ? null : _pickAndScan),
+            _ActionRow(
+              icon: Icons.create_new_folder_outlined,
+              title: '添加音乐目录',
+              subtitle: scanning ? '正在扫描并入库…' : '递归扫描子目录，按改动增量入库',
+              onTap: scanning ? null : onAddFolder,
+              trailing: scanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+            ),
           ],
         ),
-        if (_scanning) _ScanProgress(folder: _folder ?? ''),
-        if (_error != null)
-          ErrorRetry(
-            title: '扫描失败',
-            error: _error!,
-            onRetry: () => unawaited(_scan(_folder!)),
-          ),
-        if (!_scanning && _error == null && _report != null)
-          _ScanSummary(report: _report!, folder: _folder ?? ''),
+        if (scanning && scanFolder != null) _ScanProgress(folder: scanFolder!),
+        if (!scanning && scanError != null && onRetry != null)
+          ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
+        if (!scanning && scanError == null && scanReport != null)
+          _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
         _SectionLabel('播放'),
         _SettingsCard(
           children: <Widget>[
             _InfoRow(
               icon: Icons.graphic_eq,
               title: '播放引擎',
-              value: widget.engineAvailable ? '已接入' : '未接入（M2）',
-              valueColor: widget.engineAvailable
+              value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
+              valueColor: engineAvailable
                   ? null
                   : Theme.of(context).colorScheme.error,
             ),
@@ -213,6 +181,71 @@ class _SettingsCard extends StatelessWidget {
             children[i],
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 可点击的操作行，样式与只读信息行保持一致。
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(title, style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (trailing != null)
+              trailing!
+            else if (onTap != null)
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+          ],
+        ),
       ),
     );
   }
@@ -392,75 +425,6 @@ class _ThemeRow extends StatelessWidget {
       case ThemeMode.dark:
         return '始终使用深色';
     }
-  }
-}
-
-/// 「添加音乐目录」入口行；扫描中禁用点击并显示转圈。
-class _ScanRow extends StatelessWidget {
-  const _ScanRow({required this.busy, required this.onTap});
-
-  final bool busy;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.create_new_folder_outlined,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('添加音乐目录', style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    '递归扫描子目录，按改动增量入库',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            if (busy)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Text(
-                '选择',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: scheme.primary,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

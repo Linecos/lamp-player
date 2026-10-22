@@ -7,6 +7,8 @@
 
 ### 新增
 
+- 添加音乐目录：设置页与空曲库页面均可选择文件夹，调用 `scanFolder` 增量入库并显示扫描统计（新增 `file_selector` 依赖）
+- 播放成功后写入播放历史，历史页面接入后可直接展示；历史写入失败不影响播放
 - 启动时初始化曲库：`path_provider` 取应用支持目录 → `initDb`（新增依赖 `path` / `path_provider`）；曲库打不开时走启动兜底页并注明失败环节（`LampStartupErrorApp` 支持自定义标题）
 - `lib/src/features/library/library_db.dart`：曲库路径解析带目录注入口，目标目录不存在自动创建；`test/features/library_db_test.dart` 覆盖纯 Dart 部分
 - 曲库存储扩展：新增歌单 / 收藏 / 播放历史接口（`api::collections`）与 `Playlist` 模型；schema 升至 v2，曲目被清理时外键级联删除相关条目
@@ -17,7 +19,8 @@
 - `db::close_db`：释放曲库连接，支持切换库路径；`init_db` 带结构版本（`PRAGMA user_version`）与老库自动升级 + FTS 重建
 - `rust/tests/db.rs`：upsert 去重、FTS 触发器同步、搜索容错、prune、路径切换、老库迁移
 - 内部模块 `rust/src/scanner.rs`（遍历 + 标签解析，可脱离数据库测试）与 `rust/tests/scan.rs`（遍历过滤、缺失目录、扫描→入库→中文前缀检索、增量与清理）
-- Dart 应用外壳：`LampApp` + 主题（Material 3，随系统深浅色）+ 路由表；桥接初始化失败时显示 `LampStartupErrorApp` 而不是白屏
+- Dart 应用外壳：`LampApp` + 主题（Material 3，初始跟随系统，可在设置页切换）+ 路由表；桥接初始化失败时显示 `LampStartupErrorApp` 而不是白屏
+- 设置页主题切换：跟随系统 / 浅色 / 深色，选择立即生效并写入 `shared_preferences`，重启后保留（PR #5；新增依赖 `shared_preferences`）
 - 曲库页占位实现，纯 Dart 环境可渲染
 - 协作设施：`CONTRIBUTING.md`、Issue 模板、CODEOWNERS、PR 模板、路线图与接口契约文档
 - 一键脚本：`scripts/bootstrap.ps1`（环境准备）、`scripts/check.ps1`（本地全套检查）、`scripts/setup-labels.ps1`（标签初始化）
@@ -35,6 +38,8 @@
 
 ### 修复
 
+- 扫描合并历史路径时旧 `tracks` 行被直接删除，外键级联清空收藏 / 歌单 / 历史；现先迁移用户数据（歌单与收藏去重、历史合并播放次数）再删旧行
+- 自然播完后按播放会走 `resume`，BASS 从流末尾继续而无法重播；现在检测到 `stopped` 时重新加载曲目
 - 非 Windows 上扫描清理恒不生效：目录前缀写死 `\`，与 `path_key` 的 `/` 口径不一致（ubuntu CI 的 `cargo test` 会失败）
 - 历史库里正斜杠或非 ASCII 大小写的路径无法与 canonicalize 后的路径合并（`COLLATE NOCASE` 只处理 ASCII、也不认分隔符），会残留重复记录；现按归一化 key 每批一次对账，顺带去掉了「每首歌一次全表扫描」
 - `canonicalize` 会解析 junction/软链接：升级后首次扫描建议清库重扫，旧链接路径的记录不会自动迁移

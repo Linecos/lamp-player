@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
+import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/frb_generated.dart';
 
 /// 应用入口。
@@ -28,5 +29,10 @@ Future<void> main() async {
     return;
   }
 
-  runApp(const LampApp());
+  // 先恢复主题再挂载，避免深色用户启动时先闪一下浅色；
+  // 恢复失败由 controller 内部兜底为「跟随系统」。
+  final ThemeController theme = ThemeController();
+  await theme.restore();
+
+  runApp(LampApp(themeController: theme));
 }
