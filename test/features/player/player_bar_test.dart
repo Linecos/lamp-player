@@ -19,6 +19,7 @@ Future<void> _pumpBar(
   WidgetTester tester, {
   bool isAvailable = true,
   bool isPlaying = false,
+  bool canSeek = true,
   Track? track,
   double position = 0,
   double duration = 200,
@@ -44,6 +45,7 @@ Future<void> _pumpBar(
             track: track,
             isPlaying: isPlaying,
             isAvailable: isAvailable,
+            canSeek: canSeek,
             position: position,
             duration: duration,
             volume: volume,
@@ -161,5 +163,23 @@ void main() {
 
     expect(find.byTooltip('取消静音'), findsOneWidget);
     expect(find.byTooltip('静音'), findsNothing);
+  });
+
+  testWidgets('停止态（canSeek=false）禁用进度拖动', (WidgetTester tester) async {
+    final List<double> ends = <double>[];
+    await _pumpBar(
+      tester,
+      isPlaying: false,
+      canSeek: false,
+      track: sampleTrack(title: '夜航'),
+      position: 30,
+      duration: 180,
+      onSeekEnd: ends.add,
+    );
+
+    expect(_sliderOf(tester, _progressKey).onChanged, isNull);
+    await tester.drag(find.byKey(_progressKey), const Offset(120, 0));
+    await tester.pump();
+    expect(ends, isEmpty, reason: '停止态不应触发 seek');
   });
 }

@@ -12,6 +12,7 @@ class PlayerBar extends StatelessWidget {
     super.key,
     required this.isPlaying,
     required this.isAvailable,
+    this.canSeek = true,
     required this.position,
     required this.duration,
     this.volume = 1,
@@ -27,6 +28,11 @@ class PlayerBar extends StatelessWidget {
   final Track? track;
   final bool isPlaying;
   final bool isAvailable;
+
+  /// 是否允许拖动进度：播放中 / 暂停中为 true，停止（含播完）为 false，
+  /// 否则拖动只会改位置、播放键却从头重播。
+  final bool canSeek;
+
   final double position;
   final double duration;
 
@@ -145,7 +151,7 @@ class PlayerBar extends StatelessWidget {
                   key: const ValueKey<String>('player-progress'),
                   value: shown,
                   max: total > 0 ? total : 1,
-                  enabled: canControl && total > 0,
+                  enabled: canControl && canSeek && total > 0,
                   onChangeStart: onSeekStart,
                   onChanged: onSeekChanged,
                   onChangeEnd: onSeekEnd,

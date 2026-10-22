@@ -86,7 +86,7 @@ void main() {
     await _pumpSettings(tester, folder: r'C:\Music', report: _sampleReport);
 
     expect(find.text('扫描完成'), findsOneWidget);
-    expect(find.textContaining('新增 3 首'), findsOneWidget);
+    expect(find.textContaining('入库 3 首'), findsOneWidget);
     expect(find.textContaining('失败 1 个'), findsOneWidget);
     expect(find.text(r'C:\Music'), findsOneWidget);
     expect(find.text('耗时 1.5 秒'), findsOneWidget);

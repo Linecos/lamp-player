@@ -474,7 +474,8 @@ class _ScanSummary extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final List<String> parts = <String>[
-      '新增 ${report.upserted} 首',
+      // upserted 是「入库或更新」的条数，不是纯新增
+      '入库 ${report.upserted} 首',
       if (report.unchanged > 0) '跳过 ${report.unchanged} 首',
       if (report.pruned > 0) '清理 ${report.pruned} 条',
       if (report.failed > 0) '失败 ${report.failed} 个',
