@@ -7,7 +7,6 @@
 //! - 非 Windows 平台编译为空实现，保证 CI 的 Linux job 能通过
 
 use anyhow::Result;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// 播放状态（与 `api::player::PlaybackState` 一一对应）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,22 +14,6 @@ pub enum State {
     Stopped,
     Playing,
     Paused,
-}
-
-const ST_STOPPED: u8 = 0;
-const ST_PLAYING: u8 = 1;
-const ST_PAUSED: u8 = 2;
-
-static AVAILABLE: AtomicBool = AtomicBool::new(false);
-static STATE: AtomicU8 = AtomicU8::new(ST_STOPPED);
-
-fn store_state(state: State) {
-    let raw = match state {
-        State::Stopped => ST_STOPPED,
-        State::Playing => ST_PLAYING,
-        State::Paused => ST_PAUSED,
-    };
-    STATE.store(raw, Ordering::SeqCst);
 }
 
 /// BASS 是否可用（DLL 加载 + 初始化成功）
@@ -42,11 +25,7 @@ pub fn is_available() -> bool {
 
 /// 当前播放状态
 pub fn state() -> State {
-    match STATE.load(Ordering::SeqCst) {
-        ST_PLAYING => State::Playing,
-        ST_PAUSED => State::Paused,
-        _ => State::Stopped,
-    }
+    imp::state()
 }
 
 /// 加载并播放指定文件，会先停止当前曲目
@@ -89,22 +68,45 @@ pub fn duration() -> Result<f64> {
     imp::duration()
 }
 
-/// 播放位置轮询间隔，用于刷新自然播放结束后的状态
-#[cfg(windows)]
-const TICK: std::time::Duration = std::time::Duration::from_millis(200);
-
 #[cfg(windows)]
 mod imp {
-    use super::{store_state, State, AVAILABLE, TICK};
+    use super::State;
     use anyhow::{anyhow, bail, Result};
     use libloading::Library;
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
     use std::sync::OnceLock;
     use std::thread;
+
+    const ST_STOPPED: u8 = 0;
+    const ST_PLAYING: u8 = 1;
+    const ST_PAUSED: u8 = 2;
+
+    /// 状态轮询间隔，用于发现曲目自然播完
+    const TICK: std::time::Duration = std::time::Duration::from_millis(200);
+
+    static AVAILABLE: AtomicBool = AtomicBool::new(false);
+    static STATE: AtomicU8 = AtomicU8::new(ST_STOPPED);
+
+    fn store_state(state: State) {
+        let raw = match state {
+            State::Stopped => ST_STOPPED,
+            State::Playing => ST_PLAYING,
+            State::Paused => ST_PAUSED,
+        };
+        STATE.store(raw, Ordering::SeqCst);
+    }
+
+    pub fn state() -> State {
+        match STATE.load(Ordering::SeqCst) {
+            ST_PLAYING => State::Playing,
+            ST_PAUSED => State::Paused,
+            _ => State::Stopped,
+        }
+    }
 
     const BASS_UNICODE: u32 = 0x8000_0000;
     const BASS_STREAM_PRESCAN: u32 = 0x0002_0000;
@@ -539,11 +541,15 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use super::*;
+    use super::State;
     use anyhow::{bail, Result};
 
     pub fn available() -> bool {
         false
+    }
+
+    pub fn state() -> State {
+        State::Stopped
     }
 
     fn unsupported<T>() -> Result<T> {
