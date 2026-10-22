@@ -5,13 +5,14 @@
 [![CI](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **当前状态**：M1 曲库闭环与 M2 播放链路已完成；歌单 / 历史 / 收藏存储接口已就绪（页面待接入），
-> 正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **当前状态**：M1 曲库闭环（含目录导入）与 M2 播放链路已完成；歌单 / 历史 / 收藏存储接口已就绪
+> （页面待接入），正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 特性
 
 - 🎨 Material 3 界面（Flutter），主题可选跟随系统 / 浅色 / 深色，重启后保留
 - 📚 曲库视图：全部 / 艺术家 / 专辑，五种排序，万级曲目虚拟滚动
+- 📥 添加音乐目录：系统目录选择 → 增量扫描入库，设置页与空态均可进入
 - 🔎 FTS5 全文检索（歌名/歌手/专辑），输入 300ms 防抖
 - ▶️ 播放条：播放 / 暂停与只读进度，BASS 底层解码、低延迟输出
 - 🗂️ 歌单 / 收藏 / 播放历史：SQLite 存储层已就绪（schema v2），页面接入中

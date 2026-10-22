@@ -7,18 +7,22 @@ import 'theme_controller.dart';
 /// 设置页骨架。
 ///
 /// 展示曲库统计与引擎状态；「外观 → 主题」可切换并持久化。
-/// 添加音乐目录、默认音量等交互待接入，未持久化的假开关不放。
+/// 「添加音乐目录」已接入；默认音量等交互待后续版本，未持久化的假开关不放。
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
     required this.trackCount,
     required this.totalDurationSecs,
     required this.engineAvailable,
+    this.scanning = false,
+    this.onAddFolder,
   });
 
   final int trackCount;
   final double totalDurationSecs;
   final bool engineAvailable;
+  final bool scanning;
+  final VoidCallback? onAddFolder;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +41,19 @@ class SettingsView extends StatelessWidget {
               icon: Icons.schedule,
               title: '总时长',
               value: _formatTotal(totalDurationSecs),
+            ),
+            _ActionRow(
+              icon: Icons.create_new_folder_outlined,
+              title: '添加音乐目录',
+              subtitle: scanning ? '正在扫描并入库…' : '选择文件夹后扫描并入库',
+              onTap: scanning ? null : onAddFolder,
+              trailing: scanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
             ),
           ],
         ),
@@ -141,6 +158,71 @@ class _SettingsCard extends StatelessWidget {
             children[i],
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 可点击的操作行，样式与只读信息行保持一致。
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(title, style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (trailing != null)
+              trailing!
+            else if (onTap != null)
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+          ],
+        ),
       ),
     );
   }

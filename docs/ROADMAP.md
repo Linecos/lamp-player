@@ -17,7 +17,7 @@
 | 实现 `scan::scan_folder`（walkdir 遍历 + lofty 标签 + 批量入库） | Rust `api/scan.rs` + `scanner.rs` | 中 | 已完成（`rust/tests/scan.rs` 覆盖） |
 | 扫描增量（mtime + 大小）与扫描后清理已删除记录 | Rust `scanner.rs` + `api/db.rs` | 中 | 已完成（`ScanReport.unchanged` / `pruned`） |
 | 启动时初始化曲库（取应用支持目录 → `init_db`） | Dart + 构建（需加 `path_provider`） | 中 | 已完成（`library_db.dart`，失败走启动兜底页） |
-| 添加音乐目录（`file_selector`）+ 扫描中提示 | Dart `features/settings` | 中 | 待认领 |
+| 添加音乐目录（`file_selector`）+ 扫描中提示 | Dart `features/settings` | 中 | 已完成（设置页 / 空态入口 + 扫描统计） |
 | 曲库列表页（虚拟滚动，万级曲目不卡） | Dart `features/library` | 中 | 已完成（PR #4，五种排序） |
 | 搜索框接 `search_tracks`，输入防抖 300ms | Dart `features/library` | 小 | 已完成（PR #4） |
 | 艺术家 / 专辑聚合视图 | Dart `features/library` | 中 | 已完成（PR #4） |
@@ -34,9 +34,10 @@
 | `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 已完成（PR #3） |
 | CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
 | 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 已完成（PR #4，只读进度） |
+| 播放成功后记录历史 + 自然播完重播 | Dart `features/library` | 小 | 已完成 |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
 | 主题切换（跟随系统 / 浅色 / 深色，`shared_preferences` 持久化） | Dart `features/settings` | 小 | 已完成（PR #5） |
-| 设置页其余交互（默认音量、音乐目录等） | Dart `features/settings` | 中 | 待认领 |
+| 设置页其余交互（默认音量等） | Dart `features/settings` | 中 | 待认领 |
 | 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | 已完成（`common/widgets` + `test/common/widgets_test.dart`） |
 
 ## M3 · 打磨与发布

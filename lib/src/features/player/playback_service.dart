@@ -26,8 +26,8 @@ abstract interface class PlaybackService {
 
 /// 走 `flutter_rust_bridge` 的真实实现。
 ///
-/// `player.rs` 目前仍是存根，`isAvailable` 会返回 false、其余调用会抛错；
-/// 界面据此降级为「只能浏览曲目」，等 M2 合并后无需改 UI。
+/// `player.rs` 已接入 BASS；DLL 缺失或初始化失败时 `isAvailable` 返回 false，
+/// 其余调用会抛错，界面据此降级为「只能浏览曲目」。
 class RustPlaybackService implements PlaybackService {
   const RustPlaybackService();
 
