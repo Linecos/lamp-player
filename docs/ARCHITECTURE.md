@@ -16,6 +16,7 @@
 │ Rust 核心（rust/src）                     │
 │   api/    对 Dart 暴露的唯一接口面         │
 │     db     曲库持久化（SQLite + FTS5）     │
+│     collections 歌单 / 收藏 / 播放历史     │
 │     scan   扫描入库（统计 + 写库）         │
 │     player 播放控制（状态与参数校验）      │
 │   scanner.rs 遍历与标签解析（内部模块）    │
@@ -95,6 +96,7 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（M2 先用轮询，
 | BASS DLL 优先从 exe 同级目录加载 | 构建时由 CMake 拷入，开发态再从 `third_party` 回退，避免发布版找不到 DLL |
 | SQLite 用 `rusqlite` bundled | 自带编译的 SQLite 保证 FTS5 可用，不依赖系统库 |
 | 曲库结构带 `PRAGMA user_version` | 加字段时能升级老库并重建索引，`CREATE TABLE IF NOT EXISTS` 做不到 |
+| 歌单 / 收藏 / 历史用外键 `ON DELETE CASCADE` | 曲目被扫描清理后，相关条目自动消失，避免 UI 拿到悬空路径；连接级 `PRAGMA foreign_keys = ON` |
 | FTS5 用外部内容表 + 三个触发器 | 曲目表与索引表自动同步，无需手写索引维护 |
 | 搜索统一前缀匹配 + bm25 排序 | FTS5 默认分词器对 CJK 整段切一个 token，必须 `xxx*`；中期可换 trigram 分词器支持中间词 |
 | 搜索词按短语包引号 | 用户输入里的 `-`、`+`、`:`、引号等不能变成 FTS5 查询语法 |

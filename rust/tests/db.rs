@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rust_lib_lamp_player::api::db;
 use rust_lib_lamp_player::api::model::Track;
+use rust_lib_lamp_player::api::{collections, db};
 
 static DB_LOCK: Mutex<()> = Mutex::new(());
 
@@ -289,7 +289,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 1, "升级后应写入当前结构版本");
+    assert_eq!(version, 2, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -302,6 +302,17 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     assert!(columns.contains(&"file_mtime".to_string()));
     assert!(columns.contains(&"file_size".to_string()));
     drop(conn);
+
+    // v2 新增的三张表也要在升级时建好
+    assert!(collections::list_playlists()
+        .expect("歌单表已建")
+        .is_empty());
+    assert!(collections::favorite_paths()
+        .expect("收藏表已建")
+        .is_empty());
+    assert!(collections::recent_tracks(10)
+        .expect("历史表已建")
+        .is_empty());
 
     // 触发器与索引在升级时补齐/重建，老数据也要能搜到
     assert_eq!(

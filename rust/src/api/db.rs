@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 struct Database {
     path: String,
@@ -29,7 +29,9 @@ fn cell() -> &'static Mutex<Option<Database>> {
 /// 曲库操作唯一入口：持有全局锁执行一次闭包。
 ///
 /// 未初始化、锁中毒都转成普通错误返回，避免在库代码里 panic。
-fn with_conn<T>(f: impl FnOnce(&mut Connection) -> anyhow::Result<T>) -> anyhow::Result<T> {
+pub(crate) fn with_conn<T>(
+    f: impl FnOnce(&mut Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
     let mut guard = cell()
         .lock()
         .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
@@ -57,6 +59,8 @@ pub fn init_db(path: String) -> anyhow::Result<()> {
 
     let mut conn = Connection::open(&path).with_context(|| format!("打开曲库失败: {path}"))?;
     conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    // 歌单 / 收藏 / 历史用外键关联 tracks.path，删除曲目时要级联清理
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     migrate(&mut conn)?;
 
     *guard = Some(Database { path, conn });
@@ -110,6 +114,47 @@ CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
 END;
 "#;
 
+/// v2：歌单 / 收藏 / 播放历史。
+///
+/// 都通过 `track_path` 关联 `tracks(path)`（该列有 UNIQUE 索引，可作外键目标），
+/// `ON DELETE CASCADE` 保证曲目被清理时不留悬空引用。
+///
+/// - 歌单顺序按加入时间，暂不支持手动排序；
+/// - 歌单名忽略 ASCII 大小写唯一；
+/// - 历史按曲目去重，累计 `play_count` 并记录最近播放时间。
+const SCHEMA_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS playlists (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS playlists_name ON playlists(name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS playlist_items (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_path  TEXT    NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
+    added_at    INTEGER NOT NULL,
+    PRIMARY KEY (playlist_id, track_path)
+);
+
+CREATE INDEX IF NOT EXISTS playlist_items_track ON playlist_items(track_path);
+
+CREATE TABLE IF NOT EXISTS favorites (
+    track_path TEXT    NOT NULL PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+    added_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS play_history (
+    track_path     TEXT    NOT NULL PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+    last_played_at INTEGER NOT NULL,
+    play_count     INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS play_history_recent ON play_history(last_played_at DESC);
+"#;
+
 /// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -133,7 +178,12 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         }
         // 老库可能缺触发器或索引漂移，重建一次最省心（只发生在升级那一次）
         conn.execute_batch("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild');")?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        conn.pragma_update(None, "user_version", 1)?;
+    }
+
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+        conn.pragma_update(None, "user_version", 2)?;
     }
 
     Ok(())
@@ -431,7 +481,7 @@ fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {
     })
 }
 
-fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
+pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
     Ok(Track {
         path: row.get(0)?,
         title: row.get(1)?,

@@ -7,7 +7,49 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
+
+/// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。
+class Playlist {
+  final PlatformInt64 id;
+  final String name;
+
+  /// 曲目数
+  final int trackCount;
+
+  /// 创建时间戳（Unix 秒）
+  final PlatformInt64 createdAt;
+
+  /// 最近一次改名 / 增删曲目的时间戳（Unix 秒）
+  final PlatformInt64 updatedAt;
+
+  const Playlist({
+    required this.id,
+    required this.name,
+    required this.trackCount,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      trackCount.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Playlist &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          trackCount == other.trackCount &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
 
 /// 曲目数据模型，flutter_rust_bridge 会自动生成对应 Dart 类
 class Track {

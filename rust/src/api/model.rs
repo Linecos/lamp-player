@@ -14,3 +14,16 @@ pub struct Track {
     /// 入库时间戳
     pub added_at: i64,
 }
+
+/// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。
+#[derive(Clone, Debug)]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    /// 曲目数
+    pub track_count: i32,
+    /// 创建时间戳（Unix 秒）
+    pub created_at: i64,
+    /// 最近一次改名 / 增删曲目的时间戳（Unix 秒）
+    pub updated_at: i64,
+}
