@@ -80,11 +80,19 @@ Dart: allTracks()                  → 按 artist/album/track_num 排序
 Dart: searchTracks(query, limit)   → FTS5 前缀匹配（CJK 不分词，故统一加 *）
 ```
 
+**歌单 / 收藏 / 历史**
+
+```
+Dart: listPlaylists() / playlistTracks(id)  → 歌单与曲目（按加入顺序）
+Dart: favoritePaths() / listFavorites()     → 收藏（一次拉路径做成员判断）
+Dart: recordPlay(path) / recentTracks(limit) → 历史（页面在播放成功后调用）
+```
+
 **播放**
 
 ```
 Dart: playerPlay(path) → Rust: 停旧曲 → BASS_StreamCreateFile → BASS_ChannelPlay
-Dart: 轮询 playerPosition()/playerState() 更新进度条（M2 先用轮询，后续可换事件流）
+Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，后续可换事件流）
 ```
 
 ## 4. 关键设计决策
@@ -119,9 +127,10 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（M2 先用轮询，
 
 ## 6. 状态管理
 
-当前**不引入第三方状态管理**：页面内部用 `StatefulWidget` + `setState`，
-跨页面共享的播放器状态在 M2 定方案（届时补本文档）。请勿单独引入 provider / riverpod /
-bloc 等依赖 —— 需要时先开 issue 讨论后由 owner 统一加。
+当前**不引入第三方状态管理**：页面内部用 `StatefulWidget` + `setState`。
+播放器服务由 `LibraryPage` 持有（构造函数可注入 `PlaybackService`，测试用假实现），
+进度用 `Timer` 轮询。跨页面共享状态尚未抽象，需要时先开 issue 讨论，由 owner 统一加。
+请勿单独引入 provider / riverpod / bloc 等依赖。
 
 ## 7. 测试分层
 

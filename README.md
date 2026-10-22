@@ -5,15 +5,17 @@
 [![CI](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **当前状态**：M0 骨架完成，M1（曲库闭环）进行中。接口契约已冻结，扫描/播放为存根实现。
-> 任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **当前状态**：M1 曲库闭环与 M2 播放链路已完成；歌单 / 历史 / 收藏存储接口已就绪（页面待接入），
+> 正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 特性
 
 - 🎨 Material 3 界面（Flutter），浅色/深色跟随系统
+- 📚 曲库视图：全部 / 艺术家 / 专辑，五种排序，万级曲目虚拟滚动
+- 🔎 FTS5 全文检索（歌名/歌手/专辑），输入 300ms 防抖
+- ▶️ 播放条：播放 / 暂停与只读进度，BASS 底层解码、低延迟输出
+- 🗂️ 歌单 / 收藏 / 播放历史：SQLite 存储层已就绪（schema v2），页面接入中
 - 🦀 Rust 负责核心逻辑：文件扫描、元数据解析、曲库、系统集成
-- ⚡ BASS 底层音频解码，低延迟输出
-- 🗄️ SQLite 曲库，支持 **FTS5 全文检索**（歌名/歌手/专辑）
 - 🖥️ 首先支持 Windows，后续可扩展 Android / Linux
 
 ## 架构
@@ -27,6 +29,7 @@
 │          Rust Core          │
 │  ├─ scan      文件扫描/标签  │
 │  ├─ db        SQLite + FTS5 │
+│  ├─ collections 用户数据 │
 │  ├─ player    BASS 播放控制  │
 │  └─ bass.rs   DLL 动态加载   │
 └──────────────┬──────────────┘
@@ -87,7 +90,7 @@ cargo fetch --manifest-path rust/Cargo.toml
 │       ├── common/            通用组件与工具
 │       └── rust/              frb 生成代码（禁止手改）
 ├── rust/
-│   ├── src/api/               对 Dart 暴露的接口（db / scan / player / model）
+│   ├── src/api/               对 Dart 暴露的接口（db / collections / scan / player / model）
 │   ├── src/bass.rs            BASS 动态加载封装（M2 实现）
 │   └── tests/                 Rust 集成测试
 ├── test/                      纯 Dart 测试（不依赖原生库，CI 跑这个）

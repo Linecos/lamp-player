@@ -6,8 +6,9 @@
 
 ## 当前阶段
 
-项目处于 **M0 骨架完成、M1 进行中**：桥接、曲库 SQLite+FTS5、CI、协作设施已就位；
-扫描与播放是存根，界面只有壳。
+项目处于 **M1 曲库闭环、M2 播放链路已完成，进入 M3 打磨与发布**：
+桥接、扫描、SQLite + FTS5、BASS 播放、主界面与搜索均已就位；
+歌单 / 历史 / 收藏存储接口已冻结（契约 v0.3），页面待接入。
 
 ## M1 · 曲库闭环（扫描 → 入库 → 列表 → 搜索）
 
@@ -17,10 +18,11 @@
 | 扫描增量（mtime + 大小）与扫描后清理已删除记录 | Rust `scanner.rs` + `api/db.rs` | 中 | 已完成（`ScanReport.unchanged` / `pruned`） |
 | 启动时初始化曲库（取应用支持目录 → `init_db`） | Dart + 构建（需加 `path_provider`） | 中 | 已完成（`library_db.dart`，失败走启动兜底页） |
 | 添加音乐目录（`file_selector`）+ 扫描中提示 | Dart `features/settings` | 中 | 待认领 |
-| 曲库列表页（虚拟滚动，万级曲目不卡） | Dart `features/library` | 中 | 待认领 |
-| 搜索框接 `search_tracks`，输入防抖 300ms | Dart `features/library` | 小 | 待认领 |
+| 曲库列表页（虚拟滚动，万级曲目不卡） | Dart `features/library` | 中 | 已完成（PR #4，五种排序） |
+| 搜索框接 `search_tracks`，输入防抖 300ms | Dart `features/library` | 小 | 已完成（PR #4） |
+| 艺术家 / 专辑聚合视图 | Dart `features/library` | 中 | 已完成（PR #4） |
 | `db` 单元测试：upsert 去重/更新、FTS 触发器同步、prune、迁移 | Rust `rust/tests/` | 小 | 已完成（`rust/tests/db.rs`） |
-| 时长/文件大小格式化工具 + 单测 | Dart `common/` + `test/` | 小 | **[入门]** 待认领 |
+| 时长/文件大小格式化工具 + 单测 | Dart `common/` + `test/` | 小 | 已完成（`common/formatters` + `test/common/formatters_test.dart`） |
 | 歌单 / 收藏 / 播放历史存储接口 | Rust `api/collections.rs` + `model.rs` | 中 | 已完成（schema v2，契约 v0.3） |
 | 歌单 / 历史 / 收藏页面接入存储接口 | Dart `features/library` | 中 | 待认领 |
 
@@ -31,10 +33,10 @@
 | `bass.rs`：libloading 加载 DLL、符号表、初始化/释放 | Rust | 大 | 已完成（PR #3） |
 | `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 已完成（PR #3） |
 | CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
-| 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 待认领 |
+| 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 已完成（PR #4，只读进度） |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
 | 设置页 + 深浅色主题切换（`shared_preferences` 持久化） | Dart `features/settings` | 中 | 待认领 |
-| 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | **[入门]** 待认领 |
+| 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | 已完成（`common/widgets` + `test/common/widgets_test.dart`） |
 
 ## M3 · 打磨与发布
 

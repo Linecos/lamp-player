@@ -188,7 +188,7 @@
   开发态再回退 `third_party/bass/windows/x64/`；不要依赖当前工作目录。
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
-- 状态推进由 Dart 侧轮询（M2 先用轮询，后续可换事件流）。
+- 状态推进由 Dart 侧轮询（当前实现；后续可换事件流）。
 
 ## 8. 桥接自检 `api::simple`
 
