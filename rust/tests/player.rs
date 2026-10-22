@@ -56,7 +56,10 @@ fn playback_chain() {
     assert_eq!(player_state(), PlaybackState::Playing);
 
     let duration = player_duration().expect("读取时长");
-    assert!((duration - 1.0).abs() < 0.1, "时长应约为 1 秒，实际 {duration}");
+    assert!(
+        (duration - 1.0).abs() < 0.1,
+        "时长应约为 1 秒，实际 {duration}"
+    );
 
     thread::sleep(Duration::from_millis(300));
     let position = player_position().expect("读取位置");
@@ -67,7 +70,10 @@ fn playback_chain() {
 
     player_seek(0.5).expect("跳转应成功");
     let position = player_position().expect("跳转后读取位置");
-    assert!((position - 0.5).abs() < 0.2, "跳转后位置应约 0.5，实际 {position}");
+    assert!(
+        (position - 0.5).abs() < 0.2,
+        "跳转后位置应约 0.5，实际 {position}"
+    );
 
     player_resume().expect("继续播放应成功");
     assert_eq!(player_state(), PlaybackState::Playing);

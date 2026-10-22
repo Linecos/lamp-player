@@ -9,48 +9,44 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
 
-/// BASS 是否可用（DLL 缺失或加载失败时为 `false`，UI 据此降级提示）
-///
-/// 同步函数：只读一个状态位，UI 可在 `build` 里直接调用。
+/// BASS 是否可用；DLL 缺失或初始化失败时为 `false`
 bool playerIsAvailable() =>
     RustLib.instance.api.crateApiPlayerPlayerIsAvailable();
 
-/// 加载并播放指定文件；当前正在播放的曲目会被停止。
+/// 加载并播放指定文件；当前正在播放的曲目会被停止
 Future<void> playerPlay({required String path}) =>
     RustLib.instance.api.crateApiPlayerPlayerPlay(path: path);
 
-/// 暂停当前曲目。
+/// 暂停当前曲目
 Future<void> playerPause() => RustLib.instance.api.crateApiPlayerPlayerPause();
 
-/// 从暂停处继续播放。
+/// 从暂停处继续播放
 Future<void> playerResume() =>
     RustLib.instance.api.crateApiPlayerPlayerResume();
 
-/// 停止播放并释放当前曲目。
+/// 停止播放并释放当前曲目
 Future<void> playerStop() => RustLib.instance.api.crateApiPlayerPlayerStop();
 
-/// 跳转到指定位置（秒）。
+/// 跳转到指定位置（秒）
 ///
 /// # Errors
 /// `position_secs` 为负、超出曲目时长，或当前没有加载曲目时返回错误。
 Future<void> playerSeek({required double positionSecs}) =>
     RustLib.instance.api.crateApiPlayerPlayerSeek(positionSecs: positionSecs);
 
-/// 设置音量，取值 `0.0..=1.0`（超出范围会被截断）。
+/// 设置音量，取值 `0.0..=1.0`（超出范围会被截断）
 Future<void> playerSetVolume({required double volume}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetVolume(volume: volume);
 
-/// 当前播放位置（秒）；未加载曲目时返回 `0.0`。
+/// 当前播放位置（秒）；未加载曲目时返回 `0.0`
 Future<double> playerPosition() =>
     RustLib.instance.api.crateApiPlayerPlayerPosition();
 
-/// 当前曲目总时长（秒）；未加载曲目时返回 `0.0`。
+/// 当前曲目总时长（秒）；未加载曲目时返回 `0.0`
 Future<double> playerDuration() =>
     RustLib.instance.api.crateApiPlayerPlayerDuration();
 
-/// 当前播放状态。
-///
-/// 同步函数：只读内存状态，UI 可在 `build` 里直接调用。
+/// 当前播放状态
 PlaybackState playerState() => RustLib.instance.api.crateApiPlayerPlayerState();
 
 /// 播放状态
