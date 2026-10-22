@@ -14,11 +14,23 @@ class TrackListView extends StatelessWidget {
     required this.tracks,
     required this.onPlay,
     this.playingPath,
+    this.onRemove,
+    this.favoritePaths = const <String>{},
+    this.onToggleFavorite,
   });
 
   final List<Track> tracks;
   final ValueChanged<Track> onPlay;
   final String? playingPath;
+
+  /// 提供后在行尾显示「更多」菜单，用于从歌单移除等操作。
+  final ValueChanged<Track>? onRemove;
+
+  /// 已收藏的路径集合，用于绘制爱心状态。
+  final Set<String> favoritePaths;
+
+  /// 提供后在行尾显示爱心按钮。
+  final ValueChanged<Track>? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +42,12 @@ class TrackListView extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _TrackHeader(showArtist: showArtist, showAlbum: showAlbum),
+            _TrackHeader(
+              showArtist: showArtist,
+              showAlbum: showAlbum,
+              showMenu: onRemove != null,
+              showFavorite: onToggleFavorite != null,
+            ),
             Expanded(
               child: ListView.builder(
                 itemCount: tracks.length,
@@ -45,6 +62,11 @@ class TrackListView extends StatelessWidget {
                     showArtist: showArtist,
                     showAlbum: showAlbum,
                     onPlay: () => onPlay(track),
+                    onRemove: onRemove == null ? null : () => onRemove!(track),
+                    favored: favoritePaths.contains(track.path),
+                    onToggleFavorite: onToggleFavorite == null
+                        ? null
+                        : () => onToggleFavorite!(track),
                   );
                 },
               ),
@@ -57,10 +79,17 @@ class TrackListView extends StatelessWidget {
 }
 
 class _TrackHeader extends StatelessWidget {
-  const _TrackHeader({required this.showArtist, required this.showAlbum});
+  const _TrackHeader({
+    required this.showArtist,
+    required this.showAlbum,
+    required this.showMenu,
+    required this.showFavorite,
+  });
 
   final bool showArtist;
   final bool showAlbum;
+  final bool showMenu;
+  final bool showFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +117,8 @@ class _TrackHeader extends StatelessWidget {
             width: 64,
             child: Text('时长', textAlign: TextAlign.right, style: style),
           ),
+          if (showFavorite) const SizedBox(width: 40),
+          if (showMenu) const SizedBox(width: 40),
         ],
       ),
     );
@@ -102,6 +133,9 @@ class _TrackRow extends StatelessWidget {
     required this.showArtist,
     required this.showAlbum,
     required this.onPlay,
+    this.onRemove,
+    required this.favored,
+    this.onToggleFavorite,
   });
 
   final Track track;
@@ -110,6 +144,9 @@ class _TrackRow extends StatelessWidget {
   final bool showArtist;
   final bool showAlbum;
   final VoidCallback onPlay;
+  final VoidCallback? onRemove;
+  final bool favored;
+  final VoidCallback? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +239,47 @@ class _TrackRow extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (onToggleFavorite != null)
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      tooltip: favored ? '取消收藏' : '收藏',
+                      padding: EdgeInsets.zero,
+                      iconSize: 20,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      onPressed: onToggleFavorite,
+                      icon: Icon(
+                        favored ? Icons.favorite : Icons.favorite_border,
+                        color: favored
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (onRemove != null)
+                  SizedBox(
+                    width: 40,
+                    child: PopupMenuButton<String>(
+                      tooltip: '更多操作',
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      onSelected: (_) => onRemove!(),
+                      itemBuilder: (BuildContext context) =>
+                          <PopupMenuEntry<String>>[
+                            const PopupMenuItem<String>(
+                              value: 'remove',
+                              child: Text('从歌单中移除'),
+                            ),
+                          ],
+                    ),
+                  ),
               ],
             ),
           ),
