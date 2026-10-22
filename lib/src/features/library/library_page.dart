@@ -82,8 +82,11 @@ class _LibraryPageState extends State<LibraryPage> {
   Track? _currentTrack;
   bool _isPlaying = false;
   bool _isAvailable = false;
+  bool _seeking = false;
   double _position = 0;
   double _duration = 0;
+  double _volume = 1;
+  double _lastVolume = 1;
   bool _engineNoticeShown = false;
 
   @override
@@ -358,6 +361,64 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  /// 拖动进度时停掉轮询，否则下一次 tick 会把滑块拉回原位置。
+  void _onSeekStart(double _) {
+    _seeking = true;
+    _stopPositionPolling();
+  }
+
+  void _onSeekChanged(double seconds) {
+    setState(() => _position = seconds);
+  }
+
+  Future<void> _onSeekEnd(double seconds) async {
+    _seeking = false;
+    if (_isAvailable) {
+      try {
+        await _playback.seek(seconds);
+        if (!mounted) {
+          return;
+        }
+        setState(() => _position = seconds);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        _showMessage('跳转失败：${ErrorRetry.describe(error)}');
+      }
+    }
+    if (_isPlaying && _positionTimer == null) {
+      _startPositionPolling();
+    }
+  }
+
+  Future<void> _setVolume(double volume) async {
+    final double next = volume.clamp(0.0, 1.0).toDouble();
+    setState(() {
+      if (next > 0) {
+        _lastVolume = next;
+      }
+      _volume = next;
+    });
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      await _playback.setVolume(next);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('调节音量失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  void _toggleMute() {
+    unawaited(
+      _setVolume(_volume > 0 ? 0 : (_lastVolume > 0 ? _lastVolume : 1)),
+    );
+  }
+
   void _startPositionPolling() {
     _positionTimer?.cancel();
     _positionTimer = Timer.periodic(_pollInterval, (_) {
@@ -379,7 +440,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final double position = await _playback.position();
       final double duration = await _playback.duration();
       final rust.PlaybackState state = _playback.state;
-      if (!mounted) {
+      if (!mounted || _seeking) {
         return;
       }
       setState(() {
@@ -448,7 +509,14 @@ class _LibraryPageState extends State<LibraryPage> {
                   isAvailable: _isAvailable,
                   position: _position,
                   duration: _duration,
+                  volume: _volume,
                   onPlayPause: () => unawaited(_togglePlayback()),
+                  onSeekStart: _onSeekStart,
+                  onSeekChanged: _onSeekChanged,
+                  onSeekEnd: (double seconds) => unawaited(_onSeekEnd(seconds)),
+                  onVolumeChanged: (double value) =>
+                      unawaited(_setVolume(value)),
+                  onToggleMute: _toggleMute,
                 ),
               ],
             ),
