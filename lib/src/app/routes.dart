@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../features/library/library_page.dart';
+import '../features/library/library_repository.dart';
+import '../features/player/playback_service.dart';
 
 /// 路由名称常量。
 ///
@@ -17,13 +19,21 @@ abstract final class AppRoutes {
 /// 全局路由分发。
 ///
 /// 加页面只需要改这个 switch，不会碰到其它页面的代码，便于并行开发。
+/// [repository] / [playbackService] 仅用于测试注入，生产环境传空走 Rust。
 abstract final class LampRouter {
-  static Route<void>? onGenerateRoute(RouteSettings settings) {
+  static Route<void>? onGenerateRoute(
+    RouteSettings settings, {
+    LibraryRepository? repository,
+    PlaybackService? playbackService,
+  }) {
     switch (settings.name) {
       case AppRoutes.library:
         return MaterialPageRoute<void>(
           settings: settings,
-          builder: (_) => const LibraryPage(),
+          builder: (_) => LibraryPage(
+            repository: repository,
+            playbackService: playbackService,
+          ),
         );
       default:
         // 未登记的路由返回 null，Flutter 会直接抛错，便于尽早发现路由名拼错
