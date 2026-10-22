@@ -1,0 +1,165 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/theme/app_theme.dart';
+
+import '../../support/fake_library.dart';
+
+const ValueKey<String> _progressKey = ValueKey<String>('player-progress');
+const ValueKey<String> _volumeKey = ValueKey<String>('player-volume');
+
+Slider _sliderOf(WidgetTester tester, Key key) {
+  return tester.widget<Slider>(
+    find.descendant(of: find.byKey(key), matching: find.byType(Slider)),
+  );
+}
+
+Future<void> _pumpBar(
+  WidgetTester tester, {
+  bool isAvailable = true,
+  bool isPlaying = false,
+  Track? track,
+  double position = 0,
+  double duration = 200,
+  double volume = 1,
+  ValueChanged<double>? onSeekStart,
+  ValueChanged<double>? onSeekChanged,
+  ValueChanged<double>? onSeekEnd,
+  ValueChanged<double>? onVolumeChanged,
+  VoidCallback? onToggleMute,
+}) async {
+  tester.view.physicalSize = const Size(1280, 600);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AppTheme.light,
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.bottomCenter,
+          child: PlayerBar(
+            track: track,
+            isPlaying: isPlaying,
+            isAvailable: isAvailable,
+            position: position,
+            duration: duration,
+            volume: volume,
+            onSeekStart: onSeekStart,
+            onSeekChanged: onSeekChanged,
+            onSeekEnd: onSeekEnd,
+            onVolumeChanged: onVolumeChanged,
+            onToggleMute: onToggleMute,
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+void main() {
+  testWidgets('拖动进度条：开始、预览、松手各回调一次', (WidgetTester tester) async {
+    final List<double> starts = <double>[];
+    final List<double> previews = <double>[];
+    final List<double> ends = <double>[];
+
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      duration: 200,
+      onSeekStart: starts.add,
+      onSeekChanged: previews.add,
+      onSeekEnd: ends.add,
+    );
+
+    await tester.drag(find.byKey(_progressKey), const Offset(140, 0));
+    await tester.pump();
+
+    expect(starts, hasLength(1));
+    expect(previews, isNotEmpty);
+    expect(ends, hasLength(1));
+    expect(ends.single, greaterThan(0));
+    expect(ends.single, lessThanOrEqualTo(200));
+  });
+
+  testWidgets('拖动过程中时间标签跟随预览位置', (WidgetTester tester) async {
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      position: 0,
+      duration: 200,
+    );
+
+    expect(find.text('00:00'), findsOneWidget);
+
+    // 父级把预览位置回灌给 position 后，标签应立刻更新
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      position: 100,
+      duration: 200,
+    );
+
+    expect(find.text('01:40'), findsOneWidget);
+    expect(find.text('00:00'), findsNothing);
+  });
+
+  testWidgets('音量滑块变化会回调 0~1 的值', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+
+    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
+
+    await tester.drag(find.byKey(_volumeKey), const Offset(30, 0));
+    await tester.pump();
+
+    expect(volumes, isNotEmpty);
+    expect(volumes.last, inInclusiveRange(0.0, 1.0));
+    expect(volumes.last, greaterThan(0.5));
+  });
+
+  testWidgets('引擎不可用时进度与音量滑块都禁用', (WidgetTester tester) async {
+    await _pumpBar(
+      tester,
+      isAvailable: false,
+      track: sampleTrack(title: '夜航'),
+      onSeekEnd: (_) {},
+      onVolumeChanged: (_) {},
+    );
+
+    expect(_sliderOf(tester, _progressKey).onChanged, isNull);
+    expect(_sliderOf(tester, _volumeKey).onChanged, isNull);
+  });
+
+  testWidgets('没有当前曲目时进度滑块禁用但音量可调', (WidgetTester tester) async {
+    await _pumpBar(tester, onVolumeChanged: (_) {});
+
+    expect(_sliderOf(tester, _progressKey).onChanged, isNull);
+    expect(_sliderOf(tester, _volumeKey).onChanged, isNotNull);
+  });
+
+  testWidgets('音量图标随音量变化，点击触发静音回调', (WidgetTester tester) async {
+    await _pumpBar(tester, volume: 0);
+    expect(find.byIcon(Icons.volume_off), findsOneWidget);
+
+    await _pumpBar(tester, volume: 0.2);
+    expect(find.byIcon(Icons.volume_down), findsOneWidget);
+
+    int toggles = 0;
+    await _pumpBar(tester, volume: 0.9, onToggleMute: () => toggles += 1);
+    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+
+    await tester.tap(find.byTooltip('静音'));
+    await tester.pump();
+    expect(toggles, 1);
+  });
+
+  testWidgets('静音状态下的按钮提示为取消静音', (WidgetTester tester) async {
+    await _pumpBar(tester, volume: 0, onToggleMute: () {});
+
+    expect(find.byTooltip('取消静音'), findsOneWidget);
+    expect(find.byTooltip('静音'), findsNothing);
+  });
+}
