@@ -609,9 +609,8 @@ class _LibraryPageState extends State<LibraryPage> {
     final ThemeData theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           Text(
             'Lamp',

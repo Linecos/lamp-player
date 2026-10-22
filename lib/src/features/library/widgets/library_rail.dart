@@ -64,9 +64,15 @@ class LibraryRail extends StatelessWidget {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 8, top: 8),
+                  padding: const EdgeInsets.only(left: 12, top: 8),
                   child: IconButton(
                     onPressed: onToggle,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    iconSize: 24,
                     tooltip: expanded ? '收起导航栏' : '展开导航栏',
                     icon: Icon(expanded ? Icons.menu_open : Icons.menu),
                   ),
@@ -95,7 +101,7 @@ class LibraryRail extends StatelessWidget {
             ),
             if (expanded)
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 12, 16),
+                padding: const EdgeInsets.fromLTRB(24, 8, 12, 16),
                 child: Text(
                   'Lamp Player 0.1.0',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -160,7 +166,7 @@ class _RailItem extends StatelessWidget {
             height: expanded ? 56 : 64,
             child: expanded
                 ? Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Row(
                       children: <Widget>[
                         iconWidget,

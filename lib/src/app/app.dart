@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'routes.dart';
+import 'title_bar.dart';
+import 'window_controls.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
 import '../features/settings/theme_controller.dart';
@@ -19,6 +21,7 @@ class LampApp extends StatefulWidget {
     this.libraryRepository,
     this.playbackService,
     this.themeController,
+    this.windowControls,
   });
 
   final LibraryRepository? libraryRepository;
@@ -28,6 +31,9 @@ class LampApp extends StatefulWidget {
   /// 不传时由 [LampApp] 自己创建并异步恢复。
   final ThemeController? themeController;
 
+  /// 窗口控制（自绘标题栏用）；不传走真实的 `window_manager`。
+  final WindowControls? windowControls;
+
   @override
   State<LampApp> createState() => _LampAppState();
 }
@@ -35,6 +41,10 @@ class LampApp extends StatefulWidget {
 class _LampAppState extends State<LampApp> {
   late final ThemeController _theme;
   late final bool _ownsTheme;
+
+  /// 自绘标题栏的窗口控制；测试可注入假实现
+  late final WindowControls _windowControls =
+      widget.windowControls ?? const WindowManagerControls();
 
   @override
   void initState() {
@@ -68,6 +78,13 @@ class _LampAppState extends State<LampApp> {
             darkTheme: AppTheme.dark,
             themeMode: _theme.mode,
             initialRoute: AppRoutes.library,
+            // 自绘标题栏：原生标题栏已在 main.dart 里关掉；
+            // 底色跟随曲库页，避免出现一条色带
+            builder: (BuildContext context, Widget? child) => WindowChrome(
+              controls: _windowControls,
+              background: Theme.of(context).colorScheme.surfaceContainerLow,
+              child: child ?? const SizedBox.shrink(),
+            ),
             onGenerateRoute: (RouteSettings settings) =>
                 LampRouter.onGenerateRoute(
                   settings,
@@ -90,12 +107,16 @@ class LampStartupErrorApp extends StatelessWidget {
     super.key,
     required this.message,
     this.title = '启动失败：Rust 核心未能加载',
+    this.windowControls,
   });
 
   final String message;
 
   /// 失败环节的描述，如「曲库未能打开」
   final String title;
+
+  /// 原生标题栏此时已隐藏，兜底页同样要给一个可拖动 / 可关闭的标题栏
+  final WindowControls? windowControls;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +126,11 @@ class LampStartupErrorApp extends StatelessWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
+      builder: (BuildContext context, Widget? child) => WindowChrome(
+        controls: windowControls,
+        background: Theme.of(context).scaffoldBackgroundColor,
+        child: child ?? const SizedBox.shrink(),
+      ),
       // Builder 是为了拿到 MaterialApp 提供的主题，而不是外层的默认主题
       home: Builder(
         builder: (BuildContext context) {
