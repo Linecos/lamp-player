@@ -38,3 +38,17 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# BASS 运行库：整个目录拷到 exe 旁，后续新增插件无需改动本文件。
+# DLL 由 scripts/setup-bass.ps1 与 scripts/setup-bass-plugins.ps1 下载（third_party 不入库）。
+set(BASS_X64_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/bass/windows/x64")
+if(EXISTS "${BASS_X64_DIR}/bass.dll")
+  add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${BASS_X64_DIR}"
+      "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+    COMMENT "拷贝 BASS 运行库与格式插件"
+  )
+else()
+  message(WARNING "未找到 ${BASS_X64_DIR}/bass.dll，请先运行 scripts/setup-bass.ps1")
+endif()
