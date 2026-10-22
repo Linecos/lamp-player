@@ -159,4 +159,64 @@ void main() {
     final BuildContext context = tester.element(find.text('Lamp').first);
     expect(Theme.of(context).brightness, Brightness.dark);
   });
+
+  testWidgets('音乐目录为空时显示空态提示', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const Scaffold(
+          body: SettingsView(
+            trackCount: 0,
+            totalDurationSecs: 0,
+            engineAvailable: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
+  });
+
+  testWidgets('目录行提供重新扫描与移除回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<String> rescanned = <String>[];
+    final List<String> removed = <String>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 3,
+            totalDurationSecs: 200,
+            engineAvailable: true,
+            folders: const <String>['D:/Music', 'E:/Songs'],
+            onRescanFolder: rescanned.add,
+            onRemoveFolder: removed.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('D:/Music'), findsOneWidget);
+    expect(find.text('E:/Songs'), findsOneWidget);
+    expect(find.byTooltip('重新扫描'), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('重新扫描').first);
+    expect(rescanned, <String>['D:/Music']);
+
+    await tester.tap(find.byTooltip('从列表移除').last);
+    expect(removed, <String>['E:/Songs']);
+  });
 }
