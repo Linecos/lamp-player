@@ -1,0 +1,164 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/title_bar.dart';
+import 'package:lamp_player/src/app/window_controls.dart';
+
+/// 不依赖 window_manager 的假实现。
+class FakeWindowControls implements WindowControls {
+  int minimizeCalls = 0;
+  int toggleCalls = 0;
+  int closeCalls = 0;
+  int dragCalls = 0;
+
+  bool maximized = false;
+  bool failAll = false;
+
+  @override
+  Future<void> minimize() async {
+    if (failAll) {
+      throw StateError('不可用');
+    }
+    minimizeCalls += 1;
+  }
+
+  @override
+  Future<bool> toggleMaximize() async {
+    if (failAll) {
+      throw StateError('不可用');
+    }
+    toggleCalls += 1;
+    maximized = !maximized;
+    return maximized;
+  }
+
+  @override
+  Future<bool> isMaximized() async {
+    if (failAll) {
+      throw StateError('不可用');
+    }
+    return maximized;
+  }
+
+  @override
+  Future<void> close() async {
+    if (failAll) {
+      throw StateError('不可用');
+    }
+    closeCalls += 1;
+  }
+
+  @override
+  Future<void> startDragging() async {
+    if (failAll) {
+      throw StateError('不可用');
+    }
+    dragCalls += 1;
+  }
+}
+
+const ValueKey<String> _minimizeKey = ValueKey<String>('window-minimize');
+const ValueKey<String> _maximizeKey = ValueKey<String>('window-maximize');
+const ValueKey<String> _closeKey = ValueKey<String>('window-close');
+const ValueKey<String> _dragKey = ValueKey<String>('window-drag-area');
+
+Future<void> _pumpTitleBar(
+  WidgetTester tester,
+  FakeWindowControls controls,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Column(
+          children: <Widget>[
+            LampTitleBar(controls: controls),
+            const Expanded(child: SizedBox.expand()),
+          ],
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+void main() {
+  testWidgets('标题栏只保留拖动区与三个窗口按钮', (WidgetTester tester) async {
+    await _pumpTitleBar(tester, FakeWindowControls());
+
+    expect(find.byKey(_dragKey), findsOneWidget);
+    expect(find.text('Lamp Player'), findsNothing, reason: '不再重复应用名');
+    expect(find.byKey(_minimizeKey), findsOneWidget);
+    expect(find.byKey(_maximizeKey), findsOneWidget);
+    expect(find.byKey(_closeKey), findsOneWidget);
+  });
+
+  testWidgets('点最小化与关闭会调用窗口控制', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await _pumpTitleBar(tester, controls);
+
+    await tester.tap(find.byKey(_minimizeKey));
+    await tester.pump();
+    expect(controls.minimizeCalls, 1);
+
+    await tester.tap(find.byKey(_closeKey));
+    await tester.pump();
+    expect(controls.closeCalls, 1);
+  });
+
+  testWidgets('点最大化会切换状态并换成还原图标', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await _pumpTitleBar(tester, controls);
+
+    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+
+    await tester.tap(find.byKey(_maximizeKey));
+    await tester.pumpAndSettle();
+
+    expect(controls.toggleCalls, 1);
+    expect(controls.maximized, isTrue);
+    expect(find.byIcon(Icons.filter_none), findsOneWidget);
+    expect(find.byIcon(Icons.crop_square), findsNothing);
+
+    await tester.tap(find.byKey(_maximizeKey));
+    await tester.pumpAndSettle();
+
+    expect(controls.toggleCalls, 2);
+    expect(controls.maximized, isFalse);
+    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+  });
+
+  testWidgets('双击标题区域切换最大化', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await _pumpTitleBar(tester, controls);
+
+    await tester.tap(find.byKey(_dragKey));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.byKey(_dragKey));
+    await tester.pumpAndSettle();
+
+    expect(controls.toggleCalls, 1);
+  });
+
+  testWidgets('按住标题区域会开始拖动窗口', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await _pumpTitleBar(tester, controls);
+
+    await tester.drag(find.byKey(_dragKey), const Offset(60, 0));
+    await tester.pumpAndSettle();
+
+    expect(controls.dragCalls, greaterThan(0));
+  });
+
+  testWidgets('窗口控制不可用时点按钮不崩溃', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls()..failAll = true;
+    await _pumpTitleBar(tester, controls);
+
+    await tester.tap(find.byKey(_minimizeKey));
+    await tester.pump();
+    await tester.tap(find.byKey(_maximizeKey));
+    await tester.pump();
+    await tester.tap(find.byKey(_closeKey));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+}

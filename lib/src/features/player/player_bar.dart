@@ -69,7 +69,7 @@ class PlayerBar extends StatelessWidget {
 
     return Container(
       height: 88,
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       padding: const EdgeInsets.fromLTRB(14, 0, 16, 0),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh,

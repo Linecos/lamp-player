@@ -39,7 +39,7 @@
 | 路径 | 职责 | 备注 |
 |---|---|---|
 | `lib/main.dart` | 入口：初始化桥接、挂载 `LampApp` | 不写业务逻辑 |
-| `lib/src/app/` | 应用外壳、路由表（`routes.dart`） | 新增页面在这里登记 |
+| `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象，测试可注入假实现 |
 | `lib/src/theme/` | 全局主题（Material 3，seed 色） | 页面内禁止写死颜色 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
