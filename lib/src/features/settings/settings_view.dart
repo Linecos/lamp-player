@@ -17,7 +17,10 @@ class SettingsView extends StatelessWidget {
     required this.totalDurationSecs,
     required this.engineAvailable,
     this.scanning = false,
+    this.folders = const <String>[],
     this.onAddFolder,
+    this.onRescanFolder,
+    this.onRemoveFolder,
     this.scanFolder,
     this.scanReport,
     this.scanError,
@@ -28,7 +31,17 @@ class SettingsView extends StatelessWidget {
   final double totalDurationSecs;
   final bool engineAvailable;
   final bool scanning;
+
+  /// 已添加的音乐目录（按添加顺序）
+  final List<String> folders;
+
   final VoidCallback? onAddFolder;
+
+  /// 重新扫描某个目录；为空表示当前不可操作（例如正在扫描）
+  final ValueChanged<String>? onRescanFolder;
+
+  /// 从列表移除某个目录（不删除已入库曲目）
+  final ValueChanged<String>? onRemoveFolder;
 
   /// 当前（或最近一次）扫描的目录，用于进度与结果展示。
   final String? scanFolder;
@@ -73,6 +86,25 @@ class SettingsView extends StatelessWidget {
                     )
                   : null,
             ),
+          ],
+        ),
+        _SectionLabel('音乐目录'),
+        _SettingsCard(
+          children: <Widget>[
+            if (folders.isEmpty)
+              const _EmptyFolders()
+            else
+              for (final String folder in folders)
+                _FolderRow(
+                  folder: folder,
+                  scanning: scanning && folder == scanFolder,
+                  onRescan: onRescanFolder == null
+                      ? null
+                      : () => onRescanFolder!(folder),
+                  onRemove: onRemoveFolder == null
+                      ? null
+                      : () => onRemoveFolder!(folder),
+                ),
           ],
         ),
         if (scanning && scanFolder != null) _ScanProgress(folder: scanFolder!),
@@ -515,6 +547,123 @@ class _ScanSummary extends StatelessWidget {
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 还没添加任何目录时的占位提示
+class _EmptyFolders extends StatelessWidget {
+  const _EmptyFolders();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.folder_off_outlined,
+            size: 20,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '还没有添加音乐目录，先在上方添加一个',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 单个目录：路径 + 重新扫描 / 移除
+class _FolderRow extends StatelessWidget {
+  const _FolderRow({
+    required this.folder,
+    required this.scanning,
+    this.onRescan,
+    this.onRemove,
+  });
+
+  final String folder;
+  final bool scanning;
+  final VoidCallback? onRescan;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.folder_open_outlined,
+              size: 20,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  folder,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  scanning ? '正在扫描…' : '已添加',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (scanning)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            IconButton(
+              onPressed: onRescan,
+              tooltip: '重新扫描',
+              iconSize: 20,
+              icon: const Icon(Icons.refresh),
+            ),
+          IconButton(
+            onPressed: onRemove,
+            tooltip: '从列表移除',
+            iconSize: 20,
+            icon: const Icon(Icons.delete_outline),
           ),
         ],
       ),

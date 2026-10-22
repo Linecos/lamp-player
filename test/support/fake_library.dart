@@ -1,5 +1,6 @@
 import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
+import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/rust/api/scan.dart';
@@ -226,6 +227,24 @@ class FakeLibraryRepository implements LibraryRepository {
     createdAt: playlist.createdAt,
     updatedAt: playlist.updatedAt,
   );
+}
+
+/// 内存版目录存储。
+class FakeMusicFolderStore implements MusicFolderStore {
+  FakeMusicFolderStore({List<String>? folders})
+    : folders = List<String>.of(folders ?? const <String>[]);
+
+  List<String> folders;
+  int saveCalls = 0;
+
+  @override
+  Future<List<String>> load() async => List<String>.of(folders);
+
+  @override
+  Future<void> save(List<String> next) async {
+    saveCalls += 1;
+    folders = List<String>.of(next);
+  }
 }
 
 int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;

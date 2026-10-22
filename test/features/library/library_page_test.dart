@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -14,6 +15,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   List<Track>? tracks,
   FakePlaybackService? playback,
   DirectoryPicker? directoryPicker,
+  MusicFolderStore? folderStore,
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
 }) async {
@@ -37,6 +39,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         repository: repository,
         playbackService: playback ?? FakePlaybackService(),
         directoryPicker: directoryPicker,
+        musicFolderStore: folderStore,
       ),
     ),
   );
@@ -639,6 +642,61 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+
+  testWidgets('设置页列出已添加目录，可重新扫描', (WidgetTester tester) async {
+    final FakeMusicFolderStore store = FakeMusicFolderStore(
+      folders: <String>[r'D:\Music', r'E:\Songs'],
+    );
+    final FakeLibraryRepository repo = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: store,
+    );
+    await openSettings(tester);
+
+    expect(find.text(r'D:\Music'), findsOneWidget);
+    expect(find.text(r'E:\Songs'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('重新扫描').first);
+    await tester.pumpAndSettle();
+
+    expect(repo.scannedFolders, <String>[r'D:\Music']);
+  });
+
+  testWidgets('移除目录后从列表消失并写回存储', (WidgetTester tester) async {
+    final FakeMusicFolderStore store = FakeMusicFolderStore(
+      folders: <String>[r'D:\Music'],
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), folderStore: store);
+    await openSettings(tester);
+
+    await tester.tap(find.byTooltip('从列表移除'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(r'D:\Music'), findsNothing);
+    expect(store.folders, isEmpty);
+    expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
+  });
+
+  testWidgets('添加目录会写回存储并立即扫描', (WidgetTester tester) async {
+    final FakeMusicFolderStore store = FakeMusicFolderStore();
+    final FakeLibraryRepository repo = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: store,
+      directoryPicker: () async => r'F:\NewMusic',
+    );
+    await openSettings(tester);
+
+    await tester.ensureVisible(find.text('添加音乐目录'));
+    await tester.tap(find.text('添加音乐目录'));
+    await tester.pumpAndSettle();
+
+    expect(store.folders, <String>[r'F:\NewMusic']);
+    expect(repo.scannedFolders, <String>[r'F:\NewMusic']);
+    // 目录行与扫描结果摘要各出现一次
+    expect(find.text(r'F:\NewMusic'), findsWidgets);
+  });
 }
 
 Finder get playlistNameField => find.descendant(
@@ -664,6 +722,13 @@ Future<void> createPlaylistThroughUi(WidgetTester tester, String name) async {
 Future<void> openFavorites(WidgetTester tester) async {
   await tester.tap(
     find.descendant(of: find.byType(LibraryRail), matching: find.text('收藏')),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> openSettings(WidgetTester tester) async {
+  await tester.tap(
+    find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
   );
   await tester.pumpAndSettle();
 }

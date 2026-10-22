@@ -9,6 +9,7 @@ import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
+import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'library_repository.dart';
 import 'library_sort.dart';
@@ -31,6 +32,7 @@ class LibraryPage extends StatefulWidget {
     this.repository,
     this.playbackService,
     this.directoryPicker,
+    this.musicFolderStore,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -41,6 +43,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 选择音乐目录；不传则打开系统目录选择框。
   final DirectoryPicker? directoryPicker;
+
+  /// 已添加目录的持久化；不传则用 shared_preferences。
+  final MusicFolderStore? musicFolderStore;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -60,6 +65,8 @@ class _LibraryPageState extends State<LibraryPage> {
       widget.repository ?? const RustLibraryRepository();
   late final PlaybackService _playback =
       widget.playbackService ?? const RustPlaybackService();
+  late final MusicFolderStore _folderStore =
+      widget.musicFolderStore ?? const PrefsMusicFolderStore();
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -82,6 +89,7 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _searching = false;
   bool _scanning = false;
   String? _lastScanFolder;
+  List<String> _folders = const <String>[];
   scan.ScanReport? _scanReport;
   Object? _scanError;
   Object? _error;
@@ -123,6 +131,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _isAvailable = _readAvailability();
     unawaited(_loadTracks());
     unawaited(_refreshFavoritePaths());
+    unawaited(_loadFolders());
   }
 
   @override
@@ -183,6 +192,52 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  /* ------------------------------------------------------------ 音乐目录 */
+
+  Future<void> _loadFolders() async {
+    final List<String> folders = await _folderStore.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _folders = normalizeFolders(folders));
+  }
+
+  /// 记下新目录（忽略大小写去重）；已存在时不重复写入。
+  ///
+  /// 持久化是"尽力而为"：不等待写完就开始扫描，避免磁盘/插件慢时拖住扫描。
+  void _rememberFolder(String folder) {
+    final List<String> next = normalizeFolders(<String>[..._folders, folder]);
+    if (next.length == _folders.length) {
+      return;
+    }
+    setState(() => _folders = next);
+    unawaited(_folderStore.save(next));
+  }
+
+  /// 从列表移除目录：只删记录，不删除已入库的曲目。
+  void _removeFolder(String folder) {
+    final String key = folder.toLowerCase();
+    final List<String> next = _folders
+        .where((String item) => item.toLowerCase() != key)
+        .toList();
+    setState(() {
+      _folders = next;
+      if (_lastScanFolder?.toLowerCase() == key) {
+        _lastScanFolder = null;
+        _scanReport = null;
+        _scanError = null;
+      }
+    });
+    unawaited(_folderStore.save(next));
+  }
+
+  Future<void> _rescanFolder(String folder) async {
+    if (_scanning) {
+      return;
+    }
+    await _scanDirectory(folder);
+  }
+
   Future<String?> _pickDirectory() {
     return getDirectoryPath(confirmButtonText: '选择音乐目录');
   }
@@ -206,6 +261,7 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
+    _rememberFolder(folder.trim());
     await _scanDirectory(folder.trim());
   }
 
@@ -725,7 +781,12 @@ class _LibraryPageState extends State<LibraryPage> {
             totalDurationSecs: total,
             engineAvailable: _isAvailable,
             scanning: _scanning,
+            folders: _folders,
             onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
+            onRescanFolder: _scanning
+                ? null
+                : (String folder) => unawaited(_rescanFolder(folder)),
+            onRemoveFolder: _scanning ? null : _removeFolder,
             scanFolder: _lastScanFolder,
             scanReport: _scanReport,
             scanError: _scanError,
