@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
 import 'routes.dart';
+import '../features/library/library_repository.dart';
+import '../features/player/playback_service.dart';
 import '../theme/app_theme.dart';
 
 /// 应用外壳：主题 + 路由 + 全局配置都收在这里。
 ///
 /// 页面本身不写在此文件，新增页面请改 [LampRouter]。
+/// 数据源与播放能力可从外部注入，方便 widget 测试脱离 Rust 原生库。
 class LampApp extends StatelessWidget {
-  const LampApp({super.key});
+  const LampApp({super.key, this.libraryRepository, this.playbackService});
+
+  final LibraryRepository? libraryRepository;
+  final PlaybackService? playbackService;
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +24,11 @@ class LampApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       initialRoute: AppRoutes.library,
-      onGenerateRoute: LampRouter.onGenerateRoute,
+      onGenerateRoute: (RouteSettings settings) => LampRouter.onGenerateRoute(
+        settings,
+        repository: libraryRepository,
+        playbackService: playbackService,
+      ),
     );
   }
 }
