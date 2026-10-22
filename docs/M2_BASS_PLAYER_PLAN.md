@@ -3,11 +3,17 @@
 范围：`rust/src/bass.rs`（新建）、`rust/src/api/player.rs`、`windows/CMakeLists.txt`
 契约：`docs/API_CONTRACT.md` v0.3 **不改签名**
 
-## 现状
+> **状态：已完成**（PR #3 合并）。本文保留计划、决策与风险记录；
+> 当前任务清单见 [ROADMAP.md](ROADMAP.md)。
 
-`player.rs` 10 个函数全是存根，`bass.rs` 不存在；BASS DLL 已由 `windows/CMakeLists.txt`
-的 install 规则自动拷进 bundle。
+## 计划时的现状
+
+撰写本计划时 `player.rs` 10 个函数全是存根、`bass.rs` 不存在；BASS DLL 已由
+`windows/CMakeLists.txt` 的 install 规则自动拷进 bundle。
 依赖已就绪：`libloading`、`third_party/bass/windows/`（`x64/` 下已有 bass.dll + 5 个插件）。
+
+实现完成后：`bass.rs` 负责 DLL/5 个插件加载与专用引擎线程，`player.rs` 的 10 个函数
+全部接真实实现，错误码翻译在 `bass.rs::error_text`。
 
 ## 关键决策
 
@@ -30,18 +36,20 @@
 | 4 | 纯逻辑单测 + `integration_test` 播 1 秒 wav | S |
 | 5 | 错误码翻译（`BASS_ErrorGetCode` → 可读文案） | S |
 
-## 待对齐：格式覆盖
+表中 5 项均已完成；第 4 项的纯逻辑与播放链路测试见 `rust/tests/player.rs`。
+
+## 格式覆盖（实现时已定）
 
 扫描支持 8 种格式（不含 wma：`lofty` 不支持 ASF，`.wma` 会被直接忽略）。
 基础 `bass.dll` 只解 mp3 / ogg / wav / aiff；flac / opus / ape / wma 由
 `scripts/setup-bass.ps1` 安装，m4a / aac 需要 `scripts/setup-bass-plugins.ps1`
 额外补 `bass_aac.dll`。
 
-需 @Linecos 确认：
+实现时的结论：
 
-- M2 是否直接启用全部插件（建议启用，成本已沉没）；
-- wma 可以播放但扫描不入库，是否需要给 wma 加「按文件名入库」的兜底；
-- 是否要在 `Track` 上加 `playable` 标记 —— 属于改模型，走契约流程，不在本计划内。
+- 启用全部 5 个插件（`bass.rs` 的 `PLUGINS` 常量）；单个缺失只记录，不影响其它格式。
+- wma 仍不入库，也没有「按文件名入库」兜底；需要时另开任务。
+- `Track` 未加 `playable` 标记，保持契约稳定。
 
 ## 风险
 
@@ -49,7 +57,7 @@
 |---|---|
 | 中文路径解码失败 | UTF-16 + `BASS_UNICODE`，验收必须用中文名文件 |
 | 单个插件缺失拖垮引擎 | 逐个 `BASS_PluginLoad`，失败的记录后继续 |
-| release 漏拷 DLL | `windows/CMakeLists.txt` 的 `install(FILES ...)` 规则，Debug/Release 都覆盖 |
+| release 漏拷 DLL | `windows/CMakeLists.txt` 的 `install(FILES ...)` 规则覆盖 Debug/Release；但 CI 的 Windows 任务目前**未下载 BASS**，发布链路需补 `setup-bass.ps1` 与产物校验 |
 
 ## 参考实现
 
