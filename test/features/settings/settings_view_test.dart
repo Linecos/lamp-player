@@ -49,6 +49,62 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
   });
 
+  testWidgets('设置页可触发添加音乐目录', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    int calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 2,
+            totalDurationSecs: 125,
+            engineAvailable: true,
+            onAddFolder: () => calls += 1,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('添加音乐目录'));
+    await tester.tap(find.text('添加音乐目录'));
+    expect(calls, 1);
+  });
+
+  testWidgets('扫描中禁用添加目录入口并显示进度', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    int calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 2,
+            totalDurationSecs: 125,
+            engineAvailable: true,
+            scanning: true,
+            onAddFolder: () => calls += 1,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('正在扫描并入库…'));
+    await tester.tap(find.text('添加音乐目录'));
+    expect(calls, 0);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
   testWidgets('点击主题行可切换到深色并写入存储', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
@@ -85,8 +141,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    // 生产路径：main() 先恢复，再把 controller 注入 LampApp
+    final ThemeController controller = ThemeController();
+    await controller.restore();
+
     await tester.pumpWidget(
       LampApp(
+        themeController: controller,
         libraryRepository: FakeLibraryRepository(
           tracks: <Track>[sampleTrack(title: '夜航')],
         ),

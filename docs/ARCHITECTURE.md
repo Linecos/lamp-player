@@ -132,6 +132,10 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，
 进度用 `Timer` 轮询。跨页面共享状态尚未抽象，需要时先开 issue 讨论，由 owner 统一加。
 请勿单独引入 provider / riverpod / bloc 等依赖。
 
+目前唯一提升到应用根部的状态是主题：`ThemeController`（`ChangeNotifier`）+
+`ThemeScope`（`InheritedNotifier`），持久化走 `shared_preferences`；
+`main()` 在 `runApp` 前恢复，避免启动时深浅色闪烁。
+
 ## 7. 测试分层
 
 | 层 | 位置 | 运行环境 | 覆盖什么 |

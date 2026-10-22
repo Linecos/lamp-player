@@ -4,6 +4,7 @@ import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/theme/app_theme.dart';
 
 import '../../support/fake_library.dart';
@@ -12,6 +13,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   WidgetTester tester, {
   List<Track>? tracks,
   FakePlaybackService? playback,
+  DirectoryPicker? directoryPicker,
   void Function(FakeLibraryRepository repo)? configure,
 }) async {
   tester.view.physicalSize = const Size(1280, 800);
@@ -30,6 +32,7 @@ Future<FakeLibraryRepository> pumpLibrary(
       home: LibraryPage(
         repository: repository,
         playbackService: playback ?? FakePlaybackService(),
+        directoryPicker: directoryPicker,
       ),
     ),
   );
@@ -60,6 +63,21 @@ void main() {
 
     expect(find.text('曲库还是空的'), findsOneWidget);
     expect(find.text('重新读取'), findsOneWidget);
+  });
+
+  testWidgets('空曲库可添加音乐目录并触发扫描', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: const <Track>[],
+      directoryPicker: () async => ' /music ',
+    );
+
+    await tester.tap(find.text('添加音乐目录'));
+    await tester.pumpAndSettle();
+
+    expect(repository.scannedFolders, <String>['/music']);
+    expect(repository.loadCalls, 2, reason: '扫描后应重新读取曲库');
+    expect(find.textContaining('扫描完成'), findsOneWidget);
   });
 
   testWidgets('读取失败展示错误态，重试后恢复', (WidgetTester tester) async {
@@ -152,13 +170,13 @@ void main() {
       find.widgetWithIcon(IconButton, Icons.play_arrow),
     );
     expect(playButton.onPressed, isNull);
-    expect(find.textContaining('播放引擎未接入'), findsWidgets);
+    expect(find.textContaining('播放引擎不可用'), findsWidgets);
 
     await tester.tap(find.text('夜航'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.textContaining('播放引擎尚未接入'), findsOneWidget);
+    expect(find.textContaining('播放引擎不可用'), findsWidgets);
     // 仍然只展示曲目信息，不伪造播放状态
     expect(find.byType(PlayerBar), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsNothing);
@@ -183,6 +201,58 @@ void main() {
     expect(playback.pauseCalls, 1);
 
     // 卸载页面，确保轮询定时器被 dispose 取消
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('播放成功会写入播放历史', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final List<Track> history = await repository.loadRecentTracks();
+    expect(history.map((Track track) => track.path), <String>['/music/夜航.mp3']);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('自然播完后按播放会重新开始而不是 resume', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths.length, 1);
+
+    // 模拟 BASS 自然播完：状态 stopped、位置停在结尾
+    playback
+      ..current = rust.PlaybackState.stopped
+      ..positionSecs = 180;
+    await tester.pump(const Duration(milliseconds: 550));
+
+    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    await tester.pump();
+
+    expect(playback.playedPaths.length, 2, reason: '应重新 play 而不是 resume');
+    expect(playback.resumeCalls, 0);
+    expect(find.byIcon(Icons.pause), findsOneWidget);
+
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
@@ -246,7 +316,7 @@ void main() {
 
     expect(find.text('曲目数量'), findsOneWidget);
     expect(find.text('2 首'), findsOneWidget);
-    expect(find.text('未接入（M2）'), findsOneWidget);
+    expect(find.text('不可用（未加载 BASS）'), findsOneWidget);
     expect(find.text('跟随系统'), findsOneWidget);
   });
 

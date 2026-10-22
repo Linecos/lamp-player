@@ -426,38 +426,106 @@ fn folder_prefix(folder_key: &str, sep: char) -> String {
 /// `path UNIQUE` 是按字节比较的：Windows 上老记录可能存成 `e:/music/a.mp3`，
 /// 本次扫描写入的是 canonicalize 后的 `E:\Music\a.mp3`，不处理就会留下两条。
 /// 这里一次读出库里的行（每批只扫一次，不是每首歌一次），按 [`path_key`]
-/// 找到本批次涉及的孪生行并删除；字面完全一致的行保留，交给
-/// `ON CONFLICT(path)` 原地更新（保住 id 与 `added_at`）。
+/// 找到本批次涉及的孪生行。不能直接删旧行：歌单、收藏、历史都通过
+/// `track_path` 外键级联到 `tracks`，直接删会把用户数据一起清掉。
+/// 因此先把旧路径的引用迁移到新路径（歌单/收藏去重，历史合并播放次数），
+/// 再删旧行；字面完全一致的行保留，交给 `ON CONFLICT(path)` 原地更新。
 fn reconcile_paths(tx: &rusqlite::Transaction<'_>, paths: &[&str]) -> anyhow::Result<()> {
     let targets: HashMap<String, &str> = paths.iter().map(|path| (path_key(path), *path)).collect();
     if targets.is_empty() {
         return Ok(());
     }
 
-    let stale: Vec<i64> = {
-        let mut stmt = tx.prepare_cached("SELECT id, path FROM tracks")?;
+    let stale: Vec<(String, String)> = {
+        let mut stmt = tx.prepare_cached("SELECT path FROM tracks")?;
         let mut rows = stmt.query([])?;
         let mut stale = Vec::new();
         while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let path: String = row.get(1)?;
+            let path: String = row.get(0)?;
             if let Some(target) = targets.get(&path_key(&path)) {
                 if path.as_str() != *target {
-                    stale.push(id);
+                    stale.push((path, (*target).to_string()));
                 }
             }
         }
         stale
     };
 
-    if stale.is_empty() {
-        return Ok(());
+    for (old_path, target_path) in stale {
+        merge_track_path(tx, &old_path, &target_path)?;
+    }
+    Ok(())
+}
+
+/// 把 `old_path` 的曲目和用户数据迁移到 `target_path`。
+///
+/// 先保证目标曲目行存在（复制旧行，保留 `added_at`），再迁移歌单/收藏/历史，
+/// 最后删除旧行。调用方必须已在事务中，且 `old_path != target_path`。
+fn merge_track_path(
+    tx: &rusqlite::Transaction<'_>,
+    old_path: &str,
+    target_path: &str,
+) -> anyhow::Result<()> {
+    let target_exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE path = ?1",
+        [target_path],
+        |row| row.get(0),
+    )?;
+
+    if target_exists == 0 {
+        // 目标行可能尚未由本次 upsert 插入；先复制旧行，外键才允许挂引用。
+        let copied = tx.execute(
+            r#"
+            INSERT INTO tracks
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size
+            FROM tracks
+            WHERE path = ?2
+            "#,
+            params![target_path, old_path],
+        )?;
+        if copied == 0 {
+            return Ok(());
+        }
     }
 
-    let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE id = ?1")?;
-    for id in &stale {
-        stmt.execute([id])?;
-    }
+    // 收藏：目标已有则保留目标的加入时间，只清掉旧路径。
+    tx.execute(
+        r#"
+        INSERT OR IGNORE INTO favorites (track_path, added_at)
+        SELECT ?1, added_at FROM favorites WHERE track_path = ?2
+        "#,
+        params![target_path, old_path],
+    )?;
+    tx.execute("DELETE FROM favorites WHERE track_path = ?1", [old_path])?;
+
+    // 歌单：同一歌单里已经存在目标曲目时去重，否则把旧条目迁过去。
+    tx.execute(
+        r#"
+        INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at)
+        SELECT playlist_id, ?1, added_at FROM playlist_items WHERE track_path = ?2
+        "#,
+        params![target_path, old_path],
+    )?;
+    tx.execute(
+        "DELETE FROM playlist_items WHERE track_path = ?1",
+        [old_path],
+    )?;
+
+    // 历史：按曲目去重，合并播放次数并保留较新的播放时间。
+    tx.execute(
+        r#"
+        INSERT INTO play_history (track_path, last_played_at, play_count)
+        SELECT ?1, last_played_at, play_count FROM play_history WHERE track_path = ?2
+        ON CONFLICT(track_path) DO UPDATE SET
+            last_played_at = max(play_history.last_played_at, excluded.last_played_at),
+            play_count     = play_history.play_count + excluded.play_count
+        "#,
+        params![target_path, old_path],
+    )?;
+    tx.execute("DELETE FROM play_history WHERE track_path = ?1", [old_path])?;
+
+    tx.execute("DELETE FROM tracks WHERE path = ?1", [old_path])?;
     Ok(())
 }
 
@@ -499,7 +567,168 @@ fn some_if_not_empty(s: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::folder_prefix;
+    use super::{folder_prefix, merge_track_path};
+    use rusqlite::Connection;
+
+    fn merge_fixture() -> Connection {
+        let conn = Connection::open_in_memory().expect("内存库");
+        conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE tracks (
+                path          TEXT PRIMARY KEY,
+                title         TEXT NOT NULL DEFAULT '',
+                artist        TEXT NOT NULL DEFAULT '',
+                album         TEXT NOT NULL DEFAULT '',
+                duration_secs REAL NOT NULL DEFAULT 0,
+                track_num     INTEGER NOT NULL DEFAULT 0,
+                added_at      INTEGER NOT NULL DEFAULT 0,
+                file_mtime    INTEGER NOT NULL DEFAULT 0,
+                file_size     INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE playlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE playlist_items (
+                playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                track_path  TEXT NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
+                added_at    INTEGER NOT NULL,
+                PRIMARY KEY (playlist_id, track_path)
+            );
+            CREATE TABLE favorites (
+                track_path TEXT PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+                added_at   INTEGER NOT NULL
+            );
+            CREATE TABLE play_history (
+                track_path     TEXT PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+                last_played_at INTEGER NOT NULL,
+                play_count     INTEGER NOT NULL DEFAULT 1
+            );
+            "#,
+        )
+        .expect("建表");
+        conn
+    }
+
+    #[test]
+    fn merge_track_path_keeps_user_data_when_target_is_new() {
+        let mut conn = merge_fixture();
+        conn.execute(
+            "INSERT INTO tracks (path, title, added_at) VALUES (?1, '旧标题', 42)",
+            ["/music/Old.mp3"],
+        )
+        .expect("旧曲目");
+        conn.execute(
+            "INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'P', 1, 1)",
+            [],
+        )
+        .expect("歌单");
+        conn.execute(
+            "INSERT INTO playlist_items VALUES (1, '/music/Old.mp3', 10)",
+            [],
+        )
+        .expect("歌单条目");
+        conn.execute("INSERT INTO favorites VALUES ('/music/Old.mp3', 20)", [])
+            .expect("收藏");
+        conn.execute(
+            "INSERT INTO play_history VALUES ('/music/Old.mp3', 100, 2)",
+            [],
+        )
+        .expect("历史");
+
+        let tx = conn.transaction().expect("事务");
+        merge_track_path(&tx, "/music/Old.mp3", "/music/new.mp3").expect("合并路径");
+        tx.commit().expect("提交");
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .expect("曲目数");
+        assert_eq!(count, 1);
+        let (title, added_at): (String, i64) = conn
+            .query_row(
+                "SELECT title, added_at FROM tracks WHERE path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("目标曲目");
+        assert_eq!(title, "旧标题");
+        assert_eq!(added_at, 42, "合并应保留原入库时间");
+
+        let favorite: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM favorites WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| row.get(0),
+            )
+            .expect("收藏");
+        assert_eq!(favorite, 1);
+        let item: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_items WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| row.get(0),
+            )
+            .expect("歌单条目");
+        assert_eq!(item, 1);
+        let history: (i64, i64) = conn
+            .query_row(
+                "SELECT last_played_at, play_count FROM play_history WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("历史");
+        assert_eq!(history, (100, 2));
+    }
+
+    #[test]
+    fn merge_track_path_merges_duplicate_target_rows() {
+        let mut conn = merge_fixture();
+        conn.execute_batch(
+            r#"
+            INSERT INTO tracks (path, title, added_at)
+            VALUES ('/music/Old.mp3', '旧', 1), ('/music/new.mp3', '新', 2);
+            INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'P', 1, 1);
+            INSERT INTO playlist_items VALUES
+                (1, '/music/Old.mp3', 10), (1, '/music/new.mp3', 20);
+            INSERT INTO favorites VALUES
+                ('/music/Old.mp3', 10), ('/music/new.mp3', 20);
+            INSERT INTO play_history VALUES
+                ('/music/Old.mp3', 100, 2), ('/music/new.mp3', 200, 3);
+            "#,
+        )
+        .expect("准备数据");
+
+        let tx = conn.transaction().expect("事务");
+        merge_track_path(&tx, "/music/Old.mp3", "/music/new.mp3").expect("合并路径");
+        tx.commit().expect("提交");
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .expect("曲目数");
+        assert_eq!(count, 1);
+
+        let favorite: i64 = conn
+            .query_row("SELECT COUNT(*) FROM favorites", [], |row| row.get(0))
+            .expect("收藏数");
+        assert_eq!(favorite, 1, "同一曲目只保留一条收藏");
+        let item: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlist_items", [], |row| row.get(0))
+            .expect("歌单条目数");
+        assert_eq!(item, 1, "同一歌单只保留一条");
+
+        let (last, plays): (i64, i64) = conn
+            .query_row(
+                "SELECT last_played_at, play_count FROM play_history WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("历史");
+        assert_eq!(last, 200, "保留较新的播放时间");
+        assert_eq!(plays, 5, "播放次数应累加");
+    }
 
     #[test]
     fn folder_prefix_uses_given_separator() {

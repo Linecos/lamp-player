@@ -38,7 +38,7 @@ class PlayerBar extends StatelessWidget {
 
     final String subtitle = current != null
         ? trackArtist(current)
-        : (isAvailable ? '从曲库中选一首开始' : '播放引擎未接入（M2）');
+        : (isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
 
     return Container(
       height: 88,
