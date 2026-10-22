@@ -50,6 +50,12 @@ class _LibraryPageState extends State<LibraryPage> {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
   static const Duration _pollInterval = Duration(milliseconds: 500);
 
+  /// 音量滑块的合并窗口：拖动时最多每 80ms 发一次 FFI。
+  static const Duration _volumeThrottle = Duration(milliseconds: 80);
+
+  /// 位置轮询连续失败多少次后停止（单次瞬时异常不应冻结进度条）。
+  static const int _maxPollFailures = 3;
+
   late final LibraryRepository _repository =
       widget.repository ?? const RustLibraryRepository();
   late final PlaybackService _playback =
@@ -59,6 +65,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Timer? _debounce;
   Timer? _positionTimer;
+  Timer? _volumeTimer;
+  double? _pendingVolume;
+  int _pollFailures = 0;
   int _searchToken = 0;
   bool _ticking = false;
 
@@ -120,6 +129,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     _debounce?.cancel();
     _positionTimer?.cancel();
+    _volumeTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -129,6 +139,17 @@ class _LibraryPageState extends State<LibraryPage> {
       return _playback.isAvailable;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// 引擎是否处于停止态（未播放、已播完、或引擎不可用）。
+  ///
+  /// 停止态下滑块要禁用：此时 seek 虽然能成功，但播放键会从头重播。
+  bool get _isStopped {
+    try {
+      return _playback.state == rust.PlaybackState.stopped;
+    } catch (_) {
+      return true;
     }
   }
 
@@ -393,7 +414,10 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Future<void> _onSeekEnd(double seconds) async {
     _seeking = false;
-    if (_isAvailable) {
+    // 已停止（播完 / 未开始）时不要 seek：位置会改变但播放键会从头重播，
+    // 等于白拖。滑块此时本身就是禁用的，这里再兜一层。
+    final bool canSeek = _isAvailable && !_isStopped;
+    if (canSeek) {
       try {
         await _playback.seek(seconds);
         if (!mounted) {
@@ -412,7 +436,9 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  Future<void> _setVolume(double volume) async {
+  /// 音量变化：UI 立即跟随，实际调用按 [_volumeThrottle] 合并，
+  /// 避免拖动时每个像素都发一条 FFI 命令。
+  void _setVolume(double volume) {
     final double next = volume.clamp(0.0, 1.0).toDouble();
     setState(() {
       if (next > 0) {
@@ -423,8 +449,23 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!_isAvailable) {
       return;
     }
+    _pendingVolume = next;
+    _volumeTimer ??= Timer(_volumeThrottle, _flushVolume);
+  }
+
+  /// 把合并窗口内的最后一次音量发给引擎。
+  void _flushVolume() {
+    _volumeTimer = null;
+    final double? next = _pendingVolume;
+    _pendingVolume = null;
+    if (next != null) {
+      unawaited(_applyVolume(next));
+    }
+  }
+
+  Future<void> _applyVolume(double volume) async {
     try {
-      await _playback.setVolume(next);
+      await _playback.setVolume(volume);
     } catch (error) {
       if (!mounted) {
         return;
@@ -433,13 +474,25 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  /// 静音 / 取消静音：立即生效，并丢弃尚未发出的中间值。
   void _toggleMute() {
-    unawaited(
-      _setVolume(_volume > 0 ? 0 : (_lastVolume > 0 ? _lastVolume : 1)),
-    );
+    final double next = _volume > 0 ? 0 : (_lastVolume > 0 ? _lastVolume : 1);
+    _volumeTimer?.cancel();
+    _volumeTimer = null;
+    _pendingVolume = null;
+    setState(() {
+      if (next > 0) {
+        _lastVolume = next;
+      }
+      _volume = next;
+    });
+    if (_isAvailable) {
+      unawaited(_applyVolume(next));
+    }
   }
 
   void _startPositionPolling() {
+    _pollFailures = 0;
     _positionTimer?.cancel();
     _positionTimer = Timer.periodic(_pollInterval, (_) {
       unawaited(_tickPosition());
@@ -460,6 +513,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final double position = await _playback.position();
       final double duration = await _playback.duration();
       final rust.PlaybackState state = _playback.state;
+      _pollFailures = 0;
       if (!mounted || _seeking) {
         return;
       }
@@ -474,7 +528,12 @@ class _LibraryPageState extends State<LibraryPage> {
         _stopPositionPolling();
       }
     } catch (_) {
-      _stopPositionPolling();
+      // 单次失败（引擎忙、响应中断）不该让进度条永久冻住：
+      // 连续失败达到上限才停，期间继续按周期重试。
+      _pollFailures += 1;
+      if (_pollFailures >= _maxPollFailures) {
+        _stopPositionPolling();
+      }
     } finally {
       _ticking = false;
     }
@@ -527,6 +586,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   track: _currentTrack,
                   isPlaying: _isPlaying,
                   isAvailable: _isAvailable,
+                  canSeek: !_isStopped,
                   position: _position,
                   duration: _duration,
                   volume: _volume,
@@ -534,8 +594,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   onSeekStart: _onSeekStart,
                   onSeekChanged: _onSeekChanged,
                   onSeekEnd: (double seconds) => unawaited(_onSeekEnd(seconds)),
-                  onVolumeChanged: (double value) =>
-                      unawaited(_setVolume(value)),
+                  onVolumeChanged: _setVolume,
                   onToggleMute: _toggleMute,
                 ),
               ],

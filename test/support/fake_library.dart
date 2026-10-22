@@ -254,6 +254,9 @@ class FakePlaybackService implements PlaybackService {
   double positionSecs;
   double durationSecs;
 
+  /// 非空时 `position()` 抛出该错误，用于测试轮询容错
+  Object? positionError;
+
   rust.PlaybackState current = rust.PlaybackState.stopped;
   final List<String> playedPaths = <String>[];
   final List<double> seekCalls = <double>[];
@@ -290,7 +293,13 @@ class FakePlaybackService implements PlaybackService {
   }
 
   @override
-  Future<double> position() async => positionSecs;
+  Future<double> position() async {
+    final Object? error = positionError;
+    if (error != null) {
+      throw error;
+    }
+    return positionSecs;
+  }
 
   @override
   Future<double> duration() async => durationSecs;

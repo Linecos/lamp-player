@@ -570,6 +570,8 @@ void main() {
       Offset(slider.left + slider.width * 0.25, slider.center.dy),
     );
     await tester.pump();
+    // 音量调用有 80ms 合并窗口
+    await tester.pump(const Duration(milliseconds: 120));
 
     expect(playback.volumeCalls, isNotEmpty);
     expect(playback.volumeCalls.last, lessThan(1));
@@ -586,6 +588,56 @@ void main() {
 
     expect(playback.volumeCalls.last, greaterThan(0));
     expect(find.byIcon(Icons.volume_off), findsNothing);
+  });
+
+  testWidgets('连续拖动音量按窗口合并，只发一次 setVolume', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    final Slider slider = tester.widget<Slider>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('player-volume')),
+        matching: find.byType(Slider),
+      ),
+    );
+    for (int step = 1; step <= 10; step += 1) {
+      slider.onChanged!(step / 10);
+      await tester.pump(const Duration(milliseconds: 5));
+    }
+    expect(playback.volumeCalls, isEmpty, reason: '合并窗口内不应逐次调用');
+
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(playback.volumeCalls, hasLength(1), reason: '一个窗口只发一次');
+    expect(playback.volumeCalls.single, closeTo(1.0, 0.001));
+  });
+
+  testWidgets('轮询失败一次后仍会重试，不会冻结进度', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      positionSecs: 12,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.text('00:12'), findsOneWidget);
+
+    playback.positionError = StateError('瞬时失败');
+    playback.positionSecs = 42;
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.text('00:42'), findsNothing, reason: '失败时保持旧值');
+
+    playback.positionError = null;
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.text('00:42'), findsOneWidget, reason: '恢复后应继续轮询');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
   });
 }
 
