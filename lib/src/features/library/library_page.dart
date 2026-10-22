@@ -538,6 +538,7 @@ class _LibraryPageState extends State<LibraryPage> {
             trackCount: _tracks.length,
             totalDurationSecs: total,
             engineAvailable: _isAvailable,
+            onScanned: (_) => unawaited(_loadTracks()),
           ),
         ),
       ],
