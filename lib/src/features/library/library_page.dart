@@ -70,6 +70,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _loading = true;
   bool _searching = false;
   bool _scanning = false;
+  String? _lastScanFolder;
+  scan.ScanReport? _scanReport;
+  Object? _scanError;
   Object? _error;
   Object? _searchError;
 
@@ -159,26 +162,47 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
-    setState(() => _scanning = true);
+    await _scanDirectory(folder.trim());
+  }
+
+  /// 扫描指定目录；设置页展示结果，空曲库时用 SnackBar 提示。
+  Future<void> _scanDirectory(String folder) async {
+    if (_scanning) {
+      return;
+    }
+
+    setState(() {
+      _scanning = true;
+      _lastScanFolder = folder;
+      _scanReport = null;
+      _scanError = null;
+    });
     try {
-      final scan.ScanReport report = await _repository.scanFolder(
-        folder.trim(),
-      );
+      final scan.ScanReport report = await _repository.scanFolder(folder);
       await _loadTracks();
       if (!mounted) {
         return;
       }
-      _showMessage(
-        '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
-        '清理 ${report.pruned} 首',
-      );
-    } catch (error) {
-      if (mounted) {
-        _showMessage('扫描失败：${ErrorRetry.describe(error)}');
+      setState(() {
+        _scanning = false;
+        _scanReport = report;
+      });
+      if (_section != LibrarySection.settings) {
+        _showMessage(
+          '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
+          '清理 ${report.pruned} 首',
+        );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _scanning = false);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _scanning = false;
+        _scanError = error;
+      });
+      if (_section != LibrarySection.settings) {
+        _showMessage('扫描失败：${ErrorRetry.describe(error)}');
       }
     }
   }
@@ -615,6 +639,12 @@ class _LibraryPageState extends State<LibraryPage> {
             engineAvailable: _isAvailable,
             scanning: _scanning,
             onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
+            scanFolder: _lastScanFolder,
+            scanReport: _scanReport,
+            scanError: _scanError,
+            onRetry: _scanning || _lastScanFolder == null
+                ? null
+                : () => unawaited(_scanDirectory(_lastScanFolder!)),
           ),
         ),
       ],
