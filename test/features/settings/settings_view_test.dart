@@ -85,8 +85,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    // 生产路径：main() 先恢复，再把 controller 注入 LampApp
+    final ThemeController controller = ThemeController();
+    await controller.restore();
+
     await tester.pumpWidget(
       LampApp(
+        themeController: controller,
         libraryRepository: FakeLibraryRepository(
           tracks: <Track>[sampleTrack(title: '夜航')],
         ),
