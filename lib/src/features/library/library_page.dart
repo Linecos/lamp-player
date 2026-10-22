@@ -14,6 +14,8 @@ import 'library_repository.dart';
 import 'library_sort.dart';
 import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
+import 'widgets/playlist_dialogs.dart';
+import 'widgets/playlist_grid.dart';
 import 'widgets/track_list_view.dart';
 
 /// 目录选择器，测试可注入假实现。
@@ -79,6 +81,23 @@ class _LibraryPageState extends State<LibraryPage> {
   String? _selectedArtist;
   String? _selectedAlbumKey;
 
+  Set<String> _favoritePaths = <String>{};
+  bool _favoritesLoading = false;
+  Object? _favoritesError;
+  List<Track> _favoriteTracks = const <Track>[];
+
+  List<Track> _historyTracks = const <Track>[];
+  bool _historyLoading = false;
+  Object? _historyError;
+
+  List<Playlist> _playlists = const <Playlist>[];
+  bool _playlistsLoading = false;
+  Object? _playlistsError;
+  int? _selectedPlaylistId;
+  List<Track> _playlistTracks = const <Track>[];
+  bool _playlistTracksLoading = false;
+  Object? _playlistTracksError;
+
   Track? _currentTrack;
   bool _isPlaying = false;
   bool _isAvailable = false;
@@ -94,6 +113,7 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     _isAvailable = _readAvailability();
     unawaited(_loadTracks());
+    unawaited(_refreshFavoritePaths());
   }
 
   @override
@@ -599,88 +619,29 @@ class _LibraryPageState extends State<LibraryPage> {
       _section = section;
       _selectedArtist = null;
       _selectedAlbumKey = null;
+      _selectedPlaylistId = null;
     });
+    if (section == LibrarySection.playlists) {
+      unawaited(_loadPlaylists());
+    }
+    if (section == LibrarySection.favorites) {
+      unawaited(_loadFavorites());
+    }
+    if (section == LibrarySection.history) {
+      unawaited(_loadHistory());
+    }
   }
 
   Widget _buildSection(BuildContext context) {
     return switch (_section) {
       LibrarySection.music => _buildMusicSection(context),
-      LibrarySection.playlists => _buildComingSoon(
-        context,
-        section: LibrarySection.playlists,
-        message:
-            '歌单存储接口已就绪，页面尚未接入。接入后会支持新建、重命名，'
-            '以及往歌单里增删曲目。',
-      ),
-      LibrarySection.history => _buildComingSoon(
-        context,
-        section: LibrarySection.history,
-        message: '播放记录已在后台保存，历史页面尚未接入；接入后会按最近播放展示。',
-      ),
-      LibrarySection.favorites => _buildComingSoon(
-        context,
-        section: LibrarySection.favorites,
-        message:
-            '收藏存储接口已就绪，页面尚未接入。当前不会做只存在内存里的收藏，'
-            '避免重启后凭空消失。',
-      ),
+      LibrarySection.playlists => _buildPlaylistsSection(context),
+      LibrarySection.history => _buildHistorySection(context),
+      LibrarySection.favorites => _buildFavoritesSection(context),
       LibrarySection.artists => _buildArtistsSection(context),
       LibrarySection.albums => _buildAlbumsSection(context),
       LibrarySection.settings => _buildSettingsSection(context),
     };
-  }
-
-  Widget _buildComingSoon(
-    BuildContext context, {
-    required LibrarySection section,
-    required String message,
-  }) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Text(
-              section.label,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: scheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '待接入',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '依赖曲库存储接口',
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-        Expanded(
-          child: EmptyState(
-            icon: section.icon,
-            title: '${section.label}还没有接入',
-            message: message,
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _buildSettingsSection(BuildContext context) {
@@ -716,6 +677,720 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /* -------------------------------------------------------------- 历史 */
+
+  Future<void> _loadHistory() async {
+    if (_historyLoading) {
+      return;
+    }
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
+    try {
+      final List<Track> tracks = await _repository.loadRecentTracks(limit: 100);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _historyTracks = tracks;
+        _historyLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _historyError = error;
+        _historyLoading = false;
+      });
+    }
+  }
+
+  Future<void> _clearHistory() async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('清空播放历史？'),
+        content: const Text('只清除播放记录，不会删除曲库里的音乐。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    try {
+      await _repository.clearHistory();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _historyTracks = const <Track>[]);
+      _showMessage('播放历史已清空');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('清空失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Widget _buildHistorySection(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text(
+              '历史',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
+              onPressed: _historyTracks.isEmpty
+                  ? null
+                  : () => unawaited(_clearHistory()),
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: const Text('清空历史'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${_historyTracks.length} 条播放记录',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(child: _buildHistoryBody(context)),
+      ],
+    );
+  }
+
+  Widget _buildHistoryBody(BuildContext context) {
+    if (_historyLoading && _historyTracks.isEmpty) {
+      return const LoadingState(message: '正在读取播放历史…');
+    }
+    if (_historyError != null) {
+      return ErrorRetry(
+        error: _historyError!,
+        title: '播放历史读取失败',
+        onRetry: () => unawaited(_loadHistory()),
+      );
+    }
+    if (_historyTracks.isEmpty) {
+      return EmptyState(
+        icon: Icons.history,
+        title: '还没有播放记录',
+        message: '播放过的曲目会按最近播放排在这里，方便接着上次继续听。',
+        action: FilledButton.tonal(
+          onPressed: () => _selectSection(LibrarySection.music),
+          child: const Text('去曲库看看'),
+        ),
+      );
+    }
+    return TrackListView(
+      tracks: _historyTracks,
+      playingPath: _currentTrack?.path,
+      onPlay: (Track track) => unawaited(_playTrack(track)),
+      favoritePaths: _favoritePaths,
+      onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+    );
+  }
+
+  /* -------------------------------------------------------------- 收藏 */
+
+  Future<void> _refreshFavoritePaths() async {
+    try {
+      final Set<String> paths = await _repository.loadFavoritePaths();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _favoritePaths = paths);
+    } catch (error) {
+      debugPrint('读取收藏状态失败：$error');
+    }
+  }
+
+  Future<void> _loadFavorites() async {
+    if (_favoritesLoading) {
+      return;
+    }
+    setState(() {
+      _favoritesLoading = true;
+      _favoritesError = null;
+    });
+    try {
+      final List<Track> tracks = await _repository.loadFavorites();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _favoriteTracks = tracks;
+        _favoritePaths = tracks.map((Track track) => track.path).toSet();
+        _favoritesLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _favoritesError = error;
+        _favoritesLoading = false;
+      });
+    }
+  }
+
+  Future<void> _toggleFavorite(Track track) async {
+    final bool next = !_favoritePaths.contains(track.path);
+    final Set<String> previousPaths = Set<String>.of(_favoritePaths);
+    final List<Track> previousTracks = _favoriteTracks;
+
+    setState(() {
+      if (next) {
+        _favoritePaths.add(track.path);
+        _favoriteTracks = <Track>[
+          track,
+          ..._favoriteTracks.where((Track item) => item.path != track.path),
+        ];
+      } else {
+        _favoritePaths.remove(track.path);
+        _favoriteTracks = _favoriteTracks
+            .where((Track item) => item.path != track.path)
+            .toList();
+      }
+    });
+
+    try {
+      await _repository.setFavorite(track.path, next);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _favoritePaths = previousPaths;
+        _favoriteTracks = previousTracks;
+      });
+      _showMessage('${next ? '收藏' : '取消收藏'}失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Widget _buildFavoritesSection(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          '收藏',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${_favoriteTracks.length} 首收藏',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(child: _buildFavoritesBody(context)),
+      ],
+    );
+  }
+
+  Widget _buildFavoritesBody(BuildContext context) {
+    if (_favoritesLoading && _favoriteTracks.isEmpty) {
+      return const LoadingState(message: '正在读取收藏…');
+    }
+    if (_favoritesError != null) {
+      return ErrorRetry(
+        error: _favoritesError!,
+        title: '收藏读取失败',
+        onRetry: () => unawaited(_loadFavorites()),
+      );
+    }
+    if (_favoriteTracks.isEmpty) {
+      return EmptyState(
+        icon: Icons.favorite_border,
+        title: '还没有收藏',
+        message: '在曲目右侧点一下爱心，喜欢的歌就会出现在这里。',
+        action: FilledButton.tonal(
+          onPressed: () => _selectSection(LibrarySection.music),
+          child: const Text('去曲库看看'),
+        ),
+      );
+    }
+    return TrackListView(
+      tracks: _favoriteTracks,
+      playingPath: _currentTrack?.path,
+      onPlay: (Track track) => unawaited(_playTrack(track)),
+      favoritePaths: _favoritePaths,
+      onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+    );
+  }
+
+  /* -------------------------------------------------------------- 歌单 */
+
+  Playlist? get _selectedPlaylist {
+    final int? id = _selectedPlaylistId;
+    if (id == null) {
+      return null;
+    }
+    for (final Playlist playlist in _playlists) {
+      if (playlist.id.toInt() == id) {
+        return playlist;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _loadPlaylists() async {
+    if (_playlistsLoading) {
+      return;
+    }
+    setState(() {
+      _playlistsLoading = true;
+      _playlistsError = null;
+    });
+    try {
+      final List<Playlist> playlists = await _repository.loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _playlists = playlists;
+        _playlistsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _playlistsError = error;
+        _playlistsLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadPlaylistTracks(int id) async {
+    setState(() {
+      _playlistTracksLoading = true;
+      _playlistTracksError = null;
+    });
+    try {
+      final List<Track> tracks = await _repository.loadPlaylistTracks(id);
+      if (!mounted || _selectedPlaylistId != id) {
+        return;
+      }
+      setState(() {
+        _playlistTracks = tracks;
+        _playlistTracksLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedPlaylistId != id) {
+        return;
+      }
+      setState(() {
+        _playlistTracksError = error;
+        _playlistTracksLoading = false;
+      });
+    }
+  }
+
+  Future<void> _openPlaylist(Playlist playlist) async {
+    final int id = playlist.id.toInt();
+    setState(() {
+      _selectedPlaylistId = id;
+      _playlistTracks = const <Track>[];
+      _playlistTracksLoading = true;
+      _playlistTracksError = null;
+    });
+    await _loadPlaylistTracks(id);
+  }
+
+  String? _validatePlaylistName(String name, {int? exceptId}) {
+    if (name.isEmpty) {
+      return '歌单名不能为空';
+    }
+    final String lower = name.toLowerCase();
+    final bool taken = _playlists.any(
+      (Playlist playlist) =>
+          playlist.id.toInt() != exceptId &&
+          playlist.name.toLowerCase() == lower,
+    );
+    return taken ? '已有同名歌单' : null;
+  }
+
+  Future<void> _createPlaylist() async {
+    final String? name = await showPlaylistNameDialog(
+      context,
+      title: '新建歌单',
+      confirmText: '创建',
+      validate: (String value) => _validatePlaylistName(value),
+    );
+    if (name == null || !mounted) {
+      return;
+    }
+    try {
+      await _repository.createPlaylist(name);
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已创建「$name」');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('创建失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Future<void> _renamePlaylist(Playlist playlist) async {
+    final int id = playlist.id.toInt();
+    final String? name = await showPlaylistNameDialog(
+      context,
+      title: '重命名歌单',
+      confirmText: '保存',
+      initialName: playlist.name,
+      validate: (String value) => _validatePlaylistName(value, exceptId: id),
+    );
+    if (name == null || !mounted) {
+      return;
+    }
+    try {
+      await _repository.renamePlaylist(id, name);
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已重命名为「$name」');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('重命名失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Future<void> _deletePlaylist(Playlist playlist) async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text('删除「${playlist.name}」？'),
+        content: Text('歌单里的 ${playlist.trackCount} 首不会被删除，只是不再属于这个歌单。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('删除歌单'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    try {
+      await _repository.deletePlaylist(playlist.id.toInt());
+      if (!mounted) {
+        return;
+      }
+      if (_selectedPlaylistId == playlist.id.toInt()) {
+        setState(() => _selectedPlaylistId = null);
+      }
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已删除「${playlist.name}」');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('删除失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Future<void> _addTracksToPlaylist(Playlist playlist) async {
+    final int id = playlist.id.toInt();
+    final Set<String> existing = _playlistTracks
+        .map((Track track) => track.path)
+        .toSet();
+    final int? added = await showAddTracksDialog(
+      context,
+      playlistName: playlist.name,
+      tracks: _tracks,
+      existingPaths: existing,
+      onAdd: (String path) => _repository.addTrackToPlaylist(id, path),
+    );
+    if (added == null || added == 0 || !mounted) {
+      return;
+    }
+    await _loadPlaylistTracks(id);
+    await _loadPlaylists();
+    if (!mounted) {
+      return;
+    }
+    _showMessage('已添加 $added 首到「${playlist.name}」');
+  }
+
+  Future<void> _removeTrackFromPlaylist(Track track) async {
+    final int? id = _selectedPlaylistId;
+    if (id == null) {
+      return;
+    }
+    try {
+      await _repository.removeTrackFromPlaylist(id, track.path);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _playlistTracks = _playlistTracks
+            .where((Track item) => item.path != track.path)
+            .toList();
+      });
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已从歌单移除「${track.title}」');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('移除失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Widget _buildPlaylistsSection(BuildContext context) {
+    final Playlist? selected = _selectedPlaylist;
+    if (selected != null) {
+      return _buildPlaylistDetail(context, selected);
+    }
+
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text(
+              '歌单',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            FilledButton.icon(
+              onPressed: () => unawaited(_createPlaylist()),
+              icon: const Icon(Icons.add),
+              label: const Text('新建歌单'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${_playlists.length} 个歌单',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(child: _buildPlaylistsBody(context)),
+      ],
+    );
+  }
+
+  Widget _buildPlaylistsBody(BuildContext context) {
+    if (_playlistsLoading) {
+      return const LoadingState(message: '正在读取歌单…');
+    }
+    if (_playlistsError != null) {
+      return ErrorRetry(
+        error: _playlistsError!,
+        title: '歌单读取失败',
+        onRetry: () => unawaited(_loadPlaylists()),
+      );
+    }
+    if (_playlists.isEmpty) {
+      return EmptyState(
+        icon: Icons.queue_music,
+        title: '还没有歌单',
+        message: '把常听的曲目收进歌单，之后就不用再翻整个曲库。',
+        action: FilledButton.icon(
+          onPressed: () => unawaited(_createPlaylist()),
+          icon: const Icon(Icons.add),
+          label: const Text('新建歌单'),
+        ),
+      );
+    }
+    return PlaylistGridView(
+      playlists: _playlists,
+      onOpen: (Playlist playlist) => unawaited(_openPlaylist(playlist)),
+      onAction: (Playlist playlist, PlaylistAction action) {
+        switch (action) {
+          case PlaylistAction.rename:
+            unawaited(_renamePlaylist(playlist));
+          case PlaylistAction.delete:
+            unawaited(_deletePlaylist(playlist));
+        }
+      },
+    );
+  }
+
+  Widget _buildPlaylistDetail(BuildContext context, Playlist playlist) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _DetailBar(
+          label: '歌单',
+          onBack: () => setState(() => _selectedPlaylistId = null),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Container(
+                width: 128,
+                height: 128,
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: Icon(
+                  Icons.queue_music,
+                  size: 48,
+                  color: scheme.onSecondaryContainer,
+                ),
+              ),
+              const SizedBox(width: 24),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      playlist.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${playlist.trackCount} 首 · 更新于 '
+                      '${formatPlaylistUpdated(playlist.updatedAt)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        FilledButton.tonalIcon(
+                          onPressed: () =>
+                              unawaited(_addTracksToPlaylist(playlist)),
+                          icon: const Icon(Icons.add),
+                          label: const Text('添加音乐'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => unawaited(_renamePlaylist(playlist)),
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('重命名'),
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: scheme.error,
+                          ),
+                          onPressed: () => unawaited(_deletePlaylist(playlist)),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('删除歌单'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(child: _buildPlaylistTracksBody(context, playlist)),
+      ],
+    );
+  }
+
+  Widget _buildPlaylistTracksBody(BuildContext context, Playlist playlist) {
+    if (_playlistTracksLoading && _playlistTracks.isEmpty) {
+      return const LoadingState(message: '正在读取歌单…');
+    }
+    if (_playlistTracksError != null) {
+      return ErrorRetry(
+        error: _playlistTracksError!,
+        title: '歌单读取失败',
+        onRetry: () => unawaited(_loadPlaylistTracks(playlist.id.toInt())),
+      );
+    }
+    if (_playlistTracks.isEmpty) {
+      return EmptyState(
+        icon: Icons.playlist_add,
+        title: '歌单还是空的',
+        message: '从曲库里挑几首加进来，之后就能在这里直接播放。',
+        action: FilledButton.icon(
+          onPressed: () => unawaited(_addTracksToPlaylist(playlist)),
+          icon: const Icon(Icons.add),
+          label: const Text('添加音乐'),
+        ),
+      );
+    }
+    return TrackListView(
+      tracks: _playlistTracks,
+      playingPath: _currentTrack?.path,
+      onPlay: (Track track) => unawaited(_playTrack(track)),
+      onRemove: (Track track) => unawaited(_removeTrackFromPlaylist(track)),
+      favoritePaths: _favoritePaths,
+      onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
     );
   }
 
@@ -805,6 +1480,8 @@ class _LibraryPageState extends State<LibraryPage> {
         tracks: _results!,
         playingPath: _currentTrack?.path,
         onPlay: (Track track) => unawaited(_playTrack(track)),
+        favoritePaths: _favoritePaths,
+        onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       );
     }
     if (_tracks.isEmpty) {
@@ -842,6 +1519,8 @@ class _LibraryPageState extends State<LibraryPage> {
       tracks: _tracks,
       playingPath: _currentTrack?.path,
       onPlay: (Track track) => unawaited(_playTrack(track)),
+      favoritePaths: _favoritePaths,
+      onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
     );
   }
 
@@ -953,6 +1632,9 @@ class _LibraryPageState extends State<LibraryPage> {
             tracks: group.tracks,
             playingPath: _currentTrack?.path,
             onPlay: (Track track) => unawaited(_playTrack(track)),
+            favoritePaths: _favoritePaths,
+            onToggleFavorite: (Track track) =>
+                unawaited(_toggleFavorite(track)),
           ),
         ),
       ],
@@ -1066,6 +1748,9 @@ class _LibraryPageState extends State<LibraryPage> {
             tracks: group.tracks,
             playingPath: _currentTrack?.path,
             onPlay: (Track track) => unawaited(_playTrack(track)),
+            favoritePaths: _favoritePaths,
+            onToggleFavorite: (Track track) =>
+                unawaited(_toggleFavorite(track)),
           ),
         ),
       ],
