@@ -1,8 +1,9 @@
 import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/db.dart' as db;
 import '../../rust/api/model.dart';
+import '../../rust/api/scan.dart' as scan;
 
-/// 曲库读取接口。
+/// 曲库数据源接口：读取、搜索与目录扫描。
 ///
 /// 抽成接口只为一件事：`test/` 下的 widget 测试不依赖原生库（CI 底线）。
 /// 生产路径永远走 [RustLibraryRepository]，不引入额外数据层。
@@ -12,6 +13,9 @@ abstract interface class LibraryRepository {
 
   /// 全文检索；空查询由实现方返回空列表（契约如此）
   Future<List<Track>> searchTracks(String query, {int limit = 500});
+
+  /// 扫描目录并入库，返回本次扫描统计
+  Future<scan.ScanReport> scanFolder(String folder);
 
   /// 歌单列表（带曲目数），按名称排序
   Future<List<Playlist>> loadPlaylists();
@@ -64,6 +68,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<List<Track>> searchTracks(String query, {int limit = 500}) =>
       db.searchTracks(query: query, limit: limit);
+
+  @override
+  Future<scan.ScanReport> scanFolder(String folder) =>
+      scan.scanFolder(folder: folder);
 
   @override
   Future<List<Playlist>> loadPlaylists() => collections.listPlaylists();

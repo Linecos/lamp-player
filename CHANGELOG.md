@@ -7,6 +7,8 @@
 
 ### 新增
 
+- 添加音乐目录：设置页与空曲库页面均可选择文件夹，调用 `scanFolder` 增量入库并显示扫描统计（新增 `file_selector` 依赖）
+- 播放成功后写入播放历史，历史页面接入后可直接展示；历史写入失败不影响播放
 - 启动时初始化曲库：`path_provider` 取应用支持目录 → `initDb`（新增依赖 `path` / `path_provider`）；曲库打不开时走启动兜底页并注明失败环节（`LampStartupErrorApp` 支持自定义标题）
 - `lib/src/features/library/library_db.dart`：曲库路径解析带目录注入口，目标目录不存在自动创建；`test/features/library_db_test.dart` 覆盖纯 Dart 部分
 - 曲库存储扩展：新增歌单 / 收藏 / 播放历史接口（`api::collections`）与 `Playlist` 模型；schema 升至 v2，曲目被清理时外键级联删除相关条目
@@ -36,6 +38,8 @@
 
 ### 修复
 
+- 扫描合并历史路径时旧 `tracks` 行被直接删除，外键级联清空收藏 / 歌单 / 历史；现先迁移用户数据（歌单与收藏去重、历史合并播放次数）再删旧行
+- 自然播完后按播放会走 `resume`，BASS 从流末尾继续而无法重播；现在检测到 `stopped` 时重新加载曲目
 - 非 Windows 上扫描清理恒不生效：目录前缀写死 `\`，与 `path_key` 的 `/` 口径不一致（ubuntu CI 的 `cargo test` 会失败）
 - 历史库里正斜杠或非 ASCII 大小写的路径无法与 canonicalize 后的路径合并（`COLLATE NOCASE` 只处理 ASCII、也不认分隔符），会残留重复记录；现按归一化 key 每批一次对账，顺带去掉了「每首歌一次全表扫描」
 - `canonicalize` 会解析 junction/软链接：升级后首次扫描建议清库重扫，旧链接路径的记录不会自动迁移

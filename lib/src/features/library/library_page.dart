@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../common/common.dart';
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
+import '../../rust/api/scan.dart' as scan;
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
 import '../settings/settings_view.dart';
@@ -14,18 +16,29 @@ import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
 import 'widgets/track_list_view.dart';
 
+/// 目录选择器，测试可注入假实现。
+typedef DirectoryPicker = Future<String?> Function();
+
 /// 主界面：侧边导航 + 顶部搜索 + 曲库 / 艺术家 / 专辑 + 底部播放条。
 ///
 /// 状态都收敛在本页（`StatefulWidget` + `setState`），不引入第三方状态管理；
 /// 数据与播放通过构造参数注入，`test/` 下可以完全脱离 Rust 运行。
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key, this.repository, this.playbackService});
+  const LibraryPage({
+    super.key,
+    this.repository,
+    this.playbackService,
+    this.directoryPicker,
+  });
 
   /// 曲库数据源；不传则走 Rust。
   final LibraryRepository? repository;
 
   /// 播放能力；不传则走 Rust / BASS。
   final PlaybackService? playbackService;
+
+  /// 选择音乐目录；不传则打开系统目录选择框。
+  final DirectoryPicker? directoryPicker;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -56,6 +69,7 @@ class _LibraryPageState extends State<LibraryPage> {
   String _query = '';
   bool _loading = true;
   bool _searching = false;
+  bool _scanning = false;
   Object? _error;
   Object? _searchError;
 
@@ -119,6 +133,53 @@ class _LibraryPageState extends State<LibraryPage> {
         _error = error;
         _loading = false;
       });
+    }
+  }
+
+  Future<String?> _pickDirectory() {
+    return getDirectoryPath(confirmButtonText: '选择音乐目录');
+  }
+
+  Future<void> _addMusicFolder() async {
+    if (_scanning) {
+      return;
+    }
+
+    final DirectoryPicker picker = widget.directoryPicker ?? _pickDirectory;
+    String? folder;
+    try {
+      folder = await picker();
+    } catch (error) {
+      if (mounted) {
+        _showMessage('选择目录失败：${ErrorRetry.describe(error)}');
+      }
+      return;
+    }
+    if (folder == null || folder.trim().isEmpty || !mounted) {
+      return;
+    }
+
+    setState(() => _scanning = true);
+    try {
+      final scan.ScanReport report = await _repository.scanFolder(
+        folder.trim(),
+      );
+      await _loadTracks();
+      if (!mounted) {
+        return;
+      }
+      _showMessage(
+        '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
+        '清理 ${report.pruned} 首',
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('扫描失败：${ErrorRetry.describe(error)}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanning = false);
+      }
     }
   }
 
@@ -217,12 +278,22 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       setState(() => _isPlaying = true);
       _startPositionPolling();
+      unawaited(_recordPlay(track.path));
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _isPlaying = false);
       _showMessage('播放失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  /// 历史记录失败不影响播放，只记录日志。
+  Future<void> _recordPlay(String path) async {
+    try {
+      await _repository.recordPlay(path);
+    } catch (error) {
+      debugPrint('记录播放历史失败：$error');
     }
   }
 
@@ -235,6 +306,12 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     try {
+      // 自然播完后 stream 停在末尾，resume 不会回到开头；按重新播放处理。
+      // 先看真实状态，避免本地 _isPlaying 还没被轮询刷新的窗口里误走 pause。
+      if (_playback.state == rust.PlaybackState.stopped) {
+        await _playTrack(_currentTrack!);
+        return;
+      }
       if (_isPlaying) {
         await _playback.pause();
       } else {
@@ -303,7 +380,7 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     _engineNoticeShown = true;
-    _showMessage('播放引擎尚未接入（M2）：现在可以浏览曲目，暂时不能出声。');
+    _showMessage('播放引擎不可用（缺少 BASS DLL 或初始化失败）：现在可以浏览曲目，暂时不能出声。');
   }
 
   void _showMessage(String message) {
@@ -440,21 +517,19 @@ class _LibraryPageState extends State<LibraryPage> {
         context,
         section: LibrarySection.playlists,
         message:
-            '歌单需要曲库新增歌单存储接口。契约确认后，这里会支持新建、重命名、'
-            '以及往歌单里增删曲目。当前版本先保留入口，不做重启即丢的临时数据。',
+            '歌单存储接口已就绪，页面尚未接入。接入后会支持新建、重命名，'
+            '以及往歌单里增删曲目。',
       ),
       LibrarySection.history => _buildComingSoon(
         context,
         section: LibrarySection.history,
-        message:
-            '播放历史需要曲库新增历史记录接口；播放引擎（M2）也还没接入，'
-            '等两者就绪后一起开放。',
+        message: '播放记录已在后台保存，历史页面尚未接入；接入后会按最近播放展示。',
       ),
       LibrarySection.favorites => _buildComingSoon(
         context,
         section: LibrarySection.favorites,
         message:
-            '收藏需要曲库新增收藏表与接口。当前不做只存在内存里的收藏，'
+            '收藏存储接口已就绪，页面尚未接入。当前不会做只存在内存里的收藏，'
             '避免重启后凭空消失。',
       ),
       LibrarySection.artists => _buildArtistsSection(context),
@@ -538,6 +613,8 @@ class _LibraryPageState extends State<LibraryPage> {
             trackCount: _tracks.length,
             totalDurationSecs: total,
             engineAvailable: _isAvailable,
+            scanning: _scanning,
+            onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
           ),
         ),
       ],
@@ -636,13 +713,30 @@ class _LibraryPageState extends State<LibraryPage> {
       return EmptyState(
         icon: Icons.library_music_outlined,
         title: '曲库还是空的',
-        message:
-            '添加音乐目录的功能还在 M1 计划中，完成后曲目会自动出现在这里。'
-            '也可以先用 Rust 侧的扫描接口导入，然后重新读取。',
-        action: OutlinedButton.icon(
-          onPressed: () => unawaited(_loadTracks()),
-          icon: const Icon(Icons.refresh),
-          label: const Text('重新读取'),
+        message: '选择包含音乐的文件夹，扫描后曲目会自动出现在这里。',
+        action: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            FilledButton.icon(
+              onPressed: _scanning ? null : () => unawaited(_addMusicFolder()),
+              icon: _scanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.create_new_folder_outlined),
+              label: Text(_scanning ? '正在扫描…' : '添加音乐目录'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _scanning ? null : () => unawaited(_loadTracks()),
+              icon: const Icon(Icons.refresh),
+              label: const Text('重新读取'),
+            ),
+          ],
         ),
       );
     }
