@@ -256,6 +256,8 @@ class FakePlaybackService implements PlaybackService {
 
   rust.PlaybackState current = rust.PlaybackState.stopped;
   final List<String> playedPaths = <String>[];
+  final List<double> seekCalls = <double>[];
+  final List<double> volumeCalls = <double>[];
   int pauseCalls = 0;
   int resumeCalls = 0;
   int stopCalls = 0;
@@ -292,4 +294,15 @@ class FakePlaybackService implements PlaybackService {
 
   @override
   Future<double> duration() async => durationSecs;
+
+  @override
+  Future<void> seek(double positionSecs) async {
+    seekCalls.add(positionSecs);
+    this.positionSecs = positionSecs;
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumeCalls.add(volume);
+  }
 }

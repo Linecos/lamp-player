@@ -343,4 +343,83 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('2 位艺术家'), findsOneWidget);
   });
+
+  testWidgets('拖动进度条松手后调用 seek', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.drag(
+      find.byKey(const ValueKey<String>('player-progress')),
+      const Offset(120, 0),
+    );
+    await tester.pump();
+
+    expect(playback.seekCalls, hasLength(1));
+    expect(playback.seekCalls.single, greaterThan(0));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('拖动期间轮询不会把进度拉回去', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      positionSecs: 10,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 播放中位置在前，拖到后段后让轮询跑一轮，进度不应被写回 10 秒
+    await tester.drag(
+      find.byKey(const ValueKey<String>('player-progress')),
+      const Offset(160, 0),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(find.text('00:10'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('调节音量调用 setVolume，静音后图标切换', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    final Rect slider = tester.getRect(
+      find.byKey(const ValueKey<String>('player-volume')),
+    );
+    await tester.tapAt(
+      Offset(slider.left + slider.width * 0.25, slider.center.dy),
+    );
+    await tester.pump();
+
+    expect(playback.volumeCalls, isNotEmpty);
+    expect(playback.volumeCalls.last, lessThan(1));
+    expect(playback.volumeCalls.last, greaterThan(0));
+
+    await tester.tap(find.byTooltip('静音'));
+    await tester.pump();
+
+    expect(playback.volumeCalls.last, 0);
+    expect(find.byIcon(Icons.volume_off), findsOneWidget);
+
+    await tester.tap(find.byTooltip('取消静音'));
+    await tester.pump();
+
+    expect(playback.volumeCalls.last, greaterThan(0));
+    expect(find.byIcon(Icons.volume_off), findsNothing);
+  });
 }

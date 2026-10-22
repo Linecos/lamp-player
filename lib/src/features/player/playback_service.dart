@@ -22,6 +22,12 @@ abstract interface class PlaybackService {
   Future<double> position();
 
   Future<double> duration();
+
+  /// 跳转到 [positionSecs] 秒；超出曲目时长会被后端截断。
+  Future<void> seek(double positionSecs);
+
+  /// 设置音量，取值 `0.0..=1.0`。
+  Future<void> setVolume(double volume);
 }
 
 /// 走 `flutter_rust_bridge` 的真实实现。
@@ -66,4 +72,11 @@ class RustPlaybackService implements PlaybackService {
 
   @override
   Future<double> duration() => rust.playerDuration();
+
+  @override
+  Future<void> seek(double positionSecs) =>
+      rust.playerSeek(positionSecs: positionSecs);
+
+  @override
+  Future<void> setVolume(double volume) => rust.playerSetVolume(volume: volume);
 }
