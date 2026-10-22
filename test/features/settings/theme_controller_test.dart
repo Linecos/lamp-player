@@ -68,4 +68,30 @@ void main() {
 
     expect(restored.mode, ThemeMode.dark);
   });
+
+  test('restore 不覆盖用户已做的选择', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      ThemeController.prefsKey: 'dark',
+    });
+
+    final ThemeController controller = ThemeController();
+    final Future<void> restoring = controller.restore();
+    await controller.setMode(ThemeMode.light);
+    await restoring;
+
+    expect(controller.mode, ThemeMode.light);
+  });
+
+  test('dispose 后完成的 restore 不再改状态', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      ThemeController.prefsKey: 'dark',
+    });
+
+    final ThemeController controller = ThemeController();
+    final Future<void> restoring = controller.restore();
+    controller.dispose();
+    await restoring;
+
+    expect(controller.mode, ThemeMode.system);
+  });
 }

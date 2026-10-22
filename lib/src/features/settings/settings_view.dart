@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 
 import 'theme_controller.dart';
 
-/// 设置页的最小只读骨架。
+/// 设置页骨架。
 ///
-/// 只展示当前真实可得的曲库统计与引擎状态，不放任何没有持久化的假开关；
-/// 主题切换、默认音量等交互项等 `shared_preferences` 接入后再补。
+/// 展示曲库统计与引擎状态；「外观 → 主题」可切换并持久化。
+/// 添加音乐目录、默认音量等交互待接入，未持久化的假开关不放。
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
@@ -46,7 +46,7 @@ class SettingsView extends StatelessWidget {
             _InfoRow(
               icon: Icons.graphic_eq,
               title: '播放引擎',
-              value: engineAvailable ? '已接入' : '未接入（M2）',
+              value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
               valueColor: engineAvailable
                   ? null
                   : Theme.of(context).colorScheme.error,

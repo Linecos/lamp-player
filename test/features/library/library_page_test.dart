@@ -246,7 +246,7 @@ void main() {
 
     expect(find.text('曲目数量'), findsOneWidget);
     expect(find.text('2 首'), findsOneWidget);
-    expect(find.text('未接入（M2）'), findsOneWidget);
+    expect(find.text('不可用（未加载 BASS）'), findsOneWidget);
     expect(find.text('跟随系统'), findsOneWidget);
   });
 

@@ -17,7 +17,8 @@
 - `db::close_db`：释放曲库连接，支持切换库路径；`init_db` 带结构版本（`PRAGMA user_version`）与老库自动升级 + FTS 重建
 - `rust/tests/db.rs`：upsert 去重、FTS 触发器同步、搜索容错、prune、路径切换、老库迁移
 - 内部模块 `rust/src/scanner.rs`（遍历 + 标签解析，可脱离数据库测试）与 `rust/tests/scan.rs`（遍历过滤、缺失目录、扫描→入库→中文前缀检索、增量与清理）
-- Dart 应用外壳：`LampApp` + 主题（Material 3，随系统深浅色）+ 路由表；桥接初始化失败时显示 `LampStartupErrorApp` 而不是白屏
+- Dart 应用外壳：`LampApp` + 主题（Material 3，初始跟随系统，可在设置页切换）+ 路由表；桥接初始化失败时显示 `LampStartupErrorApp` 而不是白屏
+- 设置页主题切换：跟随系统 / 浅色 / 深色，选择立即生效并写入 `shared_preferences`，重启后保留（PR #5；新增依赖 `shared_preferences`）
 - 曲库页占位实现，纯 Dart 环境可渲染
 - 协作设施：`CONTRIBUTING.md`、Issue 模板、CODEOWNERS、PR 模板、路线图与接口契约文档
 - 一键脚本：`scripts/bootstrap.ps1`（环境准备）、`scripts/check.ps1`（本地全套检查）、`scripts/setup-labels.ps1`（标签初始化）

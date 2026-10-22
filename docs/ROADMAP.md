@@ -35,7 +35,8 @@
 | CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
 | 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 已完成（PR #4，只读进度） |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
-| 设置页 + 深浅色主题切换（`shared_preferences` 持久化） | Dart `features/settings` | 中 | 待认领 |
+| 主题切换（跟随系统 / 浅色 / 深色，`shared_preferences` 持久化） | Dart `features/settings` | 小 | 已完成（PR #5） |
+| 设置页其余交互（默认音量、音乐目录等） | Dart `features/settings` | 中 | 待认领 |
 | 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | 已完成（`common/widgets` + `test/common/widgets_test.dart`） |
 
 ## M3 · 打磨与发布
