@@ -41,6 +41,7 @@ dependencies:
   ffi: ^2.2.0
   rust_lib_lamp_player:
     path: rust_builder
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:
