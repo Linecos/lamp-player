@@ -21,13 +21,15 @@
 | 搜索框接 `search_tracks`，输入防抖 300ms | Dart `features/library` | 小 | 待认领 |
 | `db` 单元测试：upsert 去重/更新、FTS 触发器同步、prune、迁移 | Rust `rust/tests/` | 小 | 已完成（`rust/tests/db.rs`） |
 | 时长/文件大小格式化工具 + 单测 | Dart `common/` + `test/` | 小 | **[入门]** 待认领 |
+| 歌单 / 收藏 / 播放历史存储接口 | Rust `api/collections.rs` + `model.rs` | 中 | 已完成（schema v2，契约 v0.3） |
+| 歌单 / 历史 / 收藏页面接入存储接口 | Dart `features/library` | 中 | 待认领 |
 
 ## M2 · 出声与播放控制
 
 | 任务 | 负责模块 | 难度 | 状态 |
 |---|---|---|---|
-| `bass.rs`：libloading 加载 DLL、符号表、初始化/释放 | Rust | 大 | 待认领 |
-| `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 待认领 |
+| `bass.rs`：libloading 加载 DLL、符号表、初始化/释放 | Rust | 大 | 已完成（PR #3） |
+| `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 已完成（PR #3） |
 | CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
 | 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 待认领 |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
@@ -48,7 +50,7 @@
 
 | 模块 | 文件域 | 负责人 |
 |---|---|---|
-| 曲库 / 数据模型 / 扫描 | `rust/src/api/{db,model,scan}.rs`、`docs/API_CONTRACT.md` | [@Linecos](https://github.com/Linecos) |
+| 曲库 / 数据模型 / 扫描 | `rust/src/api/{db,model,scan,collections}.rs`、`docs/API_CONTRACT.md` | [@Linecos](https://github.com/Linecos) |
 | 播放引擎（BASS） | `rust/src/bass.rs`、`rust/src/api/player.rs`、`windows/CMakeLists.txt` | [@qiya7698](https://github.com/qiya7698) |
 | 主界面 | `lib/src/app/`、`lib/src/theme/`、`lib/src/features/` | [@starry688](https://github.com/starry688) |
 | 设置页 / 通用组件 | `lib/src/features/settings/`、`lib/src/common/`、`test/` | [@yjxnb1](https://github.com/yjxnb1) |

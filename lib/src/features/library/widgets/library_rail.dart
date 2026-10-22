@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 ///
 /// 与设计稿保持一致，共七个入口。
 ///
-/// 歌单 / 历史 / 收藏依赖尚未冻结的曲库存储接口，详情页先明确标注「待接入」；
-/// 设置页目前只有只读信息，交互项等 shared_preferences 接入后补。
+/// 歌单 / 历史 / 收藏的存储接口已就绪（`api::collections`，契约 v0.3），
+/// 详情页目前仍是占位，等界面侧接入；设置页只有只读信息，交互项等
+/// shared_preferences 接入后补。
 enum LibrarySection {
   music('音乐', Icons.music_note_outlined, Icons.music_note),
   playlists('歌单', Icons.format_list_bulleted, Icons.format_list_bulleted),

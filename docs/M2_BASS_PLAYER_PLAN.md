@@ -1,7 +1,7 @@
 # M2 播放引擎（BASS）实施计划
 
 范围：`rust/src/bass.rs`（新建）、`rust/src/api/player.rs`、`windows/CMakeLists.txt`
-契约：`docs/API_CONTRACT.md` v0.2 **不改签名**
+契约：`docs/API_CONTRACT.md` v0.3 **不改签名**
 
 ## 现状
 

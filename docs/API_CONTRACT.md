@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.2（2026-10-21）**
+> **当前版本：v0.3（2026-10-22）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.3 变更：新增 `api::collections`（歌单 / 收藏 / 播放历史）与 `Playlist` 模型；
+> 曲库结构升到 v2（`user_version = 2`）。均为纯新增。
 >
 > v0.2 变更：新增 `db::close_db`；`ScanReport` 新增 `unchanged` / `walk_errors` / `pruned`；
 > `search_tracks` 修正特殊字符处理（不再报 FTS5 语法错误）并改为 bm25 排序。
@@ -42,6 +45,16 @@
 | `duration_secs` | `durationSecs` | `double` | 时长（秒），未知为 `0` |
 | `track_num` | `trackNum` | `int?` | 专辑内曲目号，未知为空或 `0` |
 | `added_at` | `addedAt` | `PlatformInt64` | 入库时间戳（Unix 秒；native 上就是 `int`，web 上是 `BigInt`） |
+
+### `Playlist`（`rust/src/api/model.rs`）
+
+| Rust 字段 | Dart 字段 | 类型 | 说明 |
+|---|---|---|---|
+| `id` | `id` | `PlatformInt64` | 歌单 id |
+| `name` | `name` | `String` | 去首尾空白后非空，忽略 ASCII 大小写唯一 |
+| `track_count` | `trackCount` | `int` | 曲目数 |
+| `created_at` | `createdAt` | `PlatformInt64` | 创建时间戳（Unix 秒） |
+| `updated_at` | `updatedAt` | `PlatformInt64` | 最近一次改名 / 增删曲目的时间戳（Unix 秒） |
 
 ### `ScanReport`（`rust/src/api/scan.rs`）
 
@@ -85,7 +98,44 @@
 - `prune_missing_tracks` 只清理磁盘上已不存在的 `path` 记录；磁盘检查在锁外完成，
   删除在单事务里完成。
 
-## 5. 扫描 `api::scan`
+## 5. 歌单 / 收藏 / 历史 `api::collections`
+
+| Rust 签名 | Dart 签名 | 状态 |
+|---|---|---|
+| `list_playlists() -> Result<Vec<Playlist>>` | `Future<List<Playlist>> listPlaylists()` | 已实现 |
+| `create_playlist(name: String) -> Result<Playlist>` | `Future<Playlist> createPlaylist({required String name})` | 已实现 |
+| `rename_playlist(id: i64, name: String) -> Result<()>` | `Future<void> renamePlaylist({required PlatformInt64 id, required String name})` | 已实现 |
+| `delete_playlist(id: i64) -> Result<()>` | `Future<void> deletePlaylist({required PlatformInt64 id})` | 已实现 |
+| `playlist_tracks(id: i64) -> Result<Vec<Track>>` | `Future<List<Track>> playlistTracks({required PlatformInt64 id})` | 已实现 |
+| `add_track_to_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> addTrackToPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
+| `remove_track_from_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> removeTrackFromPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
+| `list_favorites() -> Result<Vec<Track>>` | `Future<List<Track>> listFavorites()` | 已实现 |
+| `favorite_paths() -> Result<Vec<String>>` | `Future<List<String>> favoritePaths()` | 已实现 |
+| `is_favorite(path: String) -> Result<bool>` | `Future<bool> isFavorite({required String path})` | 已实现 |
+| `set_favorite(path: String, favorite: bool) -> Result<()>` | `Future<void> setFavorite({required String path, required bool favorite})` | 已实现 |
+| `record_play(path: String) -> Result<()>` | `Future<void> recordPlay({required String path})` | 已实现 |
+| `recent_tracks(limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> recentTracks({required int limit})` | 已实现 |
+| `clear_history() -> Result<()>` | `Future<void> clearHistory()` | 已实现 |
+
+语义补充：
+
+- 三张表都通过 `track_path` 外键关联 `tracks(path)`，并启用 `ON DELETE CASCADE`：
+  曲目被扫描清理（`pruned`）或历史路径合并时，歌单条目 / 收藏 / 历史一起删除，不留悬空引用。
+- **歌单名**：先去首尾空白；空名报错；忽略 ASCII 大小写唯一（`Night` 与 `night` 视为同名）。
+  歌单 id 不存在、曲目不在曲库时均返回错误，不静默忽略。
+- **歌单顺序**：按加入顺序（`added_at`，同一秒内按插入顺序），暂不支持手动排序。
+- `add_track_to_playlist` / `remove_track_from_playlist` 幂等：重复加 / 重复移除不报错，
+  返回值表示这次是否真的改变了数据。
+- **收藏**：`set_favorite` 幂等；收藏时曲目必须已在曲库。`favorite_paths` 供列表页
+  一次性拉取后做成员判断，避免逐曲调 `is_favorite`。
+- **历史**：按曲目去重，每首歌一行；`record_play` 更新最近播放时间并累加 `play_count`
+  （当前不对外暴露计数），`recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=500`。
+- **记录时机**：由 Dart 侧在 `player_play` 成功后调用 `record_play`；播放层不反向依赖曲库，
+  避免两层耦合。
+- 时间戳一律 Unix 秒。
+- 曲库从 v1 升级到 v2 时自动建表，无需手动迁移；v1 程序打开 v2 库会报版本过高。
+
+## 6. 扫描 `api::scan`
 
 | Rust 签名 | Dart 签名 | 状态 |
 |---|---|---|
@@ -113,20 +163,20 @@
 - 大目录扫描在 frb 的 worker 线程执行，不阻塞 UI；进度上报留待后续**新增** `StreamSink`
   接口，不改动本签名。
 
-## 6. 播放 `api::player`
+## 7. 播放 `api::player`
 
 | Rust 签名 | Dart 签名 | 同步 | 状态 |
 |---|---|---|---|
-| `player_is_available() -> bool` | `bool playerIsAvailable()` | 是 | **存根** |
-| `player_play(path: String) -> Result<()>` | `Future<void> playerPlay({required String path})` | 否 | **存根** |
-| `player_pause() -> Result<()>` | `Future<void> playerPause()` | 否 | **存根** |
-| `player_resume() -> Result<()>` | `Future<void> playerResume()` | 否 | **存根** |
-| `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **存根** |
-| `player_seek(position_secs: f64) -> Result<()>` | `Future<void> playerSeek({required double positionSecs})` | 否 | **存根** |
-| `player_set_volume(volume: f64) -> Result<()>` | `Future<void> playerSetVolume({required double volume})` | 否 | **存根** |
-| `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **存根** |
-| `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **存根** |
-| `player_state() -> PlaybackState` | `PlaybackState playerState()` | 是 | **存根** |
+| `player_is_available() -> bool` | `bool playerIsAvailable()` | 是 | **已实现** |
+| `player_play(path: String) -> Result<()>` | `Future<void> playerPlay({required String path})` | 否 | **已实现** |
+| `player_pause() -> Result<()>` | `Future<void> playerPause()` | 否 | **已实现** |
+| `player_resume() -> Result<()>` | `Future<void> playerResume()` | 否 | **已实现** |
+| `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
+| `player_seek(position_secs: f64) -> Result<()>` | `Future<void> playerSeek({required double positionSecs})` | 否 | **已实现** |
+| `player_set_volume(volume: f64) -> Result<()>` | `Future<void> playerSetVolume({required double volume})` | 否 | **已实现** |
+| `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **已实现** |
+| `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **已实现** |
+| `player_state() -> PlaybackState` | `PlaybackState playerState()` | 是 | **已实现** |
 
 语义补充：
 
@@ -140,13 +190,13 @@
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
 - 状态推进由 Dart 侧轮询（M2 先用轮询，后续可换事件流）。
 
-## 7. 桥接自检 `api::simple`
+## 8. 桥接自检 `api::simple`
 
 | Rust | Dart | 用途 |
 |---|---|---|
 | `greet(name: String) -> String`（sync） | `String greet({required String name})` | 只用于 `integration_test` 验证 FFI 通路，**不承载业务语义** |
 
-## 8. 生成代码规则
+## 9. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。
