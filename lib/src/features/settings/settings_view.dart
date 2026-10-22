@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import 'theme_controller.dart';
 
 /// 设置页的最小只读骨架。
 ///
@@ -52,12 +56,7 @@ class SettingsView extends StatelessWidget {
         _SectionLabel('外观'),
         _SettingsCard(
           children: <Widget>[
-            const _InfoRow(
-              icon: Icons.light_mode_outlined,
-              title: '主题',
-              subtitle: '深浅色跟随系统',
-              value: '跟随系统',
-            ),
+            const _ThemeRow(),
             const _InfoRow(
               icon: Icons.palette_outlined,
               title: '强调色',
@@ -208,5 +207,118 @@ class _InfoRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// 主题选择行：有 [ThemeScope] 时可点击切换，没有时退化为只读展示。
+class _ThemeRow extends StatelessWidget {
+  const _ThemeRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final ThemeController? controller = ThemeScope.maybeOf(context);
+    final ThemeMode mode = controller?.mode ?? ThemeMode.system;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: controller == null ? null : () => _pick(context, controller),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.light_mode_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('主题', style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    _hint(mode),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              _label(mode),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (controller != null)
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static void _pick(BuildContext context, ThemeController controller) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (BuildContext dialogContext) => AlertDialog(
+          title: const Text('主题'),
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (final ThemeMode mode in ThemeMode.values)
+                ListTile(
+                  title: Text(_label(mode)),
+                  trailing: mode == controller.mode
+                      ? const Icon(Icons.check)
+                      : null,
+                  onTap: () {
+                    unawaited(controller.setMode(mode));
+                    Navigator.of(dialogContext).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _label(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.system:
+        return '跟随系统';
+      case ThemeMode.light:
+        return '浅色';
+      case ThemeMode.dark:
+        return '深色';
+    }
+  }
+
+  static String _hint(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.system:
+        return '深浅色由系统决定';
+      case ThemeMode.light:
+        return '始终使用浅色';
+      case ThemeMode.dark:
+        return '始终使用深色';
+    }
   }
 }

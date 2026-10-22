@@ -1,33 +1,64 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'routes.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
+import '../features/settings/theme_controller.dart';
 import '../theme/app_theme.dart';
 
 /// 应用外壳：主题 + 路由 + 全局配置都收在这里。
 ///
 /// 页面本身不写在此文件，新增页面请改 [LampRouter]。
 /// 数据源与播放能力可从外部注入，方便 widget 测试脱离 Rust 原生库。
-class LampApp extends StatelessWidget {
+class LampApp extends StatefulWidget {
   const LampApp({super.key, this.libraryRepository, this.playbackService});
 
   final LibraryRepository? libraryRepository;
   final PlaybackService? playbackService;
 
   @override
+  State<LampApp> createState() => _LampAppState();
+}
+
+class _LampAppState extends State<LampApp> {
+  final ThemeController _theme = ThemeController();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_theme.restore());
+  }
+
+  @override
+  void dispose() {
+    _theme.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Lamp Player',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
-      initialRoute: AppRoutes.library,
-      onGenerateRoute: (RouteSettings settings) => LampRouter.onGenerateRoute(
-        settings,
-        repository: libraryRepository,
-        playbackService: playbackService,
+    return ThemeScope(
+      controller: _theme,
+      child: ListenableBuilder(
+        listenable: _theme,
+        builder: (BuildContext context, Widget? child) {
+          return MaterialApp(
+            title: 'Lamp Player',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: _theme.mode,
+            initialRoute: AppRoutes.library,
+            onGenerateRoute: (RouteSettings settings) =>
+                LampRouter.onGenerateRoute(
+                  settings,
+                  repository: widget.libraryRepository,
+                  playbackService: widget.playbackService,
+                ),
+          );
+        },
       ),
     );
   }
