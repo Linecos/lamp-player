@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../common/common.dart';
+import '../../rust/api/scan.dart';
 import 'theme_controller.dart';
 
 /// 设置页骨架。
 ///
 /// 展示曲库统计与引擎状态；「外观 → 主题」可切换并持久化。
-/// 「添加音乐目录」已接入；默认音量等交互待后续版本，未持久化的假开关不放。
+/// 「添加音乐目录」由曲库页负责扫描，本页展示进度、结果与失败重试。
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
@@ -16,6 +18,10 @@ class SettingsView extends StatelessWidget {
     required this.engineAvailable,
     this.scanning = false,
     this.onAddFolder,
+    this.scanFolder,
+    this.scanReport,
+    this.scanError,
+    this.onRetry,
   });
 
   final int trackCount;
@@ -23,6 +29,18 @@ class SettingsView extends StatelessWidget {
   final bool engineAvailable;
   final bool scanning;
   final VoidCallback? onAddFolder;
+
+  /// 当前（或最近一次）扫描的目录，用于进度与结果展示。
+  final String? scanFolder;
+
+  /// 本次扫描结果；为 null 表示还没有成功扫描过。
+  final ScanReport? scanReport;
+
+  /// 本次扫描失败原因；为 null 表示没有待处理的失败。
+  final Object? scanError;
+
+  /// 重新扫描 [scanFolder]；为空时只展示错误，不提供重试。
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +63,7 @@ class SettingsView extends StatelessWidget {
             _ActionRow(
               icon: Icons.create_new_folder_outlined,
               title: '添加音乐目录',
-              subtitle: scanning ? '正在扫描并入库…' : '选择文件夹后扫描并入库',
+              subtitle: scanning ? '正在扫描并入库…' : '递归扫描子目录，按改动增量入库',
               onTap: scanning ? null : onAddFolder,
               trailing: scanning
                   ? const SizedBox(
@@ -57,6 +75,11 @@ class SettingsView extends StatelessWidget {
             ),
           ],
         ),
+        if (scanning && scanFolder != null) _ScanProgress(folder: scanFolder!),
+        if (!scanning && scanError != null && onRetry != null)
+          ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
+        if (!scanning && scanError == null && scanReport != null)
+          _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
         _SectionLabel('播放'),
         _SettingsCard(
           children: <Widget>[
@@ -97,7 +120,7 @@ class SettingsView extends StatelessWidget {
     );
   }
 
-  static String _formatTotal(double seconds) {
+  String _formatTotal(double seconds) {
     final int total = seconds.round();
     if (total < 60) {
       return '$total 秒';
@@ -402,5 +425,98 @@ class _ThemeRow extends StatelessWidget {
       case ThemeMode.dark:
         return '始终使用深色';
     }
+  }
+}
+
+class _ScanProgress extends StatelessWidget {
+  const _ScanProgress({required this.folder});
+
+  final String folder;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '正在扫描 $folder',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScanSummary extends StatelessWidget {
+  const _ScanSummary({required this.report, required this.folder});
+
+  final ScanReport report;
+  final String folder;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final List<String> parts = <String>[
+      '新增 ${report.upserted} 首',
+      if (report.unchanged > 0) '跳过 ${report.unchanged} 首',
+      if (report.pruned > 0) '清理 ${report.pruned} 条',
+      if (report.failed > 0) '失败 ${report.failed} 个',
+      if (report.walkErrors > 0) '无法读取 ${report.walkErrors} 个',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.check_circle_outline, size: 16, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                '扫描完成',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: scheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(parts.join(' · '), style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 2),
+          Text(
+            folder,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
