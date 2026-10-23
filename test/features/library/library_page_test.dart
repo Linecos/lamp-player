@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1231,6 +1233,41 @@ void main() {
 
     expect(find.text('排序：标题'), findsOneWidget);
     expect(session.snapshot.sort, LibrarySort.title);
+  });
+
+  testWidgets('拖入文件夹会复用扫描流程并显示导入结果', (WidgetTester tester) async {
+    final Directory dropped = Directory.systemTemp.createTempSync('lamp_drop_');
+    addTearDown(() => dropped.deleteSync(recursive: true));
+
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: const <Track>[],
+    );
+
+    Future<void> sendDropEvent(String method, Object arguments) async {
+      final ByteData data = const StandardMethodCodec().encodeMethodCall(
+        MethodCall(method, arguments),
+      );
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'desktop_drop',
+        data,
+        (ByteData? _) {},
+      );
+    }
+
+    await sendDropEvent('entered', <double>[100, 100]);
+    await tester.pump();
+    expect(find.text('松开即可导入音乐'), findsOneWidget);
+
+    await sendDropEvent('performOperation', <String>[dropped.path]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('松开即可导入音乐'), findsNothing);
+    expect(repository.scannedFolders, <String>[dropped.path]);
+    expect(find.textContaining('导入完成'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
   });
 }
 
