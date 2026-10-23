@@ -16,6 +16,11 @@ class SettingsView extends StatelessWidget {
     required this.trackCount,
     required this.totalDurationSecs,
     required this.engineAvailable,
+    this.exclusive = false,
+    this.exclusiveActive = false,
+    this.switchingOutput = false,
+    this.outputInfo = '',
+    this.onExclusiveChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -30,6 +35,22 @@ class SettingsView extends StatelessWidget {
   final int trackCount;
   final double totalDurationSecs;
   final bool engineAvailable;
+
+  /// 是否请求 WASAPI 独占输出（用户偏好）
+  final bool exclusive;
+
+  /// 引擎当前是否真的在独占（设备不支持时会是 false）
+  final bool exclusiveActive;
+
+  /// 正在切换输出，期间禁用开关
+  final bool switchingOutput;
+
+  /// 引擎给出的输出描述，例如「WASAPI 独占 · 48000 Hz · 2 声道」
+  final String outputInfo;
+
+  /// 切换独占开关；为空表示当前不可操作
+  final ValueChanged<bool>? onExclusiveChanged;
+
   final bool scanning;
 
   /// 已添加的音乐目录（按添加顺序）
@@ -123,6 +144,24 @@ class SettingsView extends StatelessWidget {
                   ? null
                   : Theme.of(context).colorScheme.error,
             ),
+            _SwitchRow(
+              icon: Icons.surround_sound,
+              title: '独占输出（WASAPI）',
+              subtitle: exclusive
+                  ? (exclusiveActive
+                        ? '设备由本应用独占，系统混音器不再参与'
+                        : '设备不支持或被占用，当前仍走共享输出')
+                  : '开启后绕过系统混音器；切换时会短暂中断播放',
+              value: exclusive,
+              busy: switchingOutput,
+              onChanged: onExclusiveChanged,
+            ),
+            if (outputInfo.isNotEmpty)
+              _OutputRow(
+                info: outputInfo,
+                active: exclusiveActive,
+                available: engineAvailable,
+              ),
           ],
         ),
         _SectionLabel('外观'),
@@ -219,6 +258,146 @@ class _SettingsCard extends StatelessWidget {
 }
 
 /// 可点击的操作行，样式与只读信息行保持一致。
+/// 带开关的设置行
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    this.busy = false,
+    this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final bool busy;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: onChanged == null || busy ? null : () => onChanged!(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(title, style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (busy)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Switch(value: value, onChanged: onChanged),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 输出详情：引擎实际用的模式与格式
+class _OutputRow extends StatelessWidget {
+  const _OutputRow({
+    required this.info,
+    required this.active,
+    required this.available,
+  });
+
+  final String info;
+  final bool active;
+  final bool available;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Color dot = !available
+        ? scheme.outline
+        : (active ? scheme.primary : scheme.onSurfaceVariant);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.tune, size: 20, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: dot,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('当前输出', style: theme.textTheme.bodyLarge),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  info,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.icon,

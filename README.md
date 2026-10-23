@@ -14,6 +14,7 @@
 - 📚 曲库视图：全部 / 艺术家 / 专辑，五种排序，万级曲目虚拟滚动
 - 📥 添加音乐目录：系统目录选择 → 增量扫描入库，设置页与空态均可进入
 - 🔎 FTS5 全文检索（歌名/歌手/专辑），输入 300ms 防抖
+- 🔊 独占输出：可在设置页切到 WASAPI 独占（绕过系统混音器），设备不支持时自动回落共享
 - ▶️ 播放控制：上一首 / 下一首、播放全部、自动连播、随机播放与列表 / 单曲循环
 - 🎛️ 播放队列面板：查看待播曲目、直接跳播，底栏角标显示队列长度
 - ⌨️ 快捷键：空格播放/暂停、Ctrl+←/→ 切歌、←/→ 快进 5 秒、Ctrl+F 搜索、Ctrl+M 静音
@@ -75,7 +76,8 @@ flutter run -d windows
 ```powershell
 flutter pub get
 cargo fetch --manifest-path rust/Cargo.toml
-.\scripts\setup-bass.ps1       # 从 un4seen 官网下载 BASS 2.4
+.\scripts\setup-bass.ps1         # 从 un4seen 官网下载 BASS 2.4
+.\scripts\setup-bass-output.ps1  # 独占输出所需 basswasapi / bassmix（可选）
 ```
 
 > BASS 为闭源第三方库，不随仓库分发（`third_party/bass/` 已 gitignore）。

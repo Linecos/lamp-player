@@ -21,6 +21,7 @@
 │     player 播放控制（状态与参数校验）      │
 │   scanner.rs 遍历与标签解析（内部模块）    │
 │   bass.rs    BASS 动态加载与调用封装       │
+│   bass/wasapi.rs WASAPI 独占 + bassmix FFI │
 └───────────────┬──────────────────────────┘
                 │ libloading 运行时加载
 ┌───────────────▼──────────────────────────┐
@@ -40,13 +41,18 @@
 |---|---|---|
 | `lib/main.dart` | 入口：初始化桥接、挂载 `LampApp` | 不写业务逻辑 |
 | `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`）、会话恢复（`session_store.dart`）与窗口状态（`window_state.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象、存储通过接口注入，测试可替换假实现 |
+| `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
 | `lib/src/theme/` | 全局主题（Material 3，seed 色） | 页面内禁止写死颜色 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
 | `lib/src/rust/` | **生成代码**，禁止手改 | `flutter_rust_bridge_codegen generate` |
 | `rust/src/api/` | 对 Dart 的接口面 | 每个模块一个文件 |
 | `rust/src/scanner.rs` | 目录遍历 + 标签解析（walkdir + lofty） | 内部模块，不经 frb 导出，便于脱离数据库测试 |
-| `rust/src/bass.rs` | BASS 单例、符号表、状态查询 | 平台相关代码加 `cfg` |
+| `rust/src/bass.rs` | 对外公开 API 与 `State`（薄壳，按平台 `#[path]` 选实现） | 只暴露函数，不含实现 |
+| `rust/src/bass/windows.rs` | Windows 实现：命令队列、`Engine`、共享 / 独占两条输出路径 | 文件内 `use super::api` |
+| `rust/src/bass/api.rs` | BASS 符号表、错误文案、DLL 查找、宽字符 | 字段 `pub(super)` |
+| `rust/src/bass/wasapi.rs` | `basswasapi` / `bassmix` 的 FFI 封装（符号、结构体、常量） | 结构体以头文件为准 |
+| `rust/src/bass/portable.rs` | 非 Windows 空实现 | 保证 Linux CI 可编译 |
 | `rust/tests/` | 集成级 Rust 测试 | 需要真实依赖（如 bundled FTS5）的用例 |
 | `scripts/` | 环境与检查脚本 | 保持可重复执行（幂等） |
 | `third_party/` | 第三方二进制（BASS） | gitignore，脚本下载 |
@@ -184,3 +190,17 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 | Dart 单元 / widget | `test/` | 纯 Dart，无原生库 | 组件渲染、格式化逻辑、状态流转 |
 | Rust 集成 | `rust/tests/` | `cargo test` | SQLite/FTS5、扫描解析等真实依赖 |
 | 端到端 | `integration_test/` | Windows 桌面 + 真实原生库 | 桥接自检、关键交互 |
+
+## 测试组织
+
+| 文件 | 覆盖 |
+|---|---|
+| `test/support/fake_library.dart` | 曲库 / 播放 / 目录 / 会话的假实现，以及 `sampleTrack` |
+| `test/support/page_harness.dart` | `pumpLibrary` 与各分区入口（`openSettings` / `openHistory` …）、`playlistNameField` |
+| `test/features/library/library_music_test.dart` | 列表、空态、错误、搜索、排序、艺术家/专辑、拖拽导入、封面补扫 |
+| `test/features/library/library_playback_test.dart` | 播放 / 暂停 / 连播 / 队列 / 音量 / 进度 / 快捷键 / 右键菜单 / 会话恢复 |
+| `test/features/library/library_collections_test.dart` | 歌单、收藏、历史 |
+| `test/features/library/library_settings_test.dart` | 设置页、音乐目录管理、独占输出 |
+| `test/features/library/library_shell_test.dart` | 侧边栏、分区过渡动画 |
+
+新增分区测试时从 `page_harness.dart` 取脚手架，不要各自复制 `pumpLibrary`。

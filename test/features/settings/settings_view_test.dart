@@ -219,4 +219,64 @@ void main() {
     await tester.tap(find.byTooltip('从列表移除').last);
     expect(removed, <String>['E:/Songs']);
   });
+
+  testWidgets('独占输出行展示状态并回调开关', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> changes = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 3,
+            totalDurationSecs: 200,
+            engineAvailable: true,
+            exclusive: false,
+            exclusiveActive: false,
+            outputInfo: '共享输出（跟随系统混音格式）',
+            onExclusiveChanged: changes.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('独占输出（WASAPI）'), findsOneWidget);
+    expect(find.text('共享输出（跟随系统混音格式）'), findsOneWidget);
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(changes, <bool>[true]);
+  });
+
+  testWidgets('切换输出期间独占开关显示进度且不响应', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 3,
+            totalDurationSecs: 200,
+            engineAvailable: true,
+            exclusive: true,
+            switchingOutput: true,
+            onExclusiveChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(Switch), findsNothing, reason: '切换中显示进度而不是开关');
+    expect(find.text('设备不支持或被占用，当前仍走共享输出'), findsOneWidget);
+  });
 }

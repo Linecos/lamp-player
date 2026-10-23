@@ -187,6 +187,10 @@
 | `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **已实现** |
 | `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **已实现** |
 | `player_state() -> PlaybackState` | `PlaybackState playerState()` | 是 | **已实现** |
+| `player_is_exclusive() -> bool` | `bool playerIsExclusive()` | 是 | **已实现** |
+| `player_set_exclusive(exclusive: bool) -> Result<()>` | `Future<void> playerSetExclusive({required bool exclusive})` | 否 | **已实现** |
+| `player_output_info() -> Result<String>` | `Future<String> playerOutputInfo()` | 否 | **已实现** |
+| `player_shutdown() -> Result<()>` | `Future<void> playerShutdown()` | 否 | **已实现** |
 
 语义补充：
 
@@ -198,6 +202,18 @@
   开发态再回退 `third_party/bass/windows/x64/`；不要依赖当前工作目录。
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
+- `player_set_exclusive` 切换输出模式（`true` = WASAPI 独占）。切换会重开当前曲目：
+  位置与播放状态由引擎保留，正在出声时会有一次短暂中断。
+- 独占走「`BASS_Init(0)` 只解码 + `bassmix` 重采样 + `BASS_WASAPI_Init` 回调拉数据」：
+  设备按自身混音格式独占（不做系统混音），素材统一由 bassmix 转换到设备格式，
+  因此**不是 bit-perfect 直通**。
+- 独占不可用（缺 `basswasapi.dll` / 设备被占用 / 不支持该格式）时引擎**自动回落共享**，
+  `player_set_exclusive` 仍返回成功，`player_is_exclusive()` 为 `false`，
+  `player_output_info()` 里带回落原因——界面据此提示，而不是当成硬失败。
+- 独占开启后设备由本进程持有：`player_stop` 立刻释放；停止超过 3 秒（`LAMP_EXCLUSIVE_IDLE_SECS`
+  可调，仅供测试）也会自动交还，暂停不计时（用户随时会继续）。
+- `player_shutdown` 关闭引擎线程并释放设备，退出前调用；未初始化时是空操作。
+  进程退出本身也会交还设备，但显式关闭能让音频线程先收尾。
 - 状态推进由 Dart 侧轮询（当前实现；后续可换事件流）。
 
 ## 8. 桥接自检 `api::simple`
