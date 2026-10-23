@@ -22,9 +22,10 @@ enum LibrarySection {
   final IconData selectedIcon;
 }
 
-/// 可展开 / 折叠的宽侧边导航栏。
+/// 可展开 / 折叠的侧边导航栏。
 ///
-/// 展开 220dp：图标与文字横向排列；折叠 96dp：文字在图标下方。
+/// 展开 220dp：图标与文字横向排列；折叠 72dp：只留图标，
+/// 这样折叠按钮与下方图标共用同一条中轴。
 class LibraryRail extends StatelessWidget {
   const LibraryRail({
     super.key,
@@ -40,19 +41,20 @@ class LibraryRail extends StatelessWidget {
   final VoidCallback onToggle;
 
   static const double expandedWidth = 220;
-  static const double collapsedWidth = 96;
+  static const double collapsedWidth = 72;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
       width: expanded ? expandedWidth : collapsedWidth,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
+      decoration: BoxDecoration(color: scheme.surfaceContainer),
+      // 边框用前景绘制，避免 Container 因边框内缩 1px，
+      // 导致收起时图标中轴比折叠按钮偏左。
+      foregroundDecoration: BoxDecoration(
         border: Border(right: BorderSide(color: scheme.outlineVariant)),
       ),
       child: ClipRect(
@@ -99,16 +101,6 @@ class LibraryRail extends StatelessWidget {
                 ],
               ),
             ),
-            if (expanded)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 12, 16),
-                child: Text(
-                  'Lamp Player 0.1.0',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -146,46 +138,47 @@ class _RailItem extends StatelessWidget {
       section.label,
       maxLines: 1,
       overflow: TextOverflow.clip,
-      style:
-          (expanded ? theme.textTheme.labelLarge : theme.textTheme.labelSmall)
-              ?.copyWith(color: foreground),
+      style: theme.textTheme.labelLarge?.copyWith(color: foreground),
+    );
+
+    final Widget item = Material(
+      color: selected ? scheme.secondaryContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            // 展开动画进行到一半时宽度还不够放图标 + 文字，
+            // 先保持图标居中，等宽度够了再显示文字，避免溢出。
+            final bool showLabel = expanded && constraints.maxWidth >= 56;
+            return SizedBox(
+              height: expanded ? 56 : 48,
+              child: showLabel
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: <Widget>[
+                          iconWidget,
+                          const SizedBox(width: 8),
+                          Flexible(child: label),
+                        ],
+                      ),
+                    )
+                  : Center(child: iconWidget),
+            );
+          },
+        ),
+      ),
     );
 
     return Semantics(
       button: true,
       selected: selected,
       label: section.label,
-      child: Material(
-        color: selected ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(28),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-          child: SizedBox(
-            height: expanded ? 56 : 64,
-            child: expanded
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      children: <Widget>[
-                        iconWidget,
-                        const SizedBox(width: 8),
-                        Flexible(child: label),
-                      ],
-                    ),
-                  )
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      iconWidget,
-                      const SizedBox(height: 2),
-                      label,
-                    ],
-                  ),
-          ),
-        ),
-      ),
+      // 收起后只剩图标，用悬停提示补足名称。
+      child: expanded ? item : Tooltip(message: section.label, child: item),
     );
   }
 }

@@ -45,7 +45,7 @@ void main() {
     await tester.pumpWidget(const LampApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Lamp'), findsOneWidget);
+    expect(find.text('Lamp Player'), findsOneWidget);
     expect(find.text('音乐'), findsWidgets);
     expect(find.byType(TextField), findsOneWidget);
   });

@@ -1194,26 +1194,18 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildTopBar(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-      child: Row(
-        children: <Widget>[
-          Text(
-            'Lamp',
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: _buildSearchField(context),
           ),
-          const SizedBox(width: 20),
-          Flexible(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: SizedBox(height: 56, child: _buildSearchField(context)),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

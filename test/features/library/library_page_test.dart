@@ -566,6 +566,41 @@ void main() {
     expect(find.byIcon(Icons.menu_open), findsOneWidget);
   });
 
+  testWidgets('收起侧边栏后只显示图标，并与折叠按钮对齐', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    await tester.tap(find.byTooltip('收起导航栏'));
+    await tester.pumpAndSettle();
+
+    final Finder rail = find.byType(LibraryRail);
+    expect(
+      tester.getSize(rail).width,
+      LibraryRail.collapsedWidth,
+      reason: '收起后应收窄到图标宽度',
+    );
+    for (final String label in <String>[
+      '音乐',
+      '歌单',
+      '历史',
+      '收藏',
+      '艺术家',
+      '专辑',
+      '设置',
+    ]) {
+      expect(
+        find.descendant(of: rail, matching: find.text(label)),
+        findsNothing,
+        reason: '收起后不应再显示「$label」',
+      );
+    }
+
+    final Offset toggleCenter = tester.getCenter(find.byTooltip('展开导航栏'));
+    final Offset musicCenter = tester.getCenter(
+      find.descendant(of: rail, matching: find.byIcon(Icons.music_note)),
+    );
+    expect(musicCenter.dx, closeTo(toggleCenter.dx, 0.01), reason: '应在同一中轴');
+  });
+
   testWidgets('侧边栏包含七个入口', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
