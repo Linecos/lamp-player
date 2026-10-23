@@ -36,7 +36,6 @@ Future<void> _pumpBar(
   VoidCallback? onShowQueue,
   VoidCallback? onToggleRepeat,
   VoidCallback? onToggleShuffle,
-  int queueLength = 0,
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
 }) async {
@@ -69,7 +68,6 @@ Future<void> _pumpBar(
             onShowQueue: onShowQueue,
             onToggleRepeat: onToggleRepeat,
             onToggleShuffle: onToggleShuffle,
-            queueLength: queueLength,
             repeat: repeat,
             shuffle: shuffle,
           ),
@@ -210,7 +208,6 @@ void main() {
     await _pumpBar(
       tester,
       track: sampleTrack(title: '夜航'),
-      queueLength: 3,
       repeat: LoopMode.all,
       shuffle: true,
       onPrevious: () => previous += 1,
@@ -232,7 +229,7 @@ void main() {
     expect(queue, 1);
     expect(repeat, 1);
     expect(shuffle, 1);
-    expect(find.text('3'), findsOneWidget, reason: '队列数量应有角标');
+    expect(find.byType(Badge), findsNothing, reason: '队列按钮不再显示数量角标');
   });
 
   testWidgets('播放条用 AlbumCover 渲染当前曲目封面', (WidgetTester tester) async {

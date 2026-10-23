@@ -81,18 +81,31 @@ Future<void> _pumpTitleBar(
 }
 
 void main() {
-  testWidgets('标题栏固定显示应用名，并保留拖动区与三个窗口按钮', (WidgetTester tester) async {
+  testWidgets('标题栏保留拖动区与三个窗口按钮，应用名交给侧栏', (WidgetTester tester) async {
     await _pumpTitleBar(tester, FakeWindowControls());
 
     expect(find.byKey(_dragKey), findsOneWidget);
-    final Finder brand = find.text('Lamp Player');
-    expect(brand, findsOneWidget, reason: '应用名固定在左上角');
-    final Rect brandRect = tester.getRect(brand);
-    expect(brandRect.left, 16);
-    expect(brandRect.top, greaterThanOrEqualTo(0));
-    expect(brandRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
+    expect(find.text('Lamp Player'), findsNothing, reason: '应用名固定在侧栏顶部');
     expect(find.byKey(_minimizeKey), findsOneWidget);
     expect(find.byKey(_maximizeKey), findsOneWidget);
+    expect(find.byKey(_closeKey), findsOneWidget);
+  });
+
+  testWidgets('overlay 模式下标题条浮在页面顶部', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WindowChrome(
+          controls: FakeWindowControls(),
+          overlay: true,
+          child: const ColoredBox(color: Colors.red, child: SizedBox.expand()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Rect dragRect = tester.getRect(find.byKey(_dragKey));
+    expect(dragRect.top, 0);
+    expect(dragRect.height, LampTitleBar.height);
     expect(find.byKey(_closeKey), findsOneWidget);
   });
 
