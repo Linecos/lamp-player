@@ -102,6 +102,19 @@ else {
         & (Join-Path $PSScriptRoot 'setup-bass.ps1')
         if ($LASTEXITCODE -ne 0) { throw 'BASS 下载失败，可稍后手动执行 scripts\setup-bass.ps1。' }
     }
+
+    # WASAPI 独占输出要额外的 addon，缺了只影响独占，不影响共享播放
+    $wasapi = Join-Path $root 'third_party\bass\windows\x64\basswasapi.dll'
+    if (Test-Path $wasapi) {
+        Write-Ok 'WASAPI 输出扩展已存在'
+    }
+    else {
+        Write-Step '下载 BASS 输出扩展（basswasapi / bassmix）'
+        & (Join-Path $PSScriptRoot 'setup-bass-output.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            Write-Note '输出扩展未就绪，独占输出不可用（共享播放不受影响）。可稍后手动执行 scripts\setup-bass-output.ps1。'
+        }
+    }
 }
 
 Write-Host ''
