@@ -32,11 +32,15 @@ class TrackListView extends StatelessWidget {
     this.favoritePaths = const <String>{},
     this.onToggleFavorite,
     this.onContextAction,
+    this.storageKey,
   });
 
   final List<Track> tracks;
   final ValueChanged<Track> onPlay;
   final String? playingPath;
+
+  /// 滚动位置用的 key；不同分区传不同值，切页 / 重启后回到原位置。
+  final Key? storageKey;
 
   /// 提供后在行尾显示「更多」菜单，用于从歌单移除等操作。
   final ValueChanged<Track>? onRemove;
@@ -68,6 +72,7 @@ class TrackListView extends StatelessWidget {
             ),
             Expanded(
               child: ListView.builder(
+                key: storageKey,
                 itemCount: tracks.length,
                 itemExtent: 56,
                 padding: EdgeInsets.zero,

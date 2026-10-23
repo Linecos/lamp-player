@@ -199,6 +199,8 @@ class _LibraryPageState extends State<LibraryPage> {
         ..setShuffle(snapshot.shuffle);
       _section = section;
       _railExpanded = snapshot.railExpanded;
+      _sort = snapshot.sort;
+      _tracks = sortTracks(_tracks, snapshot.sort);
       _coverBackfillAttempted = snapshot.coverBackfillAttempted;
     });
 
@@ -290,6 +292,7 @@ class _LibraryPageState extends State<LibraryPage> {
         shuffle: _queue.shuffle,
         section: _section.name,
         railExpanded: _railExpanded,
+        sort: _sort,
         coverBackfillAttempted: _coverBackfillAttempted,
       ),
     );
@@ -598,6 +601,7 @@ class _LibraryPageState extends State<LibraryPage> {
         _results = sortTracks(results, sort);
       }
     });
+    _saveSessionNow();
   }
 
   /* ---------------------------------------------------------------- 播放 */
@@ -1525,6 +1529,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return TrackListView(
       tracks: _historyTracks,
+      storageKey: const PageStorageKey<String>('tracks:history'),
       playingPath: _currentTrack?.path,
       onPlay: (Track track) => unawaited(_playFrom(_historyTracks, track)),
       favoritePaths: _favoritePaths,
@@ -1673,6 +1678,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return TrackListView(
       tracks: _favoriteTracks,
+      storageKey: const PageStorageKey<String>('tracks:favorites'),
       playingPath: _currentTrack?.path,
       onPlay: (Track track) => unawaited(_playFrom(_favoriteTracks, track)),
       favoritePaths: _favoritePaths,
@@ -2049,6 +2055,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return PlaylistGridView(
       playlists: _playlists,
+      storageKey: const PageStorageKey<String>('grid:playlists'),
       onOpen: (Playlist playlist) => unawaited(_openPlaylist(playlist)),
       onAction: (Playlist playlist, PlaylistAction action) {
         switch (action) {
@@ -2179,6 +2186,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return TrackListView(
       tracks: _playlistTracks,
+      storageKey: PageStorageKey<String>('tracks:playlist:${playlist.id}'),
       playingPath: _currentTrack?.path,
       onPlay: (Track track) => unawaited(_playFrom(_playlistTracks, track)),
       onRemove: (Track track) => unawaited(_removeTrackFromPlaylist(track)),
@@ -2281,6 +2289,7 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       return TrackListView(
         tracks: _results!,
+        storageKey: const PageStorageKey<String>('tracks:search'),
         playingPath: _currentTrack?.path,
         onPlay: (Track track) => unawaited(_playFrom(_results!, track)),
         favoritePaths: _favoritePaths,
@@ -2322,6 +2331,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return TrackListView(
       tracks: _tracks,
+      storageKey: const PageStorageKey<String>('tracks:music'),
       playingPath: _currentTrack?.path,
       onPlay: (Track track) => unawaited(_playFrom(_tracks, track)),
       favoritePaths: _favoritePaths,
@@ -2370,6 +2380,7 @@ class _LibraryPageState extends State<LibraryPage> {
           child: _buildCollectionBody(context, groups.isEmpty, () {
             return ArtistGridView(
               artists: groups,
+              storageKey: const PageStorageKey<String>('grid:artists'),
               onSelect: (ArtistGroup artist) =>
                   setState(() => _selectedArtist = artist.name),
             );
@@ -2443,6 +2454,7 @@ class _LibraryPageState extends State<LibraryPage> {
         Expanded(
           child: TrackListView(
             tracks: group.tracks,
+            storageKey: PageStorageKey<String>('tracks:artist:${group.name}'),
             playingPath: _currentTrack?.path,
             onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
             favoritePaths: _favoritePaths,
@@ -2495,6 +2507,7 @@ class _LibraryPageState extends State<LibraryPage> {
           child: _buildCollectionBody(context, groups.isEmpty, () {
             return AlbumGridView(
               albums: groups,
+              storageKey: const PageStorageKey<String>('grid:albums'),
               onSelect: (AlbumGroup album) =>
                   setState(() => _selectedAlbumKey = album.key),
             );
@@ -2567,6 +2580,7 @@ class _LibraryPageState extends State<LibraryPage> {
         Expanded(
           child: TrackListView(
             tracks: group.tracks,
+            storageKey: PageStorageKey<String>('tracks:album:${group.key}'),
             playingPath: _currentTrack?.path,
             onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
             favoritePaths: _favoritePaths,

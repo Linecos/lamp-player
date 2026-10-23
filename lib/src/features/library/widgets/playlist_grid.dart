@@ -13,15 +13,18 @@ class PlaylistGridView extends StatelessWidget {
     required this.playlists,
     required this.onOpen,
     required this.onAction,
+    this.storageKey,
   });
 
   final List<Playlist> playlists;
   final ValueChanged<Playlist> onOpen;
   final void Function(Playlist playlist, PlaylistAction action) onAction;
+  final Key? storageKey;
 
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
+      key: storageKey,
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 340,

@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../features/library/library_sort.dart';
 import '../features/player/playback_queue.dart';
 
 /// 一次会话需要记住的东西：音量、上次播放、界面位置。
@@ -16,6 +17,7 @@ class SessionSnapshot {
     this.shuffle = false,
     this.section,
     this.railExpanded = true,
+    this.sort = LibrarySort.library,
     this.coverBackfillAttempted = false,
   });
 
@@ -33,6 +35,9 @@ class SessionSnapshot {
   final String? section;
 
   final bool railExpanded;
+
+  /// 曲库列表的排序方式；重启后沿用上次选择
+  final LibrarySort sort;
 
   /// 是否已经尝试过「升级后自动补扫封面」。
   ///
@@ -59,6 +64,7 @@ class PrefsSessionStore implements SessionStore {
   static const String shuffleKey = 'player_shuffle';
   static const String sectionKey = 'ui_section';
   static const String railExpandedKey = 'ui_rail_expanded';
+  static const String sortKey = 'ui_sort';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
 
   @override
@@ -77,6 +83,7 @@ class PrefsSessionStore implements SessionStore {
         shuffle: prefs.getBool(shuffleKey) ?? false,
         section: prefs.getString(sectionKey),
         railExpanded: prefs.getBool(railExpandedKey) ?? true,
+        sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
       );
@@ -107,6 +114,7 @@ class PrefsSessionStore implements SessionStore {
         await prefs.setString(sectionKey, section);
       }
       await prefs.setBool(railExpandedKey, snapshot.railExpanded);
+      await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,
         snapshot.coverBackfillAttempted,
@@ -123,5 +131,14 @@ class PrefsSessionStore implements SessionStore {
       }
     }
     return LoopMode.off;
+  }
+
+  static LibrarySort _parseSort(String? name) {
+    for (final LibrarySort sort in LibrarySort.values) {
+      if (sort.name == name) {
+        return sort;
+      }
+    }
+    return LibrarySort.library;
   }
 }

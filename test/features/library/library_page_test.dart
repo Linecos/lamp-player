@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
+import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
@@ -1199,6 +1200,37 @@ void main() {
     await tester.tap(find.text('晨间'));
     await tester.pumpAndSettle();
     expect(find.text('已加入「晨间」'), findsOneWidget);
+  });
+
+  testWidgets('启动时恢复上次选择的排序方式', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: 'B 曲', artist: '甲'),
+        sampleTrack(title: 'A 曲', artist: '乙'),
+      ],
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(sort: LibrarySort.title),
+      ),
+    );
+
+    expect(find.text('排序：标题'), findsOneWidget);
+    final double aY = tester.getTopLeft(find.text('A 曲')).dy;
+    final double bY = tester.getTopLeft(find.text('B 曲')).dy;
+    expect(aY, lessThan(bY), reason: '应按标题排序，而不是保留默认顺序');
+  });
+
+  testWidgets('切换排序方式会写回会话', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(tester, tracks: twoTracks(), sessionStore: session);
+
+    await tester.tap(find.textContaining('排序：'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标题').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('排序：标题'), findsOneWidget);
+    expect(session.snapshot.sort, LibrarySort.title);
   });
 }
 

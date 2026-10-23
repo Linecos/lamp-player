@@ -17,14 +17,17 @@ class ArtistGridView extends StatelessWidget {
     super.key,
     required this.artists,
     required this.onSelect,
+    this.storageKey,
   });
 
   final List<ArtistGroup> artists;
   final ValueChanged<ArtistGroup> onSelect;
+  final Key? storageKey;
 
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
+      key: storageKey,
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 208,
@@ -112,14 +115,17 @@ class AlbumGridView extends StatelessWidget {
     super.key,
     required this.albums,
     required this.onSelect,
+    this.storageKey,
   });
 
   final List<AlbumGroup> albums;
   final ValueChanged<AlbumGroup> onSelect;
+  final Key? storageKey;
 
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
+      key: storageKey,
       padding: const EdgeInsets.only(top: 8, bottom: 16),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 220,

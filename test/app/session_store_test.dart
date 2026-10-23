@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,6 +17,7 @@ void main() {
     expect(snapshot.shuffle, isFalse);
     expect(snapshot.section, isNull);
     expect(snapshot.railExpanded, isTrue);
+    expect(snapshot.sort, LibrarySort.library);
     expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
   });
 
@@ -33,6 +35,7 @@ void main() {
         shuffle: true,
         section: 'favorites',
         railExpanded: false,
+        sort: LibrarySort.added,
         coverBackfillAttempted: true,
       ),
     );
@@ -46,6 +49,7 @@ void main() {
     expect(snapshot.shuffle, isTrue);
     expect(snapshot.section, 'favorites');
     expect(snapshot.railExpanded, isFalse);
+    expect(snapshot.sort, LibrarySort.added);
     expect(snapshot.coverBackfillAttempted, isTrue);
   });
 
@@ -80,5 +84,14 @@ void main() {
     final SessionSnapshot snapshot = await store.load();
     expect(snapshot.volume, 0, reason: '启动时应保持静音');
     expect(snapshot.lastVolume, closeTo(0.4, 0.001), reason: '取消静音回到 40%');
+  });
+
+  test('无法识别的排序方式回退到默认顺序', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'flutter.${PrefsSessionStore.sortKey}': 'unknown',
+    });
+
+    final SessionSnapshot snapshot = await const PrefsSessionStore().load();
+    expect(snapshot.sort, LibrarySort.library);
   });
 }
