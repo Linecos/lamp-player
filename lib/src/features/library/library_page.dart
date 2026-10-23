@@ -102,6 +102,10 @@ class _LibraryPageState extends State<LibraryPage> {
   double? _pendingResumePosition;
 
   LibrarySection _section = LibrarySection.music;
+
+  /// 侧边栏触发一次视图切换就 +1，只用来驱动分区过渡动画；
+  /// 数据刷新不会改它，避免列表更新时整页重放动画。
+  int _viewVersion = 0;
   bool _railExpanded = true;
   LibrarySort _sort = LibrarySort.library;
 
@@ -1118,7 +1122,43 @@ class _LibraryPageState extends State<LibraryPage> {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                        child: _buildSection(context),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          layoutBuilder:
+                              (
+                                Widget? currentChild,
+                                List<Widget> previousChildren,
+                              ) {
+                                return Stack(
+                                  fit: StackFit.expand,
+                                  children: <Widget>[
+                                    // 旧分区正在淡出时不响应点击，避免误触。
+                                    for (final Widget child in previousChildren)
+                                      IgnorePointer(child: child),
+                                    ?currentChild,
+                                  ],
+                                );
+                              },
+                          transitionBuilder:
+                              (Widget child, Animation<double> animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0, 0.01),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                          child: KeyedSubtree(
+                            key: ValueKey<int>(_viewVersion),
+                            child: _buildSection(context),
+                          ),
+                        ),
                       ),
                     ),
                     PlayerBar(
@@ -1261,6 +1301,7 @@ class _LibraryPageState extends State<LibraryPage> {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
+          _viewVersion += 1;
         });
       }
       return;
@@ -1270,6 +1311,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _selectedArtist = null;
       _selectedAlbumKey = null;
       _selectedPlaylistId = null;
+      _viewVersion += 1;
     });
     _saveSessionNow();
     if (section == LibrarySection.playlists) {

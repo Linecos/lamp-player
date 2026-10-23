@@ -566,6 +566,23 @@ void main() {
     expect(find.byIcon(Icons.menu_open), findsOneWidget);
   });
 
+  testWidgets('侧边栏收起有宽度过渡动画', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    final Finder rail = find.byType(LibraryRail);
+    expect(tester.getSize(rail).width, LibraryRail.expandedWidth);
+
+    await tester.tap(find.byTooltip('收起导航栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final double midWidth = tester.getSize(rail).width;
+    expect(midWidth, greaterThan(LibraryRail.collapsedWidth));
+    expect(midWidth, lessThan(LibraryRail.expandedWidth));
+
+    await tester.pumpAndSettle();
+    expect(tester.getSize(rail).width, LibraryRail.collapsedWidth);
+  });
+
   testWidgets('收起侧边栏后只显示图标，并与折叠按钮对齐', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
@@ -599,6 +616,52 @@ void main() {
       find.descendant(of: rail, matching: find.byIcon(Icons.music_note)),
     );
     expect(musicCenter.dx, closeTo(toggleCenter.dx, 0.01), reason: '应在同一中轴');
+  });
+
+  testWidgets('点击侧边栏切换分区有淡入淡出过渡', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    expect(find.text('2 首音乐'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.text('2 首音乐'), findsOneWidget, reason: '旧分区应在淡出');
+    expect(find.text('曲目数量'), findsOneWidget, reason: '新分区应已挂载');
+
+    await tester.pumpAndSettle();
+    expect(find.text('2 首音乐'), findsNothing);
+    expect(find.text('曲目数量'), findsOneWidget);
+  });
+
+  testWidgets('从详情点击当前分区返回列表也有过渡', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        ...twoTracks(),
+        sampleTrack(title: '灯下', artist: '林间电台', album: '夜之专辑'),
+      ],
+    );
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('林间电台'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('艺术家')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget, reason: '详情应在淡出');
+    expect(find.text('2 位艺术家'), findsOneWidget, reason: '列表应已挂载');
+
+    await tester.pumpAndSettle();
+    expect(find.text('1 张专辑 · 2 首音乐'), findsNothing);
+    expect(find.text('2 位艺术家'), findsOneWidget);
   });
 
   testWidgets('侧边栏包含七个入口', (WidgetTester tester) async {
