@@ -1,6 +1,7 @@
 /// 通用层统一出口：与业务无关的格式化工具与组件。
 library;
 
+export 'audio/volume_curve.dart';
 export 'formatters/duration.dart';
 export 'formatters/file_size.dart';
 export 'widgets/album_cover.dart';

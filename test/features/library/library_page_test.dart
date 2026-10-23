@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
+import 'package:lamp_player/src/common/audio/volume_curve.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
@@ -511,7 +512,11 @@ void main() {
     expect(find.text('还没有收藏'), findsOneWidget, reason: '应恢复到收藏分区');
     expect(find.byTooltip('展开导航栏'), findsOneWidget, reason: '侧栏应保持收起');
     expect(find.byTooltip('循环播放：列表'), findsOneWidget);
-    expect(playback.volumeCalls.last, closeTo(0.4, 0.001));
+    expect(
+      playback.volumeCalls.last,
+      closeTo(volumeToAmplitude(0.4), 0.001),
+      reason: '会话里存的是滑块值，发给引擎时要走感知曲线',
+    );
 
     // 上次播放的曲目显示在播放条上，但不会自动出声
     expect(
@@ -1013,6 +1018,11 @@ void main() {
     expect(playback.volumeCalls, isNotEmpty);
     expect(playback.volumeCalls.last, lessThan(1));
     expect(playback.volumeCalls.last, greaterThan(0));
+    expect(
+      playback.volumeCalls.last,
+      lessThan(0.05),
+      reason: '滑块 25% 左右应压到约 -36 dB，而不是线性 0.25',
+    );
 
     await tester.tap(find.byTooltip('静音'));
     await tester.pump();
