@@ -182,7 +182,8 @@ void main() {
     expect(find.byTooltip('静音'), findsNothing);
   });
 
-  testWidgets('停止态（canSeek=false）禁用进度拖动', (WidgetTester tester) async {    final List<double> ends = <double>[];
+  testWidgets('停止态（canSeek=false）禁用进度拖动', (WidgetTester tester) async {
+    final List<double> ends = <double>[];
     await _pumpBar(
       tester,
       isPlaying: false,
@@ -236,9 +237,8 @@ void main() {
   testWidgets('没有当前曲目时上一首 / 下一首 / 暂停都禁用', (WidgetTester tester) async {
     await _pumpBar(tester, onPrevious: () {}, onNext: () {});
 
-    IconButton buttonWithIcon(IconData icon) => tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, icon),
-    );
+    IconButton buttonWithIcon(IconData icon) =>
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
 
     expect(buttonWithIcon(Icons.skip_previous).onPressed, isNull);
     expect(buttonWithIcon(Icons.skip_next).onPressed, isNull);

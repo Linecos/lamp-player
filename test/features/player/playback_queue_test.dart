@@ -98,4 +98,17 @@ void main() {
     expect(queue.current?.title, 'X');
     expect(queue.retreat(), isNull);
   });
+
+  test('把刚播过的曲目设为下一首后，上一首不会重播当前曲', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance(); // A -> B
+    queue.advance(); // B -> C
+
+    queue.insertNext(_tracks()[1]); // 把刚播过的 B 提到当前曲之后
+    expect(_titles(queue.tracks), <String>['A', 'C', 'B']);
+    expect(queue.current?.title, 'C');
+
+    queue.retreat();
+    expect(queue.current?.title, 'A', reason: '历史里被移走的下标应被删除，而不是左移');
+  });
 }

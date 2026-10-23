@@ -259,11 +259,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 550));
     await tester.pump();
 
-    expect(
-      playback.playedPaths,
-      <String>['/music/夜航.mp3', '/music/潮汐.mp3'],
-      reason: '自然播完应自动播放队列下一首',
-    );
+    expect(playback.playedPaths, <String>[
+      '/music/夜航.mp3',
+      '/music/潮汐.mp3',
+    ], reason: '自然播完应自动播放队列下一首');
     expect(find.byIcon(Icons.pause), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
@@ -410,10 +409,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(
-      find.text('夜航').first,
-      buttons: kSecondaryMouseButton,
-    );
+    await tester.tap(find.text('夜航').first, buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('下一首播放'));
     await tester.pumpAndSettle();
@@ -483,10 +479,7 @@ void main() {
 
     // 上次播放的曲目显示在播放条上，但不会自动出声
     expect(
-      find.descendant(
-        of: find.byType(PlayerBar),
-        matching: find.text('潮汐'),
-      ),
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('潮汐')),
       findsOneWidget,
     );
     expect(find.text('00:42'), findsOneWidget);
@@ -878,7 +871,11 @@ void main() {
     );
 
     await tester.pump(const Duration(milliseconds: 120));
-    expect(playback.volumeCalls, hasLength(initialCalls + 1), reason: '一个窗口只发一次');
+    expect(
+      playback.volumeCalls,
+      hasLength(initialCalls + 1),
+      reason: '一个窗口只发一次',
+    );
     expect(playback.volumeCalls.last, closeTo(1.0, 0.001));
   });
 
@@ -964,6 +961,69 @@ void main() {
     expect(repo.scannedFolders, <String>[r'F:\NewMusic']);
     // 目录行与扫描结果摘要各出现一次
     expect(find.text(r'F:\NewMusic'), findsWidgets);
+  });
+
+  testWidgets('最后一首点下一首时不会把界面切成已播完', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    // 播最后一首，然后手动点「下一首」
+    await tester.tap(find.text('潮汐').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(playback.playedPaths, <String>[
+      '/music/潮汐.mp3',
+    ], reason: '队列到头时不该换曲');
+    expect(
+      playback.current,
+      rust.PlaybackState.playing,
+      reason: '手动点下一首时音频还在放，不能当成自然播完',
+    );
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.pause),
+      ),
+      findsOneWidget,
+      reason: '按钮仍应显示暂停，否则会出现「显示已停、声音还在」',
+    );
+    expect(find.text('已经是最后一首'), findsOneWidget);
+  });
+
+  testWidgets('音乐分区右键加入歌单能看到已有歌单', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      seed: (FakeLibraryRepository repo) async {
+        await repo.createPlaylist('晨间');
+      },
+    );
+
+    // 页面停在「音乐」分区，从未进入歌单页
+    await tester.tap(find.text('夜航').first, buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('加入歌单…'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('晨间'), findsOneWidget, reason: '应能列出已有歌单');
+    expect(find.text('还没有歌单，点右下角新建一个。'), findsNothing);
+
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+    expect(find.text('已加入「晨间」'), findsOneWidget);
   });
 }
 
