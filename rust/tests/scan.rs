@@ -154,6 +154,73 @@ fn scan_folder_is_incremental_and_prunes_deleted_files() {
     fs::remove_dir_all(&root).ok();
 }
 
+/// v3：扫描时提取内嵌封面并写入曲库同级的 covers/ 缓存。
+#[test]
+fn scan_extracts_embedded_cover_and_prunes_unused_files() {
+    use lofty::config::WriteOptions;
+    use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::picture::{MimeType, Picture, PictureType};
+    use lofty::tag::{Accessor, Tag, TagType};
+
+    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let root = unique_dir("cover");
+    let db_path = root.join("library.lampdb");
+    db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
+
+    let music = root.join("music");
+    let song = music.join("带封面.wav");
+    write_wav(&song, 0.5);
+
+    // 1×1 透明 PNG
+    const PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xfc,
+        0xcf, 0xc0, 0x50, 0x0f, 0x00, 0x04, 0x85, 0x01, 0x80, 0x84, 0xa9, 0x8c, 0x21, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    let mut tagged = lofty::read_from_path(&song).expect("读取测试音频");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("带封面".to_string());
+    tag.push_picture(
+        Picture::unchecked(PNG.to_vec())
+            .pic_type(PictureType::CoverFront)
+            .mime_type(MimeType::Png)
+            .build(),
+    );
+    tagged.insert_tag(tag);
+    tagged
+        .save_to_path(&song, WriteOptions::default())
+        .expect("写入内嵌封面");
+
+    let report = scan::scan_folder(music.to_string_lossy().into_owned()).expect("扫描");
+    assert_eq!(report.upserted, 1);
+    assert_eq!(report.failed, 0);
+
+    let tracks = db::all_tracks().expect("读取曲库");
+    assert_eq!(tracks.len(), 1);
+    let cover = tracks[0].cover_path.clone().expect("应提取到封面");
+    assert_eq!(
+        fs::read(&cover).expect("读取封面缓存"),
+        PNG,
+        "缓存内容应与内嵌图一致"
+    );
+    assert!(
+        cover.replace('\\', "/").contains("/covers/"),
+        "封面应放在曲库目录的 covers/ 下: {cover}"
+    );
+
+    // 删掉曲目再扫：曲目记录与无人引用的封面都应被清理
+    fs::remove_file(&song).expect("删除测试音频");
+    let after = scan::scan_folder(music.to_string_lossy().into_owned()).expect("清理扫描");
+    assert_eq!(after.pruned, 1);
+    assert!(!Path::new(&cover).exists(), "无引用的封面应被清理");
+
+    db::close_db().expect("关闭曲库");
+    fs::remove_dir_all(&root).ok();
+}
+
 /// 老版本可能把正斜杠路径写进库；重新扫描后应按归一化 key 合并成一条。
 #[cfg(windows)]
 #[test]
@@ -182,6 +249,7 @@ fn scan_merges_legacy_separator_variants() {
         duration_secs: 1.0,
         track_num: None,
         added_at: 1,
+        cover_path: None,
     }])
     .expect("写入旧记录");
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);

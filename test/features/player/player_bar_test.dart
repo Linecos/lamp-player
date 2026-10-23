@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -232,6 +233,16 @@ void main() {
     expect(repeat, 1);
     expect(shuffle, 1);
     expect(find.text('3'), findsOneWidget, reason: '队列数量应有角标');
+  });
+
+  testWidgets('播放条用 AlbumCover 渲染当前曲目封面', (WidgetTester tester) async {
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航', coverPath: '/missing/cover.jpg'),
+    );
+
+    expect(find.byType(AlbumCover), findsOneWidget);
+    expect(find.byIcon(Icons.music_note), findsOneWidget, reason: '文件不存在时回退');
   });
 
   testWidgets('没有当前曲目时上一首 / 下一首 / 暂停都禁用', (WidgetTester tester) async {

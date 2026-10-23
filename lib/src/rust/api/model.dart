@@ -70,6 +70,9 @@ class Track {
   /// 入库时间戳
   final PlatformInt64 addedAt;
 
+  /// 内嵌封面的缓存文件路径；没有封面或提取失败时为空
+  final String? coverPath;
+
   const Track({
     required this.path,
     required this.title,
@@ -78,6 +81,7 @@ class Track {
     required this.durationSecs,
     this.trackNum,
     required this.addedAt,
+    this.coverPath,
   });
 
   @override
@@ -88,7 +92,8 @@ class Track {
       album.hashCode ^
       durationSecs.hashCode ^
       trackNum.hashCode ^
-      addedAt.hashCode;
+      addedAt.hashCode ^
+      coverPath.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -101,5 +106,6 @@ class Track {
           album == other.album &&
           durationSecs == other.durationSecs &&
           trackNum == other.trackNum &&
-          addedAt == other.addedAt;
+          addedAt == other.addedAt &&
+          coverPath == other.coverPath;
 }

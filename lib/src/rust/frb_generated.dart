@@ -1228,8 +1228,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Track dco_decode_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return Track(
       path: dco_decode_String(arr[0]),
       title: dco_decode_String(arr[1]),
@@ -1238,6 +1238,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       durationSecs: dco_decode_f_64(arr[4]),
       trackNum: dco_decode_opt_box_autoadd_i_32(arr[5]),
       addedAt: dco_decode_i_64(arr[6]),
+      coverPath: dco_decode_opt_String(arr[7]),
     );
   }
 
@@ -1417,6 +1418,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_durationSecs = sse_decode_f_64(deserializer);
     var var_trackNum = sse_decode_opt_box_autoadd_i_32(deserializer);
     var var_addedAt = sse_decode_i_64(deserializer);
+    var var_coverPath = sse_decode_opt_String(deserializer);
     return Track(
       path: var_path,
       title: var_title,
@@ -1425,6 +1427,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       durationSecs: var_durationSecs,
       trackNum: var_trackNum,
       addedAt: var_addedAt,
+      coverPath: var_coverPath,
     );
   }
 
@@ -1579,6 +1582,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_64(self.durationSecs, serializer);
     sse_encode_opt_box_autoadd_i_32(self.trackNum, serializer);
     sse_encode_i_64(self.addedAt, serializer);
+    sse_encode_opt_String(self.coverPath, serializer);
   }
 
   @protected

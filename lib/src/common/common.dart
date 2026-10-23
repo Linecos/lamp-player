@@ -3,6 +3,7 @@ library;
 
 export 'formatters/duration.dart';
 export 'formatters/file_size.dart';
+export 'widgets/album_cover.dart';
 export 'widgets/empty_state.dart';
 export 'widgets/error_retry.dart';
 export 'widgets/loading_state.dart';

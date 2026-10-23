@@ -111,6 +111,8 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _loading = true;
   bool _searching = false;
   bool _scanning = false;
+  bool _backfillingCovers = false;
+  bool _coverBackfillAttempted = false;
   String? _lastScanFolder;
   List<String> _folders = const <String>[];
   scan.ScanReport? _scanReport;
@@ -192,6 +194,7 @@ class _LibraryPageState extends State<LibraryPage> {
         ..setShuffle(snapshot.shuffle);
       _section = section;
       _railExpanded = snapshot.railExpanded;
+      _coverBackfillAttempted = snapshot.coverBackfillAttempted;
     });
 
     if (!mounted) {
@@ -200,7 +203,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _restoreLastTrack(snapshot);
 
     unawaited(_refreshFavoritePaths());
-    unawaited(_loadFolders());
+    unawaited(_loadFoldersAndMaybeBackfill());
     if (_isAvailable) {
       unawaited(_applyVolume(_volume));
     }
@@ -282,6 +285,7 @@ class _LibraryPageState extends State<LibraryPage> {
         shuffle: _queue.shuffle,
         section: _section.name,
         railExpanded: _railExpanded,
+        coverBackfillAttempted: _coverBackfillAttempted,
       ),
     );
   }
@@ -320,6 +324,19 @@ class _LibraryPageState extends State<LibraryPage> {
       setState(() {
         _tracks = sortTracks(tracks, _sort);
         _loading = false;
+        // 扫描会刷新封面等字段：队列和当前曲目换成新对象，避免播放条还拿旧数据
+        if (!_queue.isEmpty) {
+          _queue.refreshTracks(_tracks);
+        }
+        final Track? current = _currentTrack;
+        if (current != null) {
+          final int index = _tracks.indexWhere(
+            (Track track) => track.path == current.path,
+          );
+          if (index >= 0) {
+            _currentTrack = _tracks[index];
+          }
+        }
       });
       if (_query.isNotEmpty) {
         unawaited(_runSearch(_query));
@@ -343,6 +360,46 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     setState(() => _folders = normalizeFolders(folders));
+  }
+
+  Future<void> _loadFoldersAndMaybeBackfill() async {
+    await _loadFolders();
+    await _backfillCoversIfNeeded();
+  }
+
+  /// 曲库升到 v3 后老曲目没有封面：首次启动补扫一次已添加目录。
+  ///
+  /// 成败都记为「已尝试」，否则没有内嵌封面的曲库会每次启动都全量扫一遍。
+  Future<void> _backfillCoversIfNeeded() async {
+    if (!mounted || _coverBackfillAttempted || _scanning) {
+      return;
+    }
+    if (_tracks.isEmpty || _folders.isEmpty) {
+      return;
+    }
+    // 只有「全部没有封面」才视为升级后的老曲库；混合状态通常说明用户
+    // 已经手动扫过一部分目录，不再自动全量重扫。
+    if (!_tracks.every((Track track) => track.coverPath == null)) {
+      setState(() => _coverBackfillAttempted = true);
+      unawaited(_saveSession());
+      return;
+    }
+
+    setState(() => _backfillingCovers = true);
+    for (final String folder in List<String>.of(_folders)) {
+      if (!mounted) {
+        return;
+      }
+      await _scanDirectory(folder, notify: false);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _backfillingCovers = false;
+      _coverBackfillAttempted = true;
+    });
+    unawaited(_saveSession());
   }
 
   /// 记下新目录（忽略大小写去重）；已存在时不重复写入。
@@ -409,9 +466,11 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   /// 扫描指定目录；设置页展示结果，空曲库时用 SnackBar 提示。
-  Future<void> _scanDirectory(String folder) async {
+  ///
+  /// 自动补扫时传 `notify: false`，避免多个目录各弹一次提示。
+  Future<bool> _scanDirectory(String folder, {bool notify = true}) async {
     if (_scanning) {
-      return;
+      return false;
     }
 
     setState(() {
@@ -424,29 +483,39 @@ class _LibraryPageState extends State<LibraryPage> {
       final scan.ScanReport report = await _repository.scanFolder(folder);
       await _loadTracks();
       if (!mounted) {
-        return;
+        return false;
       }
       setState(() {
         _scanning = false;
         _scanReport = report;
       });
-      if (_section != LibrarySection.settings) {
+      if (!_backfillingCovers) {
+        _coverBackfillAttempted = true;
+        unawaited(_saveSession());
+      }
+      if (notify && _section != LibrarySection.settings) {
         _showMessage(
           '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
           '清理 ${report.pruned} 首',
         );
       }
+      return true;
     } catch (error) {
       if (!mounted) {
-        return;
+        return false;
       }
       setState(() {
         _scanning = false;
         _scanError = error;
       });
-      if (_section != LibrarySection.settings) {
+      if (!_backfillingCovers) {
+        _coverBackfillAttempted = true;
+        unawaited(_saveSession());
+      }
+      if (notify && _section != LibrarySection.settings) {
         _showMessage('扫描失败：${ErrorRetry.describe(error)}');
       }
+      return false;
     }
   }
 

@@ -56,6 +56,7 @@ fn track(path: &str, title: &str, artist: Option<&str>, album: Option<&str>) -> 
         duration_secs: 1.5,
         track_num: None,
         added_at: 1,
+        cover_path: None,
     }
 }
 
@@ -289,7 +290,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 2, "升级后应写入当前结构版本");
+    assert_eq!(version, 3, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -301,6 +302,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     }
     assert!(columns.contains(&"file_mtime".to_string()));
     assert!(columns.contains(&"file_size".to_string()));
+    assert!(columns.contains(&"cover_path".to_string()));
     drop(conn);
 
     // v2 新增的三张表也要在升级时建好
@@ -321,5 +323,56 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
             .len(),
         1,
         "升级后应重建 FTS 索引"
+    );
+}
+
+#[test]
+fn migrate_v2_resets_fingerprints_and_adds_cover_column() {
+    let (_lock, dir) = begin("migrate_v3");
+    let path = dir.db_path();
+
+    // v2 的库：曲目表没有 cover_path，且已有 mtime/size 指纹
+    {
+        let conn = rusqlite::Connection::open(&path).expect("打开 v2 库");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE tracks (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                path          TEXT    NOT NULL UNIQUE,
+                title         TEXT    NOT NULL DEFAULT '',
+                artist        TEXT    NOT NULL DEFAULT '',
+                album         TEXT    NOT NULL DEFAULT '',
+                duration_secs REAL    NOT NULL DEFAULT 0,
+                track_num     INTEGER NOT NULL DEFAULT 0,
+                added_at      INTEGER NOT NULL DEFAULT 0,
+                file_mtime    INTEGER NOT NULL DEFAULT 0,
+                file_size     INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO tracks (path, title, added_at, file_mtime, file_size)
+            VALUES ('/music/a.mp3', '旧歌', 1, 123, 456);
+            PRAGMA user_version = 2;
+            "#,
+        )
+        .expect("建 v2 库");
+    }
+
+    db::init_db(path.clone()).expect("升级 v2 库");
+
+    let tracks = db::all_tracks().expect("读取曲库");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].cover_path, None, "老库曲目默认没有封面");
+
+    let conn = rusqlite::Connection::open(&path).expect("重新打开");
+    let (mtime, size): (i64, i64) = conn
+        .query_row(
+            "SELECT file_mtime, file_size FROM tracks WHERE path = '/music/a.mp3'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("读取指纹");
+    assert_eq!(
+        (mtime, size),
+        (0, 0),
+        "应清零指纹，让下次扫描重新解析并补封面"
     );
 }

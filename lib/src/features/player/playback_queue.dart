@@ -206,6 +206,22 @@ class PlaybackQueue {
     }
   }
 
+  /// 用同一批路径的新曲目对象替换队列里的旧对象（扫描后封面等字段会更新）。
+  ///
+  /// 只按 `path` 对齐，保持顺序、当前下标与上一首历史不变；新列表里没有的
+  /// 曲目保留旧对象，避免扫描失败或文件临时不可读时把队列弄空。
+  void refreshTracks(List<Track> tracks) {
+    final Map<String, Track> byPath = <String, Track>{
+      for (final Track track in tracks) track.path: track,
+    };
+    for (int i = 0; i < _tracks.length; i += 1) {
+      final Track? updated = byPath[_tracks[i].path];
+      if (updated != null) {
+        _tracks[i] = updated;
+      }
+    }
+  }
+
   /// 插入到当前曲目之后；同一路径已在队列里时先挪过来，避免重复。
   bool insertNext(Track track) {
     if (_tracks.isEmpty) {

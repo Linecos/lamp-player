@@ -88,6 +88,24 @@ void main() {
     expect(queue.tracks.last.title, 'D');
   });
 
+  test('刷新曲目对象后保留顺序、当前下标与上一首历史', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance(); // A -> B
+    final String currentPath = queue.current!.path;
+
+    queue.refreshTracks(<Track>[
+      sampleTrack(title: 'A', coverPath: '/covers/a.jpg'),
+      sampleTrack(title: 'B', coverPath: '/covers/b.jpg'),
+      sampleTrack(title: 'C', coverPath: '/covers/c.jpg'),
+    ]);
+
+    expect(queue.index, 1);
+    expect(queue.current?.path, currentPath);
+    expect(queue.current?.coverPath, '/covers/b.jpg', reason: '播放条应拿到新封面');
+    expect(_titles(queue.tracks), <String>['A', 'B', 'C']);
+    expect(queue.retreat(), 0, reason: '上一首历史不应被刷新清掉');
+  });
+
   test('reset 清空历史并重新开始', () {
     final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
     queue.advance();

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../common/formatters/duration.dart';
+import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
 import '../library_sort.dart';
 
@@ -281,7 +282,12 @@ class _TrackRow extends StatelessWidget {
                           ),
                   ),
                 ),
-                _TrackCover(playing: playing),
+                AlbumCover(
+                  path: track.coverPath,
+                  size: 40,
+                  radius: 12,
+                  playing: playing,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 5,
@@ -372,30 +378,6 @@ class _TrackRow extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _TrackCover extends StatelessWidget {
-  const _TrackCover({required this.playing});
-
-  final bool playing;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(
-        Icons.music_note,
-        size: 20,
-        color: playing ? scheme.primary : scheme.onSurfaceVariant,
       ),
     );
   }

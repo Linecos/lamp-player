@@ -8,7 +8,7 @@
 
 项目处于 **M1 曲库闭环、M2 播放链路已完成，进入 M3 打磨与发布**：
 桥接、扫描、SQLite + FTS5、BASS 播放、主界面与搜索已就位；
-歌单 / 历史 / 收藏页面已接入，播放队列、快捷键与会话恢复落地；
+歌单 / 历史 / 收藏页面已接入，播放队列、快捷键、会话恢复与专辑封面落地；
 下一步是真实曲库走查、性能压测与发布链路。
 
 ## M1 · 曲库闭环（扫描 → 入库 → 列表 → 搜索）
@@ -40,6 +40,7 @@
 | 播放全部（曲库 / 搜索 / 收藏 / 历史 / 歌单 / 艺术家 / 专辑） | Dart `features/library` | 小 | 已完成 |
 | 快捷键（空格 / Ctrl+方向键 / Ctrl+M / Ctrl+F / Esc / 媒体键） | Dart `features/library` | 小 | 已完成（搜索框内不劫持输入） |
 | 会话恢复（音量、上次曲目与进度、循环 / 随机、分区、侧栏、窗口尺寸） | Dart `app/` + `features/library` | 中 | 已完成（`shared_preferences`） |
+| 专辑封面：提取内嵌图、按内容哈希缓存、列表 / 播放条展示 | Rust `scanner.rs` + Dart `common/widgets` | 中 | 已完成（schema v3，`covers/` 缓存） |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | 已完成（进度拖动 + 音量滑块的合并节流） |
 | 主题切换（跟随系统 / 浅色 / 深色，`shared_preferences` 持久化） | Dart `features/settings` | 小 | 已完成（PR #5） |
 | 设置页其余交互（默认音量等） | Dart `features/settings` | 中 | 待认领 |

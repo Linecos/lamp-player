@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/common.dart';
@@ -71,6 +74,50 @@ void main() {
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.byType(Text), findsNothing);
+    });
+  });
+
+  group('AlbumCover', () {
+    testWidgets('没有路径或文件不存在时回退到音符图标', (WidgetTester tester) async {
+      await _pumpInScaffold(tester, const AlbumCover());
+      expect(find.byIcon(Icons.music_note), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+
+      await _pumpInScaffold(
+        tester,
+        const AlbumCover(path: r'Z:\definitely-missing\cover.jpg'),
+      );
+      expect(find.byIcon(Icons.music_note), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+    });
+
+    testWidgets('播放中回退图标换成均衡器', (WidgetTester tester) async {
+      await _pumpInScaffold(tester, const AlbumCover(playing: true));
+      expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+    });
+
+    testWidgets('封面文件存在时渲染图片', (WidgetTester tester) async {
+      late Directory dir;
+      late File file;
+      // 真实文件 IO 在 fake async 下不会自行完成，必须放进 runAsync
+      await tester.runAsync(() async {
+        dir = await Directory.systemTemp.createTemp('lamp_cover');
+        file = File('${dir.path}/cover.png');
+        // 1×1 透明 PNG
+        await file.writeAsBytes(
+          base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8'
+            'z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          ),
+        );
+      });
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      await _pumpInScaffold(tester, AlbumCover(path: file.path));
+      await tester.pump();
+
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.byIcon(Icons.music_note), findsNothing);
     });
   });
 

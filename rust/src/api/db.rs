@@ -8,11 +8,12 @@ use crate::scanner::{path_key, ScannedTrack};
 use anyhow::{bail, Context};
 use rusqlite::{params, Connection, Row};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 struct Database {
     path: String,
@@ -74,6 +75,56 @@ pub fn close_db() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
     *guard = None;
     Ok(())
+}
+
+/// 封面缓存目录：与曲库文件同级（`<支持目录>/covers`）。
+///
+/// 让缓存跟着曲库走，扫描器不需要额外参数；换库路径时封面目录也随之切换。
+pub(crate) fn covers_dir() -> anyhow::Result<PathBuf> {
+    let guard = cell()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let db = guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("曲库未初始化：请先调用 init_db(path)"))?;
+    let parent = Path::new(&db.path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    Ok(parent.join("covers"))
+}
+
+/// 清掉没有被任何曲目引用的封面文件（换封面、删曲目后的残留）。
+///
+/// 只看曲库目录下的缓存文件；路径转不成 UTF-8 的文件不碰，避免误删。
+pub(crate) fn prune_unused_covers() -> anyhow::Result<i32> {
+    let dir = covers_dir()?;
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+
+    let referenced: HashSet<String> = with_conn(|conn| {
+        let mut stmt =
+            conn.prepare_cached("SELECT cover_path FROM tracks WHERE cover_path <> ''")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<HashSet<_>, _>>()?)
+    })?;
+
+    let mut removed = 0;
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let keep = match path.to_str() {
+            Some(text) => referenced.contains(text),
+            None => true,
+        };
+        if !keep && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 const SCHEMA_V1: &str = r#"
@@ -186,6 +237,18 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         conn.pragma_update(None, "user_version", 2)?;
     }
 
+    if version < 3 {
+        // v3：封面缓存路径。老库没有封面，把文件指纹清零，让下次扫描重新解析
+        // 一遍（否则未变化的文件会被增量扫描跳过，封面永远补不上）。
+        if !column_exists(conn, "tracks", "cover_path")? {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN cover_path TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+        conn.execute_batch("UPDATE tracks SET file_mtime = 0, file_size = 0;")?;
+        conn.pragma_update(None, "user_version", 3)?;
+    }
+
     Ok(())
 }
 
@@ -213,7 +276,7 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
             FROM tracks t
             JOIN tracks_fts f ON f.rowid = t.id
             WHERE tracks_fts MATCH ?1
@@ -242,7 +305,7 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT path, title, artist, album, duration_secs, track_num, added_at
+            SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path
             FROM tracks
             ORDER BY artist, album, track_num, title
             "#,
@@ -267,14 +330,15 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
         {
             let mut stmt = tx.prepare_cached(
                 r#"
-                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at, cover_path)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, ''))
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
                     album         = excluded.album,
                     duration_secs = excluded.duration_secs,
-                    track_num     = excluded.track_num
+                    track_num     = excluded.track_num,
+                    cover_path    = COALESCE(?8, tracks.cover_path)
                 "#,
             )?;
             for t in &tracks {
@@ -285,7 +349,8 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                     t.album.as_deref().unwrap_or(""),
                     t.duration_secs,
                     t.track_num.unwrap_or(0),
-                    t.added_at
+                    t.added_at,
+                    t.cover_path
                 ])?;
             }
         }
@@ -310,8 +375,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks
-                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, ''))
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
@@ -319,7 +384,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     duration_secs = excluded.duration_secs,
                     track_num     = excluded.track_num,
                     file_mtime    = excluded.file_mtime,
-                    file_size     = excluded.file_size
+                    file_size     = excluded.file_size,
+                    cover_path    = excluded.cover_path
                 "#,
             )?;
             for item in items {
@@ -333,7 +399,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     t.track_num.unwrap_or(0),
                     t.added_at,
                     item.mtime_ns,
-                    item.size
+                    item.size,
+                    t.cover_path
                 ])?;
             }
         }
@@ -477,8 +544,8 @@ fn merge_track_path(
         let copied = tx.execute(
             r#"
             INSERT INTO tracks
-                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size)
-            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path
             FROM tracks
             WHERE path = ?2
             "#,
@@ -558,6 +625,7 @@ pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
         duration_secs: row.get(4)?,
         track_num: Some(row.get::<_, i32>(5)?).filter(|n| *n > 0),
         added_at: row.get(6)?,
+        cover_path: some_if_not_empty(row.get::<_, String>(7)?),
     })
 }
 
@@ -584,7 +652,8 @@ mod tests {
                 track_num     INTEGER NOT NULL DEFAULT 0,
                 added_at      INTEGER NOT NULL DEFAULT 0,
                 file_mtime    INTEGER NOT NULL DEFAULT 0,
-                file_size     INTEGER NOT NULL DEFAULT 0
+                file_size     INTEGER NOT NULL DEFAULT 0,
+                cover_path    TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE playlists (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
+import '../../common/widgets/album_cover.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'playback_queue.dart';
@@ -109,7 +110,12 @@ class PlayerBar extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          _BarCover(playing: isPlaying),
+          AlbumCover(
+            path: current?.coverPath,
+            size: 56,
+            radius: 16,
+            playing: isPlaying,
+          ),
           const SizedBox(width: 12),
           Expanded(
             flex: 3,
@@ -266,30 +272,6 @@ class _BarIconButton extends StatelessWidget {
       icon: Icon(
         icon,
         color: selected ? scheme.primary : scheme.onSurfaceVariant,
-      ),
-    );
-  }
-}
-
-class _BarCover extends StatelessWidget {
-  const _BarCover({required this.playing});
-
-  final bool playing;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Icon(
-        playing ? Icons.graphic_eq : Icons.music_note,
-        size: 26,
-        color: playing ? scheme.primary : scheme.onSurfaceVariant,
       ),
     );
   }
