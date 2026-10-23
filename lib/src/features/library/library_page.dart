@@ -896,24 +896,80 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _showQueue() {
     return showPlaybackQueueDialog(
       context,
-      tracks: _queue.tracks,
-      currentIndex: _queue.index,
-      repeat: _queue.repeat,
-      shuffle: _queue.shuffle,
-      onSelect: (int index) {
-        if (_queue.jumpTo(index)) {
-          unawaited(_startCurrent());
-        }
-      },
-      onRepeatChanged: (LoopMode mode) {
-        setState(() => _queue.setRepeat(mode));
-        _saveSessionNow();
-      },
-      onShuffleChanged: (bool value) {
-        setState(() => _queue.setShuffle(value));
-        _saveSessionNow();
-      },
+      queue: _queue,
+      onChanged: _onQueueChanged,
     );
+  }
+
+  /// 队列被面板修改后同步播放状态。
+  ///
+  /// 删除当前曲目时切到顶上来的那首；队列清空时停下并清掉播放条。
+  /// 原本暂停就保持暂停，不因为删了一首突然出声。
+  Future<void> _onQueueChanged() async {
+    if (!mounted) {
+      return;
+    }
+    final Track? target = _queue.current;
+    final Track? current = _currentTrack;
+
+    if (target == null) {
+      _stopPositionPolling();
+      if (_isAvailable && current != null) {
+        try {
+          await _playback.stop();
+        } catch (error) {
+          debugPrint('停止播放失败：$error');
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentTrack = null;
+        _isPlaying = false;
+        _position = 0;
+        _duration = 0;
+        _pendingResumePosition = null;
+      });
+      _publishProgress();
+      _saveSessionNow();
+      return;
+    }
+
+    if (current?.path == target.path) {
+      setState(() {});
+      _saveSessionNow();
+      return;
+    }
+
+    final bool wasPlaying = _isPlaying;
+    if (current != null) {
+      _stopPositionPolling();
+      if (_isAvailable) {
+        try {
+          await _playback.stop();
+        } catch (error) {
+          debugPrint('停止播放失败：$error');
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+    }
+
+    final double duration = target.durationSecs;
+    setState(() {
+      _currentTrack = target;
+      _duration = duration;
+      _position = 0;
+      _pendingResumePosition = null;
+      _isPlaying = false;
+    });
+    _publishProgress();
+    _saveSessionNow();
+    if (wasPlaying) {
+      await _startCurrent();
+    }
   }
 
   /// 曲目右键菜单的统一入口。
