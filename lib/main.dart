@@ -17,12 +17,10 @@ Future<void> main() async {
 
   // 尺寸先读出来再建窗，避免先按默认大小闪一下；存储异常时 1 秒后按默认尺寸继续
   const WindowStateStore windowStore = PrefsWindowStateStore();
-  final WindowSnapshot windowState = await windowStore
-      .load()
-      .timeout(
-        const Duration(seconds: 1),
-        onTimeout: () => const WindowSnapshot(),
-      );
+  final WindowSnapshot windowState = await windowStore.load().timeout(
+    const Duration(seconds: 1),
+    onTimeout: () => const WindowSnapshot(),
+  );
   await _setupWindow(windowState);
 
   try {

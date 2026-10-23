@@ -183,7 +183,10 @@ class _LibraryPageState extends State<LibraryPage> {
     final LibrarySection section = _sectionFromName(snapshot.section);
     setState(() {
       _volume = snapshot.volume;
-      _lastVolume = snapshot.volume > 0 ? snapshot.volume : 1;
+      // 静音退出时 volume 为 0，取消静音要回到静音前的音量而不是 100%
+      _lastVolume = snapshot.lastVolume > 0
+          ? snapshot.lastVolume
+          : (snapshot.volume > 0 ? snapshot.volume : 1);
       _queue
         ..setRepeat(snapshot.repeat)
         ..setShuffle(snapshot.shuffle);
@@ -228,7 +231,8 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     final Track track = _tracks[index];
     final double duration = track.durationSecs;
-    final bool finished = duration > 0 && snapshot.lastPositionSecs >= duration - 2;
+    final bool finished =
+        duration > 0 && snapshot.lastPositionSecs >= duration - 2;
     final double position = finished
         ? 0
         : snapshot.lastPositionSecs.clamp(0.0, max(duration, 0));
@@ -271,6 +275,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return _sessionStore.save(
       SessionSnapshot(
         volume: _volume,
+        lastVolume: _lastVolume,
         lastTrackPath: _currentTrack?.path,
         lastPositionSecs: _currentTrack == null ? 0 : _position,
         repeat: _queue.repeat,
@@ -635,12 +640,20 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   /// 下一首；[auto] 表示自然播完（单曲循环时重播本曲）。
+  ///
+  /// `advance` 返回 null 有两层含义，必须分开处理：自然播完时音频已经停了，
+  /// 只需把界面切到“结束”；手动点下一首而队列到头时音频还在放，此时若照搬
+  /// “结束”分支，就会出现进度条冻在末尾、图标变播放，但歌还在响。
   Future<void> _next({bool auto = false}) async {
     if (_queue.isEmpty) {
       return;
     }
     final int? index = _queue.advance(auto: auto);
     if (index == null) {
+      if (!auto) {
+        _showMessage('已经是最后一首');
+        return;
+      }
       _stopPositionPolling();
       if (!mounted) {
         return;
@@ -991,13 +1004,22 @@ class _LibraryPageState extends State<LibraryPage> {
             _unlessTyping(() => unawaited(_seekBy(5))),
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _unlessTyping(() => unawaited(_seekBy(-5))),
-        const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
-            () => _unlessTyping(() => unawaited(_next())),
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
-            () => _unlessTyping(() => unawaited(_previous())),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowRight,
+          control: true,
+        ): () =>
+            _unlessTyping(() => unawaited(_next())),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          control: true,
+        ): () =>
+            _unlessTyping(() => unawaited(_previous())),
         const SingleActivator(LogicalKeyboardKey.arrowUp, control: true): () =>
             _unlessTyping(() => _setVolume(_volume + 0.05)),
-        const SingleActivator(LogicalKeyboardKey.arrowDown, control: true): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.arrowDown,
+          control: true,
+        ): () =>
             _unlessTyping(() => _setVolume(_volume - 0.05)),
         const SingleActivator(LogicalKeyboardKey.keyM, control: true):
             _toggleMute,
@@ -1688,7 +1710,14 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   /// 把单曲加入歌单：先选已有歌单，也可以现场新建。
+  ///
+  /// 歌单列表只在进入歌单分区时加载，右键菜单在音乐分区也可能用到，
+  /// 所以这里先取一次，避免对话框显示“还没有歌单”而让用户重复新建。
   Future<void> _addToPlaylist(Track track) async {
+    await _loadPlaylists();
+    if (!mounted) {
+      return;
+    }
     final PlaylistPick? pick = await showPlaylistPickerDialog(
       context,
       playlists: _playlists,

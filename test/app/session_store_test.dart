@@ -25,6 +25,7 @@ void main() {
     await store.save(
       const SessionSnapshot(
         volume: 0.35,
+        lastVolume: 0.35,
         lastTrackPath: '/music/夜航.mp3',
         lastPositionSecs: 42.5,
         repeat: LoopMode.one,
@@ -36,6 +37,7 @@ void main() {
 
     final SessionSnapshot snapshot = await store.load();
     expect(snapshot.volume, closeTo(0.35, 0.001));
+    expect(snapshot.lastVolume, closeTo(0.35, 0.001));
     expect(snapshot.lastTrackPath, '/music/夜航.mp3');
     expect(snapshot.lastPositionSecs, closeTo(42.5, 0.001));
     expect(snapshot.repeat, LoopMode.one);
@@ -64,5 +66,16 @@ void main() {
     });
     final SessionSnapshot snapshot = await const PrefsSessionStore().load();
     expect(snapshot.volume, 1);
+  });
+
+  test('静音退出后仍记得静音前的音量', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    await store.save(const SessionSnapshot(volume: 0, lastVolume: 0.4));
+
+    final SessionSnapshot snapshot = await store.load();
+    expect(snapshot.volume, 0, reason: '启动时应保持静音');
+    expect(snapshot.lastVolume, closeTo(0.4, 0.001), reason: '取消静音回到 40%');
   });
 }

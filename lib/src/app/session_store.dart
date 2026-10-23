@@ -9,6 +9,7 @@ import '../features/player/playback_queue.dart';
 class SessionSnapshot {
   const SessionSnapshot({
     this.volume = 1,
+    this.lastVolume = 1,
     this.lastTrackPath,
     this.lastPositionSecs = 0,
     this.repeat = LoopMode.off,
@@ -18,6 +19,10 @@ class SessionSnapshot {
   });
 
   final double volume;
+
+  /// 静音前的音量；取消静音时用它恢复，而不是直接跳到 100%
+  final double lastVolume;
+
   final String? lastTrackPath;
   final double lastPositionSecs;
   final LoopMode repeat;
@@ -40,6 +45,7 @@ class PrefsSessionStore implements SessionStore {
   const PrefsSessionStore();
 
   static const String volumeKey = 'player_volume';
+  static const String lastVolumeKey = 'player_last_volume';
   static const String lastTrackKey = 'player_last_track';
   static const String lastPositionKey = 'player_last_position';
   static const String repeatKey = 'player_repeat';
@@ -53,9 +59,12 @@ class PrefsSessionStore implements SessionStore {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       return SessionSnapshot(
         volume: (prefs.getDouble(volumeKey) ?? 1).clamp(0.0, 1.0),
+        lastVolume: (prefs.getDouble(lastVolumeKey) ?? 1).clamp(0.0, 1.0),
         lastTrackPath: prefs.getString(lastTrackKey),
-        lastPositionSecs: (prefs.getDouble(lastPositionKey) ?? 0)
-            .clamp(0.0, double.infinity),
+        lastPositionSecs: (prefs.getDouble(lastPositionKey) ?? 0).clamp(
+          0.0,
+          double.infinity,
+        ),
         repeat: _parseRepeat(prefs.getString(repeatKey)),
         shuffle: prefs.getBool(shuffleKey) ?? false,
         section: prefs.getString(sectionKey),
@@ -71,6 +80,7 @@ class PrefsSessionStore implements SessionStore {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(volumeKey, snapshot.volume);
+      await prefs.setDouble(lastVolumeKey, snapshot.lastVolume);
       final String? path = snapshot.lastTrackPath;
       if (path == null || path.isEmpty) {
         await prefs.remove(lastTrackKey);

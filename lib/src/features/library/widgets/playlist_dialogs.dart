@@ -156,9 +156,9 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text('${playlist.trackCount} 首'),
-                      onTap: () => Navigator.of(
-                        context,
-                      ).pop(PickExistingPlaylist(playlist)),
+                      onTap: () =>
+                          Navigator.of(context)
+                              .pop(PickExistingPlaylist(playlist)),
                     );
                   },
                 ),
@@ -169,8 +169,7 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
             child: const Text('取消'),
           ),
           FilledButton.tonalIcon(
-            onPressed: () =>
-                Navigator.of(context).pop(const PickNewPlaylist()),
+            onPressed: () => Navigator.of(context).pop(const PickNewPlaylist()),
             icon: const Icon(Icons.add),
             label: const Text('新建歌单'),
           ),

@@ -180,52 +180,35 @@ class _TrackRow extends StatelessWidget {
     }
     final RenderBox overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final TrackContextAction? selected =
-        await showMenu<TrackContextAction>(
-          context: context,
-          position: RelativeRect.fromRect(
-            Rect.fromPoints(globalPosition, globalPosition),
-            Offset.zero & overlay.size,
-          ),
-          items: <PopupMenuEntry<TrackContextAction>>[
-            _menuItem(
-              TrackContextAction.play,
-              Icons.play_arrow,
-              '播放',
-            ),
-            _menuItem(
-              TrackContextAction.playNext,
-              Icons.playlist_play,
-              '下一首播放',
-            ),
-            _menuItem(
-              TrackContextAction.addToQueue,
-              Icons.queue_music,
-              '添加到队列',
-            ),
-            _menuItem(
-              TrackContextAction.toggleFavorite,
-              favored ? Icons.favorite : Icons.favorite_border,
-              favored ? '取消收藏' : '收藏',
-            ),
-            _menuItem(
-              TrackContextAction.addToPlaylist,
-              Icons.playlist_add,
-              '加入歌单…',
-            ),
-            const PopupMenuDivider(),
-            _menuItem(
-              TrackContextAction.revealInExplorer,
-              Icons.folder_open,
-              '在资源管理器中显示',
-            ),
-            _menuItem(
-              TrackContextAction.copyPath,
-              Icons.copy,
-              '复制文件路径',
-            ),
-          ],
-        );
+    final TrackContextAction? selected = await showMenu<TrackContextAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(globalPosition, globalPosition),
+        Offset.zero & overlay.size,
+      ),
+      items: <PopupMenuEntry<TrackContextAction>>[
+        _menuItem(TrackContextAction.play, Icons.play_arrow, '播放'),
+        _menuItem(TrackContextAction.playNext, Icons.playlist_play, '下一首播放'),
+        _menuItem(TrackContextAction.addToQueue, Icons.queue_music, '添加到队列'),
+        _menuItem(
+          TrackContextAction.toggleFavorite,
+          favored ? Icons.favorite : Icons.favorite_border,
+          favored ? '取消收藏' : '收藏',
+        ),
+        _menuItem(
+          TrackContextAction.addToPlaylist,
+          Icons.playlist_add,
+          '加入歌单…',
+        ),
+        const PopupMenuDivider(),
+        _menuItem(
+          TrackContextAction.revealInExplorer,
+          Icons.folder_open,
+          '在资源管理器中显示',
+        ),
+        _menuItem(TrackContextAction.copyPath, Icons.copy, '复制文件路径'),
+      ],
+    );
     if (selected != null) {
       onContextAction?.call(selected);
     }

@@ -134,7 +134,9 @@ class PlaybackQueue {
     if (_shuffle) {
       _ensureShuffleOrder();
     }
-    if (_shuffle && _tracks.length > 1 && _shufflePos + 1 >= _shuffleOrder.length) {
+    if (_shuffle &&
+        _tracks.length > 1 &&
+        _shufflePos + 1 >= _shuffleOrder.length) {
       if (_repeat == LoopMode.off) {
         return null;
       }
@@ -227,7 +229,8 @@ class PlaybackQueue {
       reset(<Track>[track]);
       return true;
     }
-    if (track.path == current?.path || _tracks.any((Track t) => t.path == track.path)) {
+    if (track.path == current?.path ||
+        _tracks.any((Track t) => t.path == track.path)) {
       return false;
     }
     _tracks.add(track);
@@ -302,6 +305,9 @@ class PlaybackQueue {
   }
 
   /// 移除同路径曲目；索引与历史里比它大的下标要一起左移。
+  ///
+  /// 历史里正好等于 [removed] 的那条要删掉而不是减一：它代表“刚移走的那首”，
+  /// 减一后指向的是被左移挤过来的另一首，退回上一首就会重播当前曲。
   void _removePath(String path) {
     final int removed = _tracks.indexWhere((Track t) => t.path == path);
     if (removed < 0) {
@@ -311,9 +317,12 @@ class PlaybackQueue {
     if (removed < _index) {
       _index -= 1;
     }
-    for (int i = 0; i < _history.length; i += 1) {
-      if (_history[i] > removed) {
-        _history[i] -= 1;
+    for (int i = _history.length - 1; i >= 0; i -= 1) {
+      final int at = _history[i];
+      if (at == removed) {
+        _history.removeAt(i);
+      } else if (at > removed) {
+        _history[i] = at - 1;
       }
     }
   }
