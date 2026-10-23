@@ -300,6 +300,9 @@ class FakePlaybackService implements PlaybackService {
   /// 非空时 `position()` 抛出该错误，用于测试轮询容错
   Object? positionError;
 
+  /// 非空时 `play()` 抛出该错误，用于测试播放失败后的降级
+  Object? playError;
+
   rust.PlaybackState current = rust.PlaybackState.stopped;
   final List<String> playedPaths = <String>[];
   final List<double> seekCalls = <double>[];
@@ -308,11 +311,22 @@ class FakePlaybackService implements PlaybackService {
   int resumeCalls = 0;
   int stopCalls = 0;
 
+  /// WASAPI 独占：`exclusive` 是实际状态，`exclusiveError` 用于模拟切换失败
+  bool exclusive = false;
+  Object? exclusiveError;
+  int exclusiveCalls = 0;
+  int outputInfoCalls = 0;
+  String outputInfoText = '共享输出（测试）';
+
   @override
   rust.PlaybackState get state => current;
 
   @override
   Future<void> play(String path) async {
+    final Object? error = playError;
+    if (error != null) {
+      throw error;
+    }
     playedPaths.add(path);
     current = rust.PlaybackState.playing;
   }
@@ -356,5 +370,24 @@ class FakePlaybackService implements PlaybackService {
   @override
   Future<void> setVolume(double volume) async {
     volumeCalls.add(volume);
+  }
+
+  @override
+  bool get isExclusive => exclusive;
+
+  @override
+  Future<void> setExclusive(bool value) async {
+    exclusiveCalls += 1;
+    final Object? error = exclusiveError;
+    if (error != null) {
+      throw error;
+    }
+    exclusive = value;
+  }
+
+  @override
+  Future<String> outputInfo() async {
+    outputInfoCalls += 1;
+    return outputInfoText;
   }
 }

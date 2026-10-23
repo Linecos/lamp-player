@@ -5,6 +5,7 @@ import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
+import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/rust/frb_generated.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
@@ -47,7 +48,7 @@ Future<void> main() async {
   final ThemeController theme = ThemeController();
   await theme.restore();
 
-  _WindowGeometrySaver(windowStore).attach();
+  _AppWindowListener(windowStore).attach();
 
   runApp(LampApp(themeController: theme));
 }
@@ -60,6 +61,8 @@ Future<void> _setupWindow(WindowSnapshot state) async {
   final Offset? position = await _restorePosition(state);
   try {
     await windowManager.ensureInitialized();
+    // 关闭前要留出释放设备的时间（独占模式下设备由本进程持有）
+    await windowManager.setPreventClose(true);
     final WindowOptions options = WindowOptions(
       title: 'Lamp Player',
       size: state.size,
@@ -114,12 +117,15 @@ Future<Offset?> _restorePosition(WindowSnapshot state) async {
   }
 }
 
+/// 窗口生命周期：尺寸防抖落盘 + 关闭前释放音频设备。
+///
 /// 尺寸变化后防抖落盘；最大化时只记住「最大化」标记，尺寸沿用上一次普通状态。
-class _WindowGeometrySaver with WindowListener {
-  _WindowGeometrySaver(this._store);
+class _AppWindowListener with WindowListener {
+  _AppWindowListener(this._store);
 
   final WindowStateStore _store;
   Timer? _timer;
+  bool _closing = false;
 
   void attach() {
     windowManager.addListener(this);
@@ -139,6 +145,41 @@ class _WindowGeometrySaver with WindowListener {
 
   @override
   void onWindowRestore() => _scheduleSave();
+
+  @override
+  void onWindowClose() {
+    unawaited(_handleClose());
+  }
+
+  /// 关闭流程：落盘 → 关引擎（交还独占设备）→ 真正关窗。
+  ///
+  /// 任一步失败都要继续往下走，否则窗口会关不掉。
+  Future<void> _handleClose() async {
+    if (_closing) {
+      return;
+    }
+    _closing = true;
+    _timer?.cancel();
+    try {
+      await _save().timeout(const Duration(milliseconds: 800));
+    } catch (error) {
+      debugPrint('关闭前保存窗口状态失败：$error');
+    }
+    try {
+      // 独占模式下设备只由本进程持有：显式释放，别等系统回收进程
+      await rust.playerShutdown().timeout(const Duration(seconds: 2));
+    } catch (error) {
+      debugPrint('关闭播放引擎失败：$error');
+    }
+    try {
+      await windowManager.setPreventClose(false);
+      // 用 close() 而不是 destroy()：后者只投一条 WM_QUIT，窗口不销毁，
+      // 平台线程在收尾时会让进程卡成一个「未响应」的壳。
+      await windowManager.close();
+    } catch (error) {
+      debugPrint('关闭窗口失败：$error');
+    }
+  }
 
   void _scheduleSave() {
     _timer?.cancel();

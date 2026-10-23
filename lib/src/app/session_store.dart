@@ -19,6 +19,7 @@ class SessionSnapshot {
     this.railExpanded = true,
     this.sort = LibrarySort.library,
     this.coverBackfillAttempted = false,
+    this.exclusiveOutput = false,
   });
 
   final double volume;
@@ -44,6 +45,9 @@ class SessionSnapshot {
   /// 曲库结构升级后老曲目没有封面，启动时会自动重扫已添加目录一次；
   /// 无论成败都记下，避免「文件本身没有内嵌封面」的曲库每次启动都全量扫描。
   final bool coverBackfillAttempted;
+
+  /// 是否请求 WASAPI 独占输出；设备不支持时引擎会回落到共享并说明原因
+  final bool exclusiveOutput;
 }
 
 abstract interface class SessionStore {
@@ -64,6 +68,7 @@ class PrefsSessionStore implements SessionStore {
   static const String shuffleKey = 'player_shuffle';
   static const String sectionKey = 'ui_section';
   static const String railExpandedKey = 'ui_rail_expanded';
+  static const String exclusiveKey = 'player_exclusive_output';
   static const String sortKey = 'ui_sort';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
 
@@ -83,6 +88,7 @@ class PrefsSessionStore implements SessionStore {
         shuffle: prefs.getBool(shuffleKey) ?? false,
         section: prefs.getString(sectionKey),
         railExpanded: prefs.getBool(railExpandedKey) ?? true,
+        exclusiveOutput: prefs.getBool(exclusiveKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
@@ -114,6 +120,7 @@ class PrefsSessionStore implements SessionStore {
         await prefs.setString(sectionKey, section);
       }
       await prefs.setBool(railExpandedKey, snapshot.railExpanded);
+      await prefs.setBool(exclusiveKey, snapshot.exclusiveOutput);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,

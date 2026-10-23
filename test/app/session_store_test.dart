@@ -94,4 +94,14 @@ void main() {
     final SessionSnapshot snapshot = await const PrefsSessionStore().load();
     expect(snapshot.sort, LibrarySort.library);
   });
+
+  test('独占输出偏好可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    await store.save(const SessionSnapshot(exclusiveOutput: true));
+
+    final SessionSnapshot snapshot = await store.load();
+    expect(snapshot.exclusiveOutput, isTrue);
+  });
 }

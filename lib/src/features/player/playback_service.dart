@@ -28,6 +28,15 @@ abstract interface class PlaybackService {
 
   /// 设置音量，取值 `0.0..=1.0`。
   Future<void> setVolume(double volume);
+
+  /// 当前是否真的在用 WASAPI 独占输出（同步读取）。
+  bool get isExclusive;
+
+  /// 切换独占 / 共享输出；切换会重开当前曲目，位置与播放状态保留。
+  Future<void> setExclusive(bool exclusive);
+
+  /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲）。
+  Future<String> outputInfo();
 }
 
 /// 走 `flutter_rust_bridge` 的真实实现。
@@ -79,4 +88,20 @@ class RustPlaybackService implements PlaybackService {
 
   @override
   Future<void> setVolume(double volume) => rust.playerSetVolume(volume: volume);
+
+  @override
+  bool get isExclusive {
+    try {
+      return rust.playerIsExclusive();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> setExclusive(bool exclusive) =>
+      rust.playerSetExclusive(exclusive: exclusive);
+
+  @override
+  Future<String> outputInfo() => rust.playerOutputInfo();
 }
