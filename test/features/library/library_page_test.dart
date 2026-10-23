@@ -78,6 +78,38 @@ void main() {
     expect(find.text('重新读取'), findsOneWidget);
   });
 
+  testWidgets('升级后缺封面时自动补扫已添加目录一次', (WidgetTester tester) async {
+    final FakeMusicFolderStore folders = FakeMusicFolderStore(
+      folders: <String>[r'D:\Music'],
+    );
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(coverBackfillAttempted: false),
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: folders,
+      sessionStore: session,
+    );
+
+    expect(repository.scannedFolders, <String>[r'D:\Music']);
+    expect(session.snapshot.coverBackfillAttempted, isTrue);
+    expect(find.byType(SnackBar), findsNothing, reason: '补扫应静默进行');
+  });
+
+  testWidgets('已尝试过补扫时启动不再自动扫描', (WidgetTester tester) async {
+    final FakeMusicFolderStore folders = FakeMusicFolderStore(
+      folders: <String>[r'D:\Music'],
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: folders,
+    );
+
+    expect(repository.scannedFolders, isEmpty);
+  });
+
   testWidgets('空曲库可添加音乐目录并触发扫描', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,

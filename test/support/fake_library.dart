@@ -15,6 +15,7 @@ Track sampleTrack({
   int? trackNum,
   int addedAt = 0,
   String? path,
+  String? coverPath,
 }) {
   return Track(
     path: path ?? '/music/$title.mp3',
@@ -24,6 +25,7 @@ Track sampleTrack({
     durationSecs: durationSecs,
     trackNum: trackNum,
     addedAt: addedAt,
+    coverPath: coverPath,
   );
 }
 
@@ -251,7 +253,10 @@ class FakeMusicFolderStore implements MusicFolderStore {
 /// 内存版会话存储：测试里避免依赖 shared_preferences 插件。
 class FakeSessionStore implements SessionStore {
   FakeSessionStore({SessionSnapshot? snapshot})
-    : snapshot = snapshot ?? const SessionSnapshot();
+    // 默认视为已补扫过，普通测试不会因为示例曲目没有封面而触发自动扫描；
+    // 需要验证补扫的用例显式传 `coverBackfillAttempted: false`。
+    : snapshot =
+          snapshot ?? const SessionSnapshot(coverBackfillAttempted: true);
 
   SessionSnapshot snapshot;
   int saveCalls = 0;

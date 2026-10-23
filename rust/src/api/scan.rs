@@ -49,7 +49,8 @@ pub fn scan_folder(folder: String) -> Result<ScanReport> {
     // 归一化入口目录；目录不存在时 canonicalize 就会报错（保留原始字符串便于定位）
     let folder =
         dunce::canonicalize(&folder).with_context(|| format!("目录不存在或无权访问: {folder}"))?;
-    let collected = scanner::collect_tracks_incremental(&folder, &known)?;
+    let covers_dir = db::covers_dir()?;
+    let collected = scanner::collect_tracks_incremental(&folder, &known, Some(&covers_dir))?;
 
     let upserted = db::upsert_scanned(&collected.tracks)
         .with_context(|| format!("扫描结果写入曲库失败: {}", folder.display()))?;
@@ -60,6 +61,9 @@ pub fn scan_folder(folder: String) -> Result<ScanReport> {
     } else {
         0
     };
+
+    // 封面缓存清理是尽力而为：失败不应让一次成功的扫描报错
+    let _ = db::prune_unused_covers();
 
     Ok(ScanReport {
         scanned: to_i32(collected.scanned),

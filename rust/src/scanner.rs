@@ -6,12 +6,17 @@
 use crate::api::model::Track;
 use anyhow::{Context, Result};
 use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::tag::Accessor;
+use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::tag::{Accessor, Tag};
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
+
+/// 封面单张大小上限：个别文件会把整本扫描册塞进标签，没必要全部落盘。
+const MAX_COVER_BYTES: usize = 20 * 1024 * 1024;
 
 /// 支持的音频扩展名（小写，不含点）
 ///
@@ -48,19 +53,21 @@ pub struct Collected {
 
 /// 递归收集目录下的音频文件并解析元数据（全量，不做增量比对）。
 pub fn collect_tracks(folder: &Path) -> Result<Collected> {
-    collect_tracks_incremental(folder, &HashMap::new())
+    collect_tracks_incremental(folder, &HashMap::new(), None)
 }
 
 /// 递归收集目录下的音频文件并解析元数据。
 ///
 /// `known` 是曲库里已有的文件指纹：mtime/size 都没变的文件跳过解析，只记入
 /// `seen`；单个文件解析失败只计入 `failed`，不影响整体；目录不可用时返回错误。
+/// `covers_dir` 提供时把内嵌封面落盘到该目录，否则不提取封面。
 ///
 /// 指纹与 `seen` 的 key 都经过 [`path_key`] 归一化（Windows 下大小写/斜杠等价），
 /// 因此调用方传入的 `known` 必须同样用 [`path_key`] 归一化过 key。
 pub fn collect_tracks_incremental(
     folder: &Path,
     known: &HashMap<String, (i64, i64)>,
+    covers_dir: Option<&Path>,
 ) -> Result<Collected> {
     if !folder.is_dir() {
         anyhow::bail!("目录不存在或不是目录: {}", folder.display());
@@ -107,7 +114,7 @@ pub fn collect_tracks_incremental(
             continue;
         }
 
-        match read_track_guarded(path, added_at, mtime_ns, size) {
+        match read_track_guarded(path, added_at, mtime_ns, size, covers_dir) {
             Ok(track) => collected.tracks.push(track),
             Err(_) => collected.failed += 1,
         }
@@ -137,9 +144,10 @@ fn read_track_guarded(
     added_at: i64,
     mtime_ns: i64,
     size: i64,
+    covers_dir: Option<&Path>,
 ) -> Result<ScannedTrack> {
     match catch_unwind(AssertUnwindSafe(|| {
-        read_track(path, added_at, mtime_ns, size)
+        read_track(path, added_at, mtime_ns, size, covers_dir)
     })) {
         Ok(result) => result,
         Err(_) => anyhow::bail!("解析元数据时发生 panic: {}", path.display()),
@@ -149,7 +157,13 @@ fn read_track_guarded(
 /// 解析单个文件；读不出标签时用文件名兜底，不产生错误。
 ///
 /// 只有「文件打不开 / 格式不受支持」才返回错误。
-fn read_track(path: &Path, added_at: i64, mtime_ns: i64, size: i64) -> Result<ScannedTrack> {
+fn read_track(
+    path: &Path,
+    added_at: i64,
+    mtime_ns: i64,
+    size: i64,
+    covers_dir: Option<&Path>,
+) -> Result<ScannedTrack> {
     let tagged = lofty::read_from_path(path)
         .with_context(|| format!("解析元数据失败: {}", path.display()))?;
 
@@ -178,6 +192,8 @@ fn read_track(path: &Path, added_at: i64, mtime_ns: i64, size: i64) -> Result<Sc
         .and_then(|t| t.track())
         .and_then(|n| i32::try_from(n).ok());
 
+    let cover_path = covers_dir.and_then(|dir| tag.and_then(|t| extract_cover(t, dir)));
+
     Ok(ScannedTrack {
         track: Track {
             path: path.to_string_lossy().into_owned(),
@@ -187,10 +203,76 @@ fn read_track(path: &Path, added_at: i64, mtime_ns: i64, size: i64) -> Result<Sc
             duration_secs,
             track_num,
             added_at,
+            cover_path,
         },
         mtime_ns,
         size,
     })
+}
+
+/// 从标签里取封面并落盘，返回缓存文件的绝对路径。
+///
+/// 优先正封面，其次第一张；只收 Flutter 能直接解码的格式。写盘失败只丢封面，
+/// 不影响曲目入库。
+fn extract_cover(tag: &Tag, covers_dir: &Path) -> Option<String> {
+    let picture = tag
+        .get_picture_type(PictureType::CoverFront)
+        .or_else(|| tag.pictures().first())?;
+    store_cover(covers_dir, picture)
+}
+
+/// 把图片按内容哈希存进缓存目录：同一张专辑封面只落一份盘。
+///
+/// 用 FNV-1a 而不是 `DefaultHasher`，保证跨进程、跨构建的文件名稳定。
+fn store_cover(covers_dir: &Path, picture: &Picture) -> Option<String> {
+    let data = picture.data();
+    if data.is_empty() || data.len() > MAX_COVER_BYTES {
+        return None;
+    }
+    let extension = cover_extension(picture)?;
+
+    fs::create_dir_all(covers_dir).ok()?;
+    let name = format!("{:016x}.{extension}", content_hash(data));
+    let path = covers_dir.join(name);
+    if !path.exists() {
+        fs::write(&path, data).ok()?;
+    }
+    path.to_str().map(str::to_owned)
+}
+
+/// 封面文件扩展名；不支持的格式返回 `None`（存下来也显示不了）。
+fn cover_extension(picture: &Picture) -> Option<&'static str> {
+    match picture.mime_type() {
+        Some(MimeType::Jpeg) => Some("jpg"),
+        Some(MimeType::Png) => Some("png"),
+        Some(MimeType::Gif) => Some("gif"),
+        Some(MimeType::Bmp) => Some("bmp"),
+        // 标签里的 MIME 经常缺失或写错，按文件头再认一次
+        _ => sniff_image_extension(picture.data()),
+    }
+}
+
+fn sniff_image_extension(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if data.starts_with(b"GIF8") {
+        Some("gif")
+    } else if data.starts_with(b"BM") {
+        Some("bmp")
+    } else {
+        None
+    }
+}
+
+fn content_hash(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 /// 文件名（去掉扩展名）作为标题兜底
@@ -244,11 +326,82 @@ fn path_key_with(path: &str, windows: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::path_key_with;
+    use super::{content_hash, path_key_with, store_cover};
+    use lofty::picture::{MimeType, Picture, PictureType};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn path_key_normalizes_only_on_windows() {
         assert_eq!(path_key_with("E:/Music/A.mp3", true), "e:\\music\\a.mp3");
         assert_eq!(path_key_with("/Music/A.mp3", false), "/Music/A.mp3");
+    }
+
+    #[test]
+    fn content_hash_is_stable() {
+        // FNV-1a 64 的公开测试向量；换实现时这一条会先失败
+        assert_eq!(content_hash(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(content_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
+
+    fn picture(data: &[u8], mime: Option<MimeType>) -> Picture {
+        let mut builder = Picture::unchecked(data.to_vec()).pic_type(PictureType::CoverFront);
+        if let Some(mime) = mime {
+            builder = builder.mime_type(mime);
+        }
+        builder.build()
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "lamp_cover_{}_{}_{}",
+            tag,
+            std::process::id(),
+            nanos
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("创建临时目录");
+        dir
+    }
+
+    #[test]
+    fn cover_is_stored_once_and_deduplicated_by_content() {
+        let dir = temp_dir("store");
+        let data: &[u8] = b"\xFF\xD8\xFF\xE0fake-jpeg-payload";
+
+        let with_mime =
+            store_cover(&dir, &picture(data, Some(MimeType::Jpeg))).expect("应写入封面");
+        // MIME 缺失时靠文件头识别，哈希相同 → 复用同一个文件
+        let sniffed = store_cover(&dir, &picture(data, None)).expect("应复用封面");
+        assert_eq!(with_mime, sniffed);
+        assert!(with_mime.ends_with(".jpg"));
+        assert_eq!(fs::read(&with_mime).expect("读取封面"), data);
+        assert_eq!(
+            fs::read_dir(&dir).expect("列目录").count(),
+            1,
+            "同内容只应落一份盘"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unsupported_or_empty_covers_are_skipped() {
+        let dir = temp_dir("skip");
+        assert!(
+            store_cover(&dir, &picture(b"RIFF-not-an-image", None)).is_none(),
+            "无法识别的格式不应落盘"
+        );
+        assert!(
+            store_cover(&dir, &picture(b"", Some(MimeType::Png))).is_none(),
+            "空数据不应落盘"
+        );
+
+        fs::remove_dir_all(&dir).ok();
     }
 }

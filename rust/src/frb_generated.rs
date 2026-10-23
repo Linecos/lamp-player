@@ -1360,6 +1360,7 @@ impl SseDecode for crate::api::model::Track {
         let mut var_durationSecs = <f64>::sse_decode(deserializer);
         let mut var_trackNum = <Option<i32>>::sse_decode(deserializer);
         let mut var_addedAt = <i64>::sse_decode(deserializer);
+        let mut var_coverPath = <Option<String>>::sse_decode(deserializer);
         return crate::api::model::Track {
             path: var_path,
             title: var_title,
@@ -1368,6 +1369,7 @@ impl SseDecode for crate::api::model::Track {
             duration_secs: var_durationSecs,
             track_num: var_trackNum,
             added_at: var_addedAt,
+            cover_path: var_coverPath,
         };
     }
 }
@@ -1535,6 +1537,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::model::Track {
             self.duration_secs.into_into_dart().into_dart(),
             self.track_num.into_into_dart().into_dart(),
             self.added_at.into_into_dart().into_dart(),
+            self.cover_path.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1699,6 +1702,7 @@ impl SseEncode for crate::api::model::Track {
         <f64>::sse_encode(self.duration_secs, serializer);
         <Option<i32>>::sse_encode(self.track_num, serializer);
         <i64>::sse_encode(self.added_at, serializer);
+        <Option<String>>::sse_encode(self.cover_path, serializer);
     }
 }
 

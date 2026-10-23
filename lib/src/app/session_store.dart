@@ -16,6 +16,7 @@ class SessionSnapshot {
     this.shuffle = false,
     this.section,
     this.railExpanded = true,
+    this.coverBackfillAttempted = false,
   });
 
   final double volume;
@@ -32,6 +33,12 @@ class SessionSnapshot {
   final String? section;
 
   final bool railExpanded;
+
+  /// 是否已经尝试过「升级后自动补扫封面」。
+  ///
+  /// 曲库结构升级后老曲目没有封面，启动时会自动重扫已添加目录一次；
+  /// 无论成败都记下，避免「文件本身没有内嵌封面」的曲库每次启动都全量扫描。
+  final bool coverBackfillAttempted;
 }
 
 abstract interface class SessionStore {
@@ -52,6 +59,7 @@ class PrefsSessionStore implements SessionStore {
   static const String shuffleKey = 'player_shuffle';
   static const String sectionKey = 'ui_section';
   static const String railExpandedKey = 'ui_rail_expanded';
+  static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
 
   @override
   Future<SessionSnapshot> load() async {
@@ -69,6 +77,8 @@ class PrefsSessionStore implements SessionStore {
         shuffle: prefs.getBool(shuffleKey) ?? false,
         section: prefs.getString(sectionKey),
         railExpanded: prefs.getBool(railExpandedKey) ?? true,
+        coverBackfillAttempted:
+            prefs.getBool(coverBackfillAttemptedKey) ?? false,
       );
     } catch (_) {
       return const SessionSnapshot();
@@ -97,6 +107,10 @@ class PrefsSessionStore implements SessionStore {
         await prefs.setString(sectionKey, section);
       }
       await prefs.setBool(railExpandedKey, snapshot.railExpanded);
+      await prefs.setBool(
+        coverBackfillAttemptedKey,
+        snapshot.coverBackfillAttempted,
+      );
     } catch (_) {
       // 保存失败不影响当前会话
     }

@@ -16,6 +16,7 @@ void main() {
     expect(snapshot.shuffle, isFalse);
     expect(snapshot.section, isNull);
     expect(snapshot.railExpanded, isTrue);
+    expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
   });
 
   test('保存后可以完整读回', () async {
@@ -32,6 +33,7 @@ void main() {
         shuffle: true,
         section: 'favorites',
         railExpanded: false,
+        coverBackfillAttempted: true,
       ),
     );
 
@@ -44,6 +46,7 @@ void main() {
     expect(snapshot.shuffle, isTrue);
     expect(snapshot.section, 'favorites');
     expect(snapshot.railExpanded, isFalse);
+    expect(snapshot.coverBackfillAttempted, isTrue);
   });
 
   test('清掉上次曲目与分区后不再残留', () async {

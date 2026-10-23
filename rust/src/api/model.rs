@@ -13,6 +13,8 @@ pub struct Track {
     pub track_num: Option<i32>,
     /// 入库时间戳
     pub added_at: i64,
+    /// 内嵌封面的缓存文件路径；没有封面或提取失败时为空
+    pub cover_path: Option<String>,
 }
 
 /// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。

@@ -71,8 +71,10 @@ main() → RustLib.init()（失败则显示 LampStartupErrorApp，避免白屏�
 Dart: scanFolder(folder)
   → Rust: 读出存量文件指纹（path → mtime/size）
   → walkdir 遍历 → 未变化的文件跳过 → lofty 解析标签 → 组装 Track
+      → 内嵌封面按内容哈希写入 `<曲库目录>/covers/`，路径记进 Track.cover_path
   → db.upsert_scanned（单事务，按 path 去重，写入文件指纹）
   → 清理该目录下本次没看到的记录（有遍历错误时跳过）
+  → 清理没有被任何曲目引用的封面文件
   → 返回 ScanReport { scanned, unchanged, upserted, failed, walk_errors, pruned, elapsed_ms }
 Dart: 用 all_tracks() 刷新列表
 ```
@@ -147,6 +149,9 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 | 队列逻辑放纯 Dart `PlaybackQueue` | 不改 Rust 契约；页面只关心「播某个路径」，顺序 / 随机 / 循环可脱离 UI 单测 |
 | 会话与窗口状态走接口 + prefs 实现 | widget 测试里 `SharedPreferences` 的 Future 不会自行完成，注入假实现即可；存储失败不阻塞主流程 |
 | 快捷键挂页面根部 + 输入态守卫 | `EditableText` 会消费空格与方向键，但仍需兜底，避免搜索时误暂停 / 误切歌 |
+| 封面按内容哈希缓存、随曲库目录存放 | 同一专辑多首共用一张图；缓存跟着库走，换库自动切换，不需要额外传路径 |
+| v3 迁移清零文件指纹 | 增量扫描会跳过未变化文件，不重置就永远补不上老曲目的封面 |
+| 升级后静默补扫一次 | 用户不用记得手动重扫；`covers_backfill_attempted` 持久化尝试结果，避免无内嵌封面的曲库反复全量扫描 |
 
 ## 5. 加一个功能的典型路径
 

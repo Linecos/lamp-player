@@ -59,6 +59,7 @@ fn track(path: &str, title: &str) -> Track {
         duration_secs: 1.5,
         track_num: None,
         added_at: 1,
+        cover_path: None,
     }
 }
 
