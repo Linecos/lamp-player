@@ -1235,6 +1235,46 @@ void main() {
     expect(session.snapshot.sort, LibrarySort.title);
   });
 
+  testWidgets('队列面板可移除当前曲目并清空队列', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byTooltip('播放队列'));
+    await tester.pumpAndSettle();
+
+    // 移除当前曲目：后一首顶上来并继续播放
+    await tester.tap(find.byTooltip('从队列移除').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('queue-item-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('queue-item-1')), findsNothing);
+    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+
+    await tester.tap(find.text('清空队列'));
+    await tester.pumpAndSettle();
+    expect(find.text('清空播放队列？'), findsOneWidget);
+
+    await tester.tap(find.text('清空'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('队列还是空的'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('尚未播放')),
+      findsOneWidget,
+      reason: '清空队列后播放条应回到未播放状态',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('拖入文件夹会复用扫描流程并显示导入结果', (WidgetTester tester) async {
     final Directory dropped = Directory.systemTemp.createTempSync('lamp_drop_');
     addTearDown(() => dropped.deleteSync(recursive: true));

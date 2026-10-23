@@ -129,4 +129,75 @@ void main() {
     queue.retreat();
     expect(queue.current?.title, 'A', reason: '历史里被移走的下标应被删除，而不是左移');
   });
+
+  test('移除当前曲目后，后一首顶上并成为当前曲', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance(); // A -> B
+
+    expect(queue.removeAt(1), isTrue, reason: '删的是当前曲');
+    expect(_titles(queue.tracks), <String>['A', 'C']);
+    expect(queue.current?.title, 'C');
+  });
+
+  test('移除当前曲目前面的曲目时下标左移', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance(); // A -> B（下标 1）
+
+    expect(queue.removeAt(0), isFalse);
+    expect(queue.index, 0);
+    expect(queue.current?.title, 'B');
+  });
+
+  test('移除最后一首当前曲目后回退到新的队尾', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance();
+    queue.advance(); // 当前 C（下标 2）
+
+    expect(queue.removeAt(2), isTrue);
+    expect(queue.current?.title, 'B');
+  });
+
+  test('移除曲目后上一首历史仍指向正确的曲目', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: <Track>[
+        sampleTrack(title: 'A'),
+        sampleTrack(title: 'B'),
+        sampleTrack(title: 'C'),
+      ],
+    );
+    queue.advance(); // A -> B
+    queue.advance(); // B -> C
+
+    // 删掉队首 A：历史里的 0 应被清掉、1 左移成 0
+    queue.removeAt(0);
+    expect(queue.current?.title, 'C');
+    expect(queue.retreat(), 0);
+    expect(queue.current?.title, 'B');
+  });
+
+  test('随机播放时移除其它曲目不会改变当前曲', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(7),
+    );
+    final String current = queue.current!.title;
+
+    expect(queue.removeAt(2), isFalse);
+    expect(queue.current?.title, current);
+    expect(queue.length, 2);
+  });
+
+  test('清空队列后回到空状态', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.advance();
+
+    queue.clear();
+
+    expect(queue.isEmpty, isTrue);
+    expect(queue.index, -1);
+    expect(queue.current, isNull);
+    expect(queue.advance(), isNull);
+    expect(queue.retreat(), isNull);
+  });
 }

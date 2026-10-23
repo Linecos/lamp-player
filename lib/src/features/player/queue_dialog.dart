@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
@@ -6,73 +8,138 @@ import '../library/library_sort.dart';
 import 'playback_queue.dart';
 
 /// 播放队列面板：查看即将播放的曲目，直接跳播，并切换随机 / 循环。
+///
+/// 面板直接读写传入的 [queue]：移除 / 清空立即生效，[onChanged] 让页面
+/// 同步播放状态（移除当前曲目时切到下一首，清空时停下）。
 Future<void> showPlaybackQueueDialog(
   BuildContext context, {
-  required List<Track> tracks,
-  required int currentIndex,
-  required LoopMode repeat,
-  required bool shuffle,
-  required ValueChanged<int> onSelect,
-  required ValueChanged<LoopMode> onRepeatChanged,
-  required ValueChanged<bool> onShuffleChanged,
+  required PlaybackQueue queue,
+  required Future<void> Function() onChanged,
 }) {
   return showDialog<void>(
     context: context,
-    builder: (BuildContext context) => _PlaybackQueueDialog(
-      tracks: tracks,
-      currentIndex: currentIndex,
-      repeat: repeat,
-      shuffle: shuffle,
-      onSelect: onSelect,
-      onRepeatChanged: onRepeatChanged,
-      onShuffleChanged: onShuffleChanged,
-    ),
+    builder: (BuildContext context) =>
+        _PlaybackQueueDialog(queue: queue, onChanged: onChanged),
   );
 }
 
 class _PlaybackQueueDialog extends StatefulWidget {
-  const _PlaybackQueueDialog({
-    required this.tracks,
-    required this.currentIndex,
-    required this.repeat,
-    required this.shuffle,
-    required this.onSelect,
-    required this.onRepeatChanged,
-    required this.onShuffleChanged,
-  });
+  const _PlaybackQueueDialog({required this.queue, required this.onChanged});
 
-  final List<Track> tracks;
-  final int currentIndex;
-  final LoopMode repeat;
-  final bool shuffle;
-  final ValueChanged<int> onSelect;
-  final ValueChanged<LoopMode> onRepeatChanged;
-  final ValueChanged<bool> onShuffleChanged;
+  final PlaybackQueue queue;
+  final Future<void> Function() onChanged;
 
   @override
   State<_PlaybackQueueDialog> createState() => _PlaybackQueueDialogState();
 }
 
 class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
-  late LoopMode _repeat = widget.repeat;
-  late bool _shuffle = widget.shuffle;
+  /// 两行列表项的估算高度：用来把当前曲目滚到可视区域中间偏上。
+  static const double _itemExtent = 72;
+
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// 打开面板时定位到当前曲目；队列很长时不用手动找。
+  void _scrollToCurrent({bool animate = false}) {
+    if (!_scroll.hasClients) {
+      return;
+    }
+    final int index = widget.queue.index;
+    if (index < 0) {
+      return;
+    }
+    final double target = (index * _itemExtent - _itemExtent * 2).clamp(
+      0.0,
+      _scroll.position.maxScrollExtent,
+    );
+    if (animate) {
+      unawaited(
+        _scroll.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    } else {
+      _scroll.jumpTo(target);
+    }
+  }
 
   void _cycleRepeat() {
-    final LoopMode next = _repeat.next;
-    setState(() => _repeat = next);
-    widget.onRepeatChanged(next);
+    widget.queue.setRepeat(widget.queue.repeat.next);
+    setState(() {});
+    unawaited(widget.onChanged());
   }
 
   void _toggleShuffle() {
-    final bool next = !_shuffle;
-    setState(() => _shuffle = next);
-    widget.onShuffleChanged(next);
+    widget.queue.setShuffle(!widget.queue.shuffle);
+    setState(() {});
+    unawaited(widget.onChanged());
+  }
+
+  Future<void> _removeAt(int index) async {
+    final bool wasCurrent = widget.queue.removeAt(index);
+    setState(() {});
+    await widget.onChanged();
+    if (!mounted) {
+      return;
+    }
+    if (wasCurrent) {
+      _scrollToCurrent(animate: true);
+    }
+  }
+
+  Future<void> _clear() async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('清空播放队列？'),
+        content: const Text('队列里的曲目不会被删除，只是不再排队。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    widget.queue.clear();
+    setState(() {});
+    await widget.onChanged();
   }
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<Track> tracks = widget.queue.tracks;
+    final int currentIndex = widget.queue.index;
+    final LoopMode repeat = widget.queue.repeat;
+    final bool shuffle = widget.queue.shuffle;
 
     return AlertDialog(
       key: const ValueKey<String>('queue-dialog'),
@@ -84,21 +151,21 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
           const SizedBox(width: 10),
           const Expanded(child: Text('播放队列')),
           IconButton(
-            isSelected: _shuffle,
-            tooltip: _shuffle ? '关闭随机播放' : '随机播放',
+            isSelected: shuffle,
+            tooltip: shuffle ? '关闭随机播放' : '随机播放',
             onPressed: _toggleShuffle,
             icon: const Icon(Icons.shuffle, size: 20),
           ),
           IconButton(
-            isSelected: _repeat != LoopMode.off,
-            tooltip: switch (_repeat) {
+            isSelected: repeat != LoopMode.off,
+            tooltip: switch (repeat) {
               LoopMode.off => '循环播放：关',
               LoopMode.all => '循环播放：列表',
               LoopMode.one => '循环播放：单曲',
             },
             onPressed: _cycleRepeat,
             icon: Icon(
-              _repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+              repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
               size: 20,
             ),
           ),
@@ -107,7 +174,7 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
       content: SizedBox(
         width: 440,
         height: 420,
-        child: widget.tracks.isEmpty
+        child: tracks.isEmpty
             ? Center(
                 child: Text(
                   '队列还是空的，先从曲库播放一首',
@@ -116,72 +183,100 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                   ),
                 ),
               )
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                itemCount: widget.tracks.length,
-                itemBuilder: (BuildContext context, int index) {
-                  final Track track = widget.tracks[index];
-                  final bool current = index == widget.currentIndex;
-                  return ListTile(
-                    key: ValueKey<String>('queue-item-$index'),
-                    selected: current,
-                    selectedTileColor: scheme.primaryContainer.withValues(
-                      alpha: 0.35,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-                    leading: SizedBox(
-                      width: 28,
-                      child: Center(
-                        child: current
-                            ? Icon(
-                                Icons.graphic_eq,
-                                size: 18,
-                                color: scheme.primary,
-                              )
-                            : Text(
-                                '${index + 1}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
+            : Scrollbar(
+                controller: _scroll,
+                child: ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: tracks.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final Track track = tracks[index];
+                    final bool current = index == currentIndex;
+                    return ListTile(
+                      key: ValueKey<String>('queue-item-$index'),
+                      selected: current,
+                      selectedTileColor: scheme.primaryContainer.withValues(
+                        alpha: 0.35,
+                      ),
+                      contentPadding: const EdgeInsets.only(left: 24, right: 8),
+                      leading: SizedBox(
+                        width: 28,
+                        child: Center(
+                          child: current
+                              ? Icon(
+                                  Icons.graphic_eq,
+                                  size: 18,
+                                  color: scheme.primary,
+                                )
+                              : Text(
+                                  '${index + 1}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
                                 ),
-                              ),
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: current ? scheme.primary : null,
+                      title: Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: current ? scheme.primary : null,
+                        ),
                       ),
-                    ),
-                    subtitle: Text(
-                      trackArtist(track),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                      subtitle: Text(
+                        trackArtist(track),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    trailing: Text(
-                      formatDuration(track.durationSecs),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            formatDuration(track.durationSecs),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontFeatures: const <FontFeature>[
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '从队列移除',
+                            onPressed: () => unawaited(_removeAt(index)),
+                            iconSize: 18,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 36,
+                              height: 36,
+                            ),
+                            padding: EdgeInsets.zero,
+                            icon: Icon(
+                              Icons.close,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                    onTap: current
-                        ? null
-                        : () {
-                            Navigator.of(context).pop();
-                            widget.onSelect(index);
-                          },
-                  );
-                },
+                      onTap: current
+                          ? null
+                          : () {
+                              Navigator.of(context).pop();
+                              widget.queue.jumpTo(index);
+                              unawaited(widget.onChanged());
+                            },
+                    );
+                  },
+                ),
               ),
       ),
       actions: <Widget>[
+        TextButton(
+          onPressed: tracks.isEmpty ? null : () => unawaited(_clear()),
+          child: const Text('清空队列'),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('关闭'),

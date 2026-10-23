@@ -206,6 +206,49 @@ class PlaybackQueue {
     }
   }
 
+  /// 移除队列里第 [index] 首，返回被移除的是否是当前曲目。
+  ///
+  /// 移除当前曲目后下标保持原位（后一首顶上来）；若删的是最后一首，
+  /// 下标回退到新的队尾。历史里的下标同步左移，避免「上一首」跳错。
+  bool removeAt(int index) {
+    if (index < 0 || index >= _tracks.length) {
+      return false;
+    }
+    final bool wasCurrent = index == _index;
+    _tracks.removeAt(index);
+    if (_tracks.isEmpty) {
+      _index = -1;
+      _history.clear();
+    } else {
+      if (index < _index) {
+        _index -= 1;
+      } else if (_index >= _tracks.length) {
+        _index = _tracks.length - 1;
+      }
+      for (int i = _history.length - 1; i >= 0; i -= 1) {
+        final int at = _history[i];
+        if (at == index) {
+          _history.removeAt(i);
+        } else if (at > index) {
+          _history[i] = at - 1;
+        }
+      }
+    }
+    if (_shuffle) {
+      _rebuildShuffleOrder();
+    }
+    return wasCurrent;
+  }
+
+  /// 清空队列；播放由页面负责停下。
+  void clear() {
+    _tracks.clear();
+    _index = -1;
+    _history.clear();
+    _shuffleOrder = <int>[];
+    _shufflePos = 0;
+  }
+
   /// 用同一批路径的新曲目对象替换队列里的旧对象（扫描后封面等字段会更新）。
   ///
   /// 只按 `path` 对齐，保持顺序、当前下标与上一首历史不变；新列表里没有的
