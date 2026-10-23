@@ -156,7 +156,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final BuildContext context = tester.element(find.text('Lamp').first);
+    final BuildContext context = tester.element(find.text('Lamp Player').first);
     expect(Theme.of(context).brightness, Brightness.dark);
   });
 

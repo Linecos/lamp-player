@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 
 import 'window_controls.dart';
 
-/// 自绘的前置标题区：**只保留可拖动区域与窗口按钮**。
+/// 自绘的前置标题区：左上角固定显示应用名，其余为拖动区与窗口按钮。
 ///
 /// 原生标题栏已在 `main.dart` 里通过 `TitleBarStyle.hidden` 关掉。
-/// 这里刻意不画分隔线、不重复应用名（侧边栏底部已有品牌信息），
-/// 背景直接跟随页面底色，视觉上像是内容区的一部分，减少"外框感"。
+/// 应用名放在这里，切换页面或收起侧边栏时都不会移动。
+/// 这里刻意不画分隔线，背景直接跟随页面底色，视觉上像是内容区的一部分，
+/// 减少"外框感"。
 ///
-/// - 拖动 / 双击最大化：整块空白区域
+/// - 拖动 / 双击最大化：整块空白区域（应用名也属于拖动区）
 /// - 右侧三个按钮不参与拖动
 class LampTitleBar extends StatefulWidget {
   const LampTitleBar({super.key, required this.controls, this.background});
@@ -86,7 +87,8 @@ class _LampTitleBarState extends State<LampTitleBar> {
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
 
     return Material(
       color: widget.background ?? scheme.surfaceContainerLow,
@@ -102,7 +104,24 @@ class _LampTitleBarState extends State<LampTitleBar> {
                 onDoubleTap: () => unawaited(_toggleMaximize()),
                 child: Semantics(
                   label: 'Lamp Player 标题栏（可拖动）',
-                  child: const SizedBox.expand(),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ExcludeSemantics(
+                        child: Text(
+                          'Lamp Player',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

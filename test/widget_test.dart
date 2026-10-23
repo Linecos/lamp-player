@@ -29,7 +29,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 标题栏与搜索
-    expect(find.text('Lamp'), findsOneWidget);
+    expect(find.text('Lamp Player'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
     // 侧边导航与曲库页标题
     expect(find.text('音乐'), findsWidgets);
