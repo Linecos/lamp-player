@@ -2,6 +2,8 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/title_bar.dart';
+
 /// 主界面左侧导航分区。
 ///
 /// 与设计稿保持一致，共七个入口。
@@ -26,9 +28,10 @@ enum LibrarySection {
 
 /// 可展开 / 折叠的侧边导航栏。
 ///
-/// 展开 220dp：图标与文字横向排列；折叠 72dp：只留图标。
+/// 展开 220dp：顶部显示占位应用图标 + 应用名，下面图标与文字横向排列；
+/// 折叠 72dp：只留图标。侧栏一直贴到窗口顶部，把标题条区域的品牌包住。
 /// 宽度、条目高度、文字透明度由同一个动画控制器驱动，
-/// 折叠按钮和导航图标始终共用 x=36 的中轴。
+/// 品牌图标、折叠按钮和导航图标始终共用 x=36 的中轴。
 class LibraryRail extends StatefulWidget {
   const LibraryRail({
     super.key,
@@ -110,6 +113,7 @@ class _LibraryRailState extends State<LibraryRail>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
+                _RailBrand(labelOpacity: labelOpacity, showLabel: showLabel),
                 SizedBox(
                   height: 64,
                   child: Align(
@@ -176,6 +180,75 @@ class _LibraryRailState extends State<LibraryRail>
           ),
         );
       },
+    );
+  }
+}
+
+/// 侧栏顶部的品牌区：占位应用图标 + 应用名，高度与窗口标题条一致。
+class _RailBrand extends StatelessWidget {
+  const _RailBrand({required this.labelOpacity, required this.showLabel});
+
+  final double labelOpacity;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    // 占位图标：正式应用图标设计好后替换这一块。
+    final Widget mark = Container(
+      key: const ValueKey<String>('rail-brand-mark'),
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Icon(Icons.lightbulb, size: 17, color: scheme.onPrimaryContainer),
+    );
+
+    final Widget brand = SizedBox(
+      height: LampTitleBar.height,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, right: 12),
+        child: Row(
+          children: <Widget>[
+            // 固定 48 宽，图标中轴与折叠按钮 / 导航图标一样落在 x=36。
+            SizedBox(
+              width: 48,
+              height: LampTitleBar.height,
+              child: Center(child: mark),
+            ),
+            if (showLabel) ...<Widget>[
+              const SizedBox(width: 8),
+              Flexible(
+                child: ClipRect(
+                  child: Opacity(
+                    opacity: labelOpacity,
+                    child: Text(
+                      'Lamp Player',
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    return Semantics(
+      container: true,
+      label: 'Lamp Player',
+      child: ExcludeSemantics(child: brand),
     );
   }
 }

@@ -7,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
+import 'package:lamp_player/src/app/title_bar.dart';
+import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import 'support/fake_library.dart';
@@ -28,9 +30,30 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 标题栏与搜索
+    // 标题栏浮在页面顶部，应用名已经放进侧栏
+    expect(find.byType(LampTitleBar), findsOneWidget);
     expect(find.text('Lamp Player'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('window-drag-area')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('window-close')), findsOneWidget);
+
+    // 侧栏画到窗口顶部，品牌名落在标题条高度内
+    final Rect railRect = tester.getRect(find.byType(LibraryRail));
+    expect(railRect.top, 0);
+    final Rect brandRect = tester.getRect(find.text('Lamp Player'));
+    expect(brandRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
+    expect(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      findsOneWidget,
+    );
+
+    // 内容区给标题条留出空间，搜索不会压在窗口按钮下面
+    expect(
+      tester.getRect(find.byType(TextField)).top,
+      greaterThanOrEqualTo(LampTitleBar.height),
+    );
     // 侧边导航与曲库页标题
     expect(find.text('音乐'), findsWidgets);
     expect(find.text('夜航'), findsOneWidget);

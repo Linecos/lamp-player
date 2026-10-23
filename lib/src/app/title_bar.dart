@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 
 import 'window_controls.dart';
 
-/// 自绘的前置标题区：左上角固定显示应用名，其余为拖动区与窗口按钮。
+/// 自绘的窗口标题区：左侧是拖动区，右侧是最小化 / 最大化 / 关闭按钮。
 ///
 /// 原生标题栏已在 `main.dart` 里通过 `TitleBarStyle.hidden` 关掉。
-/// 应用名放在这里，切换页面或收起侧边栏时都不会移动。
+/// 应用名与图标放到曲库侧栏顶部（见 `LibraryRail`），这里不再重复绘制。
 /// 这里刻意不画分隔线，背景直接跟随页面底色，视觉上像是内容区的一部分，
 /// 减少"外框感"。
 ///
-/// - 拖动 / 双击最大化：整块空白区域（应用名也属于拖动区）
+/// - 拖动 / 双击最大化：左侧整块空白区域
 /// - 右侧三个按钮不参与拖动
 class LampTitleBar extends StatefulWidget {
   const LampTitleBar({super.key, required this.controls, this.background});
@@ -21,8 +21,9 @@ class LampTitleBar extends StatefulWidget {
   /// 与页面底色保持一致；不传时用 `surfaceContainerLow`（曲库页底色）
   final Color? background;
 
-  /// 高度；[WindowChrome] 据此预留布局
-  static const double height = 36;
+  /// 高度；[WindowChrome] 据此预留布局。
+  /// 44 给侧栏顶部的占位图标留出上下呼吸空间，不再贴着窗口上沿。
+  static const double height = 44;
 
   @override
   State<LampTitleBar> createState() => _LampTitleBarState();
@@ -87,8 +88,7 @@ class _LampTitleBarState extends State<LampTitleBar> {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Material(
       color: widget.background ?? scheme.surfaceContainerLow,
@@ -103,25 +103,8 @@ class _LampTitleBarState extends State<LampTitleBar> {
                 onPanStart: (_) => unawaited(_startDragging()),
                 onDoubleTap: () => unawaited(_toggleMaximize()),
                 child: Semantics(
-                  label: 'Lamp Player 标题栏（可拖动）',
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: ExcludeSemantics(
-                        child: Text(
-                          'Lamp Player',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  label: '窗口标题栏（可拖动）',
+                  child: const SizedBox.expand(),
                 ),
               ),
             ),
@@ -219,15 +202,20 @@ class _CaptionButtonState extends State<_CaptionButton> {
   }
 }
 
-/// 窗口外壳：上方是隐形的拖动条 + 窗口按钮，下方是应用内容。
+/// 窗口外壳：默认上方是标题条 + 下方应用内容。
 ///
 /// 放在 `MaterialApp.builder` 里，因此标题区在所有页面之上、始终可见。
+///
+/// [overlay] 为 true 时，页面铺满整个窗口，标题条浮在最上层并保持透明；
+/// 曲库页会把侧栏一直画到窗口顶部，让应用图标 / 名称被侧栏背景包住。
+/// 使用 overlay 的页面需要自己预留 [LampTitleBar.height] 的顶部空间。
 class WindowChrome extends StatelessWidget {
   const WindowChrome({
     super.key,
     required this.child,
     this.controls,
     this.background,
+    this.overlay = false,
   });
 
   final Widget child;
@@ -235,18 +223,38 @@ class WindowChrome extends StatelessWidget {
   /// 不传时走真实的 `window_manager` 实现
   final WindowControls? controls;
 
-  /// 与页面底色一致，避免出现「一条横带」
+  /// 非 overlay 模式下与页面底色一致，避免出现「一条横带」
   final Color? background;
+
+  /// 页面是否铺满窗口、标题条浮在内容之上
+  final bool overlay;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final Widget titleBar = LampTitleBar(
+      controls: controls ?? const WindowManagerControls(),
+      background: overlay ? Colors.transparent : background,
+    );
+
+    if (!overlay) {
+      return Column(
+        children: <Widget>[
+          titleBar,
+          Expanded(child: child),
+        ],
+      );
+    }
+
+    return Stack(
       children: <Widget>[
-        LampTitleBar(
-          controls: controls ?? const WindowManagerControls(),
-          background: background,
+        Positioned.fill(child: child),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: LampTitleBar.height,
+          child: titleBar,
         ),
-        Expanded(child: child),
       ],
     );
   }

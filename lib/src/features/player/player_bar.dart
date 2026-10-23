@@ -28,7 +28,6 @@ class PlayerBar extends StatelessWidget {
     this.onVolumeChanged,
     this.onToggleMute,
     this.onShowQueue,
-    this.queueLength = 0,
     this.repeat = LoopMode.off,
     this.shuffle = false,
     this.onToggleRepeat,
@@ -57,9 +56,6 @@ class PlayerBar extends StatelessWidget {
 
   /// 打开播放队列面板。
   final VoidCallback? onShowQueue;
-
-  /// 队列长度（用于角标）
-  final int queueLength;
 
   final LoopMode repeat;
   final bool shuffle;
@@ -222,14 +218,10 @@ class PlayerBar extends StatelessWidget {
             iconSize: 20,
             constraints: const BoxConstraints.tightFor(width: 40, height: 40),
             padding: EdgeInsets.zero,
-            icon: Badge(
-              isLabelVisible: queueLength > 1,
-              label: Text('$queueLength'),
-              child: Icon(
-                Icons.queue_music,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
+            icon: Icon(
+              Icons.queue_music,
+              size: 20,
+              color: scheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(width: 4),

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, LogicalKeyboardKey;
 
 import '../../app/session_store.dart';
+import '../../app/title_bar.dart';
 import '../../common/common.dart';
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
@@ -1116,76 +1117,80 @@ class _LibraryPageState extends State<LibraryPage> {
                 onToggle: _toggleRail,
               ),
               Expanded(
-                child: Column(
-                  children: <Widget>[
-                    _buildTopBar(context),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          layoutBuilder:
-                              (
-                                Widget? currentChild,
-                                List<Widget> previousChildren,
-                              ) {
-                                return Stack(
-                                  fit: StackFit.expand,
-                                  children: <Widget>[
-                                    // 旧分区正在淡出时不响应点击，避免误触。
-                                    for (final Widget child in previousChildren)
-                                      IgnorePointer(child: child),
-                                    ?currentChild,
-                                  ],
-                                );
-                              },
-                          transitionBuilder:
-                              (Widget child, Animation<double> animation) {
-                                return FadeTransition(
-                                  opacity: animation,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0, 0.01),
-                                      end: Offset.zero,
-                                    ).animate(animation),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                          child: KeyedSubtree(
-                            key: ValueKey<int>(_viewVersion),
-                            child: _buildSection(context),
+                // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
+                child: Padding(
+                  padding: const EdgeInsets.only(top: LampTitleBar.height),
+                  child: Column(
+                    children: <Widget>[
+                      _buildTopBar(context),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            layoutBuilder:
+                                (
+                                  Widget? currentChild,
+                                  List<Widget> previousChildren,
+                                ) {
+                                  return Stack(
+                                    fit: StackFit.expand,
+                                    children: <Widget>[
+                                      // 旧分区正在淡出时不响应点击，避免误触。
+                                      for (final Widget child
+                                          in previousChildren)
+                                        IgnorePointer(child: child),
+                                      ?currentChild,
+                                    ],
+                                  );
+                                },
+                            transitionBuilder:
+                                (Widget child, Animation<double> animation) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0, 0.01),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                            child: KeyedSubtree(
+                              key: ValueKey<int>(_viewVersion),
+                              child: _buildSection(context),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    PlayerBar(
-                      track: _currentTrack,
-                      isPlaying: _isPlaying,
-                      isAvailable: _isAvailable,
-                      canSeek: !_isStopped,
-                      position: _position,
-                      duration: _duration,
-                      volume: _volume,
-                      onPlayPause: () => unawaited(_togglePlayback()),
-                      onPrevious: () => unawaited(_previous()),
-                      onNext: () => unawaited(_next()),
-                      onSeekStart: _onSeekStart,
-                      onSeekChanged: _onSeekChanged,
-                      onSeekEnd: (double seconds) =>
-                          unawaited(_onSeekEnd(seconds)),
-                      onVolumeChanged: _setVolume,
-                      onToggleMute: _toggleMute,
-                      onShowQueue: () => unawaited(_showQueue()),
-                      queueLength: _queue.length,
-                      repeat: _queue.repeat,
-                      shuffle: _queue.shuffle,
-                      onToggleRepeat: _cycleRepeat,
-                      onToggleShuffle: _toggleShuffle,
-                    ),
-                  ],
+                      PlayerBar(
+                        track: _currentTrack,
+                        isPlaying: _isPlaying,
+                        isAvailable: _isAvailable,
+                        canSeek: !_isStopped,
+                        position: _position,
+                        duration: _duration,
+                        volume: _volume,
+                        onPlayPause: () => unawaited(_togglePlayback()),
+                        onPrevious: () => unawaited(_previous()),
+                        onNext: () => unawaited(_next()),
+                        onSeekStart: _onSeekStart,
+                        onSeekChanged: _onSeekChanged,
+                        onSeekEnd: (double seconds) =>
+                            unawaited(_onSeekEnd(seconds)),
+                        onVolumeChanged: _setVolume,
+                        onToggleMute: _toggleMute,
+                        onShowQueue: () => unawaited(_showQueue()),
+                        repeat: _queue.repeat,
+                        shuffle: _queue.shuffle,
+                        onToggleRepeat: _cycleRepeat,
+                        onToggleShuffle: _toggleShuffle,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

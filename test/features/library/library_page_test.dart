@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
@@ -566,6 +567,35 @@ void main() {
     expect(find.byIcon(Icons.menu_open), findsOneWidget);
   });
 
+  testWidgets('侧边栏顶部显示应用图标与名称，并贴住窗口顶部', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    final Finder rail = find.byType(LibraryRail);
+    expect(tester.getTopLeft(rail).dy, 0, reason: '侧栏应一直画到窗口顶部');
+    expect(find.text('Lamp Player'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      findsOneWidget,
+    );
+
+    final Offset brandCenter = tester.getCenter(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+    );
+    final Offset toggleCenter = tester.getCenter(find.byTooltip('收起导航栏'));
+    expect(
+      brandCenter.dx,
+      closeTo(toggleCenter.dx, 0.01),
+      reason: '品牌图标应与折叠按钮同一中轴',
+    );
+
+    final Rect brandRect = tester.getRect(find.text('Lamp Player'));
+    expect(brandRect.top, greaterThanOrEqualTo(0));
+    expect(
+      brandRect.bottom,
+      lessThanOrEqualTo(LampTitleBar.height),
+      reason: '品牌名应落在标题条高度内',
+    );
+  });
+
   testWidgets('侧边栏收起有宽度过渡动画', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     final Finder rail = find.byType(LibraryRail);
@@ -611,11 +641,26 @@ void main() {
       );
     }
 
+    expect(find.text('Lamp Player'), findsNothing, reason: '收起后品牌名应隐藏');
+    expect(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      findsOneWidget,
+      reason: '收起后品牌图标应保留',
+    );
+
     final Offset toggleCenter = tester.getCenter(find.byTooltip('展开导航栏'));
     final Offset musicCenter = tester.getCenter(
       find.descendant(of: rail, matching: find.byIcon(Icons.music_note)),
     );
+    final Offset brandCenter = tester.getCenter(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+    );
     expect(musicCenter.dx, closeTo(toggleCenter.dx, 0.01), reason: '应在同一中轴');
+    expect(
+      brandCenter.dx,
+      closeTo(toggleCenter.dx, 0.01),
+      reason: '品牌图标也应在同一中轴',
+    );
   });
 
   testWidgets('点击侧边栏切换分区有淡入淡出过渡', (WidgetTester tester) async {
