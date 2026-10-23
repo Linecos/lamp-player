@@ -61,8 +61,9 @@ class AlbumCover extends StatelessWidget {
   }
 }
 
-/// 图片存在性在构建时同步判断：虚拟列表里避免每行先闪一下空容器。
-class _CoverImage extends StatelessWidget {
+/// 图片存在性只在路径变化时同步判断一次：虚拟列表里避免每行先闪一下空容器，
+/// 也避免播放进度刷新时反复做同步磁盘检查。
+class _CoverImage extends StatefulWidget {
   const _CoverImage({
     required this.file,
     required this.cacheWidth,
@@ -74,17 +75,38 @@ class _CoverImage extends StatelessWidget {
   final Widget fallback;
 
   @override
+  State<_CoverImage> createState() => _CoverImageState();
+}
+
+class _CoverImageState extends State<_CoverImage> {
+  late bool _exists;
+
+  @override
+  void initState() {
+    super.initState();
+    _exists = widget.file.existsSync();
+  }
+
+  @override
+  void didUpdateWidget(_CoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path) {
+      _exists = widget.file.existsSync();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (!file.existsSync()) {
-      return fallback;
+    if (!_exists) {
+      return widget.fallback;
     }
     return Image.file(
-      file,
+      widget.file,
       fit: BoxFit.cover,
-      cacheWidth: cacheWidth,
+      cacheWidth: widget.cacheWidth,
       gaplessPlayback: true,
       errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
-          fallback,
+          widget.fallback,
     );
   }
 }

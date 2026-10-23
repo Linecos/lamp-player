@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform, Process;
 import 'dart:math';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
@@ -19,6 +20,7 @@ import '../player/player_bar.dart';
 import '../player/queue_dialog.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
+import 'drop_import.dart';
 import 'library_repository.dart';
 import 'library_sort.dart';
 import 'widgets/collection_grids.dart';
@@ -155,6 +157,18 @@ class _LibraryPageState extends State<LibraryPage> {
   double _lastVolume = 1;
   bool _engineNoticeShown = false;
 
+  /// 播放进度单独放进 notifier：轮询只刷新播放条，不重建整个曲库页面。
+  final ValueNotifier<_PlaybackProgress> _progress =
+      ValueNotifier<_PlaybackProgress>(const _PlaybackProgress());
+
+  /// 是否有文件正拖在窗口上（显示导入提示）
+  bool _dragging = false;
+
+  /// 艺术家 / 专辑聚合缓存；`_tracks` 换新对象时才重算
+  List<Track>? _groupedTracks;
+  List<ArtistGroup>? _artistGroups;
+  List<AlbumGroup>? _albumGroups;
+
   @override
   void initState() {
     super.initState();
@@ -172,6 +186,7 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(_saveSession());
     _searchFocus.dispose();
     _searchController.dispose();
+    _progress.dispose();
     super.dispose();
   }
 
@@ -254,6 +269,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _pendingResumePosition = position > 1 ? position : null;
       _isPlaying = false;
     });
+    _publishProgress();
   }
 
   LibrarySection _sectionFromName(String? name) {
@@ -304,6 +320,36 @@ class _LibraryPageState extends State<LibraryPage> {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 把当前进度写进 notifier，只刷新播放条。
+  void _publishProgress() {
+    _progress.value = _PlaybackProgress(
+      position: _position,
+      duration: _duration,
+      playing: _isPlaying,
+    );
+  }
+
+  /// 艺术家 / 专辑聚合结果按 `_tracks` 的对象身份缓存，避免每次 rebuild
+  /// （包括播放进度刷新）都全量重算。
+  List<ArtistGroup> get _artistGroupsCache {
+    _rebuildGroupsIfNeeded();
+    return _artistGroups ?? const <ArtistGroup>[];
+  }
+
+  List<AlbumGroup> get _albumGroupsCache {
+    _rebuildGroupsIfNeeded();
+    return _albumGroups ?? const <AlbumGroup>[];
+  }
+
+  void _rebuildGroupsIfNeeded() {
+    if (identical(_groupedTracks, _tracks)) {
+      return;
+    }
+    _groupedTracks = _tracks;
+    _artistGroups = groupTracksByArtist(_tracks);
+    _albumGroups = groupTracksByAlbum(_tracks);
   }
 
   /// 引擎是否处于停止态（未播放、已播完、或引擎不可用）。
@@ -473,6 +519,61 @@ class _LibraryPageState extends State<LibraryPage> {
     await _scanDirectory(folder.trim());
   }
 
+  void _setDragging(bool value) {
+    if (_dragging == value) {
+      return;
+    }
+    setState(() => _dragging = value);
+  }
+
+  /// 拖入文件夹或音频文件：取它们所在的目录，复用已有的扫描与记忆流程。
+  Future<void> _handleDrop(List<DropItem> files) async {
+    if (!mounted) {
+      return;
+    }
+    if (_scanning) {
+      _showMessage('正在扫描，请稍后再拖入');
+      return;
+    }
+    final List<String> folders = foldersFromDropPaths(
+      files.map((DropItem file) => file.path),
+    );
+    if (folders.isEmpty) {
+      _showMessage('没有识别到可导入的文件夹');
+      return;
+    }
+    if (_section == LibrarySection.settings) {
+      _selectSection(LibrarySection.music);
+    }
+
+    int imported = 0;
+    for (final String folder in folders) {
+      _rememberFolder(folder);
+      final bool ok = await _scanDirectory(folder, notify: false);
+      if (!mounted) {
+        return;
+      }
+      if (!ok) {
+        final Object? error = _scanError;
+        _showMessage(
+          '导入失败：${error == null ? '未知错误' : ErrorRetry.describe(error)}',
+        );
+        return;
+      }
+      imported += 1;
+    }
+    if (!mounted) {
+      return;
+    }
+    final scan.ScanReport? report = _scanReport;
+    _showMessage(
+      report == null
+          ? '已导入 $imported 个目录'
+          : '导入完成：$imported 个目录，更新 ${report.upserted} 首，'
+                '失败 ${report.failed} 首',
+    );
+  }
+
   /// 扫描指定目录；设置页展示结果，空曲库时用 SnackBar 提示。
   ///
   /// 自动补扫时传 `notify: false`，避免多个目录各弹一次提示。
@@ -634,6 +735,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _pendingResumePosition = null;
       _isPlaying = false;
     });
+    _publishProgress();
     _scheduleSessionSave();
     if (!_isAvailable) {
       _showEngineNotice();
@@ -648,6 +750,7 @@ class _LibraryPageState extends State<LibraryPage> {
         return false;
       }
       setState(() => _isPlaying = true);
+      _publishProgress();
       _startPositionPolling();
       unawaited(_recordPlay(track.path));
       _saveSessionNow();
@@ -657,6 +760,7 @@ class _LibraryPageState extends State<LibraryPage> {
         return false;
       }
       setState(() => _isPlaying = false);
+      _publishProgress();
       _showMessage('播放失败：${ErrorRetry.describe(error)}');
       return false;
     }
@@ -703,6 +807,7 @@ class _LibraryPageState extends State<LibraryPage> {
         return;
       }
       setState(() => _isPlaying = !_isPlaying);
+      _publishProgress();
       if (_isPlaying) {
         _startPositionPolling();
       } else {
@@ -740,6 +845,7 @@ class _LibraryPageState extends State<LibraryPage> {
         _isPlaying = false;
         _position = _duration;
       });
+      _publishProgress();
       _saveSessionNow();
       return;
     }
@@ -895,6 +1001,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _onSeekChanged(double seconds) {
     setState(() => _position = seconds);
+    _publishProgress();
   }
 
   Future<void> _seekTo(double seconds) async {
@@ -907,6 +1014,7 @@ class _LibraryPageState extends State<LibraryPage> {
         return;
       }
       setState(() => _position = seconds);
+      _publishProgress();
     } catch (error) {
       if (!mounted) {
         return;
@@ -1022,13 +1130,13 @@ class _LibraryPageState extends State<LibraryPage> {
       if (!mounted || _seeking) {
         return;
       }
-      setState(() {
-        _position = position;
-        if (duration > 0) {
-          _duration = duration;
-        }
-        _isPlaying = state == rust.PlaybackState.playing;
-      });
+      // 只更新字段与播放条 notifier，不 setState：否则每 500ms 重建整个曲库。
+      _position = position;
+      if (duration > 0) {
+        _duration = duration;
+      }
+      _isPlaying = state == rust.PlaybackState.playing;
+      _publishProgress();
       if (state == rust.PlaybackState.stopped) {
         _stopPositionPolling();
         if (wasPlaying && !_seeking) {
@@ -1112,92 +1220,128 @@ class _LibraryPageState extends State<LibraryPage> {
         autofocus: true,
         child: Scaffold(
           backgroundColor: scheme.surfaceContainerLow,
-          body: Row(
-            children: <Widget>[
-              LibraryRail(
-                expanded: _railExpanded,
-                section: _section,
-                onSelect: _selectSection,
-                onToggle: _toggleRail,
-              ),
-              Expanded(
-                // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
-                child: Padding(
-                  padding: const EdgeInsets.only(top: LampTitleBar.height),
-                  child: Column(
-                    children: <Widget>[
-                      _buildTopBar(context),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            layoutBuilder:
-                                (
-                                  Widget? currentChild,
-                                  List<Widget> previousChildren,
-                                ) {
-                                  return Stack(
-                                    fit: StackFit.expand,
-                                    children: <Widget>[
-                                      // 旧分区正在淡出时不响应点击，避免误触。
-                                      for (final Widget child
-                                          in previousChildren)
-                                        IgnorePointer(child: child),
-                                      ?currentChild,
-                                    ],
-                                  );
-                                },
-                            transitionBuilder:
-                                (Widget child, Animation<double> animation) {
-                                  return FadeTransition(
-                                    opacity: animation,
-                                    child: SlideTransition(
-                                      position: Tween<Offset>(
-                                        begin: const Offset(0, 0.01),
-                                        end: Offset.zero,
-                                      ).animate(animation),
-                                      child: child,
-                                    ),
-                                  );
-                                },
-                            child: KeyedSubtree(
-                              key: ValueKey<int>(_viewVersion),
-                              child: _buildSection(context),
+          body: DropTarget(
+            onDragEntered: (DropEventDetails _) => _setDragging(true),
+            onDragExited: (DropEventDetails _) => _setDragging(false),
+            onDragDone: (DropDoneDetails details) {
+              _setDragging(false);
+              unawaited(_handleDrop(details.files));
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    LibraryRail(
+                      expanded: _railExpanded,
+                      section: _section,
+                      onSelect: _selectSection,
+                      onToggle: _toggleRail,
+                    ),
+                    Expanded(
+                      // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          top: LampTitleBar.height,
+                        ),
+                        child: Column(
+                          children: <Widget>[
+                            _buildTopBar(context),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  0,
+                                ),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  layoutBuilder:
+                                      (
+                                        Widget? currentChild,
+                                        List<Widget> previousChildren,
+                                      ) {
+                                        return Stack(
+                                          fit: StackFit.expand,
+                                          children: <Widget>[
+                                            // 旧分区正在淡出时不响应点击，避免误触。
+                                            for (final Widget child
+                                                in previousChildren)
+                                              IgnorePointer(child: child),
+                                            ?currentChild,
+                                          ],
+                                        );
+                                      },
+                                  transitionBuilder:
+                                      (
+                                        Widget child,
+                                        Animation<double> animation,
+                                      ) {
+                                        return FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin: const Offset(0, 0.01),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: child,
+                                          ),
+                                        );
+                                      },
+                                  child: KeyedSubtree(
+                                    key: ValueKey<int>(_viewVersion),
+                                    child: _buildSection(context),
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                            ValueListenableBuilder<_PlaybackProgress>(
+                              valueListenable: _progress,
+                              builder:
+                                  (
+                                    BuildContext context,
+                                    _PlaybackProgress progress,
+                                    Widget? child,
+                                  ) {
+                                    return PlayerBar(
+                                      track: _currentTrack,
+                                      isPlaying: progress.playing,
+                                      isAvailable: _isAvailable,
+                                      canSeek: !_isStopped,
+                                      position: progress.position,
+                                      duration: progress.duration,
+                                      volume: _volume,
+                                      onPlayPause: () =>
+                                          unawaited(_togglePlayback()),
+                                      onPrevious: () => unawaited(_previous()),
+                                      onNext: () => unawaited(_next()),
+                                      onSeekStart: _onSeekStart,
+                                      onSeekChanged: _onSeekChanged,
+                                      onSeekEnd: (double seconds) =>
+                                          unawaited(_onSeekEnd(seconds)),
+                                      onVolumeChanged: _setVolume,
+                                      onToggleMute: _toggleMute,
+                                      onShowQueue: () =>
+                                          unawaited(_showQueue()),
+                                      repeat: _queue.repeat,
+                                      shuffle: _queue.shuffle,
+                                      onToggleRepeat: _cycleRepeat,
+                                      onToggleShuffle: _toggleShuffle,
+                                    );
+                                  },
+                            ),
+                          ],
                         ),
                       ),
-                      PlayerBar(
-                        track: _currentTrack,
-                        isPlaying: _isPlaying,
-                        isAvailable: _isAvailable,
-                        canSeek: !_isStopped,
-                        position: _position,
-                        duration: _duration,
-                        volume: _volume,
-                        onPlayPause: () => unawaited(_togglePlayback()),
-                        onPrevious: () => unawaited(_previous()),
-                        onNext: () => unawaited(_next()),
-                        onSeekStart: _onSeekStart,
-                        onSeekChanged: _onSeekChanged,
-                        onSeekEnd: (double seconds) =>
-                            unawaited(_onSeekEnd(seconds)),
-                        onVolumeChanged: _setVolume,
-                        onToggleMute: _toggleMute,
-                        onShowQueue: () => unawaited(_showQueue()),
-                        repeat: _queue.repeat,
-                        shuffle: _queue.shuffle,
-                        onToggleRepeat: _cycleRepeat,
-                        onToggleShuffle: _toggleShuffle,
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                if (_dragging) const _DropOverlay(),
+              ],
+            ),
           ),
         ),
       ),
@@ -2245,6 +2389,32 @@ class _LibraryPageState extends State<LibraryPage> {
               child: const LinearProgressIndicator(minHeight: 2),
             ),
           ),
+        if (_scanning)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: <Widget>[
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _lastScanFolder == null
+                        ? '正在扫描…'
+                        : '正在扫描 ${_lastScanFolder!}…',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(child: _buildMusicBody(context)),
       ],
@@ -2302,7 +2472,7 @@ class _LibraryPageState extends State<LibraryPage> {
       return EmptyState(
         icon: Icons.library_music_outlined,
         title: '曲库还是空的',
-        message: '选择包含音乐的文件夹，扫描后曲目会自动出现在这里。',
+        message: '选择包含音乐的文件夹，扫描后曲目会自动出现在这里；也可以把文件夹直接拖进窗口。',
         action: Wrap(
           alignment: WrapAlignment.center,
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -2344,7 +2514,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _buildArtistsSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<ArtistGroup> groups = groupTracksByArtist(_tracks);
+    final List<ArtistGroup> groups = _artistGroupsCache;
 
     if (_selectedArtist != null) {
       ArtistGroup? group;
@@ -2471,7 +2641,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _buildAlbumsSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<AlbumGroup> groups = groupTracksByAlbum(_tracks);
+    final List<AlbumGroup> groups = _albumGroupsCache;
 
     if (_selectedAlbumKey != null) {
       AlbumGroup? group;
@@ -2708,6 +2878,66 @@ class _DetailBar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 播放条需要的进度快照；配合 [ValueNotifier] 只刷新播放条。
+@immutable
+class _PlaybackProgress {
+  const _PlaybackProgress({
+    this.position = 0,
+    this.duration = 0,
+    this.playing = false,
+  });
+
+  final double position;
+  final double duration;
+  final bool playing;
+}
+
+/// 拖拽文件到窗口时的高亮提示；不拦截鼠标事件。
+class _DropOverlay extends StatelessWidget {
+  const _DropOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return IgnorePointer(
+      child: ColoredBox(
+        color: scheme.scrim.withValues(alpha: 0.32),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: scheme.primary, width: 2),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.library_music_outlined,
+                  size: 48,
+                  color: scheme.primary,
+                ),
+                const SizedBox(height: 12),
+                Text('松开即可导入音乐', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  '文件夹会整个扫描，单个音频文件按所在目录导入',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
