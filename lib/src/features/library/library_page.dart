@@ -1132,7 +1132,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Future<void> _applyVolume(double volume) async {
     try {
-      await _playback.setVolume(volume);
+      // 滑块是线性手感，引擎要的是线性振幅：走感知曲线，低音量段才调得动。
+      await _playback.setVolume(volumeToAmplitude(volume));
     } catch (error) {
       if (!mounted) {
         return;
