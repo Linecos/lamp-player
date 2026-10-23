@@ -1,14 +1,21 @@
 import 'dart:async';
+import 'dart:io' show Platform, Process;
+import 'dart:math';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, LogicalKeyboardKey;
 
+import '../../app/session_store.dart';
 import '../../common/common.dart';
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
+import '../player/playback_queue.dart';
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
+import '../player/queue_dialog.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'library_repository.dart';
@@ -33,6 +40,7 @@ class LibraryPage extends StatefulWidget {
     this.playbackService,
     this.directoryPicker,
     this.musicFolderStore,
+    this.sessionStore,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -46,6 +54,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 已添加目录的持久化；不传则用 shared_preferences。
   final MusicFolderStore? musicFolderStore;
+
+  /// 音量 / 上次播放 / 分区等会话状态；不传则用 shared_preferences。
+  final SessionStore? sessionStore;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -67,16 +78,28 @@ class _LibraryPageState extends State<LibraryPage> {
       widget.playbackService ?? const RustPlaybackService();
   late final MusicFolderStore _folderStore =
       widget.musicFolderStore ?? const PrefsMusicFolderStore();
+  late final SessionStore _sessionStore =
+      widget.sessionStore ?? const PrefsSessionStore();
 
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  /// 播放队列：曲目顺序、循环 / 随机、上一首历史都在里面
+  final PlaybackQueue _queue = PlaybackQueue();
 
   Timer? _debounce;
   Timer? _positionTimer;
   Timer? _volumeTimer;
+  Timer? _saveTimer;
+  Timer? _sessionTimer;
   double? _pendingVolume;
   int _pollFailures = 0;
   int _searchToken = 0;
   bool _ticking = false;
+  bool _handlingEnd = false;
+
+  /// 启动时恢复的位置：第一次按播放才真正 seek 到该处
+  double? _pendingResumePosition;
 
   LibrarySection _section = LibrarySection.music;
   bool _railExpanded = true;
@@ -129,9 +152,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
     _isAvailable = _readAvailability();
-    unawaited(_loadTracks());
-    unawaited(_refreshFavoritePaths());
-    unawaited(_loadFolders());
+    unawaited(_bootstrap());
   }
 
   @override
@@ -139,8 +160,125 @@ class _LibraryPageState extends State<LibraryPage> {
     _debounce?.cancel();
     _positionTimer?.cancel();
     _volumeTimer?.cancel();
+    _saveTimer?.cancel();
+    _sessionTimer?.cancel();
+    unawaited(_saveSession());
+    _searchFocus.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// 启动顺序：并行读会话与曲库，再恢复上次播放。
+  ///
+  /// 曲库读完才能把上次播放的路径对回 `Track`，所以恢复曲目放在两者之后。
+  /// 读会话失败只会失去“记住上次”的能力，不影响曲库展示。
+  Future<void> _bootstrap() async {
+    final Future<SessionSnapshot> sessionLoader = _sessionStore.load();
+    final Future<void> tracksLoader = _loadTracks();
+    final SessionSnapshot snapshot = await sessionLoader;
+    await tracksLoader;
+    if (!mounted) {
+      return;
+    }
+    final LibrarySection section = _sectionFromName(snapshot.section);
+    setState(() {
+      _volume = snapshot.volume;
+      _lastVolume = snapshot.volume > 0 ? snapshot.volume : 1;
+      _queue
+        ..setRepeat(snapshot.repeat)
+        ..setShuffle(snapshot.shuffle);
+      _section = section;
+      _railExpanded = snapshot.railExpanded;
+    });
+
+    if (!mounted) {
+      return;
+    }
+    _restoreLastTrack(snapshot);
+
+    unawaited(_refreshFavoritePaths());
+    unawaited(_loadFolders());
+    if (_isAvailable) {
+      unawaited(_applyVolume(_volume));
+    }
+    switch (section) {
+      case LibrarySection.playlists:
+        unawaited(_loadPlaylists());
+      case LibrarySection.favorites:
+        unawaited(_loadFavorites());
+      case LibrarySection.history:
+        unawaited(_loadHistory());
+      default:
+        break;
+    }
+    _sessionTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _isPlaying ? unawaited(_saveSession()) : null,
+    );
+  }
+
+  void _restoreLastTrack(SessionSnapshot snapshot) {
+    final String? path = snapshot.lastTrackPath;
+    if (path == null || path.isEmpty) {
+      return;
+    }
+    final int index = _tracks.indexWhere((Track track) => track.path == path);
+    if (index < 0) {
+      return;
+    }
+    final Track track = _tracks[index];
+    final double duration = track.durationSecs;
+    final bool finished = duration > 0 && snapshot.lastPositionSecs >= duration - 2;
+    final double position = finished
+        ? 0
+        : snapshot.lastPositionSecs.clamp(0.0, max(duration, 0));
+    _queue.reset(_tracks, index: index);
+    setState(() {
+      _currentTrack = track;
+      _duration = duration;
+      _position = position;
+      _pendingResumePosition = position > 1 ? position : null;
+      _isPlaying = false;
+    });
+  }
+
+  LibrarySection _sectionFromName(String? name) {
+    for (final LibrarySection section in LibrarySection.values) {
+      if (section.name == name) {
+        return section;
+      }
+    }
+    return LibrarySection.music;
+  }
+
+  /// 立即写入会话状态（切歌 / 暂停 / 退出等关键时刻）。
+  void _saveSessionNow() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    unawaited(_saveSession());
+  }
+
+  /// 合并短时间内的多次变化（例如拖动音量），避免每 80ms 写一次盘。
+  void _scheduleSessionSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 400), () {
+      _saveTimer = null;
+      unawaited(_saveSession());
+    });
+  }
+
+  Future<void> _saveSession() {
+    return _sessionStore.save(
+      SessionSnapshot(
+        volume: _volume,
+        lastTrackPath: _currentTrack?.path,
+        lastPositionSecs: _currentTrack == null ? 0 : _position,
+        repeat: _queue.repeat,
+        shuffle: _queue.shuffle,
+        section: _section.name,
+        railExpanded: _railExpanded,
+      ),
+    );
   }
 
   bool _readAvailability() {
@@ -385,31 +523,67 @@ class _LibraryPageState extends State<LibraryPage> {
 
   /* ---------------------------------------------------------------- 播放 */
 
-  Future<void> _playTrack(Track track) async {
+  /// 从 [tracks] 这份列表里播放 [track]，整份列表成为播放队列。
+  Future<void> _playFrom(List<Track> tracks, Track track) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    int index = tracks.indexWhere((Track item) => item.path == track.path);
+    if (index < 0) {
+      index = 0;
+      tracks = <Track>[track];
+    }
+    _queue.reset(tracks, index: index);
+    await _startCurrent();
+  }
+
+  /// 播放队列当前曲目；[startAt] 用于恢复上次播放位置。
+  Future<bool> _startCurrent({double startAt = 0}) async {
+    final Track? track = _queue.current;
+    if (track == null) {
+      return false;
+    }
+    final double duration = track.durationSecs;
     setState(() {
       _currentTrack = track;
-      _position = 0;
-      _duration = track.durationSecs;
+      _duration = duration;
+      _position = duration > 0 ? startAt.clamp(0.0, duration) : startAt;
+      _pendingResumePosition = null;
+      _isPlaying = false;
     });
+    _scheduleSessionSave();
     if (!_isAvailable) {
       _showEngineNotice();
-      return;
+      return false;
     }
     try {
       await _playback.play(track.path);
+      if (startAt > 0) {
+        await _playback.seek(startAt);
+      }
       if (!mounted) {
-        return;
+        return false;
       }
       setState(() => _isPlaying = true);
       _startPositionPolling();
       unawaited(_recordPlay(track.path));
+      _saveSessionNow();
+      return true;
     } catch (error) {
       if (!mounted) {
-        return;
+        return false;
       }
       setState(() => _isPlaying = false);
       _showMessage('播放失败：${ErrorRetry.describe(error)}');
+      return false;
     }
+  }
+
+  Future<void> _playAll(List<Track> tracks) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    await _playFrom(tracks, tracks.first);
   }
 
   /// 历史记录失败不影响播放，只记录日志。
@@ -433,7 +607,8 @@ class _LibraryPageState extends State<LibraryPage> {
       // 自然播完后 stream 停在末尾，resume 不会回到开头；按重新播放处理。
       // 先看真实状态，避免本地 _isPlaying 还没被轮询刷新的窗口里误走 pause。
       if (_playback.state == rust.PlaybackState.stopped) {
-        await _playTrack(_currentTrack!);
+        final double startAt = _pendingResumePosition ?? 0;
+        await _startCurrent(startAt: startAt);
         return;
       }
       if (_isPlaying) {
@@ -449,6 +624,7 @@ class _LibraryPageState extends State<LibraryPage> {
         _startPositionPolling();
       } else {
         _stopPositionPolling();
+        _saveSessionNow();
       }
     } catch (error) {
       if (!mounted) {
@@ -456,6 +632,168 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       _showMessage('操作失败：${ErrorRetry.describe(error)}');
     }
+  }
+
+  /// 下一首；[auto] 表示自然播完（单曲循环时重播本曲）。
+  Future<void> _next({bool auto = false}) async {
+    if (_queue.isEmpty) {
+      return;
+    }
+    final int? index = _queue.advance(auto: auto);
+    if (index == null) {
+      _stopPositionPolling();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isPlaying = false;
+        _position = _duration;
+      });
+      _saveSessionNow();
+      return;
+    }
+    await _startCurrent();
+  }
+
+  /// 上一首：播放超过 3 秒先回到本曲开头，符合桌面播放器习惯。
+  Future<void> _previous() async {
+    if (_currentTrack == null) {
+      return;
+    }
+    if (!_isStopped && _position > 3) {
+      await _seekTo(0);
+      return;
+    }
+    final int? index = _queue.retreat();
+    if (index == null) {
+      await _seekTo(0);
+      return;
+    }
+    await _startCurrent();
+  }
+
+  /// 轮询发现引擎已停止：只有“本来在播”才自动切歌，
+  /// 避免暂停 / 初始化阶段误触发。
+  Future<void> _handleTrackEnded() async {
+    if (_handlingEnd) {
+      return;
+    }
+    _handlingEnd = true;
+    try {
+      await _next(auto: true);
+    } finally {
+      _handlingEnd = false;
+    }
+  }
+
+  void _cycleRepeat() {
+    setState(() => _queue.setRepeat(_queue.repeat.next));
+    _saveSessionNow();
+  }
+
+  void _toggleShuffle() {
+    setState(() => _queue.setShuffle(!_queue.shuffle));
+    _saveSessionNow();
+  }
+
+  Future<void> _showQueue() {
+    return showPlaybackQueueDialog(
+      context,
+      tracks: _queue.tracks,
+      currentIndex: _queue.index,
+      repeat: _queue.repeat,
+      shuffle: _queue.shuffle,
+      onSelect: (int index) {
+        if (_queue.jumpTo(index)) {
+          unawaited(_startCurrent());
+        }
+      },
+      onRepeatChanged: (LoopMode mode) {
+        setState(() => _queue.setRepeat(mode));
+        _saveSessionNow();
+      },
+      onShuffleChanged: (bool value) {
+        setState(() => _queue.setShuffle(value));
+        _saveSessionNow();
+      },
+    );
+  }
+
+  /// 曲目右键菜单的统一入口。
+  void _onTrackContext(
+    List<Track> tracks,
+    Track track,
+    TrackContextAction action,
+  ) {
+    switch (action) {
+      case TrackContextAction.play:
+        unawaited(_playFrom(tracks, track));
+      case TrackContextAction.playNext:
+        _playNext(track);
+      case TrackContextAction.addToQueue:
+        _enqueue(track);
+      case TrackContextAction.toggleFavorite:
+        unawaited(_toggleFavorite(track));
+      case TrackContextAction.addToPlaylist:
+        unawaited(_addToPlaylist(track));
+      case TrackContextAction.revealInExplorer:
+        unawaited(_revealInExplorer(track));
+      case TrackContextAction.copyPath:
+        unawaited(_copyPath(track));
+    }
+  }
+
+  void _playNext(Track track) {
+    if (_queue.isEmpty) {
+      unawaited(_playFrom(<Track>[track], track));
+      return;
+    }
+    if (_queue.current?.path == track.path) {
+      _showMessage('正在播放这首');
+      return;
+    }
+    final bool added = _queue.insertNext(track);
+    setState(() {});
+    _saveSessionNow();
+    _showMessage(added ? '已设为下一首：${track.title}' : '队列里已经有这首');
+  }
+
+  void _enqueue(Track track) {
+    if (_queue.isEmpty) {
+      unawaited(_playFrom(<Track>[track], track));
+      return;
+    }
+    if (_queue.current?.path == track.path) {
+      _showMessage('正在播放这首');
+      return;
+    }
+    final bool added = _queue.append(track);
+    setState(() {});
+    _saveSessionNow();
+    _showMessage(added ? '已加入队列：${track.title}' : '队列里已经有这首');
+  }
+
+  Future<void> _revealInExplorer(Track track) async {
+    if (!Platform.isWindows) {
+      _showMessage('当前平台暂不支持打开文件位置');
+      return;
+    }
+    try {
+      await Process.run('explorer.exe', <String>['/select,', track.path]);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('打开文件位置失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  Future<void> _copyPath(Track track) async {
+    await Clipboard.setData(ClipboardData(text: track.path));
+    if (!mounted) {
+      return;
+    }
+    _showMessage('已复制文件路径');
   }
 
   /// 拖动进度时停掉轮询，否则下一次 tick 会把滑块拉回原位置。
@@ -468,28 +806,45 @@ class _LibraryPageState extends State<LibraryPage> {
     setState(() => _position = seconds);
   }
 
+  Future<void> _seekTo(double seconds) async {
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      await _playback.seek(seconds);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _position = seconds);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('跳转失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
   Future<void> _onSeekEnd(double seconds) async {
     _seeking = false;
     // 已停止（播完 / 未开始）时不要 seek：位置会改变但播放键会从头重播，
     // 等于白拖。滑块此时本身就是禁用的，这里再兜一层。
     final bool canSeek = _isAvailable && !_isStopped;
     if (canSeek) {
-      try {
-        await _playback.seek(seconds);
-        if (!mounted) {
-          return;
-        }
-        setState(() => _position = seconds);
-      } catch (error) {
-        if (!mounted) {
-          return;
-        }
-        _showMessage('跳转失败：${ErrorRetry.describe(error)}');
-      }
+      await _seekTo(seconds);
     }
     if (_isPlaying && _positionTimer == null) {
       _startPositionPolling();
     }
+  }
+
+  /// 键盘快进 / 快退 5 秒
+  Future<void> _seekBy(double delta) async {
+    if (_currentTrack == null || !_isAvailable || _isStopped) {
+      return;
+    }
+    final double maxPosition = _duration > 0 ? _duration : _position + delta;
+    final double target = (_position + delta).clamp(0.0, maxPosition);
+    await _seekTo(target);
   }
 
   /// 音量变化：UI 立即跟随，实际调用按 [_volumeThrottle] 合并，
@@ -502,6 +857,7 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       _volume = next;
     });
+    _scheduleSessionSave();
     if (!_isAvailable) {
       return;
     }
@@ -542,6 +898,7 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       _volume = next;
     });
+    _saveSessionNow();
     if (_isAvailable) {
       unawaited(_applyVolume(next));
     }
@@ -569,6 +926,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final double position = await _playback.position();
       final double duration = await _playback.duration();
       final rust.PlaybackState state = _playback.state;
+      final bool wasPlaying = _isPlaying;
       _pollFailures = 0;
       if (!mounted || _seeking) {
         return;
@@ -582,6 +940,9 @@ class _LibraryPageState extends State<LibraryPage> {
       });
       if (state == rust.PlaybackState.stopped) {
         _stopPositionPolling();
+        if (wasPlaying && !_seeking) {
+          unawaited(_handleTrackEnded());
+        }
       }
     } catch (_) {
       // 单次失败（引擎忙、响应中断）不该让进度条永久冻住：
@@ -618,47 +979,127 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      backgroundColor: scheme.surfaceContainerLow,
-      body: Row(
-        children: <Widget>[
-          LibraryRail(
-            expanded: _railExpanded,
-            section: _section,
-            onSelect: _selectSection,
-            onToggle: () => setState(() => _railExpanded = !_railExpanded),
-          ),
-          Expanded(
-            child: Column(
-              children: <Widget>[
-                _buildTopBar(context),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    child: _buildSection(context),
-                  ),
+    // 放在页面根部：文本框聚焦时由 EditableText 自己消费空格与方向键，
+    // 其余情况下才落到播放控制上。
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.space): _handleSpace,
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+            _focusSearch,
+        const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+            _unlessTyping(() => unawaited(_seekBy(5))),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+            _unlessTyping(() => unawaited(_seekBy(-5))),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
+            () => _unlessTyping(() => unawaited(_next())),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
+            () => _unlessTyping(() => unawaited(_previous())),
+        const SingleActivator(LogicalKeyboardKey.arrowUp, control: true): () =>
+            _unlessTyping(() => _setVolume(_volume + 0.05)),
+        const SingleActivator(LogicalKeyboardKey.arrowDown, control: true): () =>
+            _unlessTyping(() => _setVolume(_volume - 0.05)),
+        const SingleActivator(LogicalKeyboardKey.keyM, control: true):
+            _toggleMute,
+        const SingleActivator(LogicalKeyboardKey.mediaPlayPause): () =>
+            unawaited(_togglePlayback()),
+        const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () =>
+            unawaited(_next()),
+        const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () =>
+            unawaited(_previous()),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: scheme.surfaceContainerLow,
+          body: Row(
+            children: <Widget>[
+              LibraryRail(
+                expanded: _railExpanded,
+                section: _section,
+                onSelect: _selectSection,
+                onToggle: _toggleRail,
+              ),
+              Expanded(
+                child: Column(
+                  children: <Widget>[
+                    _buildTopBar(context),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                        child: _buildSection(context),
+                      ),
+                    ),
+                    PlayerBar(
+                      track: _currentTrack,
+                      isPlaying: _isPlaying,
+                      isAvailable: _isAvailable,
+                      canSeek: !_isStopped,
+                      position: _position,
+                      duration: _duration,
+                      volume: _volume,
+                      onPlayPause: () => unawaited(_togglePlayback()),
+                      onPrevious: () => unawaited(_previous()),
+                      onNext: () => unawaited(_next()),
+                      onSeekStart: _onSeekStart,
+                      onSeekChanged: _onSeekChanged,
+                      onSeekEnd: (double seconds) =>
+                          unawaited(_onSeekEnd(seconds)),
+                      onVolumeChanged: _setVolume,
+                      onToggleMute: _toggleMute,
+                      onShowQueue: () => unawaited(_showQueue()),
+                      queueLength: _queue.length,
+                      repeat: _queue.repeat,
+                      shuffle: _queue.shuffle,
+                      onToggleRepeat: _cycleRepeat,
+                      onToggleShuffle: _toggleShuffle,
+                    ),
+                  ],
                 ),
-                PlayerBar(
-                  track: _currentTrack,
-                  isPlaying: _isPlaying,
-                  isAvailable: _isAvailable,
-                  canSeek: !_isStopped,
-                  position: _position,
-                  duration: _duration,
-                  volume: _volume,
-                  onPlayPause: () => unawaited(_togglePlayback()),
-                  onSeekStart: _onSeekStart,
-                  onSeekChanged: _onSeekChanged,
-                  onSeekEnd: (double seconds) => unawaited(_onSeekEnd(seconds)),
-                  onVolumeChanged: _setVolume,
-                  onToggleMute: _toggleMute,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  void _toggleRail() {
+    setState(() => _railExpanded = !_railExpanded);
+    _saveSessionNow();
+  }
+
+  void _focusSearch() {
+    _searchFocus.requestFocus();
+    _searchController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _searchController.text.length,
+    );
+  }
+
+  void _handleEscape() {
+    if (_query.isNotEmpty) {
+      _clearSearch();
+    } else {
+      _searchFocus.unfocus();
+    }
+  }
+
+  /// 焦点在搜索框时，空格 / 方向键留给文本编辑，不触发播放控制。
+  VoidCallback _unlessTyping(VoidCallback action) {
+    return () {
+      if (_searchFocus.hasFocus) {
+        return;
+      }
+      action();
+    };
+  }
+
+  void _handleSpace() {
+    if (_searchFocus.hasFocus) {
+      return;
+    }
+    unawaited(_togglePlayback());
   }
 
   Widget _buildTopBar(BuildContext context) {
@@ -696,6 +1137,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
     return TextField(
       controller: _searchController,
+      focusNode: _searchFocus,
       onChanged: _onSearchChanged,
       textAlignVertical: TextAlignVertical.center,
       style: theme.textTheme.bodyLarge,
@@ -727,6 +1169,17 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _selectSection(LibrarySection section) {
     if (section == _section) {
+      // 已在该分区时，再点一次导航相当于「回到列表」：
+      // 不应把用户困在歌单 / 艺术家 / 专辑详情里。
+      if (_selectedPlaylistId != null ||
+          _selectedArtist != null ||
+          _selectedAlbumKey != null) {
+        setState(() {
+          _selectedArtist = null;
+          _selectedAlbumKey = null;
+          _selectedPlaylistId = null;
+        });
+      }
       return;
     }
     setState(() {
@@ -735,6 +1188,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _selectedAlbumKey = null;
       _selectedPlaylistId = null;
     });
+    _saveSessionNow();
     if (section == LibrarySection.playlists) {
       unawaited(_loadPlaylists());
     }
@@ -886,6 +1340,14 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
             ),
             const Spacer(),
+            FilledButton.tonalIcon(
+              onPressed: _historyTracks.isEmpty
+                  ? null
+                  : () => unawaited(_playAll(_historyTracks)),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('播放全部'),
+            ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
               onPressed: _historyTracks.isEmpty
@@ -934,9 +1396,11 @@ class _LibraryPageState extends State<LibraryPage> {
     return TrackListView(
       tracks: _historyTracks,
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playTrack(track)),
+      onPlay: (Track track) => unawaited(_playFrom(_historyTracks, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+      onContextAction: (Track track, TrackContextAction action) =>
+          _onTrackContext(_historyTracks, track, action),
     );
   }
 
@@ -1024,11 +1488,23 @@ class _LibraryPageState extends State<LibraryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          '收藏',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: <Widget>[
+            Text(
+              '收藏',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            FilledButton.tonalIcon(
+              onPressed: _favoriteTracks.isEmpty
+                  ? null
+                  : () => unawaited(_playAll(_favoriteTracks)),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('播放全部'),
+            ),
+          ],
         ),
         const SizedBox(height: 2),
         Text(
@@ -1068,9 +1544,11 @@ class _LibraryPageState extends State<LibraryPage> {
     return TrackListView(
       tracks: _favoriteTracks,
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playTrack(track)),
+      onPlay: (Track track) => unawaited(_playFrom(_favoriteTracks, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+      onContextAction: (Track track, TrackContextAction action) =>
+          _onTrackContext(_favoriteTracks, track, action),
     );
   }
 
@@ -1166,7 +1644,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return taken ? '已有同名歌单' : null;
   }
 
-  Future<void> _createPlaylist() async {
+  Future<void> _createPlaylist({String? addTrackPath}) async {
     final String? name = await showPlaylistNameDialog(
       context,
       title: '新建歌单',
@@ -1177,17 +1655,69 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     try {
-      await _repository.createPlaylist(name);
+      final Playlist playlist = await _repository.createPlaylist(name);
+      bool added = false;
+      String? addError;
+      if (addTrackPath != null) {
+        try {
+          added = await _repository.addTrackToPlaylist(
+            playlist.id.toInt(),
+            addTrackPath,
+          );
+        } catch (error) {
+          addError = ErrorRetry.describe(error);
+        }
+      }
       await _loadPlaylists();
       if (!mounted) {
         return;
       }
-      _showMessage('已创建「$name」');
+      if (addError != null) {
+        _showMessage('已创建「$name」，但加入曲目失败：$addError');
+      } else if (added) {
+        _showMessage('已创建「$name」并加入 1 首');
+      } else {
+        _showMessage('已创建「$name」');
+      }
     } catch (error) {
       if (!mounted) {
         return;
       }
       _showMessage('创建失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  /// 把单曲加入歌单：先选已有歌单，也可以现场新建。
+  Future<void> _addToPlaylist(Track track) async {
+    final PlaylistPick? pick = await showPlaylistPickerDialog(
+      context,
+      playlists: _playlists,
+    );
+    if (pick == null || !mounted) {
+      return;
+    }
+    switch (pick) {
+      case PickNewPlaylist():
+        await _createPlaylist(addTrackPath: track.path);
+      case PickExistingPlaylist(:final Playlist playlist):
+        final int id = playlist.id.toInt();
+        final String name = playlist.name;
+        try {
+          final bool added = await _repository.addTrackToPlaylist(
+            id,
+            track.path,
+          );
+          await _loadPlaylists();
+          if (!mounted) {
+            return;
+          }
+          _showMessage(added ? '已加入「$name」' : '「$name」里已经有这首');
+        } catch (error) {
+          if (!mounted) {
+            return;
+          }
+          _showMessage('加入歌单失败：${ErrorRetry.describe(error)}');
+        }
     }
   }
 
@@ -1447,6 +1977,13 @@ class _LibraryPageState extends State<LibraryPage> {
                       spacing: 8,
                       runSpacing: 8,
                       children: <Widget>[
+                        FilledButton.icon(
+                          onPressed: _playlistTracks.isEmpty
+                              ? null
+                              : () => unawaited(_playAll(_playlistTracks)),
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('播放全部'),
+                        ),
                         FilledButton.tonalIcon(
                           onPressed: () =>
                               unawaited(_addTracksToPlaylist(playlist)),
@@ -1506,10 +2043,12 @@ class _LibraryPageState extends State<LibraryPage> {
     return TrackListView(
       tracks: _playlistTracks,
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playTrack(track)),
+      onPlay: (Track track) => unawaited(_playFrom(_playlistTracks, track)),
       onRemove: (Track track) => unawaited(_removeTrackFromPlaylist(track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+      onContextAction: (Track track, TrackContextAction action) =>
+          _onTrackContext(_playlistTracks, track, action),
     );
   }
 
@@ -1535,6 +2074,14 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
             ),
             const Spacer(),
+            FilledButton.tonalIcon(
+              onPressed: visible.isEmpty || _searching
+                  ? null
+                  : () => unawaited(_playAll(visible)),
+              icon: const Icon(Icons.play_arrow),
+              label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
+            ),
+            const SizedBox(width: 8),
             _SortButton(mode: _sort, onSelected: _changeSort),
           ],
         ),
@@ -1598,9 +2145,11 @@ class _LibraryPageState extends State<LibraryPage> {
       return TrackListView(
         tracks: _results!,
         playingPath: _currentTrack?.path,
-        onPlay: (Track track) => unawaited(_playTrack(track)),
+        onPlay: (Track track) => unawaited(_playFrom(_results!, track)),
         favoritePaths: _favoritePaths,
         onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+        onContextAction: (Track track, TrackContextAction action) =>
+            _onTrackContext(_results!, track, action),
       );
     }
     if (_tracks.isEmpty) {
@@ -1637,9 +2186,11 @@ class _LibraryPageState extends State<LibraryPage> {
     return TrackListView(
       tracks: _tracks,
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playTrack(track)),
+      onPlay: (Track track) => unawaited(_playFrom(_tracks, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
+      onContextAction: (Track track, TrackContextAction action) =>
+          _onTrackContext(_tracks, track, action),
     );
   }
 
@@ -1739,6 +2290,12 @@ class _LibraryPageState extends State<LibraryPage> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    FilledButton.tonalIcon(
+                      onPressed: () => unawaited(_playAll(group.tracks)),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('播放全部'),
+                    ),
                   ],
                 ),
               ),
@@ -1750,10 +2307,12 @@ class _LibraryPageState extends State<LibraryPage> {
           child: TrackListView(
             tracks: group.tracks,
             playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playTrack(track)),
+            onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
             favoritePaths: _favoritePaths,
             onToggleFavorite: (Track track) =>
                 unawaited(_toggleFavorite(track)),
+            onContextAction: (Track track, TrackContextAction action) =>
+                _onTrackContext(group.tracks, track, action),
           ),
         ),
       ],
@@ -1855,6 +2414,12 @@ class _LibraryPageState extends State<LibraryPage> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    FilledButton.tonalIcon(
+                      onPressed: () => unawaited(_playAll(group.tracks)),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('播放全部'),
+                    ),
                   ],
                 ),
               ),
@@ -1866,10 +2431,12 @@ class _LibraryPageState extends State<LibraryPage> {
           child: TrackListView(
             tracks: group.tracks,
             playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playTrack(track)),
+            onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
             favoritePaths: _favoritePaths,
             onToggleFavorite: (Track track) =>
                 unawaited(_toggleFavorite(track)),
+            onContextAction: (Track track, TrackContextAction action) =>
+                _onTrackContext(group.tracks, track, action),
           ),
         ),
       ],

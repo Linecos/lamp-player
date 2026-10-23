@@ -1,3 +1,4 @@
+import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
@@ -244,6 +245,24 @@ class FakeMusicFolderStore implements MusicFolderStore {
   Future<void> save(List<String> next) async {
     saveCalls += 1;
     folders = List<String>.of(next);
+  }
+}
+
+/// 内存版会话存储：测试里避免依赖 shared_preferences 插件。
+class FakeSessionStore implements SessionStore {
+  FakeSessionStore({SessionSnapshot? snapshot})
+    : snapshot = snapshot ?? const SessionSnapshot();
+
+  SessionSnapshot snapshot;
+  int saveCalls = 0;
+
+  @override
+  Future<SessionSnapshot> load() async => snapshot;
+
+  @override
+  Future<void> save(SessionSnapshot snapshot) async {
+    saveCalls += 1;
+    this.snapshot = snapshot;
   }
 }
 

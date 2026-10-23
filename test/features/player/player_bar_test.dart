@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -29,6 +30,14 @@ Future<void> _pumpBar(
   ValueChanged<double>? onSeekEnd,
   ValueChanged<double>? onVolumeChanged,
   VoidCallback? onToggleMute,
+  VoidCallback? onPrevious,
+  VoidCallback? onNext,
+  VoidCallback? onShowQueue,
+  VoidCallback? onToggleRepeat,
+  VoidCallback? onToggleShuffle,
+  int queueLength = 0,
+  LoopMode repeat = LoopMode.off,
+  bool shuffle = false,
 }) async {
   tester.view.physicalSize = const Size(1280, 600);
   tester.view.devicePixelRatio = 1;
@@ -54,6 +63,14 @@ Future<void> _pumpBar(
             onSeekEnd: onSeekEnd,
             onVolumeChanged: onVolumeChanged,
             onToggleMute: onToggleMute,
+            onPrevious: onPrevious,
+            onNext: onNext,
+            onShowQueue: onShowQueue,
+            onToggleRepeat: onToggleRepeat,
+            onToggleShuffle: onToggleShuffle,
+            queueLength: queueLength,
+            repeat: repeat,
+            shuffle: shuffle,
           ),
         ),
       ),
@@ -165,8 +182,7 @@ void main() {
     expect(find.byTooltip('静音'), findsNothing);
   });
 
-  testWidgets('停止态（canSeek=false）禁用进度拖动', (WidgetTester tester) async {
-    final List<double> ends = <double>[];
+  testWidgets('停止态（canSeek=false）禁用进度拖动', (WidgetTester tester) async {    final List<double> ends = <double>[];
     await _pumpBar(
       tester,
       isPlaying: false,
@@ -181,5 +197,51 @@ void main() {
     await tester.drag(find.byKey(_progressKey), const Offset(120, 0));
     await tester.pump();
     expect(ends, isEmpty, reason: '停止态不应触发 seek');
+  });
+
+  testWidgets('上一首 / 下一首 / 队列 / 随机循环按钮转发回调', (WidgetTester tester) async {
+    int previous = 0;
+    int next = 0;
+    int queue = 0;
+    int repeat = 0;
+    int shuffle = 0;
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      queueLength: 3,
+      repeat: LoopMode.all,
+      shuffle: true,
+      onPrevious: () => previous += 1,
+      onNext: () => next += 1,
+      onShowQueue: () => queue += 1,
+      onToggleRepeat: () => repeat += 1,
+      onToggleShuffle: () => shuffle += 1,
+    );
+
+    await tester.tap(find.byTooltip('上一首 (Ctrl+←)'));
+    await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
+    await tester.tap(find.byTooltip('播放队列'));
+    await tester.tap(find.byTooltip('循环播放：列表'));
+    await tester.tap(find.byTooltip('关闭随机播放'));
+    await tester.pump();
+
+    expect(previous, 1);
+    expect(next, 1);
+    expect(queue, 1);
+    expect(repeat, 1);
+    expect(shuffle, 1);
+    expect(find.text('3'), findsOneWidget, reason: '队列数量应有角标');
+  });
+
+  testWidgets('没有当前曲目时上一首 / 下一首 / 暂停都禁用', (WidgetTester tester) async {
+    await _pumpBar(tester, onPrevious: () {}, onNext: () {});
+
+    IconButton buttonWithIcon(IconData icon) => tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, icon),
+    );
+
+    expect(buttonWithIcon(Icons.skip_previous).onPressed, isNull);
+    expect(buttonWithIcon(Icons.skip_next).onPressed, isNull);
+    expect(buttonWithIcon(Icons.play_arrow).onPressed, isNull);
   });
 }

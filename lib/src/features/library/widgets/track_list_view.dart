@@ -1,8 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../common/formatters/duration.dart';
 import '../../../rust/api/model.dart';
 import '../library_sort.dart';
+
+/// 曲目右键菜单动作；具体行为由页面实现（测试里可只验证回调）。
+enum TrackContextAction {
+  play,
+  playNext,
+  addToQueue,
+  toggleFavorite,
+  addToPlaylist,
+  revealInExplorer,
+  copyPath,
+}
 
 /// 曲库列表：固定表头 + 虚拟滚动（`ListView.builder` + `itemExtent`）。
 ///
@@ -17,6 +30,7 @@ class TrackListView extends StatelessWidget {
     this.onRemove,
     this.favoritePaths = const <String>{},
     this.onToggleFavorite,
+    this.onContextAction,
   });
 
   final List<Track> tracks;
@@ -31,6 +45,9 @@ class TrackListView extends StatelessWidget {
 
   /// 提供后在行尾显示爱心按钮。
   final ValueChanged<Track>? onToggleFavorite;
+
+  /// 提供后行内支持右键菜单（播放、下一首播放、加入歌单等）。
+  final void Function(Track track, TrackContextAction action)? onContextAction;
 
   @override
   Widget build(BuildContext context) {
@@ -67,6 +84,10 @@ class TrackListView extends StatelessWidget {
                     onToggleFavorite: onToggleFavorite == null
                         ? null
                         : () => onToggleFavorite!(track),
+                    onContextAction: onContextAction == null
+                        ? null
+                        : (TrackContextAction action) =>
+                              onContextAction!(track, action),
                   );
                 },
               ),
@@ -136,6 +157,7 @@ class _TrackRow extends StatelessWidget {
     this.onRemove,
     required this.favored,
     this.onToggleFavorite,
+    this.onContextAction,
   });
 
   final Track track;
@@ -147,6 +169,84 @@ class _TrackRow extends StatelessWidget {
   final VoidCallback? onRemove;
   final bool favored;
   final VoidCallback? onToggleFavorite;
+  final ValueChanged<TrackContextAction>? onContextAction;
+
+  Future<void> _showContextMenu(
+    BuildContext context,
+    Offset globalPosition,
+  ) async {
+    if (onContextAction == null) {
+      return;
+    }
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final TrackContextAction? selected =
+        await showMenu<TrackContextAction>(
+          context: context,
+          position: RelativeRect.fromRect(
+            Rect.fromPoints(globalPosition, globalPosition),
+            Offset.zero & overlay.size,
+          ),
+          items: <PopupMenuEntry<TrackContextAction>>[
+            _menuItem(
+              TrackContextAction.play,
+              Icons.play_arrow,
+              '播放',
+            ),
+            _menuItem(
+              TrackContextAction.playNext,
+              Icons.playlist_play,
+              '下一首播放',
+            ),
+            _menuItem(
+              TrackContextAction.addToQueue,
+              Icons.queue_music,
+              '添加到队列',
+            ),
+            _menuItem(
+              TrackContextAction.toggleFavorite,
+              favored ? Icons.favorite : Icons.favorite_border,
+              favored ? '取消收藏' : '收藏',
+            ),
+            _menuItem(
+              TrackContextAction.addToPlaylist,
+              Icons.playlist_add,
+              '加入歌单…',
+            ),
+            const PopupMenuDivider(),
+            _menuItem(
+              TrackContextAction.revealInExplorer,
+              Icons.folder_open,
+              '在资源管理器中显示',
+            ),
+            _menuItem(
+              TrackContextAction.copyPath,
+              Icons.copy,
+              '复制文件路径',
+            ),
+          ],
+        );
+    if (selected != null) {
+      onContextAction?.call(selected);
+    }
+  }
+
+  PopupMenuItem<TrackContextAction> _menuItem(
+    TrackContextAction action,
+    IconData icon,
+    String label,
+  ) {
+    return PopupMenuItem<TrackContextAction>(
+      value: action,
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 18),
+          const SizedBox(width: 10),
+          Text(label),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +268,11 @@ class _TrackRow extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPlay,
+          onSecondaryTapDown: onContextAction == null
+              ? null
+              : (TapDownDetails details) => unawaited(
+                  _showContextMenu(context, details.globalPosition),
+                ),
           hoverColor: scheme.surfaceContainerHigh,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
