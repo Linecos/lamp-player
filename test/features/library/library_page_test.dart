@@ -1,7 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
+import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -16,6 +20,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   FakePlaybackService? playback,
   DirectoryPicker? directoryPicker,
   MusicFolderStore? folderStore,
+  SessionStore? sessionStore,
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
 }) async {
@@ -40,6 +45,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         playbackService: playback ?? FakePlaybackService(),
         directoryPicker: directoryPicker,
         musicFolderStore: folderStore,
+        sessionStore: sessionStore ?? FakeSessionStore(),
       ),
     ),
   );
@@ -234,7 +240,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('自然播完后按播放会重新开始而不是 resume', (WidgetTester tester) async {
+  testWidgets('自然播完后自动切到下一首', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
@@ -244,21 +250,278 @@ void main() {
     await tester.tap(find.text('夜航'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    expect(playback.playedPaths.length, 1);
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
 
     // 模拟 BASS 自然播完：状态 stopped、位置停在结尾
     playback
       ..current = rust.PlaybackState.stopped
       ..positionSecs = 180;
     await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
 
-    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    expect(
+      playback.playedPaths,
+      <String>['/music/夜航.mp3', '/music/潮汐.mp3'],
+      reason: '自然播完应自动播放队列下一首',
+    );
+    expect(find.byIcon(Icons.pause), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('单曲队列播完后按播放从头重播而不是 resume', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[sampleTrack(title: '夜航')],
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths.length, 1);
+
+    // 队列只有一首且未开循环：播完就停在末尾
+    playback
+      ..current = rust.PlaybackState.stopped
+      ..positionSecs = 180;
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.play_arrow),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+      ),
+    );
     await tester.pump();
 
     expect(playback.playedPaths.length, 2, reason: '应重新 play 而不是 resume');
     expect(playback.resumeCalls, 0);
-    expect(find.byIcon(Icons.pause), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.pause),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('播放全部从第一首开始，可继续下一首', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('播放全部'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+
+    await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('空格暂停 / 继续，Ctrl+F 聚焦搜索', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(playback.pauseCalls, 1, reason: '空格应暂停');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(playback.resumeCalls, 1, reason: '再按空格应继续');
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    final TextField search = tester.widget<TextField>(find.byType(TextField));
+    expect(search.focusNode?.hasFocus, isTrue, reason: 'Ctrl+F 应聚焦搜索框');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('搜索框内按空格不会切换播放', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+
+    expect(playback.pauseCalls, 0, reason: '输入空格不应触发暂停');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('右键「下一首播放」把曲目插到当前曲目之后', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    // 先播潮汐（队列是 夜航、潮汐，当前在潮汐）
+    await tester.tap(find.text('潮汐'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(
+      find.text('夜航').first,
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一首播放'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths.last, '/music/夜航.mp3');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('队列面板可查看并跳播', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byTooltip('播放队列'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('queue-item-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('queue-item-1')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('queue-item-1')));
+    await tester.pumpAndSettle();
+
+    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('启动时恢复音量、分区、循环与上次播放', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        volume: 0.4,
+        lastTrackPath: '/music/潮汐.mp3',
+        lastPositionSecs: 42,
+        repeat: LoopMode.all,
+        section: 'favorites',
+        railExpanded: false,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+    );
+
+    expect(find.text('还没有收藏'), findsOneWidget, reason: '应恢复到收藏分区');
+    expect(find.byTooltip('展开导航栏'), findsOneWidget, reason: '侧栏应保持收起');
+    expect(find.byTooltip('循环播放：列表'), findsOneWidget);
+    expect(playback.volumeCalls.last, closeTo(0.4, 0.001));
+
+    // 上次播放的曲目显示在播放条上，但不会自动出声
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.text('潮汐'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('00:42'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths.single, '/music/潮汐.mp3');
+    expect(playback.seekCalls, contains(42.0), reason: '应从上次位置继续');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('静音后把音量写回会话', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+    );
+
+    await tester.tap(find.byTooltip('静音'));
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(session.snapshot.volume, 0);
+    expect(session.saveCalls, greaterThan(0));
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
@@ -603,15 +866,20 @@ void main() {
         matching: find.byType(Slider),
       ),
     );
+    final int initialCalls = playback.volumeCalls.length;
     for (int step = 1; step <= 10; step += 1) {
       slider.onChanged!(step / 10);
       await tester.pump(const Duration(milliseconds: 5));
     }
-    expect(playback.volumeCalls, isEmpty, reason: '合并窗口内不应逐次调用');
+    expect(
+      playback.volumeCalls,
+      hasLength(initialCalls),
+      reason: '合并窗口内不应逐次调用',
+    );
 
     await tester.pump(const Duration(milliseconds: 120));
-    expect(playback.volumeCalls, hasLength(1), reason: '一个窗口只发一次');
-    expect(playback.volumeCalls.single, closeTo(1.0, 0.001));
+    expect(playback.volumeCalls, hasLength(initialCalls + 1), reason: '一个窗口只发一次');
+    expect(playback.volumeCalls.last, closeTo(1.0, 0.001));
   });
 
   testWidgets('轮询失败一次后仍会重试，不会冻结进度', (WidgetTester tester) async {

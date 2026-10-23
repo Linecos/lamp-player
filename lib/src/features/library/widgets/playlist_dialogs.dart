@@ -100,6 +100,86 @@ class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
   }
 }
 
+/// 右键「添加到歌单」的选择结果。
+sealed class PlaylistPick {
+  const PlaylistPick();
+}
+
+/// 选中已有歌单。
+final class PickExistingPlaylist extends PlaylistPick {
+  const PickExistingPlaylist(this.playlist);
+
+  final Playlist playlist;
+}
+
+/// 要求新建歌单（创建后把曲目加进去）。
+final class PickNewPlaylist extends PlaylistPick {
+  const PickNewPlaylist();
+}
+
+/// 选择目标歌单：列出已有歌单，也可以直接新建。
+Future<PlaylistPick?> showPlaylistPickerDialog(
+  BuildContext context, {
+  required List<Playlist> playlists,
+}) {
+  return showDialog<PlaylistPick>(
+    context: context,
+    builder: (BuildContext context) {
+      final ThemeData theme = Theme.of(context);
+      return AlertDialog(
+        title: const Text('添加到歌单'),
+        content: SizedBox(
+          width: 420,
+          height: 340,
+          child: playlists.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      '还没有歌单，点右下角新建一个。',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: playlists.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final Playlist playlist = playlists[index];
+                    return ListTile(
+                      leading: const Icon(Icons.queue_music),
+                      title: Text(
+                        playlist.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text('${playlist.trackCount} 首'),
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pop(PickExistingPlaylist(playlist)),
+                    );
+                  },
+                ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () =>
+                Navigator.of(context).pop(const PickNewPlaylist()),
+            icon: const Icon(Icons.add),
+            label: const Text('新建歌单'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 /// 往歌单里加曲目：搜索 + 逐首添加，返回实际新增数量。
 Future<int?> showAddTracksDialog(
   BuildContext context, {

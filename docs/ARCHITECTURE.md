@@ -7,7 +7,7 @@
 ```
 ┌──────────────────────────────────────────┐
 │ Flutter / Dart                           │
-│   app/     应用外壳：主题、路由            │
+│   app/     应用外壳：主题、路由、会话与窗口状态  │
 │   features/ 页面（曲库、播放、设置）       │
 │   common/  通用组件与工具（无业务依赖）    │
 └───────────────┬──────────────────────────┘
@@ -39,7 +39,7 @@
 | 路径 | 职责 | 备注 |
 |---|---|---|
 | `lib/main.dart` | 入口：初始化桥接、挂载 `LampApp` | 不写业务逻辑 |
-| `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象，测试可注入假实现 |
+| `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`）、会话恢复（`session_store.dart`）与窗口状态（`window_state.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象、存储通过接口注入，测试可替换假实现 |
 | `lib/src/theme/` | 全局主题（Material 3，seed 色） | 页面内禁止写死颜色 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
@@ -58,8 +58,12 @@
 
 ```
 main() → RustLib.init()（失败则显示 LampStartupErrorApp，避免白屏）
-      → LampApp → LibraryPage → 调 db.init_db(路径)（路径由 Dart 侧 path_provider 决定）
+      → 读窗口状态（尺寸 / 最大化）→ LampApp → LibraryPage
+      → 并行：SessionStore.load() + db.init_db(路径)（路径由 Dart 侧 path_provider 决定）
+      → 会话有效则恢复上次曲目 / 位置 / 音量 / 循环 / 随机 / 分区
 ```
+
+会话读取失败只丢恢复能力，不阻塞曲库；首屏不等会话（测试里 `SharedPreferences` 不会自行完成，假实现由 `pumpLibrary` 注入）。
 
 **扫描入库**
 
@@ -91,8 +95,34 @@ Dart: recordPlay(path) / recentTracks(limit) → 历史（页面在播放成功�
 **播放**
 
 ```
-Dart: playerPlay(path) → Rust: 停旧曲 → BASS_StreamCreateFile → BASS_ChannelPlay
+Dart: 列表 / 播放全部 → PlaybackQueue.replace(tracks, start)
+Dart: 播放 / 下一首 / 上一首 / 队列跳播 → 从队列取路径 → playerPlay(path)
+      → Rust: 停旧曲 → BASS_StreamCreateFile → BASS_ChannelPlay
 Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，后续可换事件流）
+Dart: 检测到自然播完（playing → stopped 且未 seek）→ queue.advance() → 播放下一首
+Dart: 播放成功后 recordPlay(path) + 写入会话快照
+```
+
+队列规则都在纯 Dart 的 `PlaybackQueue` 里：顺序 / 随机洗牌（保留原始列表）、列表循环 / 单曲循环、`insertNext` / `append`、上一首历史。
+手动切歌不受单曲循环影响；单曲队列自然播完停在末尾，再按播放从头重播。
+
+**快捷键**
+
+```
+LibraryPage 根部：CallbackShortcuts + Focus(autofocus)
+  空格 → 播放 / 暂停；Ctrl+←/→ → 上一首 / 下一首；←/→ → ±5 秒
+  Ctrl+↑/↓ → 音量 ±5%；Ctrl+M → 静音；Ctrl+F → 聚焦搜索；Esc → 清空搜索 / 退出搜索框
+  媒体键（播放暂停 / 下一首 / 上一首）同义
+搜索框聚焦时 _unlessTyping / _handleSpace 直接返回，空格与方向键留给文本编辑。
+```
+
+**会话与窗口状态**
+
+```
+SessionStore（接口）→ PrefsSessionStore（shared_preferences）
+  音量 / 静音前音量、上次曲目与进度、循环 / 随机、当前分区、侧栏展开
+  播放与设置变化后防抖保存，退出前补一次
+WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多屏边界校验）
 ```
 
 ## 4. 关键设计决策
@@ -114,6 +144,9 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，
 | 错误用 `anyhow::Result` 跨语言 | frb 会把 `Err` 转成 Dart 异常，UI 侧统一 catch 后提示 |
 | 单文件解析包 `catch_unwind` | panic 穿过 FFI 会 abort 进程；损坏文件只应算一个 `failed` |
 | 生成代码不入 lint、不手改 | 避免 codegen 与手工修改互相覆盖；CI 有专门一致性校验 |
+| 队列逻辑放纯 Dart `PlaybackQueue` | 不改 Rust 契约；页面只关心「播某个路径」，顺序 / 随机 / 循环可脱离 UI 单测 |
+| 会话与窗口状态走接口 + prefs 实现 | widget 测试里 `SharedPreferences` 的 Future 不会自行完成，注入假实现即可；存储失败不阻塞主流程 |
+| 快捷键挂页面根部 + 输入态守卫 | `EditableText` 会消费空格与方向键，但仍需兜底，避免搜索时误暂停 / 误切歌 |
 
 ## 5. 加一个功能的典型路径
 
@@ -129,7 +162,10 @@ Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，
 
 当前**不引入第三方状态管理**：页面内部用 `StatefulWidget` + `setState`。
 播放器服务由 `LibraryPage` 持有（构造函数可注入 `PlaybackService`，测试用假实现），
-进度用 `Timer` 轮询。跨页面共享状态尚未抽象，需要时先开 issue 讨论，由 owner 统一加。
+播放队列由同页持有的 `PlaybackQueue` 负责，进度用 `Timer` 轮询。
+会话（`SessionStore`）与窗口状态（`WindowStateStore`）以接口形式由页面 / `main()` 使用，
+生产实现走 `shared_preferences`，测试注入内存假实现。
+跨页面共享状态尚未抽象，需要时先开 issue 讨论，由 owner 统一加。
 请勿单独引入 provider / riverpod / bloc 等依赖。
 
 目前唯一提升到应用根部的状态是主题：`ThemeController`（`ChangeNotifier`）+

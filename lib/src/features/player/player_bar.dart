@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import '../../common/formatters/duration.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
+import 'playback_queue.dart';
 
-/// 底部播放条：曲名、播放/暂停、进度拖动、音量调节。
+/// 底部播放条：曲名、上一首 / 播放暂停 / 下一首、进度、音量与队列入口。
 ///
-/// 只负责展示与转发手势；seek / 音量的实际调用与节流由持有状态的页面负责。
+/// 只负责展示与转发手势；seek / 音量 / 队列的实际调用由持有状态的页面负责。
 class PlayerBar extends StatelessWidget {
   const PlayerBar({
     super.key,
@@ -18,11 +19,19 @@ class PlayerBar extends StatelessWidget {
     this.volume = 1,
     this.track,
     this.onPlayPause,
+    this.onPrevious,
+    this.onNext,
     this.onSeekStart,
     this.onSeekChanged,
     this.onSeekEnd,
     this.onVolumeChanged,
     this.onToggleMute,
+    this.onShowQueue,
+    this.queueLength = 0,
+    this.repeat = LoopMode.off,
+    this.shuffle = false,
+    this.onToggleRepeat,
+    this.onToggleShuffle,
   });
 
   final Track? track;
@@ -40,6 +49,21 @@ class PlayerBar extends StatelessWidget {
   final double volume;
 
   final VoidCallback? onPlayPause;
+
+  /// 上一首 / 下一首；为空或没有曲目时按钮禁用。
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  /// 打开播放队列面板。
+  final VoidCallback? onShowQueue;
+
+  /// 队列长度（用于角标）
+  final int queueLength;
+
+  final LoopMode repeat;
+  final bool shuffle;
+  final VoidCallback? onToggleRepeat;
+  final VoidCallback? onToggleShuffle;
 
   /// 开始拖动进度：上游应暂停位置轮询，否则轮询值会把滑块拉回去。
   final ValueChanged<double>? onSeekStart;
@@ -117,14 +141,24 @@ class PlayerBar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          _BarIconButton(
+            icon: Icons.skip_previous,
+            tooltip: '上一首 (Ctrl+←)',
+            onPressed: canControl ? onPrevious : null,
+          ),
           IconButton.filled(
             onPressed: canControl ? onPlayPause : null,
-            tooltip: isPlaying ? '暂停' : '播放',
+            tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
             iconSize: 26,
             icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
           ),
-          const SizedBox(width: 12),
+          _BarIconButton(
+            icon: Icons.skip_next,
+            tooltip: '下一首 (Ctrl+→)',
+            onPressed: canControl ? onNext : null,
+          ),
+          const SizedBox(width: 10),
           Expanded(
             flex: 4,
             child: Column(
@@ -159,7 +193,40 @@ class PlayerBar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          _BarIconButton(
+            icon: Icons.shuffle,
+            tooltip: shuffle ? '关闭随机播放' : '随机播放',
+            selected: shuffle,
+            onPressed: onToggleShuffle,
+          ),
+          _BarIconButton(
+            icon: repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+            tooltip: switch (repeat) {
+              LoopMode.off => '循环播放：关',
+              LoopMode.all => '循环播放：列表',
+              LoopMode.one => '循环播放：单曲',
+            },
+            selected: repeat != LoopMode.off,
+            onPressed: onToggleRepeat,
+          ),
+          IconButton(
+            onPressed: onShowQueue,
+            tooltip: '播放队列',
+            iconSize: 20,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            padding: EdgeInsets.zero,
+            icon: Badge(
+              isLabelVisible: queueLength > 1,
+              label: Text('$queueLength'),
+              child: Icon(
+                Icons.queue_music,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
           _VolumeControl(
             volume: volume,
             enabled: isAvailable,
@@ -167,6 +234,38 @@ class PlayerBar extends StatelessWidget {
             onToggleMute: onToggleMute,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 播放条上的紧凑图标按钮：默认 40×40，避免默认 48 把控件挤出去。
+class _BarIconButton extends StatelessWidget {
+  const _BarIconButton({
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      isSelected: selected,
+      iconSize: 20,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      padding: EdgeInsets.zero,
+      icon: Icon(
+        icon,
+        color: selected ? scheme.primary : scheme.onSurfaceVariant,
       ),
     );
   }

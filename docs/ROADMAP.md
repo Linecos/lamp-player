@@ -7,8 +7,9 @@
 ## 当前阶段
 
 项目处于 **M1 曲库闭环、M2 播放链路已完成，进入 M3 打磨与发布**：
-桥接、扫描、SQLite + FTS5、BASS 播放、主界面与搜索均已就位；
-歌单 / 历史 / 收藏存储接口已冻结（契约 v0.3），页面待接入。
+桥接、扫描、SQLite + FTS5、BASS 播放、主界面与搜索已就位；
+歌单 / 历史 / 收藏页面已接入，播放队列、快捷键与会话恢复落地；
+下一步是真实曲库走查、性能压测与发布链路。
 
 ## M1 · 曲库闭环（扫描 → 入库 → 列表 → 搜索）
 
@@ -24,7 +25,7 @@
 | `db` 单元测试：upsert 去重/更新、FTS 触发器同步、prune、迁移 | Rust `rust/tests/` | 小 | 已完成（`rust/tests/db.rs`） |
 | 时长/文件大小格式化工具 + 单测 | Dart `common/` + `test/` | 小 | 已完成（`common/formatters` + `test/common/formatters_test.dart`） |
 | 歌单 / 收藏 / 播放历史存储接口 | Rust `api/collections.rs` + `model.rs` | 中 | 已完成（schema v2，契约 v0.3） |
-| 歌单 / 历史 / 收藏页面接入存储接口 | Dart `features/library` | 中 | 待认领 |
+| 歌单 / 历史 / 收藏页面接入存储接口 | Dart `features/library` | 中 | 已完成（含播放全部、右键加入歌单） |
 
 ## M2 · 出声与播放控制
 
@@ -34,8 +35,12 @@
 | `player.rs` 实现（play/pause/resume/stop/seek/volume/position） | Rust `api/player.rs` | 中 | 已完成（PR #3） |
 | CMake 把 `bass.dll` 与 add-on 拷到 exe 目录 | `windows/` + 构建 | 小 | 已完成（install 规则，缺 DLL 时构建告警） |
 | 播放条：播放/暂停、曲名、进度显示 | Dart `features/player` | 中 | 已完成（PR #4，只读进度） |
-| 播放成功后记录历史 + 自然播完重播 | Dart `features/library` | 小 | 已完成 |
-| 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | **[入门]** 待认领 |
+| 播放成功后记录历史 + 自然播完自动下一首 | Dart `features/library` | 小 | 已完成（`PlaybackQueue` 接管切歌） |
+| 播放队列：顺序 / 随机 / 列表循环 / 单曲循环、上一首历史、队列面板 | Dart `features/player` | 中 | 已完成（`playback_queue.dart` + `queue_dialog.dart`） |
+| 播放全部（曲库 / 搜索 / 收藏 / 历史 / 歌单 / 艺术家 / 专辑） | Dart `features/library` | 小 | 已完成 |
+| 快捷键（空格 / Ctrl+方向键 / Ctrl+M / Ctrl+F / Esc / 媒体键） | Dart `features/library` | 小 | 已完成（搜索框内不劫持输入） |
+| 会话恢复（音量、上次曲目与进度、循环 / 随机、分区、侧栏、窗口尺寸） | Dart `app/` + `features/library` | 中 | 已完成（`shared_preferences`） |
+| 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | 已完成（进度拖动 + 音量滑块的合并节流） |
 | 主题切换（跟随系统 / 浅色 / 深色，`shared_preferences` 持久化） | Dart `features/settings` | 小 | 已完成（PR #5） |
 | 设置页其余交互（默认音量等） | Dart `features/settings` | 中 | 待认领 |
 | 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | 已完成（`common/widgets` + `test/common/widgets_test.dart`） |

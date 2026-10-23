@@ -5,8 +5,8 @@
 [![CI](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **当前状态**：M1 曲库闭环（含目录导入）与 M2 播放链路已完成；歌单 / 历史 / 收藏存储接口已就绪
-> （页面待接入），正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **当前状态**：M1 曲库闭环（含目录导入）与 M2 播放链路已完成；歌单 / 历史 / 收藏页面已接入，
+> 播放队列、快捷键与会话恢复就位，正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 特性
 
@@ -14,8 +14,12 @@
 - 📚 曲库视图：全部 / 艺术家 / 专辑，五种排序，万级曲目虚拟滚动
 - 📥 添加音乐目录：系统目录选择 → 增量扫描入库，设置页与空态均可进入
 - 🔎 FTS5 全文检索（歌名/歌手/专辑），输入 300ms 防抖
-- ▶️ 播放条：播放 / 暂停与只读进度，BASS 底层解码、低延迟输出
-- 🗂️ 歌单 / 收藏 / 播放历史：SQLite 存储层已就绪（schema v2），页面接入中
+- ▶️ 播放控制：上一首 / 下一首、播放全部、自动连播、随机播放与列表 / 单曲循环
+- 🎛️ 播放队列面板：查看待播曲目、直接跳播，底栏角标显示队列长度
+- ⌨️ 快捷键：空格播放/暂停、Ctrl+←/→ 切歌、←/→ 快进 5 秒、Ctrl+F 搜索、Ctrl+M 静音
+- 🖱️ 曲目右键菜单：播放、下一首播放、加入队列、收藏、加入歌单、打开文件位置、复制路径
+- 💾 会话恢复：音量、静音前音量、上次曲目与进度、循环 / 随机、当前分区与侧栏状态；窗口尺寸与最大化状态
+- 🗂️ 歌单 / 收藏 / 播放历史页面（SQLite 存储层 + 页面接入）
 - 🦀 Rust 负责核心逻辑：文件扫描、元数据解析、曲库、系统集成
 - 🖥️ 首先支持 Windows，后续可扩展 Android / Linux
 
