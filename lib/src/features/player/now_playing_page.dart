@@ -370,6 +370,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         final bool active = index == _activeLine;
         return InkWell(
           key: ValueKey<String>('lyric-$index'),
+          hoverColor: scheme.onSurface.withValues(alpha: 0.06),
           onTap: () => unawaited(widget.onSeek(line.timeMs.toInt() / 1000)),
           child: Align(
             alignment: Alignment.centerLeft,
