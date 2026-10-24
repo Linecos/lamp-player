@@ -30,6 +30,10 @@ extension _SettingsSection on _LibraryPageState {
             exclusiveActive: _playback.isExclusive,
             switchingOutput: _switchingOutput,
             outputInfo: _outputInfo,
+            closeToTray: widget.appLifecycle?.closeToTray ?? true,
+            onCloseToTrayChanged: widget.appLifecycle == null
+                ? null
+                : (bool value) => widget.appLifecycle!.closeToTray = value,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,

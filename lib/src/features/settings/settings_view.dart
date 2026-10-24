@@ -21,6 +21,8 @@ class SettingsView extends StatelessWidget {
     this.switchingOutput = false,
     this.outputInfo = '',
     this.onExclusiveChanged,
+    this.closeToTray = true,
+    this.onCloseToTrayChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -50,6 +52,12 @@ class SettingsView extends StatelessWidget {
 
   /// 切换独占开关；为空表示当前不可操作
   final ValueChanged<bool>? onExclusiveChanged;
+
+  /// 关闭窗口时是否留在托盘（默认开启）
+  final bool closeToTray;
+
+  /// 切换「关闭到托盘」；为空表示当前不可操作（测试或未注入 AppLifecycle）
+  final ValueChanged<bool>? onCloseToTrayChanged;
 
   final bool scanning;
 
@@ -147,6 +155,7 @@ class SettingsView extends StatelessWidget {
             _SwitchRow(
               icon: Icons.surround_sound,
               title: '独占输出（WASAPI）',
+              switchKey: const ValueKey<String>('settings-exclusive-switch'),
               subtitle: exclusive
                   ? (exclusiveActive
                         ? '设备由本应用独占，系统混音器不再参与'
@@ -162,6 +171,16 @@ class SettingsView extends StatelessWidget {
                 active: exclusiveActive,
                 available: engineAvailable,
               ),
+            _SwitchRow(
+              icon: Icons.minimize,
+              title: '关闭窗口时留在托盘',
+              switchKey: const ValueKey<String>(
+                'settings-close-to-tray-switch',
+              ),
+              subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
+              value: closeToTray,
+              onChanged: onCloseToTrayChanged,
+            ),
           ],
         ),
         _SectionLabel('外观'),
@@ -267,6 +286,7 @@ class _SwitchRow extends StatelessWidget {
     required this.value,
     this.busy = false,
     this.onChanged,
+    this.switchKey,
   });
 
   final IconData icon;
@@ -275,6 +295,9 @@ class _SwitchRow extends StatelessWidget {
   final bool value;
   final bool busy;
   final ValueChanged<bool>? onChanged;
+
+  /// 给 Switch 本身挂 key：设置页里不止一个开关，测试按 key 定位
+  final Key? switchKey;
 
   @override
   Widget build(BuildContext context) {
@@ -321,7 +344,7 @@ class _SwitchRow extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             else
-              Switch(value: value, onChanged: onChanged),
+              Switch(key: switchKey, value: value, onChanged: onChanged),
           ],
         ),
       ),

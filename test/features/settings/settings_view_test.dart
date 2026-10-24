@@ -248,7 +248,9 @@ void main() {
     expect(find.text('独占输出（WASAPI）'), findsOneWidget);
     expect(find.text('共享输出（跟随系统混音格式）'), findsOneWidget);
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+    );
     await tester.pumpAndSettle();
     expect(changes, <bool>[true]);
   });
@@ -276,7 +278,70 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(Switch), findsNothing, reason: '切换中显示进度而不是开关');
+    expect(
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+      findsNothing,
+      reason: '切换中显示进度而不是开关',
+    );
     expect(find.text('设备不支持或被占用，当前仍走共享输出'), findsOneWidget);
+  });
+
+  testWidgets('关闭到托盘开关展示状态并回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> changes = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            totalDurationSecs: 100,
+            engineAvailable: true,
+            closeToTray: true,
+            onCloseToTrayChanged: changes.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('关闭窗口时留在托盘'), findsOneWidget);
+    expect(find.text('点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-close-to-tray-switch')),
+    );
+    await tester.pumpAndSettle();
+    expect(changes, <bool>[false]);
+  });
+
+  testWidgets('未注入 AppLifecycle 时关闭到托盘开关禁用', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            totalDurationSecs: 100,
+            engineAvailable: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Switch toggle = tester.widget<Switch>(
+      find.byKey(const ValueKey<String>('settings-close-to-tray-switch')),
+    );
+    expect(toggle.onChanged, isNull);
   });
 }

@@ -231,7 +231,38 @@
 |---|---|---|
 | `greet(name: String) -> String`（sync） | `String greet({required String name})` | 只用于 `integration_test` 验证 FFI 通路，**不承载业务语义** |
 
-## 9. 生成代码规则
+## 9. 系统集成 `api::media`
+
+Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、没有也能用」：
+非 Windows 或系统不支持时返回错误 / 安全默认值，调用方忽略即可，**不能影响播放**。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `media_is_supported() -> bool` | `bool mediaIsSupported()` | 是 | **已实现** |
+| `media_init() -> Result<()>` | `Future<void> mediaInit()` | 否 | **已实现** |
+| `media_set_track(title, artist, album, cover_path: Option<String>) -> Result<()>` | `Future<void> mediaSetTrack({required String title, required String artist, required String album, String? coverPath})` | 否 | **已实现** |
+| `media_set_state(state: MediaPlayState) -> Result<()>` | `Future<void> mediaSetState({required MediaPlayState state})` | 否 | **已实现** |
+| `media_clear() -> Result<()>` | `Future<void> mediaClear()` | 否 | **已实现** |
+| `media_commands() -> Stream<MediaCommand>` | `Stream<MediaCommand> mediaCommands()` | — | **已实现** |
+| `single_instance_acquire() -> Result<bool>` | `Future<bool> singleInstanceAcquire()` | 否 | **已实现** |
+| `single_instance_signal_existing() -> Result<bool>` | `Future<bool> singleInstanceSignalExisting()` | 否 | **已实现** |
+| `single_instance_take_activation() -> bool` | `bool singleInstanceTakeActivation()` | 是 | **已实现** |
+
+语义补充：
+
+- `media_init` 幂等，失败可重试；用一个静音的 `MediaPlayer` 只为拿它的 SMTC，
+  `CommandManager` 已关闭，不会和 BASS 抢输出。
+- `media_set_track` 的 `cover_path` 指向本地图片，读不到时只用文字（不报错）。
+- `media_commands` **只能订阅一次**：重复注册会让每个媒体键触发多次。
+  命令含义：`play` / `pause` / `next` / `previous` / `stop`（`stop` 只停音频、保留曲目）。
+- `single_instance_acquire` 返回 `false` 表示已有实例：调用 `single_instance_signal_existing`
+  （命名事件）通知它把窗口亮出来，然后退出即可。互斥体句柄活到进程结束，
+  同一进程内重复调用恒为 `true`。
+- **唤起必须由首个实例自己做**：第二个进程此时已经建好了同名窗口，
+  `FindWindow` 会命中它自己，跨进程 `ShowWindow` 无效。首个实例每 500 ms 调
+  `single_instance_take_activation`（非阻塞），拿到 `true` 就 `windowManager.show()`。
+
+## 10. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。

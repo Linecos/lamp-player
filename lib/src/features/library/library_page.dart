@@ -17,7 +17,9 @@ import '../../rust/api/scan.dart' as scan;
 import '../player/playback_queue.dart';
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
+import '../../app/app_lifecycle.dart';
 import '../player/queue_dialog.dart';
+import '../player/smtc_bridge.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'drop_import.dart';
@@ -57,6 +59,7 @@ class LibraryPage extends StatefulWidget {
     this.directoryPicker,
     this.musicFolderStore,
     this.sessionStore,
+    this.appLifecycle,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -73,6 +76,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 音量 / 上次播放 / 分区等会话状态；不传则用 shared_preferences。
   final SessionStore? sessionStore;
+
+  /// 应用级行为（关闭到托盘）；不传时设置页里的开关禁用
+  final AppLifecycle? appLifecycle;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -96,6 +102,15 @@ class _LibraryPageState extends State<LibraryPage> {
       widget.musicFolderStore ?? const PrefsMusicFolderStore();
   late final SessionStore _sessionStore =
       widget.sessionStore ?? const PrefsSessionStore();
+
+  /// 系统媒体控制（媒体键 / 任务栏缩略图 / 音量浮层）
+  late final SmtcBridge _media = SmtcBridge(
+    onPlay: _mediaPlay,
+    onPause: _mediaPause,
+    onNext: _next,
+    onPrevious: _previous,
+    onStop: _mediaStop,
+  );
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -200,6 +215,16 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     _isAvailable = _readAvailability();
     unawaited(_bootstrap());
+    // 系统媒体控制：失败只影响系统浮层，不影响播放
+    unawaited(_media.start());
+    widget.appLifecycle?.addListener(_onLifecycleChanged);
+  }
+
+  /// 关闭到托盘的开关变化：让设置页跟着刷新
+  void _onLifecycleChanged() {
+    if (mounted) {
+      _update(() {});
+    }
   }
 
   @override
@@ -210,6 +235,8 @@ class _LibraryPageState extends State<LibraryPage> {
     _saveTimer?.cancel();
     _sessionTimer?.cancel();
     unawaited(_saveSession());
+    widget.appLifecycle?.removeListener(_onLifecycleChanged);
+    unawaited(_media.dispose());
     _searchFocus.dispose();
     _searchController.dispose();
     _progress.dispose();
