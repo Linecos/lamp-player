@@ -8,6 +8,7 @@
 
 import 'api/collections.dart';
 import 'api/db.dart';
+import 'api/media.dart';
 import 'api/model.dart';
 import 'api/player.dart';
 import 'api/scan.dart';
@@ -30,6 +31,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
+
+  @protected
+  RustStreamSink<MediaCommand> dco_decode_StreamSink_media_command_Sse(
+    dynamic raw,
+  );
 
   @protected
   String dco_decode_String(dynamic raw);
@@ -62,6 +68,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Track> dco_decode_list_track(dynamic raw);
 
   @protected
+  MediaCommand dco_decode_media_command(dynamic raw);
+
+  @protected
+  MediaPlayState dco_decode_media_play_state(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -87,6 +99,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<MediaCommand> sse_decode_StreamSink_media_command_Sse(
+    SseDeserializer deserializer,
+  );
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
@@ -119,6 +136,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Track> sse_decode_list_track(SseDeserializer deserializer);
 
   @protected
+  MediaCommand sse_decode_media_command(SseDeserializer deserializer);
+
+  @protected
+  MediaPlayState sse_decode_media_play_state(SseDeserializer deserializer);
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
@@ -145,6 +168,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_media_command_Sse(
+    RustStreamSink<MediaCommand> self,
     SseSerializer serializer,
   );
 
@@ -180,6 +209,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_track(List<Track> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_media_command(MediaCommand self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_media_play_state(
+    MediaPlayState self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
