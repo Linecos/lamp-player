@@ -157,6 +157,17 @@ class AlbumGroup {
     0,
     (double sum, Track track) => sum + track.durationSecs,
   );
+
+  /// 组内第一张可用封面；全都没有时返回 null，交给界面回退占位。
+  String? get coverPath {
+    for (final Track track in tracks) {
+      final String? path = track.coverPath;
+      if (path != null && path.isNotEmpty) {
+        return path;
+      }
+    }
+    return null;
+  }
 }
 
 int _firstNonZero(List<int> values) {
