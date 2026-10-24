@@ -104,4 +104,20 @@ void main() {
     final SessionSnapshot snapshot = await store.load();
     expect(snapshot.exclusiveOutput, isTrue);
   });
+
+  test('均衡器开关与各段增益可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    await store.save(
+      const SessionSnapshot(
+        eqEnabled: true,
+        eqGains: <double>[1.5, -2.5, 0, 0, 0, 3, 0, 0, -1, 0],
+      ),
+    );
+
+    final SessionSnapshot snapshot = await store.load();
+    expect(snapshot.eqEnabled, isTrue);
+    expect(snapshot.eqGains, <double>[1.5, -2.5, 0, 0, 0, 3, 0, 0, -1, 0]);
+  });
 }

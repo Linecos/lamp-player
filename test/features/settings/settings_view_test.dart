@@ -344,4 +344,79 @@ void main() {
     );
     expect(toggle.onChanged, isNull);
   });
+
+  testWidgets('均衡器开关与推子回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<(bool, List<double>)> changes = <(bool, List<double>)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            totalDurationSecs: 100,
+            engineAvailable: true,
+            eqEnabled: true,
+            eqGains: List<double>.filled(10, 0),
+            onEqualizerChanged: (bool enabled, List<double> gains) =>
+                changes.add((enabled, gains)),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('均衡器'), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('eq-band-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('eq-band-9')), findsOneWidget);
+
+    // 拖动第 6 段（1 kHz）：松手才下发
+    final Finder band = find.byKey(const ValueKey<String>('eq-band-5'));
+    await tester.ensureVisible(band);
+    final Rect rect = tester.getRect(band);
+    await tester.dragFrom(rect.center, const Offset(40, 0));
+    await tester.pumpAndSettle();
+
+    expect(changes, isNotEmpty, reason: 'onChangeEnd 应提交一次');
+    expect(changes.last.$1, isTrue);
+    expect(changes.last.$2[5], greaterThan(0), reason: '右拖应提升该频段');
+
+    // 归零
+    await tester.tap(find.text('全部归零'));
+    await tester.pumpAndSettle();
+    expect(changes.last.$2.every((double gain) => gain == 0), isTrue);
+  });
+
+  testWidgets('均衡器未启用时不显示推子', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            totalDurationSecs: 100,
+            engineAvailable: true,
+            eqEnabled: false,
+            onEqualizerChanged: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('eq-band-0')), findsNothing);
+    final Switch toggle = tester.widget<Switch>(
+      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
+    );
+    expect(toggle.value, isFalse);
+  });
 }

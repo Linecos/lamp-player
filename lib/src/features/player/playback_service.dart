@@ -37,6 +37,12 @@ abstract interface class PlaybackService {
 
   /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲）。
   Future<String> outputInfo();
+
+  /// 设置 10 段均衡器；`gains` 为 31Hz→16kHz 各段增益（dB）
+  Future<void> setEqualizer({
+    required bool enabled,
+    required List<double> gains,
+  });
 }
 
 /// 走 `flutter_rust_bridge` 的真实实现。
@@ -104,4 +110,10 @@ class RustPlaybackService implements PlaybackService {
 
   @override
   Future<String> outputInfo() => rust.playerOutputInfo();
+
+  @override
+  Future<void> setEqualizer({
+    required bool enabled,
+    required List<double> gains,
+  }) => rust.playerSetEqualizer(enabled: enabled, gains: gains);
 }

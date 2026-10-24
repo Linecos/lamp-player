@@ -54,6 +54,29 @@ const BASS_ATTRIB_SRC: u32 = 8;
 const BASS_POS_BYTE: u32 = 0;
 const BASS_ERROR_BUSY: i32 = 46;
 
+/// BASS 内置的 DX8 参数均衡器（不需要 bass_fx 插件）
+const BASS_FX_DX8_PARAMEQ: u32 = 7;
+
+/// 10 段均衡器的中心频率（Hz）
+const EQ_CENTERS: [f32; 10] = [
+    31.0, 62.0, 125.0, 250.0, 500.0, 1_000.0, 2_000.0, 4_000.0, 8_000.0, 16_000.0,
+];
+
+/// 每段带宽（倍频程）：1.0 约等于 Q=1.41，相邻频段刚好衔接
+const EQ_BANDWIDTH: f32 = 1.0;
+
+/// 增益上下限（dB）：超过 ±15 dB 只会让失真变明显
+const EQ_MAX_GAIN: f32 = 15.0;
+
+/// `BASS_DX8_PARAMEQ` 的内存布局（与 bass.h 一致）
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Dx8ParamEq {
+    f_center: f32,
+    f_bandwidth: f32,
+    f_gain: f32,
+}
+
 /// 独占模式的设备缓冲（秒）。100 ms 足够稳，延迟对音乐播放无感。
 const WASAPI_BUFFER_SECS: f32 = 0.1;
 
@@ -120,6 +143,7 @@ enum Cmd {
     Volume(f32, Reply<()>),
     Position(Reply<f64>),
     Duration(Reply<f64>),
+    SetEq(bool, Vec<f32>, Reply<()>),
     SetExclusive(bool, Reply<()>),
     OutputInfo(Reply<String>),
     Shutdown(Reply<()>),
@@ -201,6 +225,11 @@ struct Engine {
     exclusive_note: String,
     /// 独占模式下进入 Stopped 的时刻，用于空闲后交还设备
     idle_since: Option<std::time::Instant>,
+    /// 均衡器开关与 10 段增益（dB）
+    eq_enabled: bool,
+    eq_gains: Vec<f32>,
+    /// 当前挂着的 FX 句柄，换曲 / 关开关时逐个移除
+    eq_fx: Vec<u32>,
 }
 
 impl Engine {
@@ -231,6 +260,9 @@ impl Engine {
             volume: 1.0,
             exclusive_note: String::new(),
             idle_since: None,
+            eq_enabled: false,
+            eq_gains: vec![0.0; EQ_CENTERS.len()],
+            eq_fx: Vec::new(),
         };
         engine.slot.lock().expect("新建的锁不会中毒").get_data = engine.api.channel_get_data;
         engine.init_output()?;
@@ -531,6 +563,7 @@ impl Engine {
                 };
             }
             self.set_slot(handle, self.mixer, false);
+            self.apply_eq();
         } else {
             // 音量是 per-channel 属性，换曲后必须重新应用
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, self.volume) };
@@ -541,6 +574,8 @@ impl Engine {
                 self.release_track();
                 return Err(anyhow!("播放失败: {err}"));
             }
+            // 新流没有旧 FX，重新挂一遍
+            self.apply_eq();
         }
         store_state(State::Playing);
         Ok(())
@@ -629,6 +664,82 @@ impl Engine {
         Ok(())
     }
 
+    /* ------------------------------------------------------------ 均衡器 */
+
+    /// 把 10 段均衡器挂到当前输出目标上（共享 = 曲目流，独占 = 混音流）
+    fn apply_eq(&mut self) {
+        let target = if self.output == Output::Exclusive {
+            self.mixer
+        } else {
+            self.stream
+        };
+        self.clear_eq();
+        if target == 0 || !self.eq_enabled {
+            return;
+        }
+        let mut handles = Vec::with_capacity(EQ_CENTERS.len());
+        for (index, center) in EQ_CENTERS.iter().enumerate() {
+            let gain = self.eq_gains.get(index).copied().unwrap_or(0.0);
+            // 0 dB 不挂 FX：10 个空转的滤波器纯属浪费 CPU
+            if gain.abs() < 0.05 {
+                continue;
+            }
+            let fx = unsafe { (self.api.channel_set_fx)(target, BASS_FX_DX8_PARAMEQ, 0) };
+            if fx == 0 {
+                continue;
+            }
+            let mut params = Dx8ParamEq {
+                f_center: *center,
+                f_bandwidth: EQ_BANDWIDTH,
+                f_gain: gain,
+            };
+            let ok = unsafe {
+                (self.api.fx_set_parameters)(fx, &mut params as *mut Dx8ParamEq as *mut c_void)
+            };
+            if ok == 0 {
+                unsafe { (self.api.channel_remove_fx)(target, fx) };
+                continue;
+            }
+            handles.push(fx);
+        }
+        self.eq_fx = handles;
+    }
+
+    /// 摘掉已挂的均衡器；目标流变了（换曲 / 拆会话）时只清句柄即可
+    fn clear_eq(&mut self) {
+        let target = if self.output == Output::Exclusive {
+            self.mixer
+        } else {
+            self.stream
+        };
+        for fx in std::mem::take(&mut self.eq_fx) {
+            if target != 0 {
+                unsafe { (self.api.channel_remove_fx)(target, fx) };
+            }
+        }
+    }
+
+    /// 设置均衡器；`gains` 必须是 10 段（dB），超出 ±15 会被截断
+    fn set_eq(&mut self, enabled: bool, gains: Vec<f32>) -> Result<()> {
+        if gains.len() != EQ_CENTERS.len() {
+            bail!(
+                "均衡器需要 {} 段增益，收到 {} 段",
+                EQ_CENTERS.len(),
+                gains.len()
+            );
+        }
+        if let Some(bad) = gains.iter().find(|gain| !gain.is_finite()) {
+            bail!("均衡器增益非法: {bad}");
+        }
+        self.eq_enabled = enabled;
+        self.eq_gains = gains
+            .iter()
+            .map(|gain| gain.clamp(-EQ_MAX_GAIN, EQ_MAX_GAIN))
+            .collect();
+        self.apply_eq();
+        Ok(())
+    }
+
     fn position(&self) -> Result<f64> {
         if self.stream == 0 {
             return Ok(0.0);
@@ -707,6 +818,7 @@ impl Engine {
         }
         let stream = self.stream;
         // 先让回调松手，再拆链路
+        self.eq_fx.clear();
         self.set_slot(0, 0, true);
         self.stream = 0;
         self.path = None;
@@ -885,6 +997,9 @@ fn run(mut engine: Engine, rx: Receiver<Cmd>) {
             Ok(Cmd::Duration(reply)) => {
                 let _ = reply.send(engine.duration());
             }
+            Ok(Cmd::SetEq(enabled, gains, reply)) => {
+                let _ = reply.send(engine.set_eq(enabled, gains));
+            }
             Ok(Cmd::SetExclusive(exclusive, reply)) => {
                 let _ = reply.send(engine.set_exclusive(exclusive));
             }
@@ -980,6 +1095,10 @@ pub fn is_exclusive() -> bool {
 
 pub fn set_exclusive(exclusive: bool) -> Result<()> {
     call(|reply| Cmd::SetExclusive(exclusive, reply))
+}
+
+pub fn set_eq(enabled: bool, gains: Vec<f32>) -> Result<()> {
+    call(|reply| Cmd::SetEq(enabled, gains, reply))
 }
 
 pub fn output_info() -> Result<String> {

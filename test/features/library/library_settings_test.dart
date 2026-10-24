@@ -214,4 +214,30 @@ void main() {
     expect(lifecycle.closeToTray, isFalse);
     expect(find.text('点 × 直接退出应用'), findsOneWidget);
   });
+
+  testWidgets('开启均衡器会下发给引擎并写回会话', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+      viewSize: const Size(1280, 1400),
+    );
+    await openSettings(tester);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(playback.eqCalls, greaterThan(0));
+    expect(playback.eqEnabled, isTrue);
+    expect(playback.eqGains, hasLength(10));
+    expect(session.snapshot.eqEnabled, isTrue);
+  });
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/common.dart';
 import '../../rust/api/scan.dart';
+import '../player/equalizer.dart';
 import 'theme_controller.dart';
 
 /// 设置页骨架。
@@ -23,6 +24,9 @@ class SettingsView extends StatelessWidget {
     this.onExclusiveChanged,
     this.closeToTray = true,
     this.onCloseToTrayChanged,
+    this.eqEnabled = false,
+    this.eqGains = const <double>[],
+    this.onEqualizerChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -58,6 +62,13 @@ class SettingsView extends StatelessWidget {
 
   /// 切换「关闭到托盘」；为空表示当前不可操作（测试或未注入 AppLifecycle）
   final ValueChanged<bool>? onCloseToTrayChanged;
+
+  /// 均衡器开关与各段增益（dB）
+  final bool eqEnabled;
+  final List<double> eqGains;
+
+  /// 均衡器变化：`(enabled, gains)`；为空表示当前不可操作
+  final void Function(bool enabled, List<double> gains)? onEqualizerChanged;
 
   final bool scanning;
 
@@ -180,6 +191,11 @@ class SettingsView extends StatelessWidget {
               subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
               value: closeToTray,
               onChanged: onCloseToTrayChanged,
+            ),
+            _EqualizerPanel(
+              enabled: eqEnabled,
+              gains: eqGains,
+              onChanged: onEqualizerChanged,
             ),
           ],
         ),
@@ -869,6 +885,131 @@ class _FolderRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 10 段均衡器面板。
+///
+/// 推子拖动只改本地状态，松手（`onChangeEnd`）才下发——拖动每一帧都走一次
+/// FFI 会卡顿，而且引擎侧要重建 10 个滤波器。
+class _EqualizerPanel extends StatefulWidget {
+  const _EqualizerPanel({
+    required this.enabled,
+    required this.gains,
+    this.onChanged,
+  });
+
+  final bool enabled;
+  final List<double> gains;
+  final void Function(bool enabled, List<double> gains)? onChanged;
+
+  @override
+  State<_EqualizerPanel> createState() => _EqualizerPanelState();
+}
+
+class _EqualizerPanelState extends State<_EqualizerPanel> {
+  late List<double> _gains = normalizeEqGains(widget.gains);
+
+  @override
+  void didUpdateWidget(_EqualizerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.gains != widget.gains) {
+      _gains = normalizeEqGains(widget.gains);
+    }
+  }
+
+  void _commit() {
+    widget.onChanged?.call(widget.enabled, List<double>.of(_gains));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = widget.enabled;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _SwitchRow(
+          icon: Icons.equalizer,
+          title: '均衡器',
+          switchKey: const ValueKey<String>('settings-equalizer-switch'),
+          subtitle: enabled ? '10 段参数均衡，0 dB 为不改动' : '开启后可按频段调整音量',
+          value: enabled,
+          onChanged: widget.onChanged == null
+              ? null
+              : (bool value) => widget.onChanged!(value, _gains),
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+            child: Column(
+              children: <Widget>[
+                for (int index = 0; index < _gains.length; index += 1)
+                  _bandRow(context, index),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: isEqFlat(_gains)
+                        ? null
+                        : () {
+                            setState(
+                              () => _gains = normalizeEqGains(const <double>[]),
+                            );
+                            _commit();
+                          },
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: const Text('全部归零'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _bandRow(BuildContext context, int index) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final double gain = _gains[index];
+    final int rounded = gain.round();
+
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 48,
+          child: Text(
+            equalizerBandLabels[index],
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            key: ValueKey<String>('eq-band-$index'),
+            value: gain,
+            min: -equalizerMaxGain,
+            max: equalizerMaxGain,
+            divisions: (equalizerMaxGain * 2).round(),
+            onChanged: (double value) => setState(() => _gains[index] = value),
+            onChangeEnd: (_) => _commit(),
+          ),
+        ),
+        SizedBox(
+          width: 56,
+          child: Text(
+            rounded == 0
+                ? '0 dB'
+                : (rounded > 0 ? '+$rounded dB' : '$rounded dB'),
+            textAlign: TextAlign.right,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

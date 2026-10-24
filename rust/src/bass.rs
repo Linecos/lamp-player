@@ -88,6 +88,11 @@ pub fn set_exclusive(exclusive: bool) -> Result<()> {
 }
 
 /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲），失败时为原因
+/// 设置 10 段均衡器（dB）；`enabled` 为 false 时摘掉全部 FX
+pub fn set_eq(enabled: bool, gains: Vec<f32>) -> Result<()> {
+    imp::set_eq(enabled, gains)
+}
+
 pub fn output_info() -> Result<String> {
     imp::output_info()
 }

@@ -9,11 +9,13 @@
 //! - [`collections`]：歌单 / 收藏 / 播放历史
 //! - [`scan`]：目录扫描与元数据解析
 //! - [`player`]：BASS 播放引擎
+//! - [`lyrics`]：歌词读取（`.lrc` / 内嵌标签）
 //! - [`media`]：系统媒体控制（SMTC）与单实例
 //! - [`simple`]：桥接自检函数（`greet`），用于确认 FFI 正常
 
 pub mod collections;
 pub mod db;
+pub mod lyrics;
 pub mod media;
 pub mod model;
 pub mod player;

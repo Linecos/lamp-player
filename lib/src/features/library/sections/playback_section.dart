@@ -153,6 +153,21 @@ extension _PlaybackSection on _LibraryPageState {
     _syncMediaSession(stopped: true);
   }
 
+  /// 打开「正在播放」页（大封面 + 同步歌词）
+  Future<void> _openNowPlaying() {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => NowPlayingPage(
+          data: _nowPlaying,
+          onTogglePlay: _togglePlayback,
+          onPrevious: _previous,
+          onNext: () => _next(),
+          onSeek: _onSeekEnd,
+        ),
+      ),
+    );
+  }
+
   Future<void> _playAll(List<Track> tracks) async {
     if (tracks.isEmpty) {
       return;
