@@ -46,7 +46,7 @@ Future<void> _pumpBar(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AppTheme.light,
+      theme: AppTheme.light(AppTheme.defaultSeed),
       home: Scaffold(
         body: Align(
           alignment: Alignment.bottomCenter,

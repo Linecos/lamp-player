@@ -79,8 +79,17 @@ class _LampAppState extends State<LampApp> {
           return MaterialApp(
             title: 'Lamp Player',
             debugShowCheckedModeBanner: false,
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
+            // 强调色与调色板风格由设置决定：预设色板或系统强调色（动态取色）
+            theme: AppTheme.light(
+              _theme.effectiveSeed,
+              variant: _theme.schemeVariant,
+              contrastLevel: _theme.highContrast ? 1.0 : 0.0,
+            ),
+            darkTheme: AppTheme.dark(
+              _theme.effectiveSeed,
+              variant: _theme.schemeVariant,
+              contrastLevel: _theme.highContrast ? 1.0 : 0.0,
+            ),
             themeMode: _theme.mode,
             initialRoute: AppRoutes.library,
             // 自绘标题栏：原生标题栏已在 main.dart 里关掉；
@@ -131,8 +140,8 @@ class LampStartupErrorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Lamp Player',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.light(AppTheme.defaultSeed),
+      darkTheme: AppTheme.dark(AppTheme.defaultSeed),
       themeMode: ThemeMode.system,
       builder: (BuildContext context, Widget? child) => WindowChrome(
         controls: windowControls,

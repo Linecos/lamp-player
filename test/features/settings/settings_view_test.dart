@@ -18,10 +18,13 @@ Widget _harness({ThemeController? controller}) {
     ),
   );
   return controller == null
-      ? MaterialApp(theme: AppTheme.light, home: view)
+      ? MaterialApp(theme: AppTheme.light(AppTheme.defaultSeed), home: view)
       : ThemeScope(
           controller: controller,
-          child: MaterialApp(theme: AppTheme.light, home: view),
+          child: MaterialApp(
+            theme: AppTheme.light(AppTheme.defaultSeed),
+            home: view,
+          ),
         );
 }
 
@@ -58,7 +61,7 @@ void main() {
     int calls = 0;
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
@@ -85,7 +88,7 @@ void main() {
     int calls = 0;
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
@@ -168,7 +171,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
           body: SettingsView(
             trackCount: 0,
@@ -194,7 +197,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
@@ -229,7 +232,7 @@ void main() {
     final List<bool> changes = <bool>[];
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
@@ -263,7 +266,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
@@ -295,7 +298,7 @@ void main() {
     final List<bool> changes = <bool>[];
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
@@ -327,7 +330,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
           body: SettingsView(
             trackCount: 1,
@@ -354,7 +357,7 @@ void main() {
     final List<(bool, List<double>)> changes = <(bool, List<double>)>[];
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
@@ -399,7 +402,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light,
+        theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
@@ -418,5 +421,198 @@ void main() {
       find.byKey(const ValueKey<String>('settings-equalizer-switch')),
     );
     expect(toggle.value, isFalse);
+  });
+
+  testWidgets('配色弹窗可选预设色并写回控制器', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            totalDurationSecs: 100,
+            engineAvailable: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('配色'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('seed-card-system')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('variant-dropdown')),
+      findsOneWidget,
+    );
+
+    // 选蓝色（非默认暖黄）；弹窗保持打开供继续预览
+    const Color blue = Color(0xFF2196F3);
+    await tester.tap(
+      find.byKey(ValueKey<String>('seed-card-${blue.toARGB32()}')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(controller.seedColor, blue);
+    expect(controller.effectiveSeed, blue);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(ThemeController.seedPrefsKey),
+      blue.toARGB32().toString(),
+    );
+  });
+
+  testWidgets('配色可切回跟随系统', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    const Color custom = Color(0xFF4CAF50);
+    await controller.setSeedColor(custom);
+
+    await tester.pumpWidget(
+      ThemeScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: AppTheme.light(controller.effectiveSeed),
+          home: const Scaffold(
+            body: SettingsView(
+              trackCount: 1,
+              totalDurationSecs: 100,
+              engineAvailable: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-system')));
+    await tester.pumpAndSettle();
+
+    expect(controller.seedColor, isNull);
+    expect(controller.effectiveSeed, AppTheme.defaultSeed);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.seedPrefsKey), 'system');
+  });
+
+  testWidgets('配色弹窗可切调色板风格与高对比', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ThemeScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: AppTheme.light(controller.effectiveSeed),
+          home: const Scaffold(
+            body: SettingsView(
+              trackCount: 1,
+              totalDurationSecs: 100,
+              engineAvailable: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    // 下拉切风格：即时生效，不需要关弹窗
+    await tester.tap(find.byKey(const ValueKey<String>('variant-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vibrant').last);
+    await tester.pumpAndSettle();
+    expect(controller.schemeVariant, DynamicSchemeVariant.vibrant);
+
+    // 高对比开关
+    await tester.tap(
+      find.byKey(const ValueKey<String>('variant-high-contrast-switch')),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.highContrast, isTrue);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.variantPrefsKey), 'vibrant');
+    expect(prefs.getString(ThemeController.contrastPrefsKey), '1');
+  });
+
+  testWidgets('默认配色是跟随系统（动态取色）', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ThemeScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: AppTheme.light(controller.effectiveSeed),
+          home: const Scaffold(
+            body: SettingsView(
+              trackCount: 1,
+              totalDurationSecs: 100,
+              engineAvailable: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    // 首格（跟随系统）应为选中态；控制器默认 seedColor 为 null
+    expect(controller.seedColor, isNull);
+    expect(controller.effectiveSeed, AppTheme.defaultSeed);
   });
 }

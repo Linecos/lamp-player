@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/common.dart';
 import '../../rust/api/scan.dart';
+import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
 import 'theme_controller.dart';
 
@@ -201,15 +202,7 @@ class SettingsView extends StatelessWidget {
         ),
         _SectionLabel('外观'),
         _SettingsCard(
-          children: <Widget>[
-            const _ThemeRow(),
-            const _InfoRow(
-              icon: Icons.palette_outlined,
-              title: '强调色',
-              subtitle: '由主题种子色生成',
-              value: 'Amber',
-            ),
-          ],
+          children: <Widget>[const _ThemeRow(), const _AccentColorRow()],
         ),
         _SectionLabel('关于'),
         _SettingsCard(
@@ -676,6 +669,348 @@ class _ThemeRow extends StatelessWidget {
         return '始终使用深色';
     }
   }
+}
+
+/// 强调色选择行：跟随系统强调色（动态取色）或预设色板。
+///
+/// 没有 [ThemeScope] 时退化为只读展示（如部分测试环境）。
+class _AccentColorRow extends StatelessWidget {
+  const _AccentColorRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final ThemeController? controller = ThemeScope.maybeOf(context);
+    final Color? seed = controller?.seedColor;
+    final Color effective = controller?.effectiveSeed ?? AppTheme.defaultSeed;
+
+    final String subtitle;
+    if (seed != null) {
+      subtitle = '自定义颜色';
+    } else if (controller?.systemAccent != null) {
+      subtitle = '跟随系统强调色，随 Windows 个性化变化';
+    } else {
+      subtitle = '读取不到系统强调色，暂用默认';
+    }
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: controller == null ? null : () => _pick(context, controller),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.palette_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('强调色', style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            // 当前生效色的小圆点，一眼看出现在用的哪个色
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: effective,
+                shape: BoxShape.circle,
+                border: Border.all(color: scheme.outlineVariant, width: 1),
+              ),
+            ),
+            if (controller != null)
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 配色选择弹窗：调色板风格下拉 + 四色调圆形色卡网格。
+  ///
+  /// 所有选择即时生效（写回 [ThemeController]），弹窗保持打开供继续预览，
+  /// 点「完成」关闭。风格切换时色卡预览跟着变——预览与主题用同一个
+  /// [AppTheme.schemeOf]，所见即所得。
+  static void _pick(BuildContext context, ThemeController controller) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          // 读取 scope 注册依赖：控制器变化（选色 / 切风格）时弹窗内容跟着刷新
+          final ThemeController current = ThemeScope.of(dialogContext);
+          return AlertDialog(
+            title: const Text('配色'),
+            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Text(
+                          '调色板风格',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButton<DynamicSchemeVariant>(
+                            key: const ValueKey<String>('variant-dropdown'),
+                            isExpanded: true,
+                            value: current.schemeVariant,
+                            items: <DropdownMenuItem<DynamicSchemeVariant>>[
+                              for (final (
+                                    DynamicSchemeVariant variant,
+                                    String label,
+                                  )
+                                  in AppTheme.variantOptions)
+                                DropdownMenuItem<DynamicSchemeVariant>(
+                                  value: variant,
+                                  child: Text(label),
+                                ),
+                            ],
+                            onChanged: (DynamicSchemeVariant? variant) {
+                              if (variant != null) {
+                                unawaited(current.setSchemeVariant(variant));
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Text(
+                          '高对比',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        Switch(
+                          key: const ValueKey<String>(
+                            'variant-high-contrast-switch',
+                          ),
+                          value: current.highContrast,
+                          onChanged: (bool value) =>
+                              unawaited(current.setHighContrast(value)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    _tipLabel('强调色 · 首格跟随系统'),
+                    const SizedBox(height: 8),
+                    GridView.count(
+                      crossAxisCount: 4,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 1.0,
+                      children: <Widget>[
+                        _SeedCard(
+                          key: const ValueKey<String>('seed-card-system'),
+                          selected: current.seedColor == null,
+                          onTap: () => unawaited(current.setSeedColor(null)),
+                          systemIcon: current.systemAccent == null
+                              ? Icons.auto_awesome_motion_outlined
+                              : Icons.auto_awesome_outlined,
+                        ),
+                        for (final Color color in AppTheme.presetSeeds)
+                          _SeedCard(
+                            key: ValueKey<String>(
+                              'seed-card-${color.toARGB32()}',
+                            ),
+                            selected: current.seedColor == color,
+                            onTap: () => unawaited(current.setSeedColor(color)),
+                            preview: AppTheme.schemeOf(
+                              color,
+                              Brightness.light,
+                              current.schemeVariant,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('完成'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  static Widget _tipLabel(String text) {
+    return Builder(
+      builder: (BuildContext context) => Text(
+        text,
+        style: Theme.of(context).textTheme.labelLarge
+            ?.copyWith(color: Theme.of(context).colorScheme.primary),
+      ),
+    );
+  }
+}
+
+/// 色卡：圆角方形容器 + 四色调圆形预览 + 选中角标（右上角对勾圆）。
+///
+/// 底色与边框不能省：M3 弹窗背景就是 `surfaceContainerHigh`，
+/// 未选中卡再用同色就完全隐形了。
+class _SeedCard extends StatelessWidget {
+  const _SeedCard({
+    super.key,
+    required this.selected,
+    required this.onTap,
+    this.preview,
+    this.systemIcon,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// 非 null 时按它画四象限预览；null 时画系统强调色格（图标）。
+  final ColorScheme? preview;
+  final IconData? systemIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: Stack(
+            children: <Widget>[
+              Positioned.fill(
+                child: preview != null
+                    ? _ToneQuad(
+                        colors: <Color>[
+                          preview!.primary,
+                          preview!.inversePrimary,
+                          preview!.primaryContainer,
+                          preview!.secondary,
+                        ],
+                      )
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLowest,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          systemIcon ?? Icons.auto_awesome_outlined,
+                          size: 22,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+              ),
+              if (selected)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: scheme.surface, width: 2),
+                    ),
+                    child: Icon(Icons.check, size: 10, color: scheme.onPrimary),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 四象限圆形：直接画四个矩形再按圆形裁剪。
+///
+/// 不要改回 `ClipOval` + 嵌套 `Row`/`Column` 的写法——实测那组结构
+/// 在实机上整批不渲染（布局尺寸正常但画不出来），CustomPaint 无此问题。
+class _ToneQuad extends StatelessWidget {
+  const _ToneQuad({required this.colors});
+
+  /// 左上 / 右上 / 左下 / 右下
+  final List<Color> colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _ToneQuadPainter(colors));
+  }
+}
+
+class _ToneQuadPainter extends CustomPainter {
+  _ToneQuadPainter(this.colors);
+
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Rect rect = Offset.zero & size;
+    canvas.clipPath(Path()..addOval(rect));
+    final double halfW = size.width / 2;
+    final double halfH = size.height / 2;
+    final Paint paint = Paint();
+    canvas.drawRect(Offset.zero & Size(halfW, halfH), paint..color = colors[0]);
+    canvas.drawRect(
+      Offset(halfW, 0) & Size(halfW, halfH),
+      paint..color = colors[1],
+    );
+    canvas.drawRect(
+      Offset(0, halfH) & Size(halfW, halfH),
+      paint..color = colors[2],
+    );
+    canvas.drawRect(
+      Offset(halfW, halfH) & Size(halfW, halfH),
+      paint..color = colors[3],
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ToneQuadPainter oldDelegate) =>
+      oldDelegate.colors != colors;
 }
 
 class _ScanProgress extends StatelessWidget {

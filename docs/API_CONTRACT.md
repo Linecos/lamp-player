@@ -276,7 +276,21 @@ Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、�
   `FindWindow` 会命中它自己，跨进程 `ShowWindow` 无效。首个实例每 500 ms 调
   `single_instance_take_activation`（非阻塞），拿到 `true` 就 `windowManager.show()`。
 
-## 11. 生成代码规则
+## 11. 外观 `api::appearance`
+
+读系统强调色给 MD3 动态取色用。非 Windows 或读取失败返回 `None`，
+调用方回落默认种子色即可——动态取色是可选项，不是错误。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `system_accent_color() -> Option<u32>` | `int? systemAccentColor()` | 是 | **已实现** |
+
+语义补充：
+
+- 返回值为 `0xAARRGGBB`，Windows 上与「个性化 → 颜色 → 强调色」同源。
+- 只在启动时读一次：Windows 改强调色后重启应用生效（后续可加事件监听）。
+
+## 12. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。

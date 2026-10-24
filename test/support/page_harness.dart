@@ -41,7 +41,7 @@ Future<FakeLibraryRepository> pumpLibrary(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AppTheme.light,
+      theme: AppTheme.light(AppTheme.defaultSeed),
       home: LibraryPage(
         repository: repository,
         playbackService: playback ?? FakePlaybackService(),
