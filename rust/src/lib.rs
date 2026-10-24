@@ -12,6 +12,7 @@
 //! 新增导出函数后必须重跑 `flutter_rust_bridge_codegen generate`。
 //! 详见仓库根目录的 `docs/ARCHITECTURE.md` 与 `docs/API_CONTRACT.md`。
 pub mod api;
+pub mod appearance;
 pub mod bass;
 mod frb_generated;
 pub mod lyrics;

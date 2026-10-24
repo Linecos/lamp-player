@@ -11,8 +11,10 @@
 //! - [`player`]：BASS 播放引擎
 //! - [`lyrics`]：歌词读取（`.lrc` / 内嵌标签）
 //! - [`media`]：系统媒体控制（SMTC）与单实例
+//! - [`appearance`]：系统强调色（动态取色）
 //! - [`simple`]：桥接自检函数（`greet`），用于确认 FFI 正常
 
+pub mod appearance;
 pub mod collections;
 pub mod db;
 pub mod lyrics;

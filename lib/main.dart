@@ -8,6 +8,7 @@ import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
+import 'package:lamp_player/src/rust/api/appearance.dart' as appearance;
 import 'package:lamp_player/src/rust/api/media.dart' as media;
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/rust/frb_generated.dart';
@@ -60,6 +61,13 @@ Future<void> main() async {
   // 先恢复主题与「关闭到托盘」再挂载，避免深色用户启动时先闪一下浅色
   final ThemeController theme = ThemeController();
   await theme.restore();
+  // 系统强调色只在这里读一次：Windows 个性化改色后重启应用生效
+  try {
+    final int? accent = appearance.systemAccentColor();
+    theme.updateSystemAccent(accent == null ? null : Color(accent));
+  } catch (error) {
+    debugPrint('读取系统强调色失败：$error');
+  }
   final AppLifecycle lifecycle = AppLifecycle();
   await lifecycle.restore();
 

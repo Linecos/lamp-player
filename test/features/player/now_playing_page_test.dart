@@ -49,7 +49,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   );
   await tester.pumpWidget(
     MaterialApp(
-      theme: AppTheme.light,
+      theme: AppTheme.light(AppTheme.defaultSeed),
       home: NowPlayingPage(
         data: notifier,
         onTogglePlay: () async => onTogglePlay?.call(),

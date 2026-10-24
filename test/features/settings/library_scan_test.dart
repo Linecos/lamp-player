@@ -30,7 +30,7 @@ Future<void> _pumpSettings(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: AppTheme.light,
+      theme: AppTheme.light(AppTheme.defaultSeed),
       home: Scaffold(
         body: SettingsView(
           trackCount: 3,
