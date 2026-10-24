@@ -36,6 +36,19 @@ fn write_wav(path: &PathBuf, secs: u32) {
     fs::write(path, buf).expect("写入测试音频失败");
 }
 
+/// NaN 会穿透 clamp 并下发到 BASS，让音量永久变哑，必须在入口拒掉。
+#[test]
+fn volume_rejects_non_finite_values() {
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用");
+        return;
+    }
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let error = player_set_volume(value).expect_err("非有限音量应被拒绝");
+        eprintln!("拒绝 {value}：{error}");
+    }
+}
+
 #[test]
 fn playback_chain() {
     if !cfg!(windows) {

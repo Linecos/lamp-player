@@ -44,7 +44,12 @@ pub fn scan_folder(folder: String) -> Result<ScanReport> {
     let started = Instant::now();
 
     // 先取存量指纹：曲库未初始化时这里就会报错，符合契约
-    let known = db::file_signatures()?;
+    let mut known = db::file_signatures()?;
+    // 封面缓存被清理 / 曲库搬家后，文件本身没变（mtime+size 一致）会被指纹跳过，
+    // 封面就永远不会重新提取。把这些曲目的指纹抹掉，让本次扫描重新解析。
+    for path in db::tracks_with_missing_covers().unwrap_or_default() {
+        known.remove(&scanner::path_key(&path));
+    }
 
     // 归一化入口目录；目录不存在时 canonicalize 就会报错（保留原始字符串便于定位）
     let folder =

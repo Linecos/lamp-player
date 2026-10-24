@@ -205,6 +205,45 @@ fn upsert_tracks_removes_case_variant_duplicates() {
     assert_eq!(all[0].title, "新标题");
 }
 
+/// 整块盘「不可达」时不能把曲库删空：一次缺失超过一半就该拒绝，并保留记录。
+#[test]
+fn prune_refuses_when_most_tracks_are_missing() {
+    let (_lock, dir) = begin("prune_guard");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+
+    // 目录本身存在（盘根可达），只是里面的文件都不在
+    let gone_dir = dir.0.join("gone");
+    fs::create_dir_all(&gone_dir).expect("创建目录");
+    let items: Vec<Track> = (0..10)
+        .map(|index| {
+            let path = gone_dir.join(format!("{index}.mp3"));
+            track(&path.to_string_lossy(), "缺失", None, None)
+        })
+        .collect();
+    db::upsert_tracks(items).expect("写入曲库");
+    // 收藏一首，验证清理被拒时不会级联丢数据
+    let first = gone_dir.join("0.mp3").to_string_lossy().into_owned();
+    collections::set_favorite(first, true).expect("收藏");
+
+    let error = db::prune_missing_tracks().expect_err("整库缺失时应拒绝清理");
+    assert!(
+        error.to_string().contains("疑似磁盘未挂载"),
+        "错误信息应说明原因：{error}"
+    );
+    assert_eq!(
+        db::all_tracks().expect("读取曲库").len(),
+        10,
+        "记录不应被删"
+    );
+    assert!(
+        collections::favorite_paths()
+            .expect("读取收藏")
+            .iter()
+            .any(|path| path.ends_with("0.mp3")),
+        "收藏不应被级联清空"
+    );
+}
+
 #[test]
 fn prune_missing_tracks_only_removes_missing_files() {
     let (_lock, dir) = begin("prune");

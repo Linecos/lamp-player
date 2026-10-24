@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `upsert_scanned`, `with_conn`
+// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 
 /// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
@@ -40,5 +40,10 @@ Future<int> upsertTracks({required List<Track> tracks}) =>
 /// 清理已不存在的文件记录，返回删除数。
 ///
 /// 磁盘检查在锁外完成，避免网络盘/大曲库把其它查询一起卡住；删除在单事务里。
+///
+/// 两道防护，避免「移动硬盘/网络盘没挂载」时把整个曲库删空（`delete_tracks`
+/// 会级联清掉歌单、收藏、播放历史）：
+/// 1. **卷根可达性**：某块盘的根目录都读不到时，该卷下的曲目一律不算缺失；
+/// 2. **删除比例**：一次要删超过一半（且总数 ≥ 10）时判定为异常，直接报错不动库。
 Future<int> pruneMissingTracks() =>
     RustLib.instance.api.crateApiDbPruneMissingTracks();

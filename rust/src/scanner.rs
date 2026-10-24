@@ -87,7 +87,11 @@ pub fn collect_tracks_incremental(
         };
 
         if !entry.file_type().is_file() {
-            continue;
+            // 指向文件的符号链接：file_type() 是 symlink，但应当被扫描到。
+            // 目录链接仍然不跟随（上面的 follow_links(false)），避免目录环。
+            if !(entry.file_type().is_symlink() && entry.path().is_file()) {
+                continue;
+            }
         }
 
         let path = entry.path();
