@@ -46,9 +46,16 @@ class FakeLibraryRepository implements LibraryRepository {
   int loadCalls = 0;
   int searchCalls = 0;
   int removeTracksCalls = 0;
+  int pruneCalls = 0;
   List<String> lastRemovedPaths = <String>[];
   String lastQuery = '';
   final List<String> scannedFolders = <String>[];
+
+  /// 模拟 `pruneMissingTracks` 要清掉的路径；返回实际移除条数
+  final Set<String> prunedPaths = <String>{};
+
+  /// 非空时 `pruneMissingTracks` 抛出该错误（模拟「疑似磁盘未挂载」拒绝清理）
+  Object? pruneError;
 
   @override
   Future<List<Track>> loadTracks() async {
@@ -234,6 +241,19 @@ class FakeLibraryRepository implements LibraryRepository {
       playlist.paths.removeWhere(removing.contains);
     }
     return before - tracks.length;
+  }
+
+  @override
+  Future<int> pruneMissingTracks() async {
+    pruneCalls += 1;
+    final Object? error = pruneError;
+    if (error != null) {
+      throw error;
+    }
+    if (prunedPaths.isEmpty) {
+      return 0;
+    }
+    return removeTracks(prunedPaths.toList());
   }
 
   @override

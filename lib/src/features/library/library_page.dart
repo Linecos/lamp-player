@@ -187,6 +187,12 @@ class _LibraryPageState extends State<LibraryPage> {
   /// Shift 范围选择的起点
   String? _selectionAnchorPath;
 
+  /* ------------------------------------------------------ 缺失文件清理 */
+
+  bool _pruningMissing = false;
+  int? _prunedMissingCount;
+  Object? _pruneMissingError;
+
   List<Playlist> _playlists = const <Playlist>[];
   bool _playlistsLoading = false;
   Object? _playlistsError;
