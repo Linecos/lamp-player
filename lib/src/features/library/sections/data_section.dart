@@ -6,11 +6,15 @@ part of '../library_page.dart';
 extension _DataSection on _LibraryPageState {
   /* ---------------------------------------------------------------- 数据 */
 
-  Future<void> _loadTracks() async {
-    _update(() {
-      _loading = true;
-      _error = null;
-    });
+  /// [silent] 用于扫描后的刷新：保留当前列表，不切加载态、失败也不换错误页，
+  /// 否则每扫一个目录整个曲库都会闪一下「正在读取曲库…」。
+  Future<void> _loadTracks({bool silent = false}) async {
+    if (!silent) {
+      _update(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final List<Track> tracks = await _repository.loadTracks();
       if (!mounted) {
@@ -38,6 +42,12 @@ extension _DataSection on _LibraryPageState {
       }
     } catch (error) {
       if (!mounted) {
+        return;
+      }
+      if (silent) {
+        // 扫描成功但读库失败：保留已有列表，别把用户已经看到的内容换成错误页
+        debugPrint('扫描后刷新曲库失败：$error');
+        _update(() => _loading = false);
         return;
       }
       _update(() {

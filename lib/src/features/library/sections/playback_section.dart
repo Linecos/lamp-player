@@ -21,7 +21,10 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 播放队列当前曲目；[startAt] 用于恢复上次播放位置。
-  Future<bool> _startCurrent({double startAt = 0}) async {
+  ///
+  /// [silent] 用于自然播完后的自动跳转：失败不弹提示，交给 [_next] 统一汇总，
+  /// 否则整库损坏时会连续弹出多条 SnackBar。
+  Future<bool> _startCurrent({double startAt = 0, bool silent = false}) async {
     final Track? track = _queue.current;
     if (track == null) {
       return false;
@@ -50,7 +53,9 @@ extension _PlaybackSection on _LibraryPageState {
       _publishProgress();
       // 独占下失败往往是设备被抢走、引擎已回落共享：把最新输出刷给设置页
       unawaited(_refreshOutputInfo());
-      _showMessage('播放失败：${ErrorRetry.describe(error)}');
+      if (!silent) {
+        _showMessage('播放失败：${ErrorRetry.describe(error)}');
+      }
       return false;
     }
     if (startAt > 0) {
@@ -230,30 +235,67 @@ extension _PlaybackSection on _LibraryPageState {
   /// `advance` 返回 null 有两层含义，必须分开处理：自然播完时音频已经停了，
   /// 只需把界面切到“结束”；手动点下一首而队列到头时音频还在放，此时若照搬
   /// “结束”分支，就会出现进度条冻在末尾、图标变播放，但歌还在响。
+  ///
+  /// 自然播完且下一首打不开（文件损坏 / 被删除）时自动继续跳，最多
+  /// [_LibraryPageState._maxAutoSkips] 首，避免整库损坏时无限空转。
+  /// 手动点播失败仍停在该曲并提示。
   Future<void> _next({bool auto = false}) async {
     if (_queue.isEmpty) {
       return;
     }
-    final int? index = _queue.advance(auto: auto);
-    if (index == null) {
-      if (!auto) {
-        _showMessage('已经是最后一首');
+    int skipped = 0;
+    while (true) {
+      final int? index = _queue.advance(auto: auto);
+      if (index == null) {
+        if (!auto) {
+          _showMessage('已经是最后一首');
+          return;
+        }
+        _stopPositionPolling();
+        if (!mounted) {
+          return;
+        }
+        _update(() {
+          _isPlaying = false;
+          _position = _duration;
+        });
+        _publishProgress();
+        _saveSessionNow();
+        _syncMediaSession(stopped: true);
+        if (skipped > 0) {
+          _showMessage('已跳过 $skipped 首无法播放的曲目');
+        }
         return;
       }
-      _stopPositionPolling();
-      if (!mounted) {
+
+      final bool started = await _startCurrent(silent: auto);
+      if (started || !auto) {
+        if (skipped > 0) {
+          _showMessage('已跳过 $skipped 首无法播放的曲目');
+        }
         return;
       }
-      _update(() {
-        _isPlaying = false;
-        _position = _duration;
-      });
-      _publishProgress();
-      _saveSessionNow();
-      _syncMediaSession(stopped: true);
-      return;
+      // 引擎整体不可用：再跳也只是重复提示，直接停在当前曲目。
+      if (!_isAvailable) {
+        return;
+      }
+      skipped += 1;
+      if (skipped >= _LibraryPageState._maxAutoSkips) {
+        _stopPositionPolling();
+        if (!mounted) {
+          return;
+        }
+        _update(() => _isPlaying = false);
+        _publishProgress();
+        _saveSessionNow();
+        _syncMediaSession(stopped: true);
+        _showMessage(
+          '连续 ${_LibraryPageState._maxAutoSkips} 首播放失败，已停止自动播放；'
+          '请检查音频文件',
+        );
+        return;
+      }
     }
-    await _startCurrent();
   }
 
   /// 上一首：播放超过 3 秒先回到本曲开头，符合桌面播放器习惯。

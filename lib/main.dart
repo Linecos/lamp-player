@@ -141,6 +141,8 @@ Future<void> _showWindow() async {
 /// 托盘菜单「退出」：真正结束进程（关窗默认只是隐藏）
 Future<void> _quitFromTray(AppLifecycle lifecycle) async {
   lifecycle.requestQuit();
+  // 先让界面把播放会话落盘，再释放引擎；顺序反了会丢掉最后的位置
+  await lifecycle.runBeforeExit();
   await _shutdownAudio();
   try {
     await windowManager.setPreventClose(false);
@@ -298,6 +300,7 @@ class _AppWindowListener with WindowListener {
     } catch (error) {
       debugPrint('关闭前保存窗口状态失败：$error');
     }
+    await _lifecycle.runBeforeExit();
     await _shutdownAudio();
     try {
       await windowManager.setPreventClose(false);
