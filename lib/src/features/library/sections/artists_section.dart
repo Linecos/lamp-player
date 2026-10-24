@@ -44,8 +44,10 @@ extension _ArtistsSection on _LibraryPageState {
             return ArtistGridView(
               artists: groups,
               storageKey: const PageStorageKey<String>('grid:artists'),
-              onSelect: (ArtistGroup artist) =>
-                  _update(() => _selectedArtist = artist.name),
+              onSelect: (ArtistGroup artist) {
+                _clearSelection();
+                _update(() => _selectedArtist = artist.name);
+              },
             );
           }),
         ),
@@ -62,7 +64,10 @@ extension _ArtistsSection on _LibraryPageState {
       children: <Widget>[
         _DetailBar(
           label: '艺术家',
-          onBack: () => _update(() => _selectedArtist = null),
+          onBack: () {
+            _clearSelection();
+            _update(() => _selectedArtist = null);
+          },
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -125,6 +130,16 @@ extension _ArtistsSection on _LibraryPageState {
                 unawaited(_toggleFavorite(track)),
             onContextAction: (Track track, TrackContextAction action) =>
                 _onTrackContext(group.tracks, track, action),
+            selectionMode: _selectionMode,
+            selectedPaths: _selectedPaths,
+            onSelect:
+                (Track track, {required bool toggle, required bool range}) =>
+                    _onTrackSelect(
+                      group.tracks,
+                      track,
+                      toggle: toggle,
+                      range: range,
+                    ),
           ),
         ),
       ],

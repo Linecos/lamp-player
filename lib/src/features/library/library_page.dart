@@ -40,6 +40,7 @@ part 'sections/data_section.dart';
 part 'sections/directory_section.dart';
 part 'sections/playback_section.dart';
 part 'sections/search_section.dart';
+part 'sections/selection_section.dart';
 part 'sections/settings_section.dart';
 part 'sections/history_section.dart';
 part 'sections/favorites_section.dart';
@@ -176,6 +177,15 @@ class _LibraryPageState extends State<LibraryPage> {
   List<Track> _historyTracks = const <Track>[];
   bool _historyLoading = false;
   Object? _historyError;
+
+  /* -------------------------------------------------------------- 多选 */
+
+  /// 多选模式：进入后行首出现复选框，点击行只改选择、不播放
+  bool _selectionMode = false;
+  Set<String> _selectedPaths = <String>{};
+
+  /// Shift 范围选择的起点
+  String? _selectionAnchorPath;
 
   List<Playlist> _playlists = const <Playlist>[];
   bool _playlistsLoading = false;
@@ -509,6 +519,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         child: Column(
                           children: <Widget>[
                             _buildTopBar(context),
+                            if (_selectionMode) _buildSelectionBar(context),
                             Expanded(
                               child: Padding(
                                 padding: const EdgeInsets.fromLTRB(
@@ -626,6 +637,10 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _handleEscape() {
+    if (_selectionMode) {
+      _exitSelection();
+      return;
+    }
     if (_query.isNotEmpty) {
       _clearSearch();
     } else {
@@ -653,16 +668,24 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: _buildSearchField(context),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: _buildSearchField(context),
+                ),
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          _buildSelectionToggle(context),
+        ],
       ),
     );
   }
@@ -721,6 +744,7 @@ class _LibraryPageState extends State<LibraryPage> {
           _viewVersion += 1;
         });
       }
+      _clearSelection();
       return;
     }
     setState(() {
@@ -730,6 +754,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _selectedPlaylistId = null;
       _viewVersion += 1;
     });
+    _clearSelection();
     _saveSessionNow();
     if (section == LibrarySection.playlists) {
       unawaited(_loadPlaylists());

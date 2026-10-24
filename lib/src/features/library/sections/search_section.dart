@@ -33,6 +33,10 @@ extension _SearchSection on _LibraryPageState {
   void _onSearchChanged(String value) {
     _debounce?.cancel();
     final String query = value.trim();
+    if (query != _query) {
+      // 搜索结果的列表换了，之前选中的路径不一定还在，直接退出多选
+      _clearSelection();
+    }
     _update(() {
       _query = query;
       _searchError = null;
@@ -112,6 +116,7 @@ extension _SearchSection on _LibraryPageState {
     _debounce?.cancel();
     _searchToken++;
     _searchController.clear();
+    _clearSelection();
     _update(() {
       _query = '';
       _results = null;

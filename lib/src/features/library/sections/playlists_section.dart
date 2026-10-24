@@ -74,6 +74,7 @@ extension _PlaylistsSection on _LibraryPageState {
 
   Future<void> _openPlaylist(Playlist playlist) async {
     final int id = playlist.id.toInt();
+    _clearSelection();
     _update(() {
       _selectedPlaylistId = id;
       _playlistTracks = const <Track>[];
@@ -96,7 +97,10 @@ extension _PlaylistsSection on _LibraryPageState {
     return taken ? '已有同名歌单' : null;
   }
 
-  Future<void> _createPlaylist({String? addTrackPath}) async {
+  Future<void> _createPlaylist({
+    String? addTrackPath,
+    List<String>? addTrackPaths,
+  }) async {
     final String? name = await showPlaylistNameDialog(
       context,
       title: '新建歌单',
@@ -108,14 +112,22 @@ extension _PlaylistsSection on _LibraryPageState {
     }
     try {
       final Playlist playlist = await _repository.createPlaylist(name);
-      bool added = false;
+      int added = 0;
       String? addError;
-      if (addTrackPath != null) {
+      final List<String> paths = <String>[?addTrackPath, ...?addTrackPaths];
+      if (paths.isNotEmpty) {
         try {
-          added = await _repository.addTrackToPlaylist(
-            playlist.id.toInt(),
-            addTrackPath,
-          );
+          added = paths.length == 1
+              ? (await _repository.addTrackToPlaylist(
+                      playlist.id.toInt(),
+                      paths.single,
+                    )
+                    ? 1
+                    : 0)
+              : await _repository.addTracksToPlaylist(
+                  playlist.id.toInt(),
+                  paths,
+                );
         } catch (error) {
           addError = ErrorRetry.describe(error);
         }
@@ -126,8 +138,8 @@ extension _PlaylistsSection on _LibraryPageState {
       }
       if (addError != null) {
         _showMessage('已创建「$name」，但加入曲目失败：$addError');
-      } else if (added) {
-        _showMessage('已创建「$name」并加入 1 首');
+      } else if (added > 0) {
+        _showMessage('已创建「$name」并加入 $added 首');
       } else {
         _showMessage('已创建「$name」');
       }
@@ -526,7 +538,10 @@ extension _PlaylistsSection on _LibraryPageState {
       children: <Widget>[
         _DetailBar(
           label: '歌单',
-          onBack: () => _update(() => _selectedPlaylistId = null),
+          onBack: () {
+            _clearSelection();
+            _update(() => _selectedPlaylistId = null);
+          },
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -648,6 +663,10 @@ extension _PlaylistsSection on _LibraryPageState {
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_playlistTracks, track, action),
+      selectionMode: _selectionMode,
+      selectedPaths: _selectedPaths,
+      onSelect: (Track track, {required bool toggle, required bool range}) =>
+          _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),
     );
   }
 }
