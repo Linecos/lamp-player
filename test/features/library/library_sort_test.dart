@@ -133,6 +133,37 @@ void main() {
       });
     });
 
+    test('专辑封面取组内第一张有效封面', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: '一', artist: 'A', album: '专辑', trackNum: 1),
+        sampleTrack(
+          title: '二',
+          artist: 'A',
+          album: '专辑',
+          trackNum: 2,
+          coverPath: '/covers/a.jpg',
+        ),
+        sampleTrack(
+          title: '三',
+          artist: 'A',
+          album: '专辑',
+          trackNum: 3,
+          coverPath: '/covers/b.jpg',
+        ),
+      ];
+
+      expect(groupTracksByAlbum(tracks).single.coverPath, '/covers/a.jpg');
+    });
+
+    test('专辑内没有封面时 coverPath 为空', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: '一', artist: 'A', album: '专辑', trackNum: 1),
+        sampleTrack(title: '二', artist: 'A', album: '专辑'),
+      ];
+
+      expect(groupTracksByAlbum(tracks).single.coverPath, isNull);
+    });
+
     test('专辑内按曲目号排序并累计时长', () {
       final List<Track> tracks = <Track>[
         sampleTrack(
