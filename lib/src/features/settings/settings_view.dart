@@ -37,6 +37,10 @@ class SettingsView extends StatelessWidget {
     this.scanReport,
     this.scanError,
     this.onRetry,
+    this.pruningMissing = false,
+    this.prunedMissingCount,
+    this.pruneMissingError,
+    this.onPruneMissing,
   });
 
   final int trackCount;
@@ -96,6 +100,18 @@ class SettingsView extends StatelessWidget {
   /// 重新扫描 [scanFolder]；为空时只展示错误，不提供重试。
   final VoidCallback? onRetry;
 
+  /// 正在清理「文件已不存在」的曲库记录
+  final bool pruningMissing;
+
+  /// 最近一次清理的条数；为 null 表示还没清理过
+  final int? prunedMissingCount;
+
+  /// 清理失败原因；为 null 表示没有待处理的失败
+  final Object? pruneMissingError;
+
+  /// 触发清理；为空表示当前不可操作
+  final VoidCallback? onPruneMissing;
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -127,8 +143,35 @@ class SettingsView extends StatelessWidget {
                     )
                   : null,
             ),
+            _ActionRow(
+              icon: Icons.cleaning_services_outlined,
+              title: '清理缺失文件',
+              subtitle: pruningMissing
+                  ? '正在检查曲库记录…'
+                  : '移除磁盘上已不存在的曲目记录，不会删除音频文件',
+              onTap: pruningMissing ? null : onPruneMissing,
+              trailing: pruningMissing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+            ),
           ],
         ),
+        if (!pruningMissing &&
+            pruneMissingError != null &&
+            onPruneMissing != null)
+          ErrorRetry(
+            title: '清理失败',
+            error: pruneMissingError!,
+            onRetry: onPruneMissing!,
+          ),
+        if (!pruningMissing &&
+            pruneMissingError == null &&
+            prunedMissingCount != null)
+          _PruneSummary(count: prunedMissingCount!),
         _SectionLabel('音乐目录'),
         _SettingsCard(
           children: <Widget>[
@@ -1119,6 +1162,37 @@ class _ScanSummary extends StatelessWidget {
             '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 清理缺失文件的结果摘要
+class _PruneSummary extends StatelessWidget {
+  const _PruneSummary({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.check_circle_outline, size: 16, color: scheme.primary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              count > 0 ? '已清理 $count 条缺失记录' : '没有发现缺失文件',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],

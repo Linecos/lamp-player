@@ -44,6 +44,9 @@ abstract interface class LibraryRepository {
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   Future<int> removeTracks(List<String> paths);
 
+  /// 清理磁盘上已不存在的曲库记录；返回清理条数
+  Future<int> pruneMissingTracks();
+
   /// 收藏的曲目，最近收藏的在前
   Future<List<Track>> loadFavorites();
 
@@ -114,6 +117,9 @@ class RustLibraryRepository implements LibraryRepository {
 
   @override
   Future<int> removeTracks(List<String> paths) => db.removeTracks(paths: paths);
+
+  @override
+  Future<int> pruneMissingTracks() => db.pruneMissingTracks();
 
   @override
   Future<List<Track>> loadFavorites() => collections.listFavorites();
