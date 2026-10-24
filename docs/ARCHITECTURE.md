@@ -41,6 +41,9 @@
 |---|---|---|
 | `lib/main.dart` | 入口：初始化桥接、挂载 `LampApp` | 不写业务逻辑 |
 | `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`）、会话恢复（`session_store.dart`）、窗口状态（`window_state.dart`）、关闭行为（`app_lifecycle.dart`）与托盘（`tray_controller.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象、存储通过接口注入，测试可替换假实现 |
+| `lib/src/features/player/now_playing_page.dart` | 正在播放页（大封面 + 同步歌词） | 数据来自 `_nowPlaying` notifier，页面自己不轮询 |
+| `lib/src/features/player/equalizer.dart` | 均衡器频段常量与 `normalizeEqGains` | 与 Rust `EQ_CENTERS` 一一对应 |
+| `lib/src/common/text/pinyin_key.dart` | 拼音键构建（全拼 + 首字母） | 只在查询不含汉字时使用 |
 | `lib/src/features/player/smtc_bridge.dart` | 把播放状态同步到系统媒体控制，并把系统按钮转成播放动作 | 页面只依赖这里的 `MediaSessionState`，不直接碰生成代码 |
 | `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
 | `lib/src/theme/` | 全局主题（Material 3，seed 色） | 页面内禁止写死颜色 |
@@ -50,6 +53,7 @@
 | `rust/src/api/` | 对 Dart 的接口面 | 每个模块一个文件 |
 | `rust/src/scanner.rs` | 目录遍历 + 标签解析（walkdir + lofty） | 内部模块，不经 frb 导出，便于脱离数据库测试 |
 | `rust/src/bass.rs` | 对外公开 API 与 `State`（薄壳，按平台 `#[path]` 选实现） | 只暴露函数，不含实现 |
+| `rust/src/lyrics.rs` | 歌词读取（旁载 `.lrc` / 内嵌标签）与 LRC 解析 | 纯逻辑，可单测；`api::lyrics` 只做类型转换 |
 | `rust/src/smtc.rs` | Windows 系统媒体控制（媒体键 / 任务栏按钮 / 音量浮层） | 借静音 `MediaPlayer` 取 SMTC；非 Windows 不编译 |
 | `rust/src/single_instance.rs` | 命名互斥体 + 唤起已有窗口 | 句柄活到进程结束 |
 | `rust/src/media_platform.rs` | 上面两者的平台门面（含非 Windows 空实现） | 放在 `api/` 之外，避免被 frb 当成导出接口 |

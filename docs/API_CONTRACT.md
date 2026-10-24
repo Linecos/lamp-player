@@ -195,6 +195,7 @@
 | `player_is_exclusive() -> bool` | `bool playerIsExclusive()` | 是 | **已实现** |
 | `player_set_exclusive(exclusive: bool) -> Result<()>` | `Future<void> playerSetExclusive({required bool exclusive})` | 否 | **已实现** |
 | `player_output_info() -> Result<String>` | `Future<String> playerOutputInfo()` | 否 | **已实现** |
+| `player_set_equalizer(enabled: bool, gains: Vec<f32>) -> Result<()>` | `Future<void> playerSetEqualizer({required bool enabled, required List<double> gains})` | 否 | **已实现** |
 | `player_shutdown() -> Result<()>` | `Future<void> playerShutdown()` | 否 | **已实现** |
 
 语义补充：
@@ -231,7 +232,20 @@
 |---|---|---|
 | `greet(name: String) -> String`（sync） | `String greet({required String name})` | 只用于 `integration_test` 验证 FFI 通路，**不承载业务语义** |
 
-## 9. 系统集成 `api::media`
+## 9. 歌词 `api::lyrics`
+
+| Rust 签名 | Dart 签名 | 状态 |
+|---|---|---|
+| `lyrics_load(path: String) -> Result<TrackLyrics>` | `Future<TrackLyrics> lyricsLoad({required String path})` | **已实现** |
+
+语义补充：
+
+- `TrackLyrics`：`lines`（按时间升序，毫秒）+ `plain`（无时间轴文本）+ `source`（`sidecar` / `embedded` / `none`）。
+- 优先级：同目录同名 `.lrc`（`.LRC` 也试）> 内嵌 `Lyrics` / `UnsynchronizedLyrics`。
+- **没有歌词不是错误**：返回空结构、`source = none`；只有音频文件本身读不了才会抛。
+- 解析规则：一行多个时间戳会展开成多行；`[ar:...]` 这类元数据忽略；空行（间奏）保留为空文本。
+
+## 10. 系统集成 `api::media`
 
 Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、没有也能用」：
 非 Windows 或系统不支持时返回错误 / 安全默认值，调用方忽略即可，**不能影响播放**。
@@ -262,7 +276,7 @@ Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、�
   `FindWindow` 会命中它自己，跨进程 `ShowWindow` 无效。首个实例每 500 ms 调
   `single_instance_take_activation`（非阻塞），拿到 `true` 就 `windowManager.show()`。
 
-## 10. 生成代码规则
+## 11. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。

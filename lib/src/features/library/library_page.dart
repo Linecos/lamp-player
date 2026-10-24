@@ -11,6 +11,7 @@ import 'package:flutter/services.dart'
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
 import '../../common/common.dart';
+import '../../common/text/pinyin_key.dart';
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
@@ -18,6 +19,8 @@ import '../player/playback_queue.dart';
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
 import '../../app/app_lifecycle.dart';
+import '../player/equalizer.dart';
+import '../player/now_playing_page.dart';
 import '../player/queue_dialog.dart';
 import '../player/smtc_bridge.dart';
 import '../settings/music_folder_store.dart';
@@ -190,6 +193,13 @@ class _LibraryPageState extends State<LibraryPage> {
 
   /// 是否请求 WASAPI 独占输出（偏好；设备不支持时引擎会回落共享）
   bool _exclusive = false;
+
+  /// 拼音键缓存（path → 全拼|首字母）；首次英文查询时按需构建
+  final Map<String, String> _pinyinKeys = <String, String>{};
+
+  /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
+  bool _eqEnabled = false;
+  List<double> _eqGains = normalizeEqGains(const <double>[]);
   bool _switchingOutput = false;
 
   /// 当前输出的实际描述，来自引擎（含回落原因）
@@ -198,6 +208,10 @@ class _LibraryPageState extends State<LibraryPage> {
   /// 播放进度单独放进 notifier：轮询只刷新播放条，不重建整个曲库页面。
   final ValueNotifier<_PlaybackProgress> _progress =
       ValueNotifier<_PlaybackProgress>(const _PlaybackProgress());
+
+  /// 正在播放页的数据源：曲目、播放状态、进度
+  final ValueNotifier<NowPlayingData> _nowPlaying =
+      ValueNotifier<NowPlayingData>(const NowPlayingData());
 
   /// 是否有文件正拖在窗口上（显示导入提示）
   bool _dragging = false;
@@ -240,6 +254,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _searchFocus.dispose();
     _searchController.dispose();
     _progress.dispose();
+    _nowPlaying.dispose();
     super.dispose();
   }
 
@@ -271,6 +286,8 @@ class _LibraryPageState extends State<LibraryPage> {
       _tracks = sortTracks(_tracks, snapshot.sort);
       _coverBackfillAttempted = snapshot.coverBackfillAttempted;
       _exclusive = snapshot.exclusiveOutput;
+      _eqEnabled = snapshot.eqEnabled;
+      _eqGains = normalizeEqGains(snapshot.eqGains);
     });
 
     if (!mounted) {
@@ -284,6 +301,7 @@ class _LibraryPageState extends State<LibraryPage> {
       unawaited(_applyVolume(_volume));
       // 先按偏好切输出，再刷新描述：启动时还没有曲目，切换几乎没有代价
       unawaited(_applyOutputPreference(snapshot.exclusiveOutput));
+      unawaited(_applyEqualizer());
     } else {
       unawaited(_refreshOutputInfo());
     }
@@ -369,6 +387,8 @@ class _LibraryPageState extends State<LibraryPage> {
         sort: _sort,
         coverBackfillAttempted: _coverBackfillAttempted,
         exclusiveOutput: _exclusive,
+        eqEnabled: _eqEnabled,
+        eqGains: _eqGains,
       ),
     );
   }
@@ -561,6 +581,8 @@ class _LibraryPageState extends State<LibraryPage> {
                                       shuffle: _queue.shuffle,
                                       onToggleRepeat: _cycleRepeat,
                                       onToggleShuffle: _toggleShuffle,
+                                      onOpenNowPlaying: () =>
+                                          unawaited(_openNowPlaying()),
                                     );
                                   },
                             ),
