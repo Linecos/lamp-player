@@ -68,19 +68,7 @@ extension _AlbumsSection on _LibraryPageState {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: <Widget>[
-              Container(
-                width: 128,
-                height: 128,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(32),
-                ),
-                child: Icon(
-                  Icons.album,
-                  size: 48,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
+              AlbumCover(path: group.coverPath, size: 128, radius: 32),
               const SizedBox(width: 24),
               Expanded(
                 child: Column(
