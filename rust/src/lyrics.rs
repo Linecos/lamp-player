@@ -78,9 +78,12 @@ fn read_sidecar(audio: &Path) -> Option<String> {
     std::fs::read(upper).ok().map(|bytes| decode_text(&bytes))
 }
 
-/// LRC 常见 UTF-8；带 BOM 的 UTF-8 与 UTF-16 也顺手处理
+/// LRC 常见 UTF-8；带 BOM 的 UTF-8 / UTF-16 与 GBK / GB18030 也顺手处理。
+///
+/// 中文 Windows 上「记事本 → 另存为 ANSI」得到的 `.lrc` 是 GBK。以前直接
+/// `from_utf8_lossy` 会把整篇歌词变成替换字符，这里先严格校验 UTF-8，失败再按
+/// GB18030 解码（GBK 是其子集，能覆盖绝大多数老歌词文件）。
 fn decode_text(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
         let little_endian = bytes[0] == 0xFF;
         let data = &bytes[2..];
@@ -96,9 +99,16 @@ fn decode_text(bytes: &[u8]) -> String {
                 }
             })
             .collect();
-        String::from_utf16_lossy(&units)
-    } else {
-        String::from_utf8_lossy(bytes).into_owned()
+        return String::from_utf16_lossy(&units);
+    }
+
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => {
+            let (text, _, _) = encoding_rs::GB18030.decode(bytes);
+            text.into_owned()
+        }
     }
 }
 
@@ -261,5 +271,19 @@ mod tests {
         }
         let text = super::decode_text(&bytes);
         assert!(text.starts_with("[00:01.00]你好"));
+    }
+
+    #[test]
+    fn decodes_gbk_sidecar() {
+        // 中文 Windows「另存为 ANSI」得到的 GBK 歌词
+        let (bytes, _, _) = encoding_rs::GBK.encode("[00:01.00]你好，世界");
+        assert_eq!(super::decode_text(&bytes), "[00:01.00]你好，世界");
+    }
+
+    #[test]
+    fn decodes_utf8_with_bom() {
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice("[00:01.00]你好".as_bytes());
+        assert_eq!(super::decode_text(&bytes), "[00:01.00]你好");
     }
 }
