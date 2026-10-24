@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/title_bar.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -194,18 +195,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             child: SafeArea(
-              child: ValueListenableBuilder<NowPlayingData>(
-                valueListenable: widget.data,
-                builder: (BuildContext context, NowPlayingData data, _) {
-                  return Column(
-                    children: <Widget>[
-                      _header(context),
-                      Expanded(child: _body(context, data)),
-                      _controls(context, data),
-                      const SizedBox(height: 12),
-                    ],
-                  );
-                },
+              // 标题条浮在页面之上（overlay），顶部 44px 会被它吃掉点击，
+              // 不预留这段高度的话收起按钮的上半截永远点不到。
+              child: Padding(
+                padding: const EdgeInsets.only(top: LampTitleBar.height),
+                child: ValueListenableBuilder<NowPlayingData>(
+                  valueListenable: widget.data,
+                  builder: (BuildContext context, NowPlayingData data, _) {
+                    return Column(
+                      children: <Widget>[
+                        _header(context),
+                        Expanded(child: _body(context, data)),
+                        _controls(context, data),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -220,10 +226,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
         children: <Widget>[
+          // 热区只覆盖箭头周围这一圈，标题文字不参与点击。
           IconButton(
+            key: const ValueKey<String>('now-playing-collapse'),
             onPressed: () => Navigator.of(context).maybePop(),
             icon: const Icon(Icons.keyboard_arrow_down),
             tooltip: '收起',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 56, height: 56),
           ),
           Text('正在播放', style: theme.textTheme.titleMedium),
         ],
