@@ -150,6 +150,10 @@ extension _FavoritesSection on _LibraryPageState {
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_favoriteTracks, track, action),
+      selectionMode: _selectionMode,
+      selectedPaths: _selectedPaths,
+      onSelect: (Track track, {required bool toggle, required bool range}) =>
+          _onTrackSelect(_favoriteTracks, track, toggle: toggle, range: range),
     );
   }
 }

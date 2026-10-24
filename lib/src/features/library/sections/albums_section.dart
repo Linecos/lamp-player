@@ -44,8 +44,10 @@ extension _AlbumsSection on _LibraryPageState {
             return AlbumGridView(
               albums: groups,
               storageKey: const PageStorageKey<String>('grid:albums'),
-              onSelect: (AlbumGroup album) =>
-                  _update(() => _selectedAlbumKey = album.key),
+              onSelect: (AlbumGroup album) {
+                _clearSelection();
+                _update(() => _selectedAlbumKey = album.key);
+              },
             );
           }),
         ),
@@ -62,7 +64,10 @@ extension _AlbumsSection on _LibraryPageState {
       children: <Widget>[
         _DetailBar(
           label: '专辑',
-          onBack: () => _update(() => _selectedAlbumKey = null),
+          onBack: () {
+            _clearSelection();
+            _update(() => _selectedAlbumKey = null);
+          },
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -112,6 +117,16 @@ extension _AlbumsSection on _LibraryPageState {
                 unawaited(_toggleFavorite(track)),
             onContextAction: (Track track, TrackContextAction action) =>
                 _onTrackContext(group.tracks, track, action),
+            selectionMode: _selectionMode,
+            selectedPaths: _selectedPaths,
+            onSelect:
+                (Track track, {required bool toggle, required bool range}) =>
+                    _onTrackSelect(
+                      group.tracks,
+                      track,
+                      toggle: toggle,
+                      range: range,
+                    ),
           ),
         ),
       ],

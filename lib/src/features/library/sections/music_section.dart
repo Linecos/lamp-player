@@ -133,6 +133,10 @@ extension _MusicSection on _LibraryPageState {
         onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
         onContextAction: (Track track, TrackContextAction action) =>
             _onTrackContext(_results!, track, action),
+        selectionMode: _selectionMode,
+        selectedPaths: _selectedPaths,
+        onSelect: (Track track, {required bool toggle, required bool range}) =>
+            _onTrackSelect(_results!, track, toggle: toggle, range: range),
       );
     }
     if (_tracks.isEmpty) {
@@ -175,6 +179,10 @@ extension _MusicSection on _LibraryPageState {
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_tracks, track, action),
+      selectionMode: _selectionMode,
+      selectedPaths: _selectedPaths,
+      onSelect: (Track track, {required bool toggle, required bool range}) =>
+          _onTrackSelect(_tracks, track, toggle: toggle, range: range),
     );
   }
 }

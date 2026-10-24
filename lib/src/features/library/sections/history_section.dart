@@ -153,6 +153,10 @@ extension _HistorySection on _LibraryPageState {
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_historyTracks, track, action),
+      selectionMode: _selectionMode,
+      selectedPaths: _selectedPaths,
+      onSelect: (Track track, {required bool toggle, required bool range}) =>
+          _onTrackSelect(_historyTracks, track, toggle: toggle, range: range),
     );
   }
 }
