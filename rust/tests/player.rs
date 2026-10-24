@@ -4,7 +4,8 @@
 
 use rust_lib_lamp_player::api::player::{
     player_duration, player_is_available, player_pause, player_play, player_position,
-    player_resume, player_seek, player_set_volume, player_state, player_stop, PlaybackState,
+    player_resume, player_seek, player_set_equalizer, player_set_volume, player_state, player_stop,
+    PlaybackState,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -47,6 +48,33 @@ fn volume_rejects_non_finite_values() {
         let error = player_set_volume(value).expect_err("非有限音量应被拒绝");
         eprintln!("拒绝 {value}：{error}");
     }
+}
+
+/// 均衡器：段数必须为 10，增益必须是有限值；正常设置不应报错。
+#[test]
+fn equalizer_validates_input() {
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用");
+        return;
+    }
+    let error = player_set_equalizer(true, vec![0.0; 3]).expect_err("段数不足应报错");
+    assert!(
+        error.to_string().contains("10"),
+        "错误信息应说明段数要求：{error}"
+    );
+
+    let mut gains = vec![0.0f32; 10];
+    gains[0] = f32::NAN;
+    let error = player_set_equalizer(true, gains).expect_err("NaN 增益应被拒绝");
+    assert!(error.to_string().contains("非法"), "错误信息：{error}");
+
+    player_set_equalizer(true, vec![0.0; 10]).expect("10 段全 0 应成功");
+    player_set_equalizer(
+        true,
+        vec![6.0, 3.0, 0.0, -3.0, -6.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+    .expect("带增益应成功");
+    player_set_equalizer(false, vec![0.0; 10]).expect("关闭应成功");
 }
 
 #[test]

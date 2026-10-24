@@ -81,10 +81,12 @@ fn single_instance_acquire_is_idempotent() {
     if !cfg!(windows) {
         return;
     }
-    assert!(
-        single_instance_acquire().expect("申请单实例失败"),
-        "首次调用应成为唯一实例"
-    );
+    let acquired = single_instance_acquire().expect("申请单实例失败");
+    if !acquired {
+        // 本机正开着 Lamp Player 时，互斥体被它持有：跳过而不是误报失败
+        eprintln!("跳过：已有 Lamp Player 实例在运行");
+        return;
+    }
     assert!(
         single_instance_acquire().expect("重复申请失败"),
         "同一进程重复申请仍应返回 true"

@@ -115,6 +115,19 @@ void main() {
     expect(find.text('潮汐'), findsNothing);
   });
 
+  testWidgets('拼音首字母也能搜到中文曲目', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    // 假仓库按字面匹配，'yh' 不会命中「夜航」；拼音兜底应当补上
+    await tester.enterText(find.byType(TextField), 'yh');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(find.text('找到 1 首'), findsOneWidget);
+    expect(find.text('夜航'), findsWidgets);
+    expect(find.text('潮汐'), findsNothing);
+  });
+
   testWidgets('搜索命中超过 500 条时提示 500+', (WidgetTester tester) async {
     final List<Track> many = <Track>[
       for (int index = 0; index < 501; index += 1)
