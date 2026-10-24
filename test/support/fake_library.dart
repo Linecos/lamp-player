@@ -40,6 +40,8 @@ class FakeLibraryRepository implements LibraryRepository {
 
   int loadCalls = 0;
   int searchCalls = 0;
+  int removeTracksCalls = 0;
+  List<String> lastRemovedPaths = <String>[];
   String lastQuery = '';
   final List<String> scannedFolders = <String>[];
 
@@ -176,6 +178,29 @@ class FakeLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<int> addTracksToPlaylist(int id, List<String> paths) async {
+    final _FakePlaylist playlist = _playlistById(id);
+    // 先整体校验，再写入：与 Rust 侧「任一曲目不存在就整批回滚」一致
+    for (final String path in paths) {
+      if (_trackByPath(path) == null) {
+        throw StateError('曲目不在曲库: $path');
+      }
+    }
+    int added = 0;
+    for (final String path in paths.toSet()) {
+      if (playlist.paths.contains(path)) {
+        continue;
+      }
+      playlist.paths.add(path);
+      added += 1;
+    }
+    if (added > 0) {
+      playlist.updatedAt = _now();
+    }
+    return added;
+  }
+
+  @override
   Future<bool> removeTrackFromPlaylist(int id, String path) async {
     final _FakePlaylist playlist = _playlistById(id);
     if (!playlist.paths.remove(path)) {
@@ -183,6 +208,23 @@ class FakeLibraryRepository implements LibraryRepository {
     }
     playlist.updatedAt = _now();
     return true;
+  }
+
+  @override
+  Future<int> removeTracks(List<String> paths) async {
+    removeTracksCalls += 1;
+    lastRemovedPaths = List<String>.of(paths);
+    final Set<String> removing = paths.toSet();
+    final int before = tracks.length;
+    tracks = tracks
+        .where((Track track) => !removing.contains(track.path))
+        .toList();
+    _favorites.removeWhere(removing.contains);
+    _history.removeWhere(removing.contains);
+    for (final _FakePlaylist playlist in _playlists.values) {
+      playlist.paths.removeWhere(removing.contains);
+    }
+    return before - tracks.length;
   }
 
   @override
@@ -204,6 +246,27 @@ class FakeLibraryRepository implements LibraryRepository {
     } else {
       _favorites.remove(path);
     }
+  }
+
+  @override
+  Future<int> setFavorites(List<String> paths, bool favorite) async {
+    if (favorite) {
+      for (final String path in paths) {
+        if (_trackByPath(path) == null) {
+          throw StateError('曲目不在曲库: $path');
+        }
+      }
+    }
+    int changed = 0;
+    for (final String path in paths.toSet()) {
+      final bool didChange = favorite
+          ? _favorites.add(path)
+          : _favorites.remove(path);
+      if (didChange) {
+        changed += 1;
+      }
+    }
+    return changed;
   }
 
   @override

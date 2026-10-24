@@ -684,6 +684,30 @@ fn merge_track_path(
     Ok(())
 }
 
+/// 按路径批量删除曲库记录，返回实际删除数。
+///
+/// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
+/// 级联清理。整个批次在一个事务里完成，重复路径或不存在路径会被忽略。
+pub fn remove_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        let deleted = {
+            let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE path = ?1")?;
+            let mut count = 0;
+            for path in &paths {
+                count += stmt.execute([path])?;
+            }
+            count
+        };
+        tx.commit()?;
+        Ok(deleted as i32)
+    })
+}
+
 fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {
     if ids.is_empty() {
         return Ok(0);

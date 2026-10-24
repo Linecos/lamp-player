@@ -35,8 +35,14 @@ abstract interface class LibraryRepository {
   /// 加入歌单；已在歌单内返回 `false`
   Future<bool> addTrackToPlaylist(int id, String path);
 
+  /// 批量加入歌单；返回真正新增的条数（已在歌单内的忽略）
+  Future<int> addTracksToPlaylist(int id, List<String> paths);
+
   /// 移出歌单；本来就不在歌单内返回 `false`
   Future<bool> removeTrackFromPlaylist(int id, String path);
+
+  /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
+  Future<int> removeTracks(List<String> paths);
 
   /// 收藏的曲目，最近收藏的在前
   Future<List<Track>> loadFavorites();
@@ -48,6 +54,9 @@ abstract interface class LibraryRepository {
 
   /// 设置收藏状态（幂等）
   Future<void> setFavorite(String path, bool favorite);
+
+  /// 批量设置收藏状态；返回真正改变的条数
+  Future<int> setFavorites(List<String> paths, bool favorite);
 
   /// 记录一次播放；同曲目只保留一条历史
   Future<void> recordPlay(String path);
@@ -96,8 +105,15 @@ class RustLibraryRepository implements LibraryRepository {
       collections.addTrackToPlaylist(id: id, path: path);
 
   @override
+  Future<int> addTracksToPlaylist(int id, List<String> paths) =>
+      collections.addTracksToPlaylist(id: id, paths: paths);
+
+  @override
   Future<bool> removeTrackFromPlaylist(int id, String path) =>
       collections.removeTrackFromPlaylist(id: id, path: path);
+
+  @override
+  Future<int> removeTracks(List<String> paths) => db.removeTracks(paths: paths);
 
   @override
   Future<List<Track>> loadFavorites() => collections.listFavorites();
@@ -112,6 +128,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<void> setFavorite(String path, bool favorite) =>
       collections.setFavorite(path: path, favorite: favorite);
+
+  @override
+  Future<int> setFavorites(List<String> paths, bool favorite) =>
+      collections.setFavorites(paths: paths, favorite: favorite);
 
   @override
   Future<void> recordPlay(String path) => collections.recordPlay(path: path);
