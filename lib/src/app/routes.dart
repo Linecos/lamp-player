@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_lifecycle.dart';
 import '../features/library/library_page.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
@@ -25,6 +26,7 @@ abstract final class LampRouter {
     RouteSettings settings, {
     LibraryRepository? repository,
     PlaybackService? playbackService,
+    AppLifecycle? lifecycle,
   }) {
     switch (settings.name) {
       case AppRoutes.library:
@@ -33,6 +35,7 @@ abstract final class LampRouter {
           builder: (_) => LibraryPage(
             repository: repository,
             playbackService: playbackService,
+            appLifecycle: lifecycle,
           ),
         );
       default:

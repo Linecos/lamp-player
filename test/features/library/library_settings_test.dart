@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
@@ -96,7 +97,9 @@ void main() {
     await openSettings(tester);
 
     await tester.ensureVisible(find.text('独占输出（WASAPI）'));
-    await tester.tap(find.byType(Switch));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+    );
     await tester.pumpAndSettle();
 
     expect(playback.exclusiveCalls, 1);
@@ -133,12 +136,18 @@ void main() {
     await openSettings(tester);
 
     await tester.ensureVisible(find.text('独占输出（WASAPI）'));
-    await tester.tap(find.byType(Switch));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+    );
     await tester.pumpAndSettle();
 
     expect(playback.exclusive, isFalse);
     expect(
-      tester.widget<Switch>(find.byType(Switch)).value,
+      tester
+          .widget<Switch>(
+            find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+          )
+          .value,
       isFalse,
       reason: '失败后开关应回到关闭',
     );
@@ -154,7 +163,14 @@ void main() {
     await openSettings(tester);
 
     await tester.ensureVisible(find.text('独占输出（WASAPI）'));
-    expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
+    expect(
+      tester
+          .widget<Switch>(
+            find.byKey(const ValueKey<String>('settings-exclusive-switch')),
+          )
+          .onChanged,
+      isNull,
+    );
   });
 
   testWidgets('进入设置页会重新读取输出信息', (WidgetTester tester) async {
@@ -173,5 +189,29 @@ void main() {
       greaterThan(before),
       reason: '空闲释放 / 回落共享都可能改变实际输出，进设置页要重读',
     );
+  });
+
+  testWidgets('设置页切换关闭到托盘会写进 AppLifecycle', (WidgetTester tester) async {
+    final AppLifecycle lifecycle = AppLifecycle();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: FakePlaybackService(isAvailable: true),
+      lifecycle: lifecycle,
+      // 设置页比默认视口高：调高视口，避免最后一行被播放条压住
+      viewSize: const Size(1280, 1100),
+    );
+    await openSettings(tester);
+
+    await tester.ensureVisible(find.text('关闭窗口时留在托盘'));
+    expect(lifecycle.closeToTray, isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-close-to-tray-switch')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(lifecycle.closeToTray, isFalse);
+    expect(find.text('点 × 直接退出应用'), findsOneWidget);
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
@@ -20,10 +21,12 @@ Future<FakeLibraryRepository> pumpLibrary(
   DirectoryPicker? directoryPicker,
   MusicFolderStore? folderStore,
   SessionStore? sessionStore,
+  AppLifecycle? lifecycle,
+  Size viewSize = const Size(1280, 800),
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
 }) async {
-  tester.view.physicalSize = const Size(1280, 800);
+  tester.view.physicalSize = viewSize;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -45,6 +48,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         directoryPicker: directoryPicker,
         musicFolderStore: folderStore,
         sessionStore: sessionStore ?? FakeSessionStore(),
+        appLifecycle: lifecycle,
       ),
     ),
   );

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'app_lifecycle.dart';
 import 'routes.dart';
 import 'title_bar.dart';
 import 'window_controls.dart';
@@ -22,6 +23,7 @@ class LampApp extends StatefulWidget {
     this.playbackService,
     this.themeController,
     this.windowControls,
+    this.lifecycle,
   });
 
   final LibraryRepository? libraryRepository;
@@ -33,6 +35,9 @@ class LampApp extends StatefulWidget {
 
   /// 窗口控制（自绘标题栏用）；不传走真实的 `window_manager`。
   final WindowControls? windowControls;
+
+  /// 应用级行为（关闭到托盘）；不传时设置页里的开关禁用
+  final AppLifecycle? lifecycle;
 
   @override
   State<LampApp> createState() => _LampAppState();
@@ -92,6 +97,7 @@ class _LampAppState extends State<LampApp> {
                   settings,
                   repository: widget.libraryRepository,
                   playbackService: widget.playbackService,
+                  lifecycle: widget.lifecycle,
                 ),
           );
         },

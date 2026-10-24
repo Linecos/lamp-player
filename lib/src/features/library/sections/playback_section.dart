@@ -74,7 +74,83 @@ extension _PlaybackSection on _LibraryPageState {
     _startPositionPolling();
     unawaited(_recordPlay(track.path));
     _saveSessionNow();
+    _syncMediaSession();
     return true;
+  }
+
+  /* --------------------------------------------------- 系统媒体控制 */
+
+  /// 把「当前曲目 + 播放状态」同步给 Windows 系统媒体控制。
+  ///
+  /// 只在状态真的变化时调用（起播 / 暂停 / 停止），**不要放进 500ms 轮询**：
+  /// 每次都会走一遍 WinRT 调用。
+  void _syncMediaSession({bool stopped = false}) {
+    final Track? track = _currentTrack;
+    if (track == null) {
+      unawaited(_media.clear());
+      return;
+    }
+    unawaited(
+      _media.updateTrack(
+        path: track.path,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        coverPath: track.coverPath,
+      ),
+    );
+    if (stopped) {
+      unawaited(_media.setState(MediaSessionState.stopped));
+      return;
+    }
+    unawaited(
+      _media.setState(
+        _isPlaying ? MediaSessionState.playing : MediaSessionState.paused,
+      ),
+    );
+  }
+
+  /// 系统「播放」：暂停时继续，播完时从头开始；已经在播则忽略
+  Future<void> _mediaPlay() async {
+    if (_currentTrack == null) {
+      return;
+    }
+    if (_playback.state == rust.PlaybackState.stopped) {
+      await _startCurrent(startAt: _pendingResumePosition ?? 0);
+      return;
+    }
+    if (!_isPlaying) {
+      await _togglePlayback();
+    }
+  }
+
+  /// 系统「暂停」
+  Future<void> _mediaPause() async {
+    if (_isPlaying) {
+      await _togglePlayback();
+    }
+  }
+
+  /// 系统「停止」：停音频但保留曲目（符合播放器的停止语义）
+  Future<void> _mediaStop() async {
+    if (_currentTrack == null) {
+      return;
+    }
+    _stopPositionPolling();
+    if (_isAvailable) {
+      try {
+        await _playback.stop();
+      } catch (error) {
+        debugPrint('停止播放失败：$error');
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    _update(() => _isPlaying = false);
+    _publishProgress();
+    _saveSessionNow();
+    _syncMediaSession(stopped: true);
   }
 
   Future<void> _playAll(List<Track> tracks) async {
@@ -119,6 +195,7 @@ extension _PlaybackSection on _LibraryPageState {
       }
       _update(() => _isPlaying = !_isPlaying);
       _publishProgress();
+      _syncMediaSession();
       if (_isPlaying) {
         _startPositionPolling();
       } else {
@@ -158,6 +235,7 @@ extension _PlaybackSection on _LibraryPageState {
       });
       _publishProgress();
       _saveSessionNow();
+      _syncMediaSession(stopped: true);
       return;
     }
     await _startCurrent();
@@ -244,6 +322,7 @@ extension _PlaybackSection on _LibraryPageState {
       });
       _publishProgress();
       _saveSessionNow();
+      _syncMediaSession(stopped: true);
       return;
     }
 
