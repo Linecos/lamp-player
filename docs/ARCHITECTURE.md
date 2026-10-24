@@ -44,9 +44,11 @@
 | `lib/src/features/player/now_playing_page.dart` | 正在播放页（大封面 + 同步歌词） | 数据来自 `_nowPlaying` notifier，页面自己不轮询 |
 | `lib/src/features/player/equalizer.dart` | 均衡器频段常量与 `normalizeEqGains` | 与 Rust `EQ_CENTERS` 一一对应 |
 | `lib/src/common/text/pinyin_key.dart` | 拼音键构建（全拼 + 首字母） | 只在查询不含汉字时使用 |
+| `lib/src/features/library/playlist_io.dart` | 歌单导入导出（M3U8 拼串 / 解析 / 曲库匹配） | 纯逻辑可单测；文件读写与选择器在 `playlists_section` |
+| `rust/src/appearance.rs` | 读 Windows 系统强调色（MD3 动态取色） | 非 Windows 返回 `None`；`api::appearance` 只做转发 |
 | `lib/src/features/player/smtc_bridge.dart` | 把播放状态同步到系统媒体控制，并把系统按钮转成播放动作 | 页面只依赖这里的 `MediaSessionState`，不直接碰生成代码 |
 | `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
-| `lib/src/theme/` | 全局主题（Material 3，seed 色） | 页面内禁止写死颜色 |
+| `lib/src/theme/` | 全局主题（Material 3，seed 色可配置：预设色板或系统强调色） | 页面内禁止写死颜色 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
 | `lib/src/rust/` | **生成代码**，禁止手改 | `flutter_rust_bridge_codegen generate` |
