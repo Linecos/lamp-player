@@ -45,6 +45,9 @@ class AppLifecycle extends ChangeNotifier {
   bool _closeToTray;
   bool _quitRequested = false;
 
+  /// 退出前要完成的事（例如把播放会话落盘）
+  Future<void> Function()? _beforeExit;
+
   /// 关闭窗口时是否隐藏到托盘（默认开启：音乐播放器关窗不该停音乐）
   bool get closeToTray => _closeToTray;
 
@@ -62,6 +65,32 @@ class AppLifecycle extends ChangeNotifier {
 
   void requestQuit() {
     _quitRequested = true;
+  }
+
+  /// 注册「真正退出前」的钩子；页面销毁时用 [clearBeforeExit] 注销。
+  ///
+  /// 关闭到托盘时不会调用：音乐还在播，会话照常按 10 秒周期落盘。
+  void setBeforeExit(Future<void> Function() hook) {
+    _beforeExit = hook;
+  }
+
+  void clearBeforeExit(Future<void> Function() hook) {
+    if (identical(_beforeExit, hook)) {
+      _beforeExit = null;
+    }
+  }
+
+  /// 执行退出前钩子；失败或超时都不阻断退出流程。
+  Future<void> runBeforeExit() async {
+    final Future<void> Function()? hook = _beforeExit;
+    if (hook == null) {
+      return;
+    }
+    try {
+      await hook().timeout(const Duration(seconds: 2));
+    } catch (error) {
+      debugPrint('退出前保存失败：$error');
+    }
   }
 
   /// 读取已保存的偏好；失败时保持默认值

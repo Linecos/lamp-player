@@ -240,4 +240,34 @@ void main() {
     expect(playback.eqGains, hasLength(10));
     expect(session.snapshot.eqEnabled, isTrue);
   });
+
+  testWidgets('退出前会把播放会话落盘', (WidgetTester tester) async {
+    final AppLifecycle lifecycle = AppLifecycle();
+    final FakeSessionStore session = FakeSessionStore();
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+      lifecycle: lifecycle,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 模拟「窗口即将关闭」：把会话清空，退出钩子应把最新状态写回去
+    session.snapshot = const SessionSnapshot();
+    await lifecycle.runBeforeExit();
+
+    expect(session.snapshot.lastTrackPath, '/music/夜航.mp3');
+    expect(session.snapshot.section, 'music');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
@@ -299,6 +300,51 @@ void main() {
 
     expect(find.text('松开即可导入音乐'), findsNothing);
     expect(repository.scannedFolders, <String>[dropped.path]);
+    expect(find.textContaining('导入完成'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('扫描后的静默刷新不会闪加载态', (WidgetTester tester) async {
+    final Directory dropped = Directory.systemTemp.createTempSync(
+      'lamp_silent_',
+    );
+    addTearDown(() => dropped.deleteSync(recursive: true));
+
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+    );
+    // 挂住扫描后的那次读取，模拟大曲库读得慢
+    repository.loadGate = Completer<void>();
+
+    Future<void> sendDropEvent(String method, Object arguments) async {
+      final ByteData data = const StandardMethodCodec().encodeMethodCall(
+        MethodCall(method, arguments),
+      );
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'desktop_drop',
+        data,
+        (ByteData? _) {},
+      );
+    }
+
+    await sendDropEvent('entered', <double>[100, 100]);
+    await tester.pump();
+    await sendDropEvent('performOperation', <String>[dropped.path]);
+    // 扫描已经结束，刷新还挂在 loadGate 上；这里不能 pumpAndSettle，
+    // 扫描中的进度圈会一直转
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.scannedFolders, <String>[dropped.path]);
+    expect(find.text('正在读取曲库…'), findsNothing, reason: '静默刷新不该把列表换成加载态');
+    expect(find.text('夜航'), findsOneWidget);
+    expect(find.text('潮汐'), findsOneWidget);
+
+    repository.loadGate!.complete();
+    await tester.pumpAndSettle();
     expect(find.textContaining('导入完成'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());

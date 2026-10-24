@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
@@ -38,6 +40,9 @@ class FakeLibraryRepository implements LibraryRepository {
   Object? loadError;
   Object? searchError;
 
+  /// 非空时 `loadTracks()` 等它完成；用于验证扫描后的静默刷新不闪加载态
+  Completer<void>? loadGate;
+
   int loadCalls = 0;
   int searchCalls = 0;
   int removeTracksCalls = 0;
@@ -50,6 +55,10 @@ class FakeLibraryRepository implements LibraryRepository {
     loadCalls += 1;
     if (loadError != null) {
       throw loadError!;
+    }
+    final Completer<void>? gate = loadGate;
+    if (gate != null) {
+      await gate.future;
     }
     return List<Track>.of(tracks);
   }
@@ -366,6 +375,9 @@ class FakePlaybackService implements PlaybackService {
   /// 非空时 `play()` 抛出该错误，用于测试播放失败后的降级
   Object? playError;
 
+  /// 这些路径的 `play()` 会抛出错误，用于测试自动跳过损坏文件
+  final Set<String> failingPaths = <String>{};
+
   /// 非空时 `seek()` 抛出该错误，用于测试恢复进度的失败路径
   Object? seekError;
 
@@ -392,6 +404,9 @@ class FakePlaybackService implements PlaybackService {
     final Object? error = playError;
     if (error != null) {
       throw error;
+    }
+    if (failingPaths.contains(path)) {
+      throw StateError('无法播放: $path');
     }
     playedPaths.add(path);
     current = rust.PlaybackState.playing;

@@ -98,6 +98,9 @@ class _LibraryPageState extends State<LibraryPage> {
   /// 位置轮询连续失败多少次后停止（单次瞬时异常不应冻结进度条）。
   static const int _maxPollFailures = 3;
 
+  /// 自然播完后连续多少首播放失败就停止自动跳转（避免整库损坏时空转）。
+  static const int _maxAutoSkips = 5;
+
   late final LibraryRepository _repository =
       widget.repository ?? const RustLibraryRepository();
   late final PlaybackService _playback =
@@ -225,6 +228,9 @@ class _LibraryPageState extends State<LibraryPage> {
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里
   void _update(VoidCallback fn) => setState(fn);
 
+  /// 退出前落盘用的稳定引用（方法 tear-off 每次都是新对象，无法注销）
+  late final Future<void> Function() _exitHook = _saveSession;
+
   @override
   void initState() {
     super.initState();
@@ -232,7 +238,9 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(_bootstrap());
     // 系统媒体控制：失败只影响系统浮层，不影响播放
     unawaited(_media.start());
-    widget.appLifecycle?.addListener(_onLifecycleChanged);
+    widget.appLifecycle
+      ?..addListener(_onLifecycleChanged)
+      ..setBeforeExit(_exitHook);
   }
 
   /// 关闭到托盘的开关变化：让设置页跟着刷新
@@ -250,7 +258,9 @@ class _LibraryPageState extends State<LibraryPage> {
     _saveTimer?.cancel();
     _sessionTimer?.cancel();
     unawaited(_saveSession());
-    widget.appLifecycle?.removeListener(_onLifecycleChanged);
+    widget.appLifecycle
+      ?..removeListener(_onLifecycleChanged)
+      ..clearBeforeExit(_exitHook);
     unawaited(_media.dispose());
     _searchFocus.dispose();
     _searchController.dispose();
