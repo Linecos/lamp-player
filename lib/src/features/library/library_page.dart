@@ -130,6 +130,9 @@ class _LibraryPageState extends State<LibraryPage> {
   String _query = '';
   bool _loading = true;
   bool _searching = false;
+
+  /// 命中数超过单次上限（500）时为 true，避免把「只显示前 500 首」说成正好 500 首
+  bool _searchTruncated = false;
   bool _scanning = false;
   bool _backfillingCovers = false;
   bool _coverBackfillAttempted = false;
@@ -353,38 +356,68 @@ class _LibraryPageState extends State<LibraryPage> {
     // 其余情况下才落到播放控制上。
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.space): _handleSpace,
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
-            _focusSearch,
-        const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
-        const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+        const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
+            _handleSpace,
+        const SingleActivator(
+          LogicalKeyboardKey.keyF,
+          control: true,
+          includeRepeats: false,
+        ): _focusSearch,
+        const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
+            _handleEscape,
+        const SingleActivator(
+          LogicalKeyboardKey.arrowRight,
+          includeRepeats: false,
+        ): () =>
             _unlessTyping(() => unawaited(_seekBy(5))),
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          includeRepeats: false,
+        ): () =>
             _unlessTyping(() => unawaited(_seekBy(-5))),
         const SingleActivator(
           LogicalKeyboardKey.arrowRight,
           control: true,
+          includeRepeats: false,
         ): () =>
             _unlessTyping(() => unawaited(_next())),
         const SingleActivator(
           LogicalKeyboardKey.arrowLeft,
           control: true,
+          includeRepeats: false,
         ): () =>
             _unlessTyping(() => unawaited(_previous())),
-        const SingleActivator(LogicalKeyboardKey.arrowUp, control: true): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.arrowUp,
+          control: true,
+          includeRepeats: false,
+        ): () =>
             _unlessTyping(() => _setVolume(_volume + 0.05)),
         const SingleActivator(
           LogicalKeyboardKey.arrowDown,
           control: true,
+          includeRepeats: false,
         ): () =>
             _unlessTyping(() => _setVolume(_volume - 0.05)),
-        const SingleActivator(LogicalKeyboardKey.keyM, control: true):
-            _toggleMute,
-        const SingleActivator(LogicalKeyboardKey.mediaPlayPause): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.keyM,
+          control: true,
+          includeRepeats: false,
+        ): _toggleMute,
+        const SingleActivator(
+          LogicalKeyboardKey.mediaPlayPause,
+          includeRepeats: false,
+        ): () =>
             unawaited(_togglePlayback()),
-        const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.mediaTrackNext,
+          includeRepeats: false,
+        ): () =>
             unawaited(_next()),
-        const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () =>
+        const SingleActivator(
+          LogicalKeyboardKey.mediaTrackPrevious,
+          includeRepeats: false,
+        ): () =>
             unawaited(_previous()),
       },
       child: Focus(

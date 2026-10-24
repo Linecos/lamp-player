@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
@@ -12,6 +14,13 @@ class FakeWindowControls implements WindowControls {
 
   bool maximized = false;
   bool failAll = false;
+
+  /// 模拟「系统改变了最大化状态」（Win+↑、贴边等）
+  final StreamController<bool> maximizeEvents =
+      StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get maximizeChanges => maximizeEvents.stream;
 
   @override
   Future<void> minimize() async {
@@ -164,6 +173,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controls.dragCalls, greaterThan(0));
+  });
+
+  testWidgets('系统触发的最大化会同步图标', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await _pumpTitleBar(tester, controls);
+
+    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+
+    // 模拟 Win+↑：窗口管理器发事件，但没人点我们的按钮
+    controls.maximized = true;
+    controls.maximizeEvents.add(true);
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.filter_none), findsOneWidget, reason: '应显示「还原」图标');
+
+    controls.maximized = false;
+    controls.maximizeEvents.add(false);
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    await controls.maximizeEvents.close();
   });
 
   testWidgets('窗口控制不可用时点按钮不崩溃', (WidgetTester tester) async {

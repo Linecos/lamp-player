@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:window_manager/window_manager.dart';
 
 /// 窗口控制能力。
@@ -19,6 +21,12 @@ abstract interface class WindowControls {
 
   /// 开始拖动窗口（按住标题栏时调用）
   Future<void> startDragging();
+
+  /// 最大化状态的变化流（含 `Win+↑`、拖到屏幕顶边等系统操作）。
+  ///
+  /// 点自己的按钮走 [toggleMaximize] 的返回值；这个流只负责把「外部改变了
+  /// 状态」告知界面，否则图标会和真实状态不一致。
+  Stream<bool> get maximizeChanges;
 }
 
 /// 基于 `window_manager` 的实现。
@@ -27,6 +35,20 @@ abstract interface class WindowControls {
 /// 因此失败只会让按钮没反应，不会崩。
 class WindowManagerControls implements WindowControls {
   const WindowManagerControls();
+
+  /// 应用内只有一个窗口，桥接器挂一次即可，所以用静态成员配合 const 构造
+  static final StreamController<bool> _maximizeChanges =
+      StreamController<bool>.broadcast();
+  static bool _bridged = false;
+
+  @override
+  Stream<bool> get maximizeChanges {
+    if (!_bridged) {
+      _bridged = true;
+      windowManager.addListener(const _MaximizeBridge());
+    }
+    return _maximizeChanges.stream;
+  }
 
   @override
   Future<void> minimize() => windowManager.minimize();
@@ -49,4 +71,24 @@ class WindowManagerControls implements WindowControls {
 
   @override
   Future<void> startDragging() => windowManager.startDragging();
+}
+
+/// 把 `window_manager` 的窗口事件翻译成最大化状态流。
+class _MaximizeBridge with WindowListener {
+  const _MaximizeBridge();
+
+  void _emit(bool maximized) {
+    if (!WindowManagerControls._maximizeChanges.isClosed) {
+      WindowManagerControls._maximizeChanges.add(maximized);
+    }
+  }
+
+  @override
+  void onWindowMaximize() => _emit(true);
+
+  @override
+  void onWindowUnmaximize() => _emit(false);
+
+  @override
+  void onWindowRestore() => _emit(false);
 }

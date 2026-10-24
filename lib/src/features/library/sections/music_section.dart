@@ -12,7 +12,11 @@ extension _MusicSection on _LibraryPageState {
         : (_results ?? const <Track>[]);
     final String countLabel = _query.isEmpty
         ? '${_tracks.length} 首音乐'
-        : (_searching ? '正在搜索…' : '找到 ${visible.length} 首');
+        : (_searching
+              ? '正在搜索…'
+              : (_searchTruncated
+                    ? '找到 500+ 首（仅显示前 500）'
+                    : '找到 ${visible.length} 首'));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

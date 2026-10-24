@@ -31,11 +31,39 @@ class LampTitleBar extends StatefulWidget {
 
 class _LampTitleBarState extends State<LampTitleBar> {
   bool _maximized = false;
+  StreamSubscription<bool>? _maximizeSub;
 
   @override
   void initState() {
     super.initState();
+    _listenMaximize();
     unawaited(_refreshMaximized());
+  }
+
+  @override
+  void didUpdateWidget(LampTitleBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controls != widget.controls) {
+      unawaited(_maximizeSub?.cancel());
+      _listenMaximize();
+      unawaited(_refreshMaximized());
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_maximizeSub?.cancel());
+    super.dispose();
+  }
+
+  /// 系统触发的变化（Win+↑、拖到屏幕顶边）不会经过我们的按钮
+  void _listenMaximize() {
+    _maximizeSub = widget.controls.maximizeChanges.listen((bool maximized) {
+      if (!mounted || maximized == _maximized) {
+        return;
+      }
+      setState(() => _maximized = maximized);
+    });
   }
 
   Future<void> _refreshMaximized() async {
