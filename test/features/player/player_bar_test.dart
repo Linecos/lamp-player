@@ -38,6 +38,7 @@ Future<void> _pumpBar(
   VoidCallback? onToggleShuffle,
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
+  VoidCallback? onOpenNowPlaying,
 }) async {
   tester.view.physicalSize = const Size(1280, 600);
   tester.view.devicePixelRatio = 1;
@@ -70,6 +71,7 @@ Future<void> _pumpBar(
             onToggleShuffle: onToggleShuffle,
             repeat: repeat,
             shuffle: shuffle,
+            onOpenNowPlaying: onOpenNowPlaying,
           ),
         ),
       ),
@@ -251,5 +253,32 @@ void main() {
     expect(buttonWithIcon(Icons.skip_previous).onPressed, isNull);
     expect(buttonWithIcon(Icons.skip_next).onPressed, isNull);
     expect(buttonWithIcon(Icons.play_arrow).onPressed, isNull);
+  });
+
+  testWidgets('封面可点打开正在播放页，墨水层不被底色遮住', (WidgetTester tester) async {
+    int opens = 0;
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      onOpenNowPlaying: () => opens += 1,
+    );
+
+    final Finder cover = find.byKey(
+      const ValueKey<String>('player-bar-open-now-playing'),
+    );
+    expect(tester.widget<InkWell>(cover).hoverColor, isNotNull);
+
+    final Material surface = tester.widget<Material>(
+      find.ancestor(of: cover, matching: find.byType(Material)).first,
+    );
+    expect(
+      surface.type,
+      MaterialType.transparency,
+      reason: '播放条底色画在 Container 上，需要一个透明 Material 托住墨水',
+    );
+
+    await tester.tap(cover);
+    await tester.pump();
+    expect(opens, 1);
   });
 }
