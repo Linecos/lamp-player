@@ -8,6 +8,26 @@
 > **当前状态**：M1 曲库闭环（含目录导入）与 M2 播放链路已完成；歌单 / 历史 / 收藏页面已接入，
 > 播放队列、快捷键、会话恢复与专辑封面就位，正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/music.png" alt="曲库列表：封面、排序、收藏与播放条" width="860">
+</p>
+
+<p align="center">
+  <img src="docs/images/playlists.png" alt="歌单" width="420">
+  <img src="docs/images/favorites.png" alt="收藏" width="420">
+</p>
+
+<p align="center">
+  <img src="docs/images/history.png" alt="播放历史" width="420">
+  <img src="docs/images/artists.png" alt="艺术家" width="420">
+</p>
+
+<p align="center">
+  <img src="docs/images/settings.png" alt="设置：曲库、目录与播放选项" width="860">
+</p>
+
 ## 特性
 
 - 🎨 Material 3 界面（Flutter），主题可选跟随系统 / 浅色 / 深色，重启后保留
