@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -156,5 +157,77 @@ void main() {
       find.byKey(const ValueKey<String>('now-playing-toggle')),
     );
     expect(toggle.onPressed, isNull);
+  });
+
+  testWidgets('收起热区只覆盖箭头一圈，且不被标题条遮住', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ValueNotifier<NowPlayingData> notifier =
+        ValueNotifier<NowPlayingData>(_data());
+    addTearDown(notifier.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NowPlayingPage(
+                      data: notifier,
+                      onTogglePlay: () async {},
+                      onPrevious: () async {},
+                      onNext: () async {},
+                      onSeek: (_) async {},
+                      lyricsLoader: (String path) async => const TrackLyrics(
+                        lines: <LyricLine>[],
+                        plain: '',
+                        source: 'none',
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    final Rect target = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-collapse')),
+    );
+    expect(
+      target.width,
+      inInclusiveRange(48, 80),
+      reason: '热区只该覆盖箭头周围一圈，不应扩散到整行',
+    );
+    expect(target.height, inInclusiveRange(48, 80));
+    expect(
+      target.top,
+      greaterThanOrEqualTo(LampTitleBar.height),
+      reason: '标题条浮在页面之上，header 必须让开这一段，否则上半截点不到',
+    );
+
+    // 点标题文字不应收起
+    await tester.tap(find.text('正在播放'));
+    await tester.pumpAndSettle();
+    expect(find.text('正在播放'), findsOneWidget);
+
+    // 点箭头周围能收起
+    await tester.tap(find.byTooltip('收起'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('正在播放'), findsNothing);
+    expect(find.text('打开'), findsOneWidget);
   });
 }
