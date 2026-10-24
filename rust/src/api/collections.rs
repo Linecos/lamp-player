@@ -197,6 +197,40 @@ pub fn add_track_to_playlist(id: i64, path: String) -> anyhow::Result<bool> {
     })
 }
 
+/// 批量加入歌单，返回真正新增的条数。
+///
+/// 整个批次在一个事务里：任一曲目不在曲库时整体回滚，不会留下半批数据。
+/// 已在歌单内的曲目会被忽略，不计入返回值。
+pub fn add_tracks_to_playlist(id: i64, paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        playlist_exists(&tx, id)?;
+        let now = now_secs();
+        let mut added = 0;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for path in &paths {
+                track_exists(&tx, path)?;
+                added += stmt.execute(params![id, path, now])?;
+            }
+        }
+        if added > 0 {
+            tx.execute(
+                "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(added as i32)
+    })
+}
+
 /// 从歌单移除曲目；本来就不在歌单内时返回 `false`。
 pub fn remove_track_from_playlist(id: i64, path: String) -> anyhow::Result<bool> {
     with_conn(|conn| {
@@ -272,6 +306,37 @@ pub fn set_favorite(path: String, favorite: bool) -> anyhow::Result<()> {
             conn.execute("DELETE FROM favorites WHERE track_path = ?1", [path])?;
         }
         Ok(())
+    })
+}
+
+/// 批量设置收藏状态，返回真正改变的条数。
+///
+/// 收藏时任一曲目不在曲库会整体回滚；取消收藏不校验曲目是否存在（删库后
+/// 的残留路径也能清掉）。重复路径会被幂等忽略。
+pub fn set_favorites(paths: Vec<String>, favorite: bool) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        let now = now_secs();
+        let mut changed = 0;
+        if favorite {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO favorites (track_path, added_at) VALUES (?1, ?2)",
+            )?;
+            for path in &paths {
+                track_exists(&tx, path)?;
+                changed += stmt.execute(params![path, now])?;
+            }
+        } else {
+            let mut stmt = tx.prepare_cached("DELETE FROM favorites WHERE track_path = ?1")?;
+            for path in &paths {
+                changed += stmt.execute([path])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed as i32)
     })
 }
 
