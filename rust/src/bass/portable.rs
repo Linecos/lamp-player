@@ -55,6 +55,10 @@ pub fn set_exclusive(_exclusive: bool) -> Result<()> {
     unsupported()
 }
 
+pub fn set_eq(_enabled: bool, _gains: Vec<f32>) -> Result<()> {
+    unsupported()
+}
+
 pub fn output_info() -> Result<String> {
     Ok("当前平台没有 BASS 输出".to_string())
 }

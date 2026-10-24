@@ -34,6 +34,9 @@ extension _SettingsSection on _LibraryPageState {
             onCloseToTrayChanged: widget.appLifecycle == null
                 ? null
                 : (bool value) => widget.appLifecycle!.closeToTray = value,
+            eqEnabled: _eqEnabled,
+            eqGains: _eqGains,
+            onEqualizerChanged: _isAvailable ? _setEqualizer : null,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,

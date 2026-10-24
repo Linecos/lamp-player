@@ -74,6 +74,32 @@ extension _OutputSection on _LibraryPageState {
     }
   }
 
+  /* ------------------------------------------------------------ 均衡器 */
+
+  Future<void> _applyEqualizer() async {
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      await _playback.setEqualizer(enabled: _eqEnabled, gains: _eqGains);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('应用均衡器失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  /// 开关或推子变化：先落盘再下发，拖动过程中由 UI 侧节流
+  void _setEqualizer(bool enabled, List<double> gains) {
+    _update(() {
+      _eqEnabled = enabled;
+      _eqGains = normalizeEqGains(gains);
+    });
+    _saveSessionNow();
+    unawaited(_applyEqualizer());
+  }
+
   bool _readAvailability() {
     try {
       return _playback.isAvailable;
@@ -88,6 +114,13 @@ extension _OutputSection on _LibraryPageState {
       position: _position,
       duration: _duration,
       playing: _isPlaying,
+    );
+    _nowPlaying.value = NowPlayingData(
+      track: _currentTrack,
+      isPlaying: _isPlaying,
+      position: _position,
+      duration: _duration,
+      isAvailable: _isAvailable,
     );
   }
 

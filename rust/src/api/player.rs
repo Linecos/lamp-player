@@ -82,6 +82,14 @@ pub fn player_set_exclusive(exclusive: bool) -> Result<()> {
     bass::set_exclusive(exclusive)
 }
 
+/// 设置 10 段均衡器；`gains` 为各段增益（dB，31Hz→16kHz），长度必须为 10
+///
+/// 关闭时摘掉全部 FX。共享模式挂在曲目流上，独占模式挂在混音流上，
+/// 换曲 / 切换输出后自动重新应用。
+pub fn player_set_equalizer(enabled: bool, gains: Vec<f32>) -> Result<()> {
+    bass::set_eq(enabled, gains)
+}
+
 /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲），用于设置页展示
 pub fn player_output_info() -> Result<String> {
     bass::output_info()

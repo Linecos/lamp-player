@@ -32,6 +32,7 @@ class PlayerBar extends StatelessWidget {
     this.shuffle = false,
     this.onToggleRepeat,
     this.onToggleShuffle,
+    this.onOpenNowPlaying,
   });
 
   final Track? track;
@@ -75,6 +76,9 @@ class PlayerBar extends StatelessWidget {
 
   final VoidCallback? onToggleMute;
 
+  /// 点封面 / 曲名打开「正在播放」页
+  final VoidCallback? onOpenNowPlaying;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -106,13 +110,24 @@ class PlayerBar extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          AlbumCover(
-            path: current?.coverPath,
-            size: 56,
-            radius: 16,
-            playing: isPlaying,
+          // 封面 + 曲名整块可点：打开正在播放页（歌词 / 大封面）
+          InkWell(
+            key: const ValueKey<String>('player-bar-open-now-playing'),
+            borderRadius: BorderRadius.circular(16),
+            onTap: current == null ? null : onOpenNowPlaying,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AlbumCover(
+                  path: current?.coverPath,
+                  size: 56,
+                  radius: 16,
+                  playing: isPlaying,
+                ),
+                const SizedBox(width: 12),
+              ],
+            ),
           ),
-          const SizedBox(width: 12),
           Expanded(
             flex: 3,
             child: Column(

@@ -397,4 +397,18 @@ class FakePlaybackService implements PlaybackService {
     outputInfoCalls += 1;
     return outputInfoText;
   }
+
+  bool eqEnabled = false;
+  List<double> eqGains = const <double>[];
+  int eqCalls = 0;
+
+  @override
+  Future<void> setEqualizer({
+    required bool enabled,
+    required List<double> gains,
+  }) async {
+    eqCalls += 1;
+    eqEnabled = enabled;
+    eqGains = List<double>.of(gains);
+  }
 }

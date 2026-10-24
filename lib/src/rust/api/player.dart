@@ -60,6 +60,18 @@ bool playerIsExclusive() =>
 Future<void> playerSetExclusive({required bool exclusive}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetExclusive(exclusive: exclusive);
 
+/// 设置 10 段均衡器；`gains` 为各段增益（dB，31Hz→16kHz），长度必须为 10
+///
+/// 关闭时摘掉全部 FX。共享模式挂在曲目流上，独占模式挂在混音流上，
+/// 换曲 / 切换输出后自动重新应用。
+Future<void> playerSetEqualizer({
+  required bool enabled,
+  required List<double> gains,
+}) => RustLib.instance.api.crateApiPlayerPlayerSetEqualizer(
+  enabled: enabled,
+  gains: gains,
+);
+
 /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲），用于设置页展示
 Future<String> playerOutputInfo() =>
     RustLib.instance.api.crateApiPlayerPlayerOutputInfo();
