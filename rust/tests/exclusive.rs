@@ -2,6 +2,10 @@
 //!
 //! 无声卡 / 设备被别的进程独占时直接跳过，不把 CI 弄红。
 //! 会短暂占用默认输出设备（100~500 ms），测试结束前一定切回共享输出。
+//!
+//! **默认跳过**：独占会把正在出声的应用（游戏 / 音乐）从设备上踢下去，
+//! 日常 `cargo test` 不该打扰别人听歌。专项验证时设 `LAMP_EXCLUSIVE_TEST=1`
+//! 再跑：`LAMP_EXCLUSIVE_TEST=1 cargo test --test exclusive`
 
 use rust_lib_lamp_player::api::player::{
     player_duration, player_is_available, player_is_exclusive, player_output_info, player_pause,
@@ -41,6 +45,11 @@ fn write_wav(path: &PathBuf, secs: u32) {
 #[test]
 fn exclusive_output_chain() {
     if !cfg!(windows) {
+        return;
+    }
+    // 默认跳过：独占几秒会让游戏 / 音乐当场没声（见文件头说明）
+    if std::env::var("LAMP_EXCLUSIVE_TEST").as_deref() != Ok("1") {
+        eprintln!("跳过：独占测试会短暂抢占声卡；专项验证时设 LAMP_EXCLUSIVE_TEST=1");
         return;
     }
     // 空闲释放要等，测试里调短到 1 秒（必须在引擎线程启动前设置）
