@@ -303,6 +303,9 @@ class FakePlaybackService implements PlaybackService {
   /// 非空时 `play()` 抛出该错误，用于测试播放失败后的降级
   Object? playError;
 
+  /// 非空时 `seek()` 抛出该错误，用于测试恢复进度的失败路径
+  Object? seekError;
+
   rust.PlaybackState current = rust.PlaybackState.stopped;
   final List<String> playedPaths = <String>[];
   final List<double> seekCalls = <double>[];
@@ -363,6 +366,10 @@ class FakePlaybackService implements PlaybackService {
 
   @override
   Future<void> seek(double positionSecs) async {
+    final Object? error = seekError;
+    if (error != null) {
+      throw error;
+    }
     seekCalls.add(positionSecs);
     this.positionSecs = positionSecs;
   }

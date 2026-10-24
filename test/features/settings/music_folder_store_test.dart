@@ -13,6 +13,20 @@ void main() {
     expect(normalizeFolders(<String>['   ']), isEmpty);
   });
 
+  test('normalizeFolderPath 去掉尾部斜杠但保留盘根与 UNC 根', () {
+    expect(normalizeFolderPath('E:\\Music\\'), 'E:\\Music');
+    expect(normalizeFolderPath('E:/Music//'), 'E:/Music');
+    expect(normalizeFolderPath('  E:/Music  '), 'E:/Music');
+    expect(normalizeFolderPath('E:\\'), 'E:\\', reason: '盘根不应被裁成 E:');
+    expect(normalizeFolderPath('\\\\server\\share\\'), '\\\\server\\share');
+  });
+
+  test('带尾斜杠与不带的同一个目录只保留一条', () {
+    expect(normalizeFolders(<String>['E:\\Music\\', 'e:\\music']), <String>[
+      'E:\\Music',
+    ]);
+  });
+
   test('PrefsMusicFolderStore 写入前规范化，保存后能读回', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsMusicFolderStore store = PrefsMusicFolderStore();

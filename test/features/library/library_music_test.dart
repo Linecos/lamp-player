@@ -115,6 +115,20 @@ void main() {
     expect(find.text('潮汐'), findsNothing);
   });
 
+  testWidgets('搜索命中超过 500 条时提示 500+', (WidgetTester tester) async {
+    final List<Track> many = <Track>[
+      for (int index = 0; index < 501; index += 1)
+        sampleTrack(title: '夜航 $index', path: '/music/$index.mp3'),
+    ];
+    await pumpLibrary(tester, tracks: many);
+
+    await tester.enterText(find.byType(TextField), '夜航');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(find.text('找到 500+ 首（仅显示前 500）'), findsOneWidget);
+  });
+
   testWidgets('清空搜索恢复完整列表', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 

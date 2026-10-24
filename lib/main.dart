@@ -30,7 +30,7 @@ Future<void> main() async {
   } catch (error) {
     // DLL 缺失、架构不匹配等会走到这里：给一个能看懂的界面，而不是白屏
     debugPrint('Rust 桥接初始化失败：$error');
-    runApp(LampStartupErrorApp(message: '$error'));
+    await _runStartupError(message: '$error');
     return;
   }
 
@@ -39,7 +39,7 @@ Future<void> main() async {
   } catch (error) {
     // 支持目录不可写、数据库损坏等
     debugPrint('曲库初始化失败：$error');
-    runApp(LampStartupErrorApp(title: '启动失败：曲库未能打开', message: '$error'));
+    await _runStartupError(title: '启动失败：曲库未能打开', message: '$error');
     return;
   }
 
@@ -51,6 +51,24 @@ Future<void> main() async {
   _AppWindowListener(windowStore).attach();
 
   runApp(LampApp(themeController: theme));
+}
+
+/// 展示启动失败兜底页。
+///
+/// 这里必须先把 `preventClose` 放开：它在建窗时就打开了，而负责在关闭时解除
+/// 拦截的 `_AppWindowListener` 要到初始化全部成功后才挂上。失败路径直接
+/// `runApp` 的话，兜底页的 × 与 Alt+F4 都会被吞掉，只能任务管理器杀进程。
+Future<void> _runStartupError({String? title, required String message}) async {
+  try {
+    await windowManager.setPreventClose(false);
+  } catch (error) {
+    debugPrint('解除关闭拦截失败：$error');
+  }
+  runApp(
+    title == null
+        ? LampStartupErrorApp(message: message)
+        : LampStartupErrorApp(title: title, message: message),
+  );
 }
 
 /// 关掉系统标题栏，改用应用内自绘的（见 `lib/src/app/title_bar.dart`）。

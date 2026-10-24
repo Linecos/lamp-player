@@ -341,6 +341,79 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('恢复进度时 seek 失败仍按播放中处理', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+      positionSecs: 42,
+    )..seekError = StateError('seek 失败');
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        lastTrackPath: '/music/潮汐.mp3',
+        lastPositionSecs: 42,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 引擎已经在出声：不能把界面切回「已暂停」，否则图标反向、进度条冻结
+    expect(playback.playedPaths, <String>['/music/潮汐.mp3']);
+    expect(playback.current, rust.PlaybackState.playing);
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.pause),
+      ),
+      findsOneWidget,
+      reason: 'seek 失败不应影响播放状态',
+    );
+    expect(find.textContaining('从上次位置继续失败'), findsOneWidget);
+
+    // 轮询应已启动：引擎位置变化能刷新到界面
+    playback.positionSecs = 7;
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.text('00:07'), findsOneWidget, reason: '进度轮询应继续工作');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('快捷键不响应长按重复事件', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: FakePlaybackService(isAvailable: true),
+    );
+
+    final CallbackShortcuts shortcuts = tester.widget<CallbackShortcuts>(
+      find.byType(CallbackShortcuts).first,
+    );
+    final Iterable<SingleActivator> activators = shortcuts.bindings.keys
+        .whereType<SingleActivator>();
+    expect(activators, isNotEmpty);
+    expect(
+      activators.every(
+        (SingleActivator activator) => !activator.includeRepeats,
+      ),
+      isTrue,
+      reason: '长按空格 / 方向键会连续触发播放暂停与切歌',
+    );
+  });
+
   testWidgets('静音后把音量写回会话', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
     final FakeSessionStore session = FakeSessionStore();

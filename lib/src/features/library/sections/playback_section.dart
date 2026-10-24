@@ -42,18 +42,6 @@ extension _PlaybackSection on _LibraryPageState {
     }
     try {
       await _playback.play(track.path);
-      if (startAt > 0) {
-        await _playback.seek(startAt);
-      }
-      if (!mounted) {
-        return false;
-      }
-      _update(() => _isPlaying = true);
-      _publishProgress();
-      _startPositionPolling();
-      unawaited(_recordPlay(track.path));
-      _saveSessionNow();
-      return true;
     } catch (error) {
       if (!mounted) {
         return false;
@@ -65,6 +53,28 @@ extension _PlaybackSection on _LibraryPageState {
       _showMessage('播放失败：${ErrorRetry.describe(error)}');
       return false;
     }
+    if (startAt > 0) {
+      // seek 失败不能按「播放失败」处理：引擎已经在出声，置回 stopped 会让
+      // 播放条显示暂停、进度轮询也不启动，于是进度条冻在旧位置。
+      try {
+        await _playback.seek(startAt);
+      } catch (error) {
+        if (!mounted) {
+          return false;
+        }
+        _update(() => _position = 0);
+        _showMessage('从上次位置继续失败，已从头播放：${ErrorRetry.describe(error)}');
+      }
+    }
+    if (!mounted) {
+      return false;
+    }
+    _update(() => _isPlaying = true);
+    _publishProgress();
+    _startPositionPolling();
+    unawaited(_recordPlay(track.path));
+    _saveSessionNow();
+    return true;
   }
 
   Future<void> _playAll(List<Track> tracks) async {
