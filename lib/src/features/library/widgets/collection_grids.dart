@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/widgets/album_cover.dart';
 import '../library_sort.dart';
 
 /// 取展示用首字：中文取第一个字，英文取首字母。
@@ -170,16 +171,14 @@ class _AlbumCard extends StatelessWidget {
             children: <Widget>[
               AspectRatio(
                 aspectRatio: 1,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Icon(
-                    Icons.album,
-                    size: 48,
-                    color: scheme.onSurfaceVariant,
-                  ),
+                child: LayoutBuilder(
+                  builder: (BuildContext context, BoxConstraints constraints) {
+                    return AlbumCover(
+                      path: album.coverPath,
+                      size: constraints.maxWidth,
+                      radius: 24,
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 12),
