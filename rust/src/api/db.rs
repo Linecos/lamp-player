@@ -385,7 +385,11 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     track_num     = excluded.track_num,
                     file_mtime    = excluded.file_mtime,
                     file_size     = excluded.file_size,
-                    cover_path    = excluded.cover_path
+                    -- 重新解析失败（文件损坏、插件临时不可用）时不要把已有封面抹掉
+                    cover_path    = CASE
+                        WHEN excluded.cover_path <> '' THEN excluded.cover_path
+                        ELSE tracks.cover_path
+                    END
                 "#,
             )?;
             for item in items {
@@ -432,9 +436,58 @@ pub(crate) fn file_signatures() -> anyhow::Result<HashMap<String, (i64, i64)>> {
     })
 }
 
+/// 至少要有这么多曲目才启用「删除比例」保护（小库删几首是正常的）
+const PRUNE_GUARD_MIN_TOTAL: usize = 10;
+
+/// 一次清理超过这个比例就判定为「整块盘不可达」，拒绝删除
+const PRUNE_GUARD_MAX_RATIO: f64 = 0.5;
+
+/// 曲目路径所在的卷根（`E:/Music/a.mp3` → `E:/`，UNC → `//server/share`）。
+///
+/// 用于判断「同一块盘的其它文件是否还在」：盘没挂载时整卷文件都 `exists()==false`，
+/// 直接按缺失删除会把歌单/收藏/历史级联清空。
+fn volume_root(path: &str) -> Option<String> {
+    use std::path::Component;
+    let mut components = Path::new(path).components();
+    match components.next() {
+        Some(Component::Prefix(prefix)) => {
+            let mut root = prefix.as_os_str().to_string_lossy().to_string();
+            if !root.ends_with(std::path::MAIN_SEPARATOR) {
+                root.push(std::path::MAIN_SEPARATOR);
+            }
+            Some(root)
+        }
+        Some(Component::RootDir) => Some(std::path::MAIN_SEPARATOR.to_string()),
+        _ => None,
+    }
+}
+
+/// 已有封面路径指向的文件是否还在；不在就返回这些曲目的 path。
+///
+/// 封面缓存被清理、曲库搬家后，文件本身没变（mtime/size 一致）会被增量扫描
+/// 跳过，封面就永远不会重新提取。扫描前先把这些曲目的指纹抹掉，强制重解析。
+pub(crate) fn tracks_with_missing_covers() -> anyhow::Result<Vec<String>> {
+    let rows: Vec<(String, String)> = with_conn(|conn| {
+        let mut stmt =
+            conn.prepare_cached("SELECT path, cover_path FROM tracks WHERE cover_path <> ''")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+    Ok(rows
+        .into_iter()
+        .filter(|(_, cover)| !Path::new(cover).exists())
+        .map(|(path, _)| path)
+        .collect())
+}
+
 /// 清理已不存在的文件记录，返回删除数。
 ///
 /// 磁盘检查在锁外完成，避免网络盘/大曲库把其它查询一起卡住；删除在单事务里。
+///
+/// 两道防护，避免「移动硬盘/网络盘没挂载」时把整个曲库删空（`delete_tracks`
+/// 会级联清掉歌单、收藏、播放历史）：
+/// 1. **卷根可达性**：某块盘的根目录都读不到时，该卷下的曲目一律不算缺失；
+/// 2. **删除比例**：一次要删超过一半（且总数 ≥ 10）时判定为异常，直接报错不动库。
 pub fn prune_missing_tracks() -> anyhow::Result<i32> {
     let rows: Vec<(i64, String)> = with_conn(|conn| {
         let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
@@ -442,11 +495,46 @@ pub fn prune_missing_tracks() -> anyhow::Result<i32> {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })?;
 
-    let missing: Vec<i64> = rows
-        .into_iter()
-        .filter(|(_, path)| !Path::new(path).exists())
-        .map(|(id, _)| id)
-        .collect();
+    let total = rows.len();
+    let mut reachable: HashMap<String, bool> = HashMap::new();
+    let mut missing: Vec<i64> = Vec::new();
+    let mut skipped_volumes: HashSet<String> = HashSet::new();
+    for (id, path) in &rows {
+        if Path::new(path).exists() {
+            continue;
+        }
+        let Some(root) = volume_root(path) else {
+            missing.push(*id);
+            continue;
+        };
+        let ok = *reachable
+            .entry(root.clone())
+            .or_insert_with(|| Path::new(&root).exists());
+        if ok {
+            missing.push(*id);
+        } else {
+            skipped_volumes.insert(root);
+        }
+    }
+
+    if !skipped_volumes.is_empty() {
+        // 卷不可达：整体跳过这部分，只清理确认可达的盘上真正消失的文件
+        let mut list: Vec<String> = skipped_volumes.into_iter().collect();
+        list.sort();
+        eprintln!(
+            "prune_missing_tracks: 跳过不可达的卷 {}（疑似未挂载）",
+            list.join(", ")
+        );
+    }
+
+    if total >= PRUNE_GUARD_MIN_TOTAL && missing.len() as f64 > total as f64 * PRUNE_GUARD_MAX_RATIO
+    {
+        bail!(
+            "检测到 {} / {} 首曲目同时缺失，疑似磁盘未挂载或权限异常，已跳过清理",
+            missing.len(),
+            total
+        );
+    }
 
     delete_tracks(&missing)
 }

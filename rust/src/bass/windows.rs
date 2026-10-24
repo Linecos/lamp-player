@@ -52,7 +52,7 @@ const BASS_SAMPLE_FLOAT: u32 = 0x0000_0100;
 const BASS_ATTRIB_VOL: u32 = 2;
 const BASS_ATTRIB_SRC: u32 = 8;
 const BASS_POS_BYTE: u32 = 0;
-const BASS_ERROR_BUSY: i32 = 14;
+const BASS_ERROR_BUSY: i32 = 46;
 
 /// 独占模式的设备缓冲（秒）。100 ms 足够稳，延迟对音乐播放无感。
 const WASAPI_BUFFER_SECS: f32 = 0.1;
@@ -126,7 +126,13 @@ enum Cmd {
 }
 
 struct Slot {
+    /// 解码源流：只用于 position / seek 与拆除，**不作为输出源**
     stream: u32,
+    /// 混音流：独占模式下真正被设备回调拉取的就是它
+    ///
+    /// 源流已挂到混音器上，直接拉源流会绕过混音器的重采样与音量
+    /// （44.1k 素材在 48k 设备上变成 1.088 倍速，音量滑块也会失效）。
+    mixer: u32,
     paused: bool,
     get_data: unsafe extern "system" fn(u32, *mut c_void, u32) -> u32,
 }
@@ -143,11 +149,17 @@ unsafe extern "system" fn wasapi_proc(buffer: *mut c_void, length: u32, user: *m
     let Ok(guard) = slot.lock() else {
         return 0;
     };
-    if guard.paused || guard.stream == 0 {
+    // 独占输出必须以混音流为数据源：源流没有经过重采样与音量处理
+    let source = if guard.mixer != 0 {
+        guard.mixer
+    } else {
+        guard.stream
+    };
+    if guard.paused || source == 0 {
         std::ptr::write_bytes(buffer as *mut u8, 0, length as usize);
         return length;
     }
-    let got = (guard.get_data)(guard.stream, buffer, length);
+    let got = (guard.get_data)(source, buffer, length);
     if got == u32::MAX {
         0
     } else {
@@ -204,6 +216,7 @@ impl Engine {
             mix: None,
             slot: Arc::new(Mutex::new(Slot {
                 stream: 0,
+                mixer: 0,
                 paused: false,
                 get_data: no_data,
             })),
@@ -378,7 +391,7 @@ impl Engine {
 
     /// 释放 WASAPI 会话与混音流，设备交还系统
     fn teardown_session(&mut self) {
-        self.set_slot(0, true);
+        self.set_slot(0, 0, true);
         if let Some(mix) = self.mix.as_ref() {
             if self.stream != 0 {
                 mix.remove_channel(self.stream);
@@ -405,9 +418,11 @@ impl Engine {
         self.init_shared()
     }
 
-    fn set_slot(&self, stream: u32, paused: bool) {
+    /// 更新回调的取数源；`mixer` 为 0 时退回拉 `stream`（共享输出不走回调）
+    fn set_slot(&self, stream: u32, mixer: u32, paused: bool) {
         if let Ok(mut slot) = self.slot.lock() {
             slot.stream = stream;
+            slot.mixer = mixer;
             slot.paused = paused;
         }
     }
@@ -515,7 +530,7 @@ impl Engine {
                     (self.api.channel_set_attribute)(self.mixer, BASS_ATTRIB_VOL, self.volume)
                 };
             }
-            self.set_slot(handle, false);
+            self.set_slot(handle, self.mixer, false);
         } else {
             // 音量是 per-channel 属性，换曲后必须重新应用
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, self.volume) };
@@ -598,6 +613,10 @@ impl Engine {
     }
 
     fn set_volume(&mut self, volume: f32) -> Result<()> {
+        // NaN 会穿透 clamp（clamp 对 NaN 返回 NaN），下发到 BASS 后音量永久变哑
+        if !volume.is_finite() {
+            bail!("音量非法: {volume}");
+        }
         self.volume = volume.clamp(0.0, 1.0);
         let target = if self.output == Output::Exclusive {
             self.mixer
@@ -688,7 +707,7 @@ impl Engine {
         }
         let stream = self.stream;
         // 先让回调松手，再拆链路
-        self.set_slot(0, true);
+        self.set_slot(0, 0, true);
         self.stream = 0;
         self.path = None;
         match self.output {
@@ -777,12 +796,40 @@ struct Shared {
     tx: Sender<Cmd>,
 }
 
-static ENGINE: OnceLock<Result<Shared, String>> = OnceLock::new();
+/// 引擎单例。
+///
+/// 刻意不用 `OnceLock<Result<..>>`：无声卡、DLL 缺失这类**可恢复**的失败
+/// 会被永久缓存，用户插上耳机或补齐 DLL 之后必须重启进程。这里只在
+/// 失败时记下原因，下次调用重新尝试启动。
+static ENGINE: Mutex<Option<Result<Shared, String>>> = Mutex::new(None);
 
-fn shared() -> Result<&'static Shared> {
-    match ENGINE.get_or_init(|| spawn().map_err(|e| e.to_string())) {
-        Ok(shared) => Ok(shared),
-        Err(err) => Err(anyhow!("播放引擎不可用: {err}")),
+fn lock_engine() -> std::sync::MutexGuard<'static, Option<Result<Shared, String>>> {
+    // 引擎锁只保护一个 Option，中毒说明上一次初始化 panic 了，仍可继续用
+    ENGINE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 取引擎命令发送端；首次调用会拉起引擎线程。
+fn sender() -> Result<Sender<Cmd>> {
+    let mut guard = lock_engine();
+    match guard.as_ref() {
+        Some(Ok(shared)) => return Ok(shared.tx.clone()),
+        // 上次失败：丢掉失败结果，重新试一次
+        Some(Err(_)) => *guard = None,
+        None => {}
+    }
+    match spawn() {
+        Ok(shared) => {
+            let tx = shared.tx.clone();
+            *guard = Some(Ok(shared));
+            Ok(tx)
+        }
+        Err(err) => {
+            let message = err.to_string();
+            *guard = Some(Err(message.clone()));
+            Err(anyhow!("播放引擎不可用: {message}"))
+        }
     }
 }
 
@@ -859,21 +906,40 @@ fn run(mut engine: Engine, rx: Receiver<Cmd>) {
     }
 }
 
+/// 单条命令的最长等待：引擎线程卡在打不开的文件（断连的 SMB、休眠中的移动盘）
+/// 上时，`recv()` 会把 Dart 侧的 Future 永久挂起，UI 表现为整个播放区假死。
+fn call_timeout() -> std::time::Duration {
+    static TIMEOUT: OnceLock<std::time::Duration> = OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        std::env::var("LAMP_ENGINE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(std::time::Duration::from_secs)
+            .unwrap_or(std::time::Duration::from_secs(10))
+    })
+}
+
 fn call<T>(make: impl FnOnce(Reply<T>) -> Cmd) -> Result<T> {
-    let shared = shared()?;
+    let sender = sender()?;
     let (tx, rx) = channel();
-    shared
-        .tx
+    sender
         .send(make(tx))
         .map_err(|_| anyhow!("播放引擎已退出"))?;
-    rx.recv().map_err(|_| anyhow!("播放引擎无响应"))?
+    match rx.recv_timeout(call_timeout()) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(anyhow!(
+            "播放引擎无响应（超过 {} 秒），请检查文件所在磁盘是否可用",
+            call_timeout().as_secs()
+        )),
+        Err(RecvTimeoutError::Disconnected) => Err(anyhow!("播放引擎无响应")),
+    }
 }
 
 pub fn available() -> bool {
     if AVAILABLE.load(Ordering::SeqCst) {
         return true;
     }
-    shared().is_ok()
+    sender().is_ok()
 }
 
 pub fn play(path: &str) -> Result<()> {
@@ -921,17 +987,26 @@ pub fn output_info() -> Result<String> {
 }
 
 pub fn shutdown() -> Result<()> {
-    // 不要用 shared()：那会在退出时反而把引擎启动起来
-    let Some(Ok(shared)) = ENGINE.get() else {
-        return Ok(());
+    // 不能走 sender()：那会在退出时反而把引擎启动起来
+    let sender = {
+        let guard = lock_engine();
+        match guard.as_ref() {
+            Some(Ok(shared)) => shared.tx.clone(),
+            _ => return Ok(()),
+        }
     };
     let (tx, rx) = channel();
-    shared
-        .tx
+    sender
         .send(Cmd::Shutdown(tx))
         .map_err(|_| anyhow!("播放引擎已退出"))?;
     // 设备释放不该把退出流程拖住
     let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+    // 线程已退出：清空单例，让同一进程内还能重新拉起（测试与再次 init 都会用到）
+    {
+        let mut guard = lock_engine();
+        *guard = None;
+    }
+    AVAILABLE.store(false, Ordering::SeqCst);
     Ok(())
 }
 

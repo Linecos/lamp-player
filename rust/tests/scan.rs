@@ -211,6 +211,21 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
         "封面应放在曲库目录的 covers/ 下: {cover}"
     );
 
+    // 封面缓存被清理、音频本身没变：重扫应重新解析并补回封面
+    fs::remove_file(&cover).expect("删除封面缓存");
+    let healed = scan::scan_folder(music.to_string_lossy().into_owned()).expect("补扫");
+    assert_eq!(
+        healed.upserted, 1,
+        "封面缺失的曲目应被重新解析，而不是按指纹跳过"
+    );
+    let healed_tracks = db::all_tracks().expect("读取曲库");
+    let healed_cover = healed_tracks[0].cover_path.clone().expect("应重新提取封面");
+    assert_eq!(
+        fs::read(&healed_cover).expect("读取补回的封面"),
+        PNG,
+        "补回的封面内容应与内嵌图一致"
+    );
+
     // 删掉曲目再扫：曲目记录与无人引用的封面都应被清理
     fs::remove_file(&song).expect("删除测试音频");
     let after = scan::scan_folder(music.to_string_lossy().into_owned()).expect("清理扫描");

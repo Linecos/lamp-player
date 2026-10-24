@@ -44,7 +44,7 @@ fn exclusive_output_chain() {
         return;
     }
     // 空闲释放要等，测试里调短到 1 秒（必须在引擎线程启动前设置）
-    std::env::set_var("LAMP_EXCLUSIVE_IDLE_SECS", "1");
+    std::env::set_var("LAMP_EXCLUSIVE_IDLE_SECS", "2");
     if !player_is_available() {
         eprintln!("跳过：BASS 不可用（未下载 bass.dll / 无声卡？）");
         return;
@@ -76,6 +76,19 @@ fn exclusive_output_chain() {
     thread::sleep(Duration::from_millis(400));
     let played = player_position().expect("读取位置");
     assert!(played > 0.0, "独占播放 400ms 后位置应大于 0，实际 {played}");
+
+    // 播放速率必须接近 1.0：44.1k 素材在 48k 设备上如果直接拉源流
+    // （绕过 bassmix 重采样）会跑成 48/44.1 ≈ 1.088 倍速，音调也偏高。
+    let rate_start = std::time::Instant::now();
+    let pos_start = player_position().expect("读取起始位置");
+    thread::sleep(Duration::from_millis(1200));
+    let pos_end = player_position().expect("读取结束位置");
+    let elapsed = rate_start.elapsed().as_secs_f64();
+    let rate = (pos_end - pos_start) / elapsed;
+    assert!(
+        (rate - 1.0).abs() < 0.05,
+        "独占模式播放速率应接近 1.0，实际 {rate:.3}（源流未经过混音流重采样？）"
+    );
 
     // 暂停期间回调只写静音，不应继续拉流
     player_pause().expect("暂停应成功");
@@ -126,13 +139,17 @@ fn exclusive_output_chain() {
     let short = std::env::temp_dir().join("lamp_player_exclusive_short.wav");
     write_wav(&short, 1);
     player_play(short.to_string_lossy().to_string()).expect("播放短音频");
-    thread::sleep(Duration::from_millis(1400));
+    // 轮询等它播完：固定 sleep 在慢机器上会越过空闲阈值，造成假失败
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while player_state() != PlaybackState::Stopped && std::time::Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
     assert_eq!(player_state(), PlaybackState::Stopped, "1 秒素材应已播完");
     assert!(
         player_is_exclusive(),
         "刚播完还没到空闲阈值，设备应仍在手上"
     );
-    thread::sleep(Duration::from_millis(1200));
+    thread::sleep(Duration::from_millis(2600));
     assert!(!player_is_exclusive(), "空闲超过阈值后应把设备交还系统");
 
     let _ = fs::remove_file(wav);
