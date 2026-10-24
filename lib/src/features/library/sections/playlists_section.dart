@@ -305,6 +305,133 @@ extension _PlaylistsSection on _LibraryPageState {
     }
   }
 
+  /// 导入 M3U / M3U8 播放列表：选文件 → 解析 → 匹配曲库 → 命名入库。
+  ///
+  /// 匹配不上的条目跳过并在结果里说明；一条都没匹配上时直接提示，不建空歌单。
+  Future<void> _importPlaylist() async {
+    final XFile? file = await openFile(
+      acceptedTypeGroups: const <XTypeGroup>[
+        XTypeGroup(label: 'M3U 播放列表', extensions: <String>['m3u8', 'm3u']),
+      ],
+    );
+    if (file == null || !mounted) {
+      return;
+    }
+    final String content;
+    try {
+      content = await File(file.path).readAsString();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('读取文件失败：${ErrorRetry.describe(error)}');
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final ParsedM3U parsed = parseM3U(content);
+    if (parsed.entries.isEmpty) {
+      _showMessage('文件里没有找到曲目');
+      return;
+    }
+    final List<Track> matched = matchImportedEntries(parsed.entries, _tracks);
+    if (matched.isEmpty) {
+      _showMessage('导入的 ${parsed.entries.length} 首都不在曲库里，未创建歌单');
+      return;
+    }
+    final String suggested = parsed.playlistName ?? _m3uBaseName(file.path);
+    final String? name = await showPlaylistNameDialog(
+      context,
+      title: '导入歌单（已匹配 ${matched.length} / ${parsed.entries.length} 首）',
+      confirmText: '导入',
+      initialName: suggested,
+      validate: (String value) => _validatePlaylistName(value),
+    );
+    if (name == null || !mounted) {
+      return;
+    }
+    try {
+      final Playlist playlist = await _repository.createPlaylist(name);
+      int added = 0;
+      for (final Track track in matched) {
+        try {
+          if (await _repository.addTrackToPlaylist(
+            playlist.id.toInt(),
+            track.path,
+          )) {
+            added += 1;
+          }
+        } catch (_) {
+          // 单首失败不中断导入，最后统一报告
+        }
+      }
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      final int missed = parsed.entries.length - added;
+      _showMessage(
+        missed > 0
+            ? '已导入「$name」：$added / ${parsed.entries.length} 首（$missed 首不在曲库中）'
+            : '已导入「$name」：$added 首',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('导入失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  /// 导出歌单为 M3U8：选保存位置 → 写文件。
+  Future<void> _exportPlaylist(Playlist playlist) async {
+    final FileSaveLocation? location = await getSaveLocation(
+      suggestedName: '${playlist.name}.m3u8',
+      acceptedTypeGroups: const <XTypeGroup>[
+        XTypeGroup(label: 'M3U 播放列表', extensions: <String>['m3u8', 'm3u']),
+      ],
+    );
+    final String? savePath = location?.path;
+    if (savePath == null || !mounted) {
+      return;
+    }
+    // 用户手输的名字可能不带扩展名；带 .m3u 的保留，其余补 .m3u8
+    final String path = _withM3U8Extension(savePath);
+    try {
+      final List<Track> tracks = await _repository.loadPlaylistTracks(
+        playlist.id.toInt(),
+      );
+      await File(path).writeAsString(
+        buildM3U8(playlistName: playlist.name, tracks: tracks),
+        flush: true,
+      );
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已导出 ${tracks.length} 首到 $path');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('导出失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  static String _m3uBaseName(String filePath) {
+    final String name = filePath.replaceAll('\\', '/').split('/').last;
+    final int dot = name.lastIndexOf('.');
+    return dot <= 0 ? name : name.substring(0, dot);
+  }
+
+  static String _withM3U8Extension(String path) {
+    final String lower = path.toLowerCase();
+    if (lower.endsWith('.m3u8') || lower.endsWith('.m3u')) {
+      return path;
+    }
+    return '$path.m3u8';
+  }
+
   Widget _buildPlaylistsSection(BuildContext context) {
     final Playlist? selected = _selectedPlaylist;
     if (selected != null) {
@@ -326,6 +453,12 @@ extension _PlaylistsSection on _LibraryPageState {
               ),
             ),
             const Spacer(),
+            OutlinedButton.icon(
+              onPressed: () => unawaited(_importPlaylist()),
+              icon: const Icon(Icons.file_open_outlined),
+              label: const Text('导入歌单'),
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: () => unawaited(_createPlaylist()),
               icon: const Icon(Icons.add),
@@ -449,6 +582,11 @@ extension _PlaylistsSection on _LibraryPageState {
                               unawaited(_addTracksToPlaylist(playlist)),
                           icon: const Icon(Icons.add),
                           label: const Text('添加音乐'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => unawaited(_exportPlaylist(playlist)),
+                          icon: const Icon(Icons.ios_share),
+                          label: const Text('导出'),
                         ),
                         OutlinedButton.icon(
                           onPressed: () => unawaited(_renamePlaylist(playlist)),

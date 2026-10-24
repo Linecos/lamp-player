@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform, Process;
+import 'dart:io' show File, Platform, Process;
 import 'dart:math';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -28,6 +28,7 @@ import '../settings/settings_view.dart';
 import 'drop_import.dart';
 import 'library_repository.dart';
 import 'library_sort.dart';
+import 'playlist_io.dart';
 import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
 import 'widgets/playlist_dialogs.dart';
