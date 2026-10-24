@@ -253,6 +253,8 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+/// 卡片用 Material 承载底色：内部 InkWell 的水波纹与 hover 高光必须画在
+/// Material 上，被不透明的 Container 盖住就完全看不见。
 class _SettingsCard extends StatelessWidget {
   const _SettingsCard({required this.children});
 
@@ -261,25 +263,28 @@ class _SettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
+    return Material(
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: scheme.outlineVariant),
+        side: BorderSide(color: scheme.outlineVariant),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Column(
-        children: <Widget>[
-          for (int i = 0; i < children.length; i += 1) ...<Widget>[
-            if (i > 0)
-              Divider(
-                height: 1,
-                indent: 64,
-                color: scheme.outlineVariant.withValues(alpha: 0.6),
-              ),
-            children[i],
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          children: <Widget>[
+            for (int i = 0; i < children.length; i += 1) ...<Widget>[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  indent: 64,
+                  color: scheme.outlineVariant.withValues(alpha: 0.6),
+                ),
+              children[i],
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -315,6 +320,7 @@ class _SwitchRow extends StatelessWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(24),
+      hoverColor: scheme.surfaceContainerHigh,
       onTap: onChanged == null || busy ? null : () => onChanged!(!value),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -452,6 +458,7 @@ class _ActionRow extends StatelessWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(24),
+      hoverColor: scheme.surfaceContainerHigh,
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
@@ -572,6 +579,7 @@ class _ThemeRow extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(24),
       onTap: controller == null ? null : () => _pick(context, controller),
+      hoverColor: scheme.surfaceContainerHigh,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Row(
@@ -697,6 +705,7 @@ class _AccentColorRow extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(24),
       onTap: controller == null ? null : () => _pick(context, controller),
+      hoverColor: scheme.surfaceContainerHigh,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Row(
@@ -901,63 +910,74 @@ class _SeedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.secondaryContainer
-              : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 2 : 1,
+    final BorderRadius radius = BorderRadius.circular(16);
+    // 底色交给 Material，边框留给 Container：否则 InkWell 的水波纹会被盖住。
+    return Material(
+      color: selected
+          ? scheme.secondaryContainer
+          : scheme.surfaceContainerHighest,
+      borderRadius: radius,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            border: Border.all(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
           ),
-        ),
-        child: AspectRatio(
-          aspectRatio: 1,
-          child: Stack(
-            children: <Widget>[
-              Positioned.fill(
-                child: preview != null
-                    ? _ToneQuad(
-                        colors: <Color>[
-                          preview!.primary,
-                          preview!.inversePrimary,
-                          preview!.primaryContainer,
-                          preview!.secondary,
-                        ],
-                      )
-                    : DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerLowest,
-                          shape: BoxShape.circle,
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: preview != null
+                      ? _ToneQuad(
+                          colors: <Color>[
+                            preview!.primary,
+                            preview!.inversePrimary,
+                            preview!.primaryContainer,
+                            preview!.secondary,
+                          ],
+                        )
+                      : DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerLowest,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            systemIcon ?? Icons.auto_awesome_outlined,
+                            size: 22,
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
-                        child: Icon(
-                          systemIcon ?? Icons.auto_awesome_outlined,
-                          size: 22,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-              ),
-              if (selected)
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    width: 20,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: scheme.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: scheme.surface, width: 2),
-                    ),
-                    child: Icon(Icons.check, size: 10, color: scheme.onPrimary),
-                  ),
                 ),
-            ],
+                if (selected)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: scheme.surface, width: 2),
+                      ),
+                      child: Icon(
+                        Icons.check,
+                        size: 10,
+                        color: scheme.onPrimary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

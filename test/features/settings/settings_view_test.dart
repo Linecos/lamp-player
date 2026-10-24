@@ -615,4 +615,56 @@ void main() {
     expect(controller.seedColor, isNull);
     expect(controller.effectiveSeed, AppTheme.defaultSeed);
   });
+
+  testWidgets('可点击行都有 hover 高光，卡片自建 Material 托住墨水', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 2,
+            totalDurationSecs: 125,
+            engineAvailable: true,
+            onAddFolder: () {},
+            onExclusiveChanged: (_) {},
+            onCloseToTrayChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final String label in <String>[
+      '添加音乐目录',
+      '独占输出（WASAPI）',
+      '关闭窗口时留在托盘',
+      '主题',
+      '强调色',
+    ]) {
+      final Finder row = find
+          .ancestor(of: find.text(label), matching: find.byType(InkWell))
+          .first;
+      expect(
+        tester.widget<InkWell>(row).hoverColor,
+        isNotNull,
+        reason: '「$label」悬停时应能看到高光',
+      );
+    }
+
+    // 最近的 Material 必须是卡片本身，否则水波纹会被卡片底色盖住
+    final Finder rowInk = find
+        .ancestor(of: find.text('添加音乐目录'), matching: find.byType(InkWell))
+        .first;
+    final Material card = tester.widget<Material>(
+      find.ancestor(of: rowInk, matching: find.byType(Material)).first,
+    );
+    expect(card.clipBehavior, Clip.antiAlias);
+  });
 }
