@@ -156,6 +156,10 @@ class _LibraryPageState extends State<LibraryPage>
   final ValueNotifier<LibrarySection> _sectionNotifier =
       ValueNotifier<LibrarySection>(LibrarySection.music);
 
+  /// 只驱动侧栏展开 / 收起的通知器：折叠时整页不重建，
+  /// 内容区宽度交给 Row 的重新布局，不必走一遍 build
+  final ValueNotifier<bool> _railNotifier = ValueNotifier<bool>(true);
+
   /// 内容区实际显示的分区。
   ///
   /// 切分区时先只改 [_section]（侧栏高亮立即响应点击），下一帧再更新这个字段
@@ -367,6 +371,7 @@ class _LibraryPageState extends State<LibraryPage>
     _sectionRefreshTimer?.cancel();
     _sectionFade.dispose();
     _sectionNotifier.dispose();
+    _railNotifier.dispose();
     unawaited(_saveSession());
     widget.trayController?.unbindPlayback();
     widget.appLifecycle
@@ -407,6 +412,7 @@ class _LibraryPageState extends State<LibraryPage>
       _displayedSection = section;
       _sectionNotifier.value = section;
       _railExpanded = snapshot.railExpanded;
+      _railNotifier.value = _railExpanded;
       _sort = snapshot.sort;
       _tracks = sortTracks(_tracks, snapshot.sort);
       _coverBackfillAttempted = snapshot.coverBackfillAttempted;
@@ -613,8 +619,9 @@ class _LibraryPageState extends State<LibraryPage>
               children: <Widget>[
                 Row(
                   children: <Widget>[
-                    // 高亮用独立通知驱动：点侧栏时不必重建整页，
-                    // 墨水波纹不会被「顶栏 + 播放岛 + 内容区」的重建压住
+                    // 高亮与展开状态各用独立通知驱动：点侧栏 / 折叠侧栏时
+                    // 都不必重建整页，动画不会被「顶栏 + 播放岛 + 内容区」
+                    // 的重建压住
                     ValueListenableBuilder<LibrarySection>(
                       valueListenable: _sectionNotifier,
                       builder:
@@ -622,92 +629,108 @@ class _LibraryPageState extends State<LibraryPage>
                             BuildContext context,
                             LibrarySection section,
                             Widget? child,
-                          ) => LibraryRail(
-                            expanded: _railExpanded,
-                            section: section,
-                            onSelect: _selectSection,
-                            onToggle: _toggleRail,
+                          ) => ValueListenableBuilder<bool>(
+                            valueListenable: _railNotifier,
+                            builder:
+                                (
+                                  BuildContext context,
+                                  bool expanded,
+                                  Widget? child,
+                                ) => LibraryRail(
+                                  expanded: expanded,
+                                  section: section,
+                                  onSelect: _selectSection,
+                                  onToggle: _toggleRail,
+                                ),
                           ),
                     ),
                     Expanded(
                       // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                          top: LampTitleBar.height,
-                        ),
-                        // 播放岛悬浮在内容之上：列表可以滚到岛下面（悬浮观感），
-                        // 但底部留出岛的高度，滚到底时最后一行不会被压住
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: <Widget>[
-                            Column(
-                              children: <Widget>[
-                                _buildTopBar(context),
-                                if (_selectionMode) _buildSelectionBar(context),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      _playerBarReservedHeight,
-                                    ),
-                                    child: FadeTransition(
-                                      // 只做淡入：交叉淡变会让两份全屏列表
-                                      // 同时布局 + 逐帧重绘，切换必掉帧；
-                                      // 旧内容立即移除、新内容淡入，观感更利落
-                                      opacity: _sectionFade,
-                                      child: _buildSectionsHost(context),
+                      // RepaintBoundary 把内容区独立成一层：侧栏宽度动画时
+                      // 侧栏自己的重绘不会连带整块内容区一起重画
+                      child: RepaintBoundary(
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            top: LampTitleBar.height,
+                          ),
+                          // 播放岛悬浮在内容之上：列表可以滚到岛下面（悬浮观感），
+                          // 但底部留出岛的高度，滚到底时最后一行不会被压住
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: <Widget>[
+                              Column(
+                                children: <Widget>[
+                                  _buildTopBar(context),
+                                  if (_selectionMode)
+                                    _buildSelectionBar(context),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        0,
+                                        16,
+                                        _playerBarReservedHeight,
+                                      ),
+                                      child: FadeTransition(
+                                        // 只做淡入：交叉淡变会让两份全屏列表
+                                        // 同时布局 + 逐帧重绘，切换必掉帧；
+                                        // 旧内容立即移除、新内容淡入，观感更利落
+                                        opacity: _sectionFade,
+                                        child: _buildSectionsHost(context),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: ValueListenableBuilder<_PlaybackProgress>(
-                                valueListenable: _progress,
-                                builder:
-                                    (
-                                      BuildContext context,
-                                      _PlaybackProgress progress,
-                                      Widget? child,
-                                    ) {
-                                      return PlayerBar(
-                                        track: _currentTrack,
-                                        isPlaying: progress.playing,
-                                        isAvailable: _isAvailable,
-                                        canSeek: !_isStopped,
-                                        position: progress.position,
-                                        duration: progress.duration,
-                                        volume: _volume,
-                                        onPlayPause: () =>
-                                            unawaited(_togglePlayback()),
-                                        onPrevious: () =>
-                                            unawaited(_previous()),
-                                        onNext: () => unawaited(_next()),
-                                        onSeekStart: _onSeekStart,
-                                        onSeekChanged: _onSeekChanged,
-                                        onSeekEnd: (double seconds) =>
-                                            unawaited(_onSeekEnd(seconds)),
-                                        onVolumeChanged: _setVolume,
-                                        onToggleMute: _toggleMute,
-                                        onShowQueue: () =>
-                                            unawaited(_showQueue()),
-                                        repeat: _queue.repeat,
-                                        shuffle: _queue.shuffle,
-                                        onToggleRepeat: _cycleRepeat,
-                                        onToggleShuffle: _toggleShuffle,
-                                        onOpenNowPlaying: () =>
-                                            unawaited(_openNowPlaying()),
-                                      );
-                                    },
+                                ],
                               ),
-                            ),
-                          ],
+                              // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child:
+                                    ValueListenableBuilder<_PlaybackProgress>(
+                                      valueListenable: _progress,
+                                      builder:
+                                          (
+                                            BuildContext context,
+                                            _PlaybackProgress progress,
+                                            Widget? child,
+                                          ) {
+                                            return PlayerBar(
+                                              track: _currentTrack,
+                                              isPlaying: progress.playing,
+                                              isAvailable: _isAvailable,
+                                              canSeek: !_isStopped,
+                                              position: progress.position,
+                                              duration: progress.duration,
+                                              volume: _volume,
+                                              onPlayPause: () =>
+                                                  unawaited(_togglePlayback()),
+                                              onPrevious: () =>
+                                                  unawaited(_previous()),
+                                              onNext: () => unawaited(_next()),
+                                              onSeekStart: _onSeekStart,
+                                              onSeekChanged: _onSeekChanged,
+                                              onSeekEnd: (double seconds) =>
+                                                  unawaited(
+                                                    _onSeekEnd(seconds),
+                                                  ),
+                                              onVolumeChanged: _setVolume,
+                                              onToggleMute: _toggleMute,
+                                              onShowQueue: () =>
+                                                  unawaited(_showQueue()),
+                                              repeat: _queue.repeat,
+                                              shuffle: _queue.shuffle,
+                                              onToggleRepeat: _cycleRepeat,
+                                              onToggleShuffle: _toggleShuffle,
+                                              onOpenNowPlaying: () =>
+                                                  unawaited(_openNowPlaying()),
+                                            );
+                                          },
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -723,7 +746,10 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   void _toggleRail() {
-    setState(() => _railExpanded = !_railExpanded);
+    _railExpanded = !_railExpanded;
+    // 走通知器而不是 setState：整页（顶栏 / 播放岛 / 分区宿主）不必重建，
+    // 侧栏宽度动画每一帧的成本就只剩它自己
+    _railNotifier.value = _railExpanded;
     _saveSessionNow();
   }
 
