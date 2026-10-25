@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../common/audio/volume_curve.dart';
 import '../features/library/library_sort.dart';
 import '../features/player/playback_queue.dart';
 
@@ -81,14 +82,33 @@ class PrefsSessionStore implements SessionStore {
   static const String eqGainsKey = 'player_eq_gains';
   static const String sortKey = 'ui_sort';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
+  static const String volumeCurveVersionKey = 'volume_curve_version';
+
+  /// 当前音量曲线版本。
+  ///
+  /// 1（缺省）= 滑块值直接当振幅用；2 = 三次曲线（[volumeToAmplitude]）。
+  /// 曲线一换，同一个滑块值听起来会安静很多（0.5 从 -6 dB 掉到 -18 dB），
+  /// 所以老存档要按等响度搬过来。
+  static const int volumeCurveVersion = 2;
 
   @override
   Future<SessionSnapshot> load() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
+      double volume = (prefs.getDouble(volumeKey) ?? 1).clamp(0.0, 1.0);
+      double lastVolume = (prefs.getDouble(lastVolumeKey) ?? 1).clamp(0.0, 1.0);
+      if ((prefs.getInt(volumeCurveVersionKey) ?? 1) < volumeCurveVersion) {
+        // 旧存档的滑块值其实是振幅：反解出等响度的新滑块值（立方根）。
+        // 迁移后立刻落版本号，避免每次启动都再搬一次
+        volume = amplitudeToVolume(volume);
+        lastVolume = amplitudeToVolume(lastVolume);
+        await prefs.setInt(volumeCurveVersionKey, volumeCurveVersion);
+        await prefs.setDouble(volumeKey, volume);
+        await prefs.setDouble(lastVolumeKey, lastVolume);
+      }
       return SessionSnapshot(
-        volume: (prefs.getDouble(volumeKey) ?? 1).clamp(0.0, 1.0),
-        lastVolume: (prefs.getDouble(lastVolumeKey) ?? 1).clamp(0.0, 1.0),
+        volume: volume,
+        lastVolume: lastVolume,
         lastTrackPath: prefs.getString(lastTrackKey),
         lastPositionSecs: (prefs.getDouble(lastPositionKey) ?? 0).clamp(
           0.0,
@@ -118,6 +138,8 @@ class PrefsSessionStore implements SessionStore {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(volumeKey, snapshot.volume);
       await prefs.setDouble(lastVolumeKey, snapshot.lastVolume);
+      // 记下曲线版本：以后换算法时才知道要不要迁移这一份存档
+      await prefs.setInt(volumeCurveVersionKey, volumeCurveVersion);
       final String? path = snapshot.lastTrackPath;
       if (path == null || path.isEmpty) {
         await prefs.remove(lastTrackKey);
