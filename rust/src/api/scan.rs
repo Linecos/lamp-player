@@ -41,44 +41,49 @@ pub struct ScanReport {
 /// # Errors
 /// 目录不存在、无读取权限，或曲库未初始化（未调用 `init_db`）时返回错误。
 pub fn scan_folder(folder: String) -> Result<ScanReport> {
-    let started = Instant::now();
+    // 扫描期间封面已经落盘但还没入库：先暂停封面回收，避免并发删除把它们当残留删掉
+    let report = db::with_scanning(|| {
+        let started = Instant::now();
 
-    // 先取存量指纹：曲库未初始化时这里就会报错，符合契约
-    let mut known = db::file_signatures()?;
-    // 封面缓存被清理 / 曲库搬家后，文件本身没变（mtime+size 一致）会被指纹跳过，
-    // 封面就永远不会重新提取。把这些曲目的指纹抹掉，让本次扫描重新解析。
-    for path in db::tracks_with_missing_covers().unwrap_or_default() {
-        known.remove(&scanner::path_key(&path));
-    }
+        // 先取存量指纹：曲库未初始化时这里就会报错，符合契约
+        let mut known = db::file_signatures()?;
+        // 封面缓存被清理 / 曲库搬家后，文件本身没变（mtime+size 一致）会被指纹跳过，
+        // 封面就永远不会重新提取。把这些曲目的指纹抹掉，让本次扫描重新解析。
+        for path in db::tracks_with_missing_covers().unwrap_or_default() {
+            known.remove(&scanner::path_key(&path));
+        }
 
-    // 归一化入口目录；目录不存在时 canonicalize 就会报错（保留原始字符串便于定位）
-    let folder =
-        dunce::canonicalize(&folder).with_context(|| format!("目录不存在或无权访问: {folder}"))?;
-    let covers_dir = db::covers_dir()?;
-    let collected = scanner::collect_tracks_incremental(&folder, &known, Some(&covers_dir))?;
+        // 归一化入口目录；目录不存在时 canonicalize 就会报错（保留原始字符串便于定位）
+        let folder = dunce::canonicalize(&folder)
+            .with_context(|| format!("目录不存在或无权访问: {folder}"))?;
+        let covers_dir = db::covers_dir()?;
+        let collected = scanner::collect_tracks_incremental(&folder, &known, Some(&covers_dir))?;
 
-    let upserted = db::upsert_scanned(&collected.tracks)
-        .with_context(|| format!("扫描结果写入曲库失败: {}", folder.display()))?;
+        let upserted = db::upsert_scanned(&collected.tracks)
+            .with_context(|| format!("扫描结果写入曲库失败: {}", folder.display()))?;
 
-    let pruned = if collected.walk_errors == 0 {
-        db::prune_tracks_under(&folder, &collected.seen)
-            .with_context(|| format!("清理曲库失败: {}", folder.display()))?
-    } else {
-        0
-    };
+        let pruned = if collected.walk_errors == 0 {
+            db::prune_tracks_under(&folder, &collected.seen)
+                .with_context(|| format!("清理曲库失败: {}", folder.display()))?
+        } else {
+            0
+        };
 
-    // 封面缓存清理是尽力而为：失败不应让一次成功的扫描报错
+        Ok(ScanReport {
+            scanned: to_i32(collected.scanned),
+            unchanged: to_i32(collected.unchanged),
+            upserted,
+            failed: to_i32(collected.failed),
+            walk_errors: to_i32(collected.walk_errors),
+            pruned,
+            elapsed_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+        })
+    })?;
+
+    // 封面缓存清理是尽力而为：失败不应让一次成功的扫描报错。
+    // 必须等扫描标志释放后再清，否则会被「扫描中跳过」挡掉。
     let _ = db::prune_unused_covers();
-
-    Ok(ScanReport {
-        scanned: to_i32(collected.scanned),
-        unchanged: to_i32(collected.unchanged),
-        upserted,
-        failed: to_i32(collected.failed),
-        walk_errors: to_i32(collected.walk_errors),
-        pruned,
-        elapsed_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
-    })
+    Ok(report)
 }
 
 /// 计数用，超出 i32 范围时饱和而不是回绕

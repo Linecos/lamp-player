@@ -10,6 +10,7 @@ use rusqlite::{params, Connection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
@@ -95,10 +96,31 @@ pub(crate) fn covers_dir() -> anyhow::Result<PathBuf> {
     Ok(parent.join("covers"))
 }
 
+/// 正在扫描的线程数（通常 0 或 1）。
+///
+/// 扫描是「先把封面落盘、最后才 upsert 入库」：这段窗口里封面文件已经存在，
+/// 但还没有任何曲目引用它。若此时用户删曲目 / 清理缺失文件触发
+/// [`prune_unused_covers`]，新封面会被当成残留删掉，扫描完就显示不出封面。
+static SCANNING: AtomicUsize = AtomicUsize::new(0);
+
+/// 在扫描期间执行 [`f`]，期间暂停封面回收；无论成功失败都会恢复。
+pub(crate) fn with_scanning<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    SCANNING.fetch_add(1, Ordering::SeqCst);
+    let result = f();
+    SCANNING.fetch_sub(1, Ordering::SeqCst);
+    result
+}
+
 /// 清掉没有被任何曲目引用的封面文件（换封面、删曲目后的残留）。
 ///
 /// 只看曲库目录下的缓存文件；路径转不成 UTF-8 的文件不碰，避免误删。
+///
+/// 扫描进行中直接跳过：此时封面可能已落盘但尚未入库（见 [`SCANNING`]），
+/// 回收交给扫描结束时那一次。
 pub(crate) fn prune_unused_covers() -> anyhow::Result<i32> {
+    if SCANNING.load(Ordering::SeqCst) > 0 {
+        return Ok(0);
+    }
     let dir = covers_dir()?;
     if !dir.is_dir() {
         return Ok(0);
@@ -1038,5 +1060,47 @@ mod tests {
         assert_eq!(folder_prefix("e:\\music", '\\'), "e:\\music\\");
         assert_eq!(folder_prefix("e:\\music\\", '\\'), "e:\\music\\");
         assert_eq!(folder_prefix("\\", '\\'), "\\");
+    }
+
+    /// 扫描窗口内封面已落盘但尚未入库：此时回收必须让路，否则会把新封面删掉。
+    #[test]
+    fn prune_unused_covers_is_paused_while_scanning() {
+        use super::{close_db, init_db, prune_unused_covers, with_scanning};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("lamp_prune_{}_{}", std::process::id(), nanos));
+        let covers = dir.join("covers");
+        std::fs::create_dir_all(&covers).expect("创建封面目录");
+        let orphan = covers.join("orphan.jpg");
+        std::fs::write(&orphan, b"cover").expect("写入封面");
+
+        init_db(dir.join("library.db").to_string_lossy().into_owned()).expect("初始化曲库");
+
+        {
+            with_scanning(|| {
+                assert_eq!(
+                    prune_unused_covers().expect("扫描中回收"),
+                    0,
+                    "扫描期间不该删任何封面"
+                );
+                assert!(orphan.exists(), "扫描中未入库的新封面必须保留");
+                Ok(())
+            })
+            .expect("扫描中执行");
+        }
+
+        assert_eq!(
+            prune_unused_covers().expect("扫描结束后回收"),
+            1,
+            "扫描结束后才清理真正的残留"
+        );
+        assert!(!orphan.exists());
+
+        close_db().expect("关闭曲库");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
