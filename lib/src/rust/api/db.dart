@@ -47,3 +47,10 @@ Future<int> upsertTracks({required List<Track> tracks}) =>
 /// 2. **删除比例**：一次要删超过一半（且总数 ≥ 10）时判定为异常，直接报错不动库。
 Future<int> pruneMissingTracks() =>
     RustLib.instance.api.crateApiDbPruneMissingTracks();
+
+/// 按路径批量删除曲库记录，返回实际删除数。
+///
+/// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
+/// 级联清理。整个批次在一个事务里完成，重复路径或不存在路径会被忽略。
+Future<int> removeTracks({required List<String> paths}) =>
+    RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);

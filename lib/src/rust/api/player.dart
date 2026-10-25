@@ -56,7 +56,8 @@ bool playerIsExclusive() =>
 /// 切换独占 / 共享输出
 ///
 /// 切换会重开当前曲目：保留播放位置与播放状态，正在出声时会短暂中断。
-/// 独占不可用时返回错误，引擎自动回落到共享输出。
+/// 独占不可用（DLL 缺失 / 设备被占 / 格式不支持）时**回落共享并返回成功**，
+/// 具体原因见 `player_exclusive_note`。
 Future<void> playerSetExclusive({required bool exclusive}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetExclusive(exclusive: exclusive);
 
