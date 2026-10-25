@@ -281,4 +281,22 @@ void main() {
     await tester.pump();
     expect(opens, 1);
   });
+
+  testWidgets('曲名区域也可点打开正在播放页', (WidgetTester tester) async {
+    int opens = 0;
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      onOpenNowPlaying: () => opens += 1,
+    );
+
+    final Finder titleArea = find.byKey(
+      const ValueKey<String>('player-bar-open-now-playing-title'),
+    );
+    expect(tester.widget<InkWell>(titleArea).hoverColor, isNotNull);
+
+    await tester.tap(find.descendant(of: titleArea, matching: find.text('夜航')));
+    await tester.pump();
+    expect(opens, 1);
+  });
 }

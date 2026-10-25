@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_lifecycle.dart';
+import 'tray_controller.dart';
 import '../features/library/library_page.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
@@ -27,6 +28,7 @@ abstract final class LampRouter {
     LibraryRepository? repository,
     PlaybackService? playbackService,
     AppLifecycle? lifecycle,
+    TrayController? trayController,
   }) {
     switch (settings.name) {
       case AppRoutes.library:
@@ -36,6 +38,7 @@ abstract final class LampRouter {
             repository: repository,
             playbackService: playbackService,
             appLifecycle: lifecycle,
+            trayController: trayController,
           ),
         );
       default:

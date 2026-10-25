@@ -10,6 +10,7 @@ import 'package:flutter/services.dart'
 
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
+import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/text/pinyin_key.dart';
 import '../../rust/api/model.dart';
@@ -40,6 +41,7 @@ part 'sections/data_section.dart';
 part 'sections/directory_section.dart';
 part 'sections/playback_section.dart';
 part 'sections/search_section.dart';
+part 'sections/selection_section.dart';
 part 'sections/settings_section.dart';
 part 'sections/history_section.dart';
 part 'sections/favorites_section.dart';
@@ -64,6 +66,7 @@ class LibraryPage extends StatefulWidget {
     this.musicFolderStore,
     this.sessionStore,
     this.appLifecycle,
+    this.trayController,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -84,19 +87,30 @@ class LibraryPage extends StatefulWidget {
   /// 应用级行为（关闭到托盘）；不传时设置页里的开关禁用
   final AppLifecycle? appLifecycle;
 
+  /// 托盘：把播放控制绑上去，关窗后在托盘菜单里也能暂停 / 切歌
+  final TrayController? trayController;
+
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
-class _LibraryPageState extends State<LibraryPage> {
+class _LibraryPageState extends State<LibraryPage>
+    with SingleTickerProviderStateMixin {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
   static const Duration _pollInterval = Duration(milliseconds: 500);
+
+  /// 悬浮播放岛给内容预留的高度：岛高 88 + 上方 8 间距。
+  /// 内容区底部留这么多，滚到底时最后一行正好停在岛上方。
+  static const double _playerBarReservedHeight = 96;
 
   /// 音量滑块的合并窗口：拖动时最多每 80ms 发一次 FFI。
   static const Duration _volumeThrottle = Duration(milliseconds: 80);
 
   /// 位置轮询连续失败多少次后停止（单次瞬时异常不应冻结进度条）。
   static const int _maxPollFailures = 3;
+
+  /// 自然播完后连续多少首播放失败就停止自动跳转（避免整库损坏时空转）。
+  static const int _maxAutoSkips = 5;
 
   late final LibraryRepository _repository =
       widget.repository ?? const RustLibraryRepository();
@@ -138,9 +152,35 @@ class _LibraryPageState extends State<LibraryPage> {
 
   LibrarySection _section = LibrarySection.music;
 
-  /// 侧边栏触发一次视图切换就 +1，只用来驱动分区过渡动画；
-  /// 数据刷新不会改它，避免列表更新时整页重放动画。
-  int _viewVersion = 0;
+  /// 只驱动侧栏高亮的通知器：点导航时先只改它，整页不重建
+  final ValueNotifier<LibrarySection> _sectionNotifier =
+      ValueNotifier<LibrarySection>(LibrarySection.music);
+
+  /// 内容区实际显示的分区。
+  ///
+  /// 切分区时先只改 [_section]（侧栏高亮立即响应点击），下一帧再更新这个字段
+  /// 并换内容：新分区首次构建较重（列表 / 网格 / 图片解码），同步做会把点击的
+  /// 水波纹动画压住，用户看到的就是「点了卡一下」。
+  late LibrarySection _displayedSection = _section;
+
+  /// 分区快照：访问过的分区留在这里，切回来直接复用，不必重建整棵子树。
+  final Map<LibrarySection, Widget> _sections = <LibrarySection, Widget>{};
+  final Map<LibrarySection, int> _sectionVersions = <LibrarySection, int>{};
+
+  /// 任何影响分区内容的状态变化都会 +1（统一走 [_update]）
+  int _stateVersion = 0;
+
+  /// 刚切换过来的分区：数据虽已变化，但这一帧先显示旧快照，
+  /// 等淡入结束再补，避免重建正卡在动画中间
+  LibrarySection? _justSwitched;
+  Timer? _sectionRefreshTimer;
+
+  /// 切换分区时的淡入：只对新内容做不透明度合成，成本接近零
+  late final AnimationController _sectionFade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 130),
+    value: 1,
+  );
   bool _railExpanded = true;
   LibrarySort _sort = LibrarySort.library;
 
@@ -173,6 +213,21 @@ class _LibraryPageState extends State<LibraryPage> {
   List<Track> _historyTracks = const <Track>[];
   bool _historyLoading = false;
   Object? _historyError;
+
+  /* -------------------------------------------------------------- 多选 */
+
+  /// 多选模式：进入后行首出现复选框，点击行只改选择、不播放
+  bool _selectionMode = false;
+  Set<String> _selectedPaths = <String>{};
+
+  /// Shift 范围选择的起点
+  String? _selectionAnchorPath;
+
+  /* ------------------------------------------------------ 缺失文件清理 */
+
+  bool _pruningMissing = false;
+  int? _prunedMissingCount;
+  Object? _pruneMissingError;
 
   List<Playlist> _playlists = const <Playlist>[];
   bool _playlistsLoading = false;
@@ -222,17 +277,70 @@ class _LibraryPageState extends State<LibraryPage> {
   List<ArtistGroup>? _artistGroups;
   List<AlbumGroup>? _albumGroups;
 
-  /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里
-  void _update(VoidCallback fn) => setState(fn);
+  /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
+  /// 顺带推进状态版本：分区快照据此判断自己是否过期。
+  void _update(VoidCallback fn) {
+    setState(() {
+      fn();
+      _stateVersion += 1;
+    });
+  }
+
+  /// 首帧之后再探测音频引擎，避免引擎线程异常时卡住启动
+  Future<void> _probeAvailability() async {
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) {
+      return;
+    }
+    final bool available = _readAvailability();
+    if (available != _isAvailable) {
+      _update(() => _isAvailable = available);
+    }
+    // 探测晚于 _bootstrap：可用时把跳过的启动音频初始化补上
+    if (available && !_startupAudioApplied) {
+      _applyStartupAudio(_exclusive);
+    }
+  }
+
+  /// 启动时的音频初始化：音量、输出偏好、均衡器。只做一次。
+  bool _startupAudioApplied = false;
+
+  void _applyStartupAudio(bool exclusive) {
+    _startupAudioApplied = true;
+    unawaited(_applyVolume(_volume));
+    // 先按偏好切输出，再刷新描述：启动时还没有曲目，切换几乎没有代价
+    unawaited(_applyOutputPreference(exclusive));
+    unawaited(_applyEqualizer());
+  }
+
+  /// Windows 路径大小写与分隔符不敏感：回车恢复上次曲目、
+  /// 会话里存的是 `/` 还是 `\` 都不该导致「静默不恢复」
+  static String _pathKey(String path) =>
+      path.replaceAll('\\', '/').toLowerCase();
+
+  static bool _samePath(String a, String b) => _pathKey(a) == _pathKey(b);
+
+  /// 退出前落盘用的稳定引用（方法 tear-off 每次都是新对象，无法注销）
+  late final Future<void> Function() _exitHook = _saveSession;
 
   @override
   void initState() {
     super.initState();
-    _isAvailable = _readAvailability();
+    // 引擎探测要 spawn 引擎线程并等就绪，音频子系统异常时会阻塞好几秒；
+    // 放在首帧之后做，界面先按可用渲染，探测结果再回填
+    unawaited(_probeAvailability());
+    // 托盘播放控制：关窗隐藏后仍能暂停 / 切歌
+    widget.trayController?.bindPlayback(
+      onTogglePlay: () => unawaited(_togglePlayback()),
+      onNext: () => unawaited(_next()),
+      onPrevious: () => unawaited(_previous()),
+    );
     unawaited(_bootstrap());
     // 系统媒体控制：失败只影响系统浮层，不影响播放
     unawaited(_media.start());
-    widget.appLifecycle?.addListener(_onLifecycleChanged);
+    widget.appLifecycle
+      ?..addListener(_onLifecycleChanged)
+      ..setBeforeExit(_exitHook);
   }
 
   /// 关闭到托盘的开关变化：让设置页跟着刷新
@@ -249,8 +357,14 @@ class _LibraryPageState extends State<LibraryPage> {
     _volumeTimer?.cancel();
     _saveTimer?.cancel();
     _sessionTimer?.cancel();
+    _sectionRefreshTimer?.cancel();
+    _sectionFade.dispose();
+    _sectionNotifier.dispose();
     unawaited(_saveSession());
-    widget.appLifecycle?.removeListener(_onLifecycleChanged);
+    widget.trayController?.unbindPlayback();
+    widget.appLifecycle
+      ?..removeListener(_onLifecycleChanged)
+      ..clearBeforeExit(_exitHook);
     unawaited(_media.dispose());
     _searchFocus.dispose();
     _searchController.dispose();
@@ -281,7 +395,10 @@ class _LibraryPageState extends State<LibraryPage> {
       _queue
         ..setRepeat(snapshot.repeat)
         ..setShuffle(snapshot.shuffle);
+      // 恢复分区时三者一起就位，否则内容区还停在音乐页
       _section = section;
+      _displayedSection = section;
+      _sectionNotifier.value = section;
       _railExpanded = snapshot.railExpanded;
       _sort = snapshot.sort;
       _tracks = sortTracks(_tracks, snapshot.sort);
@@ -299,10 +416,7 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(_refreshFavoritePaths());
     unawaited(_loadFoldersAndMaybeBackfill());
     if (_isAvailable) {
-      unawaited(_applyVolume(_volume));
-      // 先按偏好切输出，再刷新描述：启动时还没有曲目，切换几乎没有代价
-      unawaited(_applyOutputPreference(snapshot.exclusiveOutput));
-      unawaited(_applyEqualizer());
+      _applyStartupAudio(snapshot.exclusiveOutput);
     } else {
       unawaited(_refreshOutputInfo());
     }
@@ -327,7 +441,9 @@ class _LibraryPageState extends State<LibraryPage> {
     if (path == null || path.isEmpty) {
       return;
     }
-    final int index = _tracks.indexWhere((Track track) => track.path == path);
+    final int index = _tracks.indexWhere(
+      (Track track) => _samePath(track.path, path),
+    );
     if (index < 0) {
       return;
     }
@@ -374,24 +490,30 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
+  /// 保存串行链：写盘是异步的，而 [_scheduleSessionSave]、[_saveSessionNow]、
+  /// 10 秒定时器和 dispose 四个来源都会触发。不串行的话 11 个 key 的写入会交错，
+  /// 可能落出「曲目是新的、位置是旧的」这种撕裂快照，重启就恢复到错的位置。
+  Future<void> _saveChain = Future<void>.value();
+
   Future<void> _saveSession() {
-    return _sessionStore.save(
-      SessionSnapshot(
-        volume: _volume,
-        lastVolume: _lastVolume,
-        lastTrackPath: _currentTrack?.path,
-        lastPositionSecs: _currentTrack == null ? 0 : _position,
-        repeat: _queue.repeat,
-        shuffle: _queue.shuffle,
-        section: _section.name,
-        railExpanded: _railExpanded,
-        sort: _sort,
-        coverBackfillAttempted: _coverBackfillAttempted,
-        exclusiveOutput: _exclusive,
-        eqEnabled: _eqEnabled,
-        eqGains: _eqGains,
-      ),
+    final SessionSnapshot snapshot = SessionSnapshot(
+      volume: _volume,
+      lastVolume: _lastVolume,
+      lastTrackPath: _currentTrack?.path,
+      lastPositionSecs: _currentTrack == null ? 0 : _position,
+      repeat: _queue.repeat,
+      shuffle: _queue.shuffle,
+      section: _section.name,
+      railExpanded: _railExpanded,
+      sort: _sort,
+      coverBackfillAttempted: _coverBackfillAttempted,
+      exclusiveOutput: _exclusive,
+      eqEnabled: _eqEnabled,
+      eqGains: _eqGains,
     );
+    // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段
+    _saveChain = _saveChain.then((_) => _sessionStore.save(snapshot));
+    return _saveChain;
   }
 
   /* ---------------------------------------------------------------- 界面 */
@@ -484,11 +606,21 @@ class _LibraryPageState extends State<LibraryPage> {
               children: <Widget>[
                 Row(
                   children: <Widget>[
-                    LibraryRail(
-                      expanded: _railExpanded,
-                      section: _section,
-                      onSelect: _selectSection,
-                      onToggle: _toggleRail,
+                    // 高亮用独立通知驱动：点侧栏时不必重建整页，
+                    // 墨水波纹不会被「顶栏 + 播放岛 + 内容区」的重建压住
+                    ValueListenableBuilder<LibrarySection>(
+                      valueListenable: _sectionNotifier,
+                      builder:
+                          (
+                            BuildContext context,
+                            LibrarySection section,
+                            Widget? child,
+                          ) => LibraryRail(
+                            expanded: _railExpanded,
+                            section: section,
+                            onSelect: _selectSection,
+                            onToggle: _toggleRail,
+                          ),
                     ),
                     Expanded(
                       // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
@@ -496,96 +628,77 @@ class _LibraryPageState extends State<LibraryPage> {
                         padding: const EdgeInsets.only(
                           top: LampTitleBar.height,
                         ),
-                        child: Column(
+                        // 播放岛悬浮在内容之上：列表可以滚到岛下面（悬浮观感），
+                        // 但底部留出岛的高度，滚到底时最后一行不会被压住
+                        child: Stack(
+                          fit: StackFit.expand,
                           children: <Widget>[
-                            _buildTopBar(context),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  0,
-                                  16,
-                                  0,
-                                ),
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  switchInCurve: Curves.easeOutCubic,
-                                  switchOutCurve: Curves.easeInCubic,
-                                  layoutBuilder:
-                                      (
-                                        Widget? currentChild,
-                                        List<Widget> previousChildren,
-                                      ) {
-                                        return Stack(
-                                          fit: StackFit.expand,
-                                          children: <Widget>[
-                                            // 旧分区正在淡出时不响应点击，避免误触。
-                                            for (final Widget child
-                                                in previousChildren)
-                                              IgnorePointer(child: child),
-                                            ?currentChild,
-                                          ],
-                                        );
-                                      },
-                                  transitionBuilder:
-                                      (
-                                        Widget child,
-                                        Animation<double> animation,
-                                      ) {
-                                        return FadeTransition(
-                                          opacity: animation,
-                                          child: SlideTransition(
-                                            position: Tween<Offset>(
-                                              begin: const Offset(0, 0.01),
-                                              end: Offset.zero,
-                                            ).animate(animation),
-                                            child: child,
-                                          ),
-                                        );
-                                      },
-                                  child: KeyedSubtree(
-                                    key: ValueKey<int>(_viewVersion),
-                                    child: _buildSection(context),
+                            Column(
+                              children: <Widget>[
+                                _buildTopBar(context),
+                                if (_selectionMode) _buildSelectionBar(context),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      _playerBarReservedHeight,
+                                    ),
+                                    child: FadeTransition(
+                                      // 只做淡入：交叉淡变会让两份全屏列表
+                                      // 同时布局 + 逐帧重绘，切换必掉帧；
+                                      // 旧内容立即移除、新内容淡入，观感更利落
+                                      opacity: _sectionFade,
+                                      child: _buildSectionsHost(context),
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                            ValueListenableBuilder<_PlaybackProgress>(
-                              valueListenable: _progress,
-                              builder:
-                                  (
-                                    BuildContext context,
-                                    _PlaybackProgress progress,
-                                    Widget? child,
-                                  ) {
-                                    return PlayerBar(
-                                      track: _currentTrack,
-                                      isPlaying: progress.playing,
-                                      isAvailable: _isAvailable,
-                                      canSeek: !_isStopped,
-                                      position: progress.position,
-                                      duration: progress.duration,
-                                      volume: _volume,
-                                      onPlayPause: () =>
-                                          unawaited(_togglePlayback()),
-                                      onPrevious: () => unawaited(_previous()),
-                                      onNext: () => unawaited(_next()),
-                                      onSeekStart: _onSeekStart,
-                                      onSeekChanged: _onSeekChanged,
-                                      onSeekEnd: (double seconds) =>
-                                          unawaited(_onSeekEnd(seconds)),
-                                      onVolumeChanged: _setVolume,
-                                      onToggleMute: _toggleMute,
-                                      onShowQueue: () =>
-                                          unawaited(_showQueue()),
-                                      repeat: _queue.repeat,
-                                      shuffle: _queue.shuffle,
-                                      onToggleRepeat: _cycleRepeat,
-                                      onToggleShuffle: _toggleShuffle,
-                                      onOpenNowPlaying: () =>
-                                          unawaited(_openNowPlaying()),
-                                    );
-                                  },
+                            // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: ValueListenableBuilder<_PlaybackProgress>(
+                                valueListenable: _progress,
+                                builder:
+                                    (
+                                      BuildContext context,
+                                      _PlaybackProgress progress,
+                                      Widget? child,
+                                    ) {
+                                      return PlayerBar(
+                                        track: _currentTrack,
+                                        isPlaying: progress.playing,
+                                        isAvailable: _isAvailable,
+                                        canSeek: !_isStopped,
+                                        position: progress.position,
+                                        duration: progress.duration,
+                                        volume: _volume,
+                                        onPlayPause: () =>
+                                            unawaited(_togglePlayback()),
+                                        onPrevious: () =>
+                                            unawaited(_previous()),
+                                        onNext: () => unawaited(_next()),
+                                        onSeekStart: _onSeekStart,
+                                        onSeekChanged: _onSeekChanged,
+                                        onSeekEnd: (double seconds) =>
+                                            unawaited(_onSeekEnd(seconds)),
+                                        onVolumeChanged: _setVolume,
+                                        onToggleMute: _toggleMute,
+                                        onShowQueue: () =>
+                                            unawaited(_showQueue()),
+                                        repeat: _queue.repeat,
+                                        shuffle: _queue.shuffle,
+                                        onToggleRepeat: _cycleRepeat,
+                                        onToggleShuffle: _toggleShuffle,
+                                        onOpenNowPlaying: () =>
+                                            unawaited(_openNowPlaying()),
+                                      );
+                                    },
+                              ),
                             ),
                           ],
                         ),
@@ -616,6 +729,10 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _handleEscape() {
+    if (_selectionMode) {
+      _exitSelection();
+      return;
+    }
     if (_query.isNotEmpty) {
       _clearSearch();
     } else {
@@ -643,16 +760,30 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: _buildSearchField(context),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                // 搜索框不铺满整行：太宽时放大镜挤在最左边、右侧一大片空白，
+                // 视觉重心会失衡；420 在 1280 宽的窗口里刚好
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: _buildSearchField(context),
+                ),
+              ),
+            ),
           ),
-        ),
+          // 当前分区没有可选曲目时（设置页、歌单列表、未进详情）不显示：
+          // 点开只会得到一条「0 首」的空白操作条
+          if (_selectionMode || _selectionVisibleTracks.isNotEmpty) ...<Widget>[
+            const SizedBox(width: 8),
+            _buildSelectionToggle(context),
+          ],
+        ],
       ),
     );
   }
@@ -661,7 +792,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final OutlineInputBorder border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(24),
       borderSide: BorderSide.none,
     );
 
@@ -681,10 +812,14 @@ class _LibraryPageState extends State<LibraryPage> {
         border: border,
         enabledBorder: border,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(24),
           borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
-        prefixIcon: Icon(Icons.search, color: scheme.onSurfaceVariant),
+        // 放大镜左侧留 16、与提示文字间距 8：图标不再贴死左边缘
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Icon(Icons.search, color: scheme.onSurfaceVariant),
+        ),
         suffixIcon: _query.isEmpty
             ? null
             : IconButton(
@@ -692,7 +827,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 tooltip: '清除搜索',
                 icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
               ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
       ),
     );
   }
@@ -704,40 +839,105 @@ class _LibraryPageState extends State<LibraryPage> {
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
           _selectedAlbumKey != null) {
-        setState(() {
+        _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
-          _viewVersion += 1;
         });
       }
+      _clearSelection();
       return;
     }
-    setState(() {
-      _section = section;
-      _selectedArtist = null;
-      _selectedAlbumKey = null;
-      _selectedPlaylistId = null;
-      _viewVersion += 1;
-    });
+    // 第一帧只换侧栏高亮：新分区首次构建较重，同步构建会把点击的水波纹卡住。
+    // 高亮走独立通知器，所以这一帧整页不重建。
+    _section = section;
+    _sectionNotifier.value = section;
     _saveSessionNow();
-    if (section == LibrarySection.playlists) {
-      unawaited(_loadPlaylists());
-    }
-    if (section == LibrarySection.favorites) {
-      unawaited(_loadFavorites());
-    }
-    if (section == LibrarySection.history) {
-      unawaited(_loadHistory());
-    }
-    if (section == LibrarySection.settings) {
-      // 空闲释放 / 回落共享都可能改变实际输出，进设置页时重新读一次
-      unawaited(_refreshOutputInfo());
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 期间用户又点了别的分区：让最后一次点击自己走完切换
+      if (!mounted || _section != section) {
+        return;
+      }
+      setState(() {
+        _displayedSection = section;
+        _selectedArtist = null;
+        _selectedAlbumKey = null;
+        _selectedPlaylistId = null;
+        // 已有快照的分区这一帧先显示旧内容，淡入结束后再补新数据
+        _justSwitched = section;
+      });
+      _clearSelection();
+
+      // 数据加载会同步进入 FFI（数据库查询 / 输出设备查询），
+      // 放在点击那一帧会把水波纹压住，所以挪到这里
+      if (section == LibrarySection.playlists) {
+        unawaited(_loadPlaylists());
+      }
+      if (section == LibrarySection.favorites) {
+        unawaited(_loadFavorites());
+      }
+      if (section == LibrarySection.history) {
+        unawaited(_loadHistory());
+      }
+      if (section == LibrarySection.settings) {
+        // 空闲释放 / 回落共享都可能改变实际输出，进设置页时重新读一次
+        unawaited(_refreshOutputInfo());
+      }
+
+      _sectionFade.forward(from: 0);
+
+      _sectionRefreshTimer?.cancel();
+      _sectionRefreshTimer = Timer(const Duration(milliseconds: 170), () {
+        _justSwitched = null;
+        if (mounted && _displayedSection == section) {
+          setState(() {});
+        }
+      });
+    });
   }
 
-  Widget _buildSection(BuildContext context) {
-    return switch (_section) {
+  /// 分区宿主：所有访问过的分区都留在树里（`Offstage` 隐藏，不参与布局与绘制），
+  /// 切回来直接复用快照。旧分区不会被销毁，滚动位置与图片缓存也就跟着保住了。
+  Widget _buildSectionsHost(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        for (final LibrarySection section in LibrarySection.values)
+          Offstage(
+            offstage: section != _displayedSection,
+            child: TickerMode(
+              enabled: section == _displayedSection,
+              child: RepaintBoundary(child: _cachedSection(context, section)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 取（必要时构建）某个分区的快照。
+  ///
+  /// - 快照与当前状态版本一致：原样返回，Element 直接跳过子树重建
+  /// - 刚切换过来且已有快照：先返回旧快照（切换帧零重建），淡入结束后再补
+  /// - 隐藏分区：不重建，等切回来
+  Widget _cachedSection(BuildContext context, LibrarySection section) {
+    final Widget? cached = _sections[section];
+    if (cached != null && _sectionVersions[section] == _stateVersion) {
+      return cached;
+    }
+    if (cached != null && section == _justSwitched) {
+      return cached;
+    }
+    if (cached != null && section != _displayedSection) {
+      return cached;
+    }
+    final Widget built = _buildSectionFor(context, section);
+    _sections[section] = built;
+    _sectionVersions[section] = _stateVersion;
+    return built;
+  }
+
+  Widget _buildSectionFor(BuildContext context, LibrarySection section) {
+    return switch (section) {
       LibrarySection.music => _buildMusicSection(context),
       LibrarySection.playlists => _buildPlaylistsSection(context),
       LibrarySection.history => _buildHistorySection(context),

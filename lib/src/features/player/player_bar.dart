@@ -92,165 +92,185 @@ class PlayerBar extends StatelessWidget {
         ? trackArtist(current)
         : (isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
 
-    return Container(
-      height: 88,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      padding: const EdgeInsets.fromLTRB(14, 0, 16, 0),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: scheme.outlineVariant),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
+    return Padding(
+      // margin 必须放在外层：直接给 Container.margin 时，Column 的 loose
+      // 约束会让 Row 先按整宽布局、再加 margin 外扩，右侧会被裁掉 16px
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: SizedBox(
+        height: 88,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 0, 16, 0),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: scheme.outlineVariant),
+            boxShadow: <BoxShadow>[
+              // 阴影向下收窄：offset 6 配 blur 18 会向上扩散 12px，
+              // 盖住列表最后一行的悬停高亮
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      // 底色在 Container 上，墨水层要单独垫一层透明 Material 才画得出来。
-      child: Material(
-        type: MaterialType.transparency,
-        child: Row(
-          children: <Widget>[
-            // 封面可点：打开正在播放页（歌词 / 大封面）
-            InkWell(
-              key: const ValueKey<String>('player-bar-open-now-playing'),
-              borderRadius: BorderRadius.circular(16),
-              hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-              onTap: current == null ? null : onOpenNowPlaying,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  AlbumCover(
+          // 底色在 Container 上，墨水层要单独垫一层透明 Material 才画得出来。
+          child: Material(
+            type: MaterialType.transparency,
+            child: Row(
+              children: <Widget>[
+                // 封面可点：打开正在播放页（歌词 / 大封面）
+                // 高亮只包封面本身：把 12px 间距放进 InkWell 会让高亮比封面
+                // 宽出一截，看起来和封面错位
+                InkWell(
+                  key: const ValueKey<String>('player-bar-open-now-playing'),
+                  borderRadius: BorderRadius.circular(16),
+                  hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+                  onTap: current == null ? null : onOpenNowPlaying,
+                  child: AlbumCover(
                     path: current?.coverPath,
                     size: 56,
                     radius: 16,
                     playing: isPlaying,
                   ),
-                  const SizedBox(width: 12),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 3,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    current?.title ?? '尚未播放',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 3,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                      key: const ValueKey<String>(
+                        'player-bar-open-now-playing-title',
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+                      onTap: current == null ? null : onOpenNowPlaying,
+                      // Align 让高亮收缩到文字块大小，而不是整行高度
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              current?.title ?? '尚未播放',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
+                ),
+                const SizedBox(width: 8),
+                _BarIconButton(
+                  icon: Icons.skip_previous,
+                  tooltip: '上一首 (Ctrl+←)',
+                  onPressed: canControl ? onPrevious : null,
+                ),
+                IconButton.filled(
+                  onPressed: canControl ? onPlayPause : null,
+                  tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
+                  iconSize: 26,
+                  icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                ),
+                _BarIconButton(
+                  icon: Icons.skip_next,
+                  tooltip: '下一首 (Ctrl+→)',
+                  onPressed: canControl ? onNext : null,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 4,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
+                      Row(
+                        // 时间标签缩进到轨道端点：Slider 的轨道内缩了
+                        // overlay 半径，不缩进会看起来比轨道多出一截
+                        children: <Widget>[
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Text(
+                              formatDuration(shown),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
-                        ),
+                          const Spacer(),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: Text(
+                              formatDuration(total),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      _SlimSlider(
+                        key: const ValueKey<String>('player-progress'),
+                        value: shown,
+                        max: total > 0 ? total : 1,
+                        enabled: canControl && canSeek && total > 0,
+                        onChangeStart: onSeekStart,
+                        onChanged: onSeekChanged,
+                        onChangeEnd: onSeekEnd,
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                _BarIconButton(
+                  icon: Icons.shuffle,
+                  tooltip: shuffle ? '关闭随机播放' : '随机播放',
+                  selected: shuffle,
+                  onPressed: onToggleShuffle,
+                ),
+                _BarIconButton(
+                  icon: repeat == LoopMode.one
+                      ? Icons.repeat_one
+                      : Icons.repeat,
+                  tooltip: switch (repeat) {
+                    LoopMode.off => '循环播放：关',
+                    LoopMode.all => '循环播放：列表',
+                    LoopMode.one => '循环播放：单曲',
+                  },
+                  selected: repeat != LoopMode.off,
+                  onPressed: onToggleRepeat,
+                ),
+                _BarIconButton(
+                  icon: Icons.queue_music,
+                  tooltip: '播放队列',
+                  onPressed: onShowQueue,
+                ),
+                const SizedBox(width: 4),
+                _VolumeControl(
+                  volume: volume,
+                  enabled: isAvailable,
+                  onChanged: onVolumeChanged,
+                  onToggleMute: onToggleMute,
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-            _BarIconButton(
-              icon: Icons.skip_previous,
-              tooltip: '上一首 (Ctrl+←)',
-              onPressed: canControl ? onPrevious : null,
-            ),
-            IconButton.filled(
-              onPressed: canControl ? onPlayPause : null,
-              tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
-              iconSize: 26,
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-            ),
-            _BarIconButton(
-              icon: Icons.skip_next,
-              tooltip: '下一首 (Ctrl+→)',
-              onPressed: canControl ? onNext : null,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 4,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Text(
-                        formatDuration(shown),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        formatDuration(total),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                  _SlimSlider(
-                    key: const ValueKey<String>('player-progress'),
-                    value: shown,
-                    max: total > 0 ? total : 1,
-                    enabled: canControl && canSeek && total > 0,
-                    onChangeStart: onSeekStart,
-                    onChanged: onSeekChanged,
-                    onChangeEnd: onSeekEnd,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 4),
-            _BarIconButton(
-              icon: Icons.shuffle,
-              tooltip: shuffle ? '关闭随机播放' : '随机播放',
-              selected: shuffle,
-              onPressed: onToggleShuffle,
-            ),
-            _BarIconButton(
-              icon: repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-              tooltip: switch (repeat) {
-                LoopMode.off => '循环播放：关',
-                LoopMode.all => '循环播放：列表',
-                LoopMode.one => '循环播放：单曲',
-              },
-              selected: repeat != LoopMode.off,
-              onPressed: onToggleRepeat,
-            ),
-            IconButton(
-              onPressed: onShowQueue,
-              tooltip: '播放队列',
-              iconSize: 20,
-              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-              padding: EdgeInsets.zero,
-              icon: Icon(
-                Icons.queue_music,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 4),
-            _VolumeControl(
-              volume: volume,
-              enabled: isAvailable,
-              onChanged: onVolumeChanged,
-              onToggleMute: onToggleMute,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -314,6 +334,9 @@ class _VolumeControl extends StatelessWidget {
           onPressed: enabled ? onToggleMute : null,
           tooltip: level > 0 ? '静音' : '取消静音',
           iconSize: 20,
+          // 与其他播放条按钮同为 40×40，否则图标间距会忽大忽小
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          padding: EdgeInsets.zero,
           color: scheme.onSurfaceVariant,
           icon: Icon(switch (level) {
             <= 0 => Icons.volume_off,

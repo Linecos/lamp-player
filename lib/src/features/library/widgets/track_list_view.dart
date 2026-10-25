@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HardwareKeyboard;
 
 import '../../../common/formatters/duration.dart';
 import '../../../common/widgets/album_cover.dart';
@@ -18,6 +19,13 @@ enum TrackContextAction {
   copyPath,
 }
 
+/// 列表行被选中：`toggle` 表示 Ctrl / 复选框（切换该行），`range` 表示 Shift。
+typedef TrackSelectCallback = void Function(
+  Track track, {
+  required bool toggle,
+  required bool range,
+});
+
 /// 曲库列表：固定表头 + 虚拟滚动（`ListView.builder` + `itemExtent`）。
 ///
 /// 只负责展示与点击回调，数据与播放由页面决定，因此可以在 `test/` 下
@@ -33,6 +41,9 @@ class TrackListView extends StatelessWidget {
     this.onToggleFavorite,
     this.onContextAction,
     this.storageKey,
+    this.selectionMode = false,
+    this.selectedPaths = const <String>{},
+    this.onSelect,
   });
 
   final List<Track> tracks;
@@ -54,6 +65,15 @@ class TrackListView extends StatelessWidget {
   /// 提供后行内支持右键菜单（播放、下一首播放、加入歌单等）。
   final void Function(Track track, TrackContextAction action)? onContextAction;
 
+  /// 多选模式：行首显示复选框，点击行只改选择、不播放。
+  final bool selectionMode;
+
+  /// 已选中的路径集合。
+  final Set<String> selectedPaths;
+
+  /// 选择回调；为空时多选模式只展示复选框。
+  final TrackSelectCallback? onSelect;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -69,13 +89,16 @@ class TrackListView extends StatelessWidget {
               showAlbum: showAlbum,
               showMenu: onRemove != null,
               showFavorite: onToggleFavorite != null,
+              showSelection: selectionMode,
             ),
             Expanded(
               child: ListView.builder(
                 key: storageKey,
                 itemCount: tracks.length,
                 itemExtent: 56,
-                padding: EdgeInsets.zero,
+                // 底部留一点空：滚到底时最后一行不贴着播放岛，
+                // 悬停高亮的圆角也不会被盖住
+                padding: const EdgeInsets.only(bottom: 12),
                 itemBuilder: (BuildContext context, int index) {
                   final Track track = tracks[index];
                   return _TrackRow(
@@ -84,6 +107,9 @@ class TrackListView extends StatelessWidget {
                     playing: track.path == playingPath,
                     showArtist: showArtist,
                     showAlbum: showAlbum,
+                    selectionMode: selectionMode,
+                    selected: selectedPaths.contains(track.path),
+                    onSelect: onSelect,
                     onPlay: () => onPlay(track),
                     onRemove: onRemove == null ? null : () => onRemove!(track),
                     favored: favoritePaths.contains(track.path),
@@ -111,12 +137,14 @@ class _TrackHeader extends StatelessWidget {
     required this.showAlbum,
     required this.showMenu,
     required this.showFavorite,
+    required this.showSelection,
   });
 
   final bool showArtist;
   final bool showAlbum;
   final bool showMenu;
   final bool showFavorite;
+  final bool showSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -134,7 +162,12 @@ class _TrackHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          SizedBox(width: 32, child: Text('#', style: style)),
+          if (showSelection) const SizedBox(width: 40),
+          // 行里的序号是居中的，列头也要居中，否则差半个字宽
+          SizedBox(
+            width: 32,
+            child: Text('#', textAlign: TextAlign.center, style: style),
+          ),
           const SizedBox(width: 40),
           const SizedBox(width: 12),
           Expanded(flex: 5, child: Text('标题', style: style)),
@@ -160,6 +193,9 @@ class _TrackRow extends StatelessWidget {
     required this.showArtist,
     required this.showAlbum,
     required this.onPlay,
+    required this.selectionMode,
+    required this.selected,
+    this.onSelect,
     this.onRemove,
     required this.favored,
     this.onToggleFavorite,
@@ -172,10 +208,26 @@ class _TrackRow extends StatelessWidget {
   final bool showArtist;
   final bool showAlbum;
   final VoidCallback onPlay;
+  final bool selectionMode;
+  final bool selected;
+  final TrackSelectCallback? onSelect;
   final VoidCallback? onRemove;
   final bool favored;
   final VoidCallback? onToggleFavorite;
   final ValueChanged<TrackContextAction>? onContextAction;
+
+  /// 多选模式下普通点击切换该行；Ctrl 切换、Shift 范围选择。
+  ///
+  /// 不在多选模式时按 Ctrl / Shift 点击也能直接进入多选。
+  void _handleTap() {
+    final bool ctrl = HardwareKeyboard.instance.isControlPressed;
+    final bool shift = HardwareKeyboard.instance.isShiftPressed;
+    if (selectionMode || ctrl || shift) {
+      onSelect?.call(track, toggle: selectionMode || ctrl, range: shift);
+      return;
+    }
+    onPlay();
+  }
 
   Future<void> _showContextMenu(
     BuildContext context,
@@ -256,7 +308,7 @@ class _TrackRow extends StatelessWidget {
         borderRadius: radius,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: onPlay,
+          onTap: _handleTap,
           onSecondaryTapDown: onContextAction == null
               ? null
               : (TapDownDetails details) => unawaited(
@@ -267,6 +319,18 @@ class _TrackRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Row(
               children: <Widget>[
+                if (selectionMode)
+                  SizedBox(
+                    width: 40,
+                    child: Checkbox(
+                      key: ValueKey<String>('track-select-${track.path}'),
+                      value: selected,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onChanged: onSelect == null
+                          ? null
+                          : (_) => onSelect!(track, toggle: true, range: false),
+                    ),
+                  ),
                 SizedBox(
                   width: 32,
                   child: Center(

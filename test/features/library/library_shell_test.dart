@@ -118,17 +118,22 @@ void main() {
     );
   });
 
-  testWidgets('点击侧边栏切换分区有淡入淡出过渡', (WidgetTester tester) async {
+  testWidgets('点击侧边栏切换分区只做淡入，旧内容立即移除', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     expect(find.text('2 首音乐'), findsOneWidget);
 
     await tester.tap(
       find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
     );
+    // 第一帧只换侧栏高亮，内容切换在下一帧
     await tester.pump();
+    expect(find.text('2 首音乐'), findsOneWidget, reason: '这一帧内容还没换');
+
     await tester.pump(const Duration(milliseconds: 80));
 
-    expect(find.text('2 首音乐'), findsOneWidget, reason: '旧分区应在淡出');
+    // 交叉淡变会让两份全屏列表同时布局绘制（切换必掉帧），
+    // 所以旧分区立即移除、只让新分区淡入
+    expect(find.text('2 首音乐'), findsNothing, reason: '旧分区应立即移除');
     expect(find.text('曲目数量'), findsOneWidget, reason: '新分区应已挂载');
 
     await tester.pumpAndSettle();
@@ -156,7 +161,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
-    expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget, reason: '详情应在淡出');
+    expect(find.text('1 张专辑 · 2 首音乐'), findsNothing, reason: '详情应立即移除');
     expect(find.text('2 位艺术家'), findsOneWidget, reason: '列表应已挂载');
 
     await tester.pumpAndSettle();

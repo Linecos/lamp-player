@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'app_lifecycle.dart';
 import 'routes.dart';
 import 'title_bar.dart';
+import 'tray_controller.dart';
 import 'window_controls.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
@@ -24,6 +25,7 @@ class LampApp extends StatefulWidget {
     this.themeController,
     this.windowControls,
     this.lifecycle,
+    this.trayController,
   });
 
   final LibraryRepository? libraryRepository;
@@ -38,6 +40,9 @@ class LampApp extends StatefulWidget {
 
   /// 应用级行为（关闭到托盘）；不传时设置页里的开关禁用
   final AppLifecycle? lifecycle;
+
+  /// 托盘（关窗后播放控制用）；不传时托盘菜单只显示主窗口 / 退出
+  final TrayController? trayController;
 
   @override
   State<LampApp> createState() => _LampAppState();
@@ -107,6 +112,7 @@ class _LampAppState extends State<LampApp> {
                   repository: widget.libraryRepository,
                   playbackService: widget.playbackService,
                   lifecycle: widget.lifecycle,
+                  trayController: widget.trayController,
                 ),
           );
         },

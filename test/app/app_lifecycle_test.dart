@@ -84,4 +84,55 @@ void main() {
     lifecycle.requestQuit();
     expect(lifecycle.quitRequested, isTrue);
   });
+
+  group('runBeforeExit', () {
+    test('没有注册钩子时直接返回', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      await expectLater(lifecycle.runBeforeExit(), completes);
+    });
+
+    test('注册后执行钩子，注销后不再执行', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      int calls = 0;
+      Future<void> hook() async {
+        calls += 1;
+      }
+
+      lifecycle.setBeforeExit(hook);
+      await lifecycle.runBeforeExit();
+      expect(calls, 1);
+
+      lifecycle.clearBeforeExit(hook);
+      await lifecycle.runBeforeExit();
+      expect(calls, 1, reason: '注销后不该再调用');
+    });
+
+    test('注销只对同一个钩子生效', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      int calls = 0;
+      Future<void> first() async {
+        calls += 1;
+      }
+
+      Future<void> second() async {
+        calls += 10;
+      }
+
+      lifecycle.setBeforeExit(first);
+      lifecycle.clearBeforeExit(second);
+      await lifecycle.runBeforeExit();
+      expect(calls, 1, reason: '传了别的钩子不能把已注册的清掉');
+
+      lifecycle.setBeforeExit(second);
+      await lifecycle.runBeforeExit();
+      expect(calls, 11, reason: '重新注册应替换旧钩子');
+    });
+
+    test('钩子抛错不阻断退出', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      lifecycle.setBeforeExit(() async => throw StateError('磁盘只读'));
+
+      await expectLater(lifecycle.runBeforeExit(), completes);
+    });
+  });
 }
