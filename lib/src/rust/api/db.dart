@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`
+// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `substring_search`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 
 /// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
@@ -51,6 +51,7 @@ Future<int> pruneMissingTracks() =>
 /// 按路径批量删除曲库记录，返回实际删除数。
 ///
 /// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
-/// 级联清理。整个批次在一个事务里完成，重复路径或不存在路径会被忽略。
+/// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
+/// （否则会「删 0 条且不报错」）。
 Future<int> removeTracks({required List<String> paths}) =>
     RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);
