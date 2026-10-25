@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
@@ -38,16 +40,32 @@ class FakeLibraryRepository implements LibraryRepository {
   Object? loadError;
   Object? searchError;
 
+  /// 非空时 `loadTracks()` 等它完成；用于验证扫描后的静默刷新不闪加载态
+  Completer<void>? loadGate;
+
   int loadCalls = 0;
   int searchCalls = 0;
+  int removeTracksCalls = 0;
+  int pruneCalls = 0;
+  List<String> lastRemovedPaths = <String>[];
   String lastQuery = '';
   final List<String> scannedFolders = <String>[];
+
+  /// 模拟 `pruneMissingTracks` 要清掉的路径；返回实际移除条数
+  final Set<String> prunedPaths = <String>{};
+
+  /// 非空时 `pruneMissingTracks` 抛出该错误（模拟「疑似磁盘未挂载」拒绝清理）
+  Object? pruneError;
 
   @override
   Future<List<Track>> loadTracks() async {
     loadCalls += 1;
     if (loadError != null) {
       throw loadError!;
+    }
+    final Completer<void>? gate = loadGate;
+    if (gate != null) {
+      await gate.future;
     }
     return List<Track>.of(tracks);
   }
@@ -176,6 +194,29 @@ class FakeLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<int> addTracksToPlaylist(int id, List<String> paths) async {
+    final _FakePlaylist playlist = _playlistById(id);
+    // 先整体校验，再写入：与 Rust 侧「任一曲目不存在就整批回滚」一致
+    for (final String path in paths) {
+      if (_trackByPath(path) == null) {
+        throw StateError('曲目不在曲库: $path');
+      }
+    }
+    int added = 0;
+    for (final String path in paths.toSet()) {
+      if (playlist.paths.contains(path)) {
+        continue;
+      }
+      playlist.paths.add(path);
+      added += 1;
+    }
+    if (added > 0) {
+      playlist.updatedAt = _now();
+    }
+    return added;
+  }
+
+  @override
   Future<bool> removeTrackFromPlaylist(int id, String path) async {
     final _FakePlaylist playlist = _playlistById(id);
     if (!playlist.paths.remove(path)) {
@@ -183,6 +224,36 @@ class FakeLibraryRepository implements LibraryRepository {
     }
     playlist.updatedAt = _now();
     return true;
+  }
+
+  @override
+  Future<int> removeTracks(List<String> paths) async {
+    removeTracksCalls += 1;
+    lastRemovedPaths = List<String>.of(paths);
+    final Set<String> removing = paths.toSet();
+    final int before = tracks.length;
+    tracks = tracks
+        .where((Track track) => !removing.contains(track.path))
+        .toList();
+    _favorites.removeWhere(removing.contains);
+    _history.removeWhere(removing.contains);
+    for (final _FakePlaylist playlist in _playlists.values) {
+      playlist.paths.removeWhere(removing.contains);
+    }
+    return before - tracks.length;
+  }
+
+  @override
+  Future<int> pruneMissingTracks() async {
+    pruneCalls += 1;
+    final Object? error = pruneError;
+    if (error != null) {
+      throw error;
+    }
+    if (prunedPaths.isEmpty) {
+      return 0;
+    }
+    return removeTracks(prunedPaths.toList());
   }
 
   @override
@@ -204,6 +275,27 @@ class FakeLibraryRepository implements LibraryRepository {
     } else {
       _favorites.remove(path);
     }
+  }
+
+  @override
+  Future<int> setFavorites(List<String> paths, bool favorite) async {
+    if (favorite) {
+      for (final String path in paths) {
+        if (_trackByPath(path) == null) {
+          throw StateError('曲目不在曲库: $path');
+        }
+      }
+    }
+    int changed = 0;
+    for (final String path in paths.toSet()) {
+      final bool didChange = favorite
+          ? _favorites.add(path)
+          : _favorites.remove(path);
+      if (didChange) {
+        changed += 1;
+      }
+    }
+    return changed;
   }
 
   @override
@@ -303,6 +395,9 @@ class FakePlaybackService implements PlaybackService {
   /// 非空时 `play()` 抛出该错误，用于测试播放失败后的降级
   Object? playError;
 
+  /// 这些路径的 `play()` 会抛出错误，用于测试自动跳过损坏文件
+  final Set<String> failingPaths = <String>{};
+
   /// 非空时 `seek()` 抛出该错误，用于测试恢复进度的失败路径
   Object? seekError;
 
@@ -329,6 +424,9 @@ class FakePlaybackService implements PlaybackService {
     final Object? error = playError;
     if (error != null) {
       throw error;
+    }
+    if (failingPaths.contains(path)) {
+      throw StateError('无法播放: $path');
     }
     playedPaths.add(path);
     current = rust.PlaybackState.playing;

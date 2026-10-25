@@ -277,7 +277,9 @@ class PlaybackQueue {
     _removePath(track.path);
     _tracks.insert(_index + 1, track);
     if (_shuffle) {
-      _rebuildShuffleOrder();
+      // 随机模式下重建顺序时把刚插入的曲目固定在当前曲之后，
+      // 否则「下一首播放」会被洗牌打乱，点了却听不到。
+      _rebuildShuffleOrder(playNext: _index + 1);
     }
     return true;
   }
@@ -292,9 +294,13 @@ class PlaybackQueue {
         _tracks.any((Track t) => t.path == track.path)) {
       return false;
     }
+    if (_shuffle) {
+      // 先对齐现有顺序，再把新曲目放到随机顺序末尾，避免追加一首就重洗整轮
+      _ensureShuffleOrder();
+    }
     _tracks.add(track);
     if (_shuffle) {
-      _rebuildShuffleOrder();
+      _shuffleOrder.add(_tracks.length - 1);
     }
     return true;
   }
@@ -317,15 +323,32 @@ class PlaybackQueue {
   }
 
   /// 重新生成随机顺序：当前曲目固定在第一位，其余打乱。
-  void _rebuildShuffleOrder() {
-    _shuffleOrder = List<int>.generate(_tracks.length, (int i) => i);
-    if (_index >= 0) {
-      final int currentIndex = _shuffleOrder.removeAt(_index);
-      _shuffleOrder.shuffle(_random);
-      _shuffleOrder.insert(0, currentIndex);
-    } else {
-      _shuffleOrder.shuffle(_random);
+  ///
+  /// [playNext] 用于「下一首播放」：把指定下标固定在当前曲目之后，
+  /// 这样随机模式下点「下一首播放」也一定先播它。
+  void _rebuildShuffleOrder({int? playNext}) {
+    final List<int> order = List<int>.generate(_tracks.length, (int i) => i);
+    final int? current = _index >= 0 && _index < _tracks.length ? _index : null;
+    final bool hasPlayNext =
+        playNext != null &&
+        playNext != current &&
+        playNext >= 0 &&
+        playNext < _tracks.length;
+
+    if (current != null) {
+      order.remove(current);
     }
+    if (hasPlayNext) {
+      order.remove(playNext);
+    }
+    order.shuffle(_random);
+    if (hasPlayNext) {
+      order.insert(0, playNext);
+    }
+    if (current != null) {
+      order.insert(0, current);
+    }
+    _shuffleOrder = order;
     _shufflePos = 0;
   }
 

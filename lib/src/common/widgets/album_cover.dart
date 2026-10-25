@@ -79,19 +79,38 @@ class _CoverImage extends StatefulWidget {
 }
 
 class _CoverImageState extends State<_CoverImage> {
+  /// 最近确认存在的封面路径：同一张封面在列表里出现几十次时只做一次磁盘检查，
+  /// 网络盘上每行一次同步 IO 会直接掉帧
+  static final Set<String> _knownExisting = <String>{};
+
   late bool _exists;
+
+  bool _resolveExists() {
+    final String path = widget.file.path;
+    if (_knownExisting.contains(path)) {
+      return true;
+    }
+    final bool exists = widget.file.existsSync();
+    if (exists) {
+      if (_knownExisting.length > 512) {
+        _knownExisting.clear();
+      }
+      _knownExisting.add(path);
+    }
+    return exists;
+  }
 
   @override
   void initState() {
     super.initState();
-    _exists = widget.file.existsSync();
+    _exists = _resolveExists();
   }
 
   @override
   void didUpdateWidget(_CoverImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.file.path != widget.file.path) {
-      _exists = widget.file.existsSync();
+      _exists = _resolveExists();
     }
   }
 

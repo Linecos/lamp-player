@@ -75,6 +75,35 @@ void main() {
     expect(queue.current?.title, isNotNull);
   });
 
+  test('随机模式下「下一首播放」仍然先播指定曲目', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(7),
+    );
+    final Track target = _tracks()[2];
+
+    expect(queue.insertNext(target), isTrue);
+    final int expected = queue.tracks.indexWhere(
+      (Track track) => track.path == target.path,
+    );
+    expect(queue.peekNext(), expected, reason: '随机顺序里也应排在当前曲之后');
+    expect(queue.advance(), expected);
+    expect(queue.current?.title, 'C');
+  });
+
+  test('随机模式下追加曲目不会打乱这一轮的顺序', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(7),
+    );
+    final int? before = queue.peekNext();
+
+    expect(queue.append(sampleTrack(title: 'D')), isTrue);
+    expect(queue.peekNext(), before, reason: '追加不应重洗待播顺序');
+  });
+
   test('插入下一首与追加都会去重并移动已有曲目', () {
     final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
     final Track c = queue.tracks[2];

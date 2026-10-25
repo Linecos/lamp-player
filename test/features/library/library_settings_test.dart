@@ -93,6 +93,8 @@ void main() {
       tracks: twoTracks(),
       playback: playback,
       sessionStore: store,
+      // 新增「清理缺失文件」行后设置页更长，独占开关需要更高的视口
+      viewSize: const Size(1280, 1000),
     );
     await openSettings(tester);
 
@@ -132,7 +134,12 @@ void main() {
       isAvailable: true,
       durationSecs: 180,
     )..exclusiveError = StateError('设备被其他进程独占');
-    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      viewSize: const Size(1280, 1000),
+    );
     await openSettings(tester);
 
     await tester.ensureVisible(find.text('独占输出（WASAPI）'));
@@ -239,5 +246,80 @@ void main() {
     expect(playback.eqEnabled, isTrue);
     expect(playback.eqGains, hasLength(10));
     expect(session.snapshot.eqEnabled, isTrue);
+  });
+
+  testWidgets('清理缺失文件只删记录并展示清理条数', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      configure: (FakeLibraryRepository repo) {
+        repo.prunedPaths.add('/music/夜航.mp3');
+      },
+    );
+    await openSettings(tester);
+
+    await tester.tap(find.text('清理缺失文件'));
+    await tester.pumpAndSettle();
+
+    expect(repository.pruneCalls, 1);
+    expect(repository.tracks, hasLength(1));
+    expect(find.text('1 首'), findsOneWidget, reason: '曲目数量应跟着刷新');
+    expect(find.text('已清理 1 条缺失记录'), findsWidgets);
+  });
+
+  testWidgets('清理缺失文件被存储层拒绝时展示错误', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      configure: (FakeLibraryRepository repo) {
+        repo.pruneError = StateError('曲库目录似乎不可用，已拒绝清理');
+      },
+    );
+    await openSettings(tester);
+
+    await tester.tap(find.text('清理缺失文件'));
+    await tester.pumpAndSettle();
+
+    expect(repository.pruneCalls, 1);
+    expect(repository.tracks, hasLength(2), reason: '拒绝清理时不能动列表');
+    expect(find.text('清理失败'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.textContaining('已拒绝清理'),
+      ),
+      findsOneWidget,
+      reason: '拒绝清理的原因要弹出来，不能静默当成 0 条',
+    );
+  });
+
+  testWidgets('退出前会把播放会话落盘', (WidgetTester tester) async {
+    final AppLifecycle lifecycle = AppLifecycle();
+    final FakeSessionStore session = FakeSessionStore();
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+      lifecycle: lifecycle,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 模拟「窗口即将关闭」：把会话清空，退出钩子应把最新状态写回去
+    session.snapshot = const SessionSnapshot();
+    await lifecycle.runBeforeExit();
+
+    expect(session.snapshot.lastTrackPath, '/music/夜航.mp3');
+    expect(session.snapshot.section, 'music');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
   });
 }

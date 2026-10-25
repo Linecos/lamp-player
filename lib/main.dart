@@ -71,16 +71,20 @@ Future<void> main() async {
   final AppLifecycle lifecycle = AppLifecycle();
   await lifecycle.restore();
 
-  final TrayController tray = TrayController(
+  // 用 late final：onQuit 闭包在触发时才读 tray（退出时要先撤图标）
+  late final TrayController tray;
+  tray = TrayController(
     onShow: _showWindow,
-    onQuit: () => _quitFromTray(lifecycle),
+    onQuit: () => _quitFromTray(lifecycle, tray),
   );
   await tray.init();
 
   _AppWindowListener(windowStore, lifecycle, tray).attach();
   _watchActivationRequests();
 
-  runApp(LampApp(themeController: theme, lifecycle: lifecycle));
+  runApp(
+    LampApp(themeController: theme, lifecycle: lifecycle, trayController: tray),
+  );
 }
 
 /// 申请成为唯一实例；`false` 表示已有实例（已通知它把窗口亮出来）
@@ -139,9 +143,13 @@ Future<void> _showWindow() async {
 }
 
 /// 托盘菜单「退出」：真正结束进程（关窗默认只是隐藏）
-Future<void> _quitFromTray(AppLifecycle lifecycle) async {
+Future<void> _quitFromTray(AppLifecycle lifecycle, TrayController tray) async {
   lifecycle.requestQuit();
+  // 先让界面把播放会话落盘，再释放引擎；顺序反了会丢掉最后的位置
+  await lifecycle.runBeforeExit();
   await _shutdownAudio();
+  // 图标要在窗口关闭前撤掉，否则托盘里会留一个幽灵图标
+  await tray.dispose();
   try {
     await windowManager.setPreventClose(false);
     await windowManager.close();
@@ -298,6 +306,7 @@ class _AppWindowListener with WindowListener {
     } catch (error) {
       debugPrint('关闭前保存窗口状态失败：$error');
     }
+    await _lifecycle.runBeforeExit();
     await _shutdownAudio();
     try {
       await windowManager.setPreventClose(false);

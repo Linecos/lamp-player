@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/title_bar.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -194,18 +195,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             child: SafeArea(
-              child: ValueListenableBuilder<NowPlayingData>(
-                valueListenable: widget.data,
-                builder: (BuildContext context, NowPlayingData data, _) {
-                  return Column(
-                    children: <Widget>[
-                      _header(context),
-                      Expanded(child: _body(context, data)),
-                      _controls(context, data),
-                      const SizedBox(height: 12),
-                    ],
-                  );
-                },
+              // 标题条浮在页面之上（overlay），顶部 44px 会被它吃掉点击，
+              // 不预留这段高度的话收起按钮的上半截永远点不到。
+              child: Padding(
+                padding: const EdgeInsets.only(top: LampTitleBar.height),
+                child: ValueListenableBuilder<NowPlayingData>(
+                  valueListenable: widget.data,
+                  builder: (BuildContext context, NowPlayingData data, _) {
+                    return Column(
+                      children: <Widget>[
+                        _header(context),
+                        Expanded(child: _body(context, data)),
+                        _controls(context, data),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -217,16 +223,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _header(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-      child: Row(
-        children: <Widget>[
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.keyboard_arrow_down),
-            tooltip: '收起',
-          ),
-          Text('正在播放', style: theme.textTheme.titleMedium),
-        ],
+      // 与自绘标题栏紧接：按钮/文字中心落在 y≈68（原来 80，明显偏下）
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: SizedBox(
+        height: 48,
+        child: Row(
+          children: <Widget>[
+            // 热区只覆盖箭头周围这一圈，标题文字不参与点击。
+            IconButton(
+              key: const ValueKey<String>('now-playing-collapse'),
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.keyboard_arrow_down, size: 22),
+              tooltip: '收起',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+            ),
+            const SizedBox(width: 4),
+            Text('正在播放', style: theme.textTheme.titleMedium),
+          ],
+        ),
       ),
     );
   }
@@ -402,22 +417,30 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         children: <Widget>[
-          Slider(
-            key: const ValueKey<String>('now-playing-progress'),
-            value: total > 0 ? (_dragPosition ?? shown) : 0,
-            max: total > 0 ? total : 1,
-            onChanged: ready && total > 0
-                ? (double value) => setState(() => _dragPosition = value)
-                : null,
-            onChangeEnd: ready && total > 0
-                ? (double value) {
-                    setState(() => _dragPosition = null);
-                    unawaited(widget.onSeek(value));
-                  }
-                : null,
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            ),
+            child: Slider(
+              key: const ValueKey<String>('now-playing-progress'),
+              value: total > 0 ? (_dragPosition ?? shown) : 0,
+              max: total > 0 ? total : 1,
+              onChanged: ready && total > 0
+                  ? (double value) => setState(() => _dragPosition = value)
+                  : null,
+              onChangeEnd: ready && total > 0
+                  ? (double value) {
+                      setState(() => _dragPosition = null);
+                      unawaited(widget.onSeek(value));
+                    }
+                  : null,
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
+            // 12 与上面滑块的 overlay 半径对齐，时间才落在轨道两端内侧
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[

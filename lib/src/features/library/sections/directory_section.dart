@@ -188,7 +188,7 @@ extension _DirectorySection on _LibraryPageState {
     });
     try {
       final scan.ScanReport report = await _repository.scanFolder(folder);
-      await _loadTracks();
+      await _loadTracks(silent: true);
       if (!mounted) {
         return false;
       }

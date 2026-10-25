@@ -673,4 +673,94 @@ void main() {
       reason: '失败后引擎可能已回落共享，设置页要拿到最新状态',
     );
   });
+
+  testWidgets('自然播完遇到打不开的曲目会继续跳到下一首', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..failingPaths.add('/music/潮汐.mp3');
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        // 专辑名和曲名区分开，否则 `find.text('夜航')` 会同时命中专辑列
+        sampleTrack(title: '夜航', album: '专辑一'),
+        sampleTrack(title: '潮汐', album: '专辑二'),
+        sampleTrack(title: '灯下', album: '专辑三'),
+      ],
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+
+    // 模拟自然播完：状态 stopped、位置停在结尾
+    playback
+      ..current = rust.PlaybackState.stopped
+      ..positionSecs = 180;
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump();
+    await tester.pump();
+
+    expect(playback.playedPaths, <String>[
+      '/music/夜航.mp3',
+      '/music/灯下.mp3',
+    ], reason: '潮汐打不开，应自动跳到再下一首');
+    expect(find.textContaining('已跳过 1 首'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.pause),
+      ),
+      findsOneWidget,
+      reason: '跳过之后应停在能播放的曲目上',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('连续多首播放失败达到上限后停止自动跳过', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    // 打开列表循环，保证每次失败后队列都还有「下一首」
+    await tester.tap(find.byTooltip('循环播放：关'));
+    await tester.pump();
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+
+    // 播完后整库都打不开
+    playback.failingPaths.addAll(<String>['/music/夜航.mp3', '/music/潮汐.mp3']);
+    playback
+      ..current = rust.PlaybackState.stopped
+      ..positionSecs = 180;
+    await tester.pump(const Duration(milliseconds: 550));
+    for (int step = 0; step < 6; step += 1) {
+      await tester.pump();
+    }
+
+    expect(playback.playedPaths, <String>[
+      '/music/夜航.mp3',
+    ], reason: '播放失败的曲目不应记入播放');
+    expect(find.textContaining('连续 5 首播放失败'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byIcon(Icons.play_arrow),
+      ),
+      findsOneWidget,
+      reason: '达到上限后应停下，而不是无限空转',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
 }

@@ -53,9 +53,63 @@ extension _SettingsSection on _LibraryPageState {
             onRetry: _scanning || _lastScanFolder == null
                 ? null
                 : () => unawaited(_scanDirectory(_lastScanFolder!)),
+            pruningMissing: _pruningMissing,
+            prunedMissingCount: _prunedMissingCount,
+            pruneMissingError: _pruneMissingError,
+            onPruneMissing: _pruningMissing
+                ? null
+                : () => unawaited(_pruneMissing()),
           ),
         ),
       ],
     );
+  }
+
+  /// 清理磁盘上已不存在的曲库记录。
+  ///
+  /// 存储层会拒绝「疑似整块磁盘未挂载」的情况（例如所有记录同时消失），
+  /// 这里必须把错误展示出来，不能当成「清理 0 条」。
+  Future<void> _pruneMissing() async {
+    if (_pruningMissing) {
+      return;
+    }
+    _update(() {
+      _pruningMissing = true;
+      _prunedMissingCount = null;
+      _pruneMissingError = null;
+    });
+    try {
+      final Set<String> before = _tracks
+          .map((Track track) => track.path)
+          .toSet();
+      final int removed = await _repository.pruneMissingTracks();
+      if (!mounted) {
+        return;
+      }
+      if (removed > 0) {
+        await _loadTracks(silent: true);
+        if (!mounted) {
+          return;
+        }
+        final Set<String> after = _tracks
+            .map((Track track) => track.path)
+            .toSet();
+        _applyRemovedPaths(before.difference(after));
+      }
+      _update(() {
+        _pruningMissing = false;
+        _prunedMissingCount = removed;
+      });
+      _showMessage(removed > 0 ? '已清理 $removed 条缺失记录' : '没有发现缺失文件');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _update(() {
+        _pruningMissing = false;
+        _pruneMissingError = error;
+      });
+      _showMessage('清理失败：${ErrorRetry.describe(error)}');
+    }
   }
 }
