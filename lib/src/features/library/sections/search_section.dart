@@ -12,7 +12,46 @@ extension _SearchSection on _LibraryPageState {
     () => buildPinyinKey('${track.title} ${track.artist ?? ''}'),
   );
 
-  /// 用拼音在本地曲库里找匹配；只在 FTS 没搜满且查询不含汉字时调用
+  /// 后台分帧预热拼音键。
+  ///
+  /// 万级曲库同步构建要几百毫秒，会卡在「第一次输入字母」的那一帧上；
+  /// 这里一次只处理 200 条，然后让出事件循环，界面始终可响应。
+  void _warmUpPinyinKeys() {
+    if (_pinyinWarming || _pinyinWarmedCount >= _tracks.length) {
+      return;
+    }
+    _pinyinWarming = true;
+    unawaited(_warmUpPinyinChunk());
+  }
+
+  Future<void> _warmUpPinyinChunk() async {
+    const int batch = 200;
+    while (mounted && _pinyinWarmedCount < _tracks.length) {
+      final int start = _pinyinWarmedCount;
+      final int end = (start + batch).clamp(0, _tracks.length);
+      for (int i = start; i < end; i++) {
+        _pinyinKeyOf(_tracks[i]);
+      }
+      _pinyinWarmedCount = end;
+      if (end >= _tracks.length) {
+        break;
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+    _pinyinWarming = false;
+    if (!mounted) {
+      return;
+    }
+    // 预热补齐了：当前查询如果还没结束，静默重跑一次拿到完整拼音结果
+    if (_query.isNotEmpty && !hasCjk(_query)) {
+      unawaited(_runSearch(_query, silent: true));
+    }
+  }
+
+  /// 用拼音在本地曲库里找匹配；只在 FTS 没搜满且查询不含汉字时调用。
+  ///
+  /// 只匹配已经预热好的条目：还没轮到的曲目先跳过，等后台补完会自动重跑，
+  /// 这样首次搜索不会因为「顺便建 10 万条拼音键」而卡住。
   List<Track> _pinyinMatches(String query, int limit) {
     final String needle = normalizePinyinQuery(query);
     if (needle.isEmpty) {
@@ -20,7 +59,11 @@ extension _SearchSection on _LibraryPageState {
     }
     final List<Track> hits = <Track>[];
     for (final Track track in _tracks) {
-      if (_pinyinKeyOf(track).contains(needle)) {
+      final String? key = _pinyinKeys[track.path];
+      if (key == null) {
+        continue;
+      }
+      if (key.contains(needle)) {
         hits.add(track);
         if (hits.length >= limit) {
           break;
@@ -55,12 +98,17 @@ extension _SearchSection on _LibraryPageState {
     });
   }
 
-  Future<void> _runSearch(String query) async {
+  /// 执行一次搜索。
+  ///
+  /// [silent] 用于拼音预热完成后的补跑：结果会更完整，但不必再闪一次加载态。
+  Future<void> _runSearch(String query, {bool silent = false}) async {
     final int token = ++_searchToken;
-    _update(() {
-      _searching = true;
-      _searchError = null;
-    });
+    if (!silent) {
+      _update(() {
+        _searching = true;
+        _searchError = null;
+      });
+    }
     try {
       // 多取一条用来判断「还有更多」，只展示前 _searchLimit 条
       final List<Track> results = await _repository.searchTracks(
@@ -79,6 +127,8 @@ extension _SearchSection on _LibraryPageState {
       // 有汉字时 FTS 已经够用，不必再全库转一遍拼音。
       List<Track> merged = visible;
       if (!hasCjk(query) && merged.length < _searchLimit) {
+        // 首次输入字母时启动后台预热，本轮只匹配已建好的部分
+        _warmUpPinyinKeys();
         final Set<String> seen = merged
             .map((Track track) => track.path)
             .toSet();

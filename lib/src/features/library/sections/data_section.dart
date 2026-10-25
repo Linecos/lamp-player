@@ -22,6 +22,9 @@ extension _DataSection on _LibraryPageState {
       }
       _update(() {
         _tracks = sortTracks(tracks, _sort);
+        // 扫描会刷新标签：旧的拼音键可能已经对不上新标题，整体作废
+        _pinyinKeys.clear();
+        _pinyinWarmedCount = 0;
         _loading = false;
         // 扫描会刷新封面等字段：队列和当前曲目换成新对象，避免播放条还拿旧数据
         if (!_queue.isEmpty) {

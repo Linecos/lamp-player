@@ -415,3 +415,119 @@ fn migrate_v2_resets_fingerprints_and_adds_cover_column() {
         "应清零指纹，让下次扫描重新解析并补封面"
     );
 }
+
+/// 中文词中间的子串也要能搜到。
+///
+/// FTS5 的 unicode61 不切分 CJK：「林间电台」整条是一个 token，所以前缀查询
+/// `"电台"*` 永远匹配不到。这里用 LIKE 子串兜底补上，顺带覆盖英文词中片段。
+#[test]
+fn search_finds_substring_inside_word() {
+    let (_lock, dir) = begin("substring");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+
+    db::upsert_tracks(vec![
+        track("/music/a.mp3", "夜航", Some("林间电台"), Some("夜之专辑")),
+        track("/music/b.mp3", "晴天", Some("周杰伦"), Some("叶惠美")),
+    ])
+    .expect("写入");
+
+    let found = db::search_tracks("电台".to_string(), 10).expect("检索");
+    assert_eq!(found.len(), 1, "「电台」应命中「林间电台」");
+    assert_eq!(found[0].title, "夜航");
+
+    assert_eq!(
+        db::search_tracks("之专".to_string(), 10)
+            .expect("检索")
+            .len(),
+        1,
+        "专辑名中间的片段也要命中"
+    );
+    assert_eq!(
+        db::search_tracks("航".to_string(), 10).expect("检索").len(),
+        1,
+        "单字也要能搜到"
+    );
+
+    // 英文词中间的片段（FTS 前缀同样匹配不到 midnight）
+    db::upsert_tracks(vec![track(
+        "/music/c.mp3",
+        "Midnight",
+        Some("Someone"),
+        None,
+    )])
+    .expect("写入");
+    assert_eq!(
+        db::search_tracks("night".to_string(), 10)
+            .expect("检索")
+            .len(),
+        1,
+        "英文词中片段也要命中"
+    );
+
+    // 多词是 AND：两个词都要出现在同一行
+    assert_eq!(
+        db::search_tracks("林间 电台".to_string(), 10)
+            .expect("检索")
+            .len(),
+        1
+    );
+    assert!(
+        db::search_tracks("林间 晴天".to_string(), 10)
+            .expect("检索")
+            .is_empty(),
+        "跨行的两个词不应凑成一条结果"
+    );
+
+    // LIKE 通配符必须当字面量
+    for query in ["%", "_", "%电%"] {
+        assert!(
+            db::search_tracks(query.to_string(), 10)
+                .expect("检索")
+                .is_empty(),
+            "{query:?} 应被当字面量而不是通配符"
+        );
+    }
+}
+
+/// 传大小写 / 斜杠变体也要能删到。
+///
+/// `remove_tracks` 以前按字面 path 匹配，调用方传 `e:/music/a.mp3` 去删
+/// `E:/Music/A.mp3` 会「删 0 条且不报错」。
+#[test]
+fn remove_tracks_matches_path_variants() {
+    let (_lock, dir) = begin("remove_variant");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    db::upsert_tracks(vec![track(r"E:/Music/A.mp3", "夜航", None, None)]).expect("写入");
+
+    let deleted = db::remove_tracks(vec!["e:/music/a.mp3".to_string()]).expect("删除");
+    if cfg!(windows) {
+        assert_eq!(deleted, 1, "归一化后应删到 1 条");
+        assert!(db::all_tracks().expect("读取").is_empty());
+    } else {
+        // 非 Windows 路径区分大小写，保持原有语义
+        assert_eq!(deleted, 0);
+    }
+}
+
+/// 删曲目后立刻回收不再被引用的封面，而不是等到下次扫描
+#[test]
+fn remove_tracks_prunes_orphan_covers() {
+    let (_lock, dir) = begin("remove_cover");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+
+    let covers = dir.0.join("covers");
+    fs::create_dir_all(&covers).expect("建封面目录");
+    let cover = covers.join("deadbeef.jpg");
+    fs::write(&cover, b"fake-jpeg").expect("写封面");
+
+    let mut item = track("/music/a.mp3", "夜航", None, None);
+    item.cover_path = Some(cover.to_string_lossy().into_owned());
+    db::upsert_tracks(vec![item]).expect("写入");
+    assert!(cover.exists(), "写入后封面应存在");
+
+    assert_eq!(
+        db::remove_tracks(vec!["/music/a.mp3".to_string()]).expect("删除"),
+        1
+    );
+    assert!(!cover.exists(), "删除曲目后不再被引用的封面应被回收");
+}
