@@ -120,4 +120,55 @@ void main() {
     expect(snapshot.eqEnabled, isTrue);
     expect(snapshot.eqGains, <double>[1.5, -2.5, 0, 0, 0, 3, 0, 0, -1, 0]);
   });
+
+  _volumeCurveMigrationTests();
+}
+
+/// 音量曲线从「滑块值=振幅」升级到三次曲线后，老存档要按等响度搬过来，
+/// 否则同一个滑块值会突然安静 12 dB（用户以为音量丢了）。
+void _volumeCurveMigrationTests() {
+  test('老存档的音量按立方根迁移，且只迁移一次', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PrefsSessionStore.volumeKey: 0.5,
+      PrefsSessionStore.lastVolumeKey: 0.8,
+    });
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    final SessionSnapshot first = await store.load();
+    expect(first.volume, closeTo(0.7937, 0.001), reason: 'cbrt(0.5)≈0.794');
+    expect(first.lastVolume, closeTo(0.9283, 0.001), reason: 'cbrt(0.8)≈0.928');
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getInt(PrefsSessionStore.volumeCurveVersionKey),
+      PrefsSessionStore.volumeCurveVersion,
+      reason: '迁移后要立刻落版本号，否则每次启动都会再搬一次',
+    );
+
+    // 第二次读不能再次取立方根
+    final SessionSnapshot second = await store.load();
+    expect(second.volume, closeTo(first.volume, 0.0001));
+  });
+
+  test('已经是新曲线的存档原样读出', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PrefsSessionStore.volumeKey: 0.5,
+      PrefsSessionStore.volumeCurveVersionKey:
+          PrefsSessionStore.volumeCurveVersion,
+    });
+
+    final SessionSnapshot snapshot = await const PrefsSessionStore().load();
+    expect(snapshot.volume, 0.5);
+  });
+
+  test('保存时写入曲线版本', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await const PrefsSessionStore().save(const SessionSnapshot(volume: 0.3));
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getInt(PrefsSessionStore.volumeCurveVersionKey),
+      PrefsSessionStore.volumeCurveVersion,
+    );
+  });
 }

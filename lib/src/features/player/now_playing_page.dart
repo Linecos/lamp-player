@@ -66,7 +66,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
   bool _loading = false;
-  int _activeLine = -1;
+
+  /// 当前高亮的歌词行。
+  ///
+  /// 用 `ValueNotifier` 而不是 State 字段：播放进度每 500ms 推一次，
+  /// 走 setState 会整页重建（封面 + 歌词列表 + 进度条），行高亮却只变一行。
+  final ValueNotifier<int> _activeLine = ValueNotifier<int>(-1);
 
   /// 拖动中的预览位置：松手才真正 seek，避免一次拖动发出几十条命令
   double? _dragPosition;
@@ -82,6 +87,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   void dispose() {
     widget.data.removeListener(_onData);
     _lyricsScroll.dispose();
+    _activeLine.dispose();
     super.dispose();
   }
 
@@ -91,12 +97,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     _syncTrack();
     final int active = _activeIndex(widget.data.value.position);
-    if (active != _activeLine) {
-      setState(() => _activeLine = active);
+    if (active != _activeLine.value) {
+      _activeLine.value = active;
       _scrollToActive(active);
-    } else {
-      setState(() {});
     }
+    // 进度与播放态由外层的 ValueListenableBuilder 局部刷新。
+    // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
   /// 切歌时重新读歌词；同一首不重复读
@@ -107,7 +113,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     _loadedPath = path;
     _lyrics = null;
-    _activeLine = -1;
+    _activeLine.value = -1;
     unawaited(_loadLyrics(path));
   }
 
@@ -128,10 +134,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     setState(() {
       _lyrics = result;
       _loading = false;
-      // 打开页面时可能已经播到一半：立即定位当前行，而不是等下一次进度刷新
-      _activeLine = _activeIndex(widget.data.value.position);
     });
-    _scrollToActive(_activeLine);
+    // 打开页面时可能已经播到一半：立即定位当前行，而不是等下一次进度刷新
+    _activeLine.value = _activeIndex(widget.data.value.position);
+    _scrollToActive(_activeLine.value);
   }
 
   int _activeIndex(double position) {
@@ -375,32 +381,38 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       );
     }
 
-    return ListView.builder(
-      controller: _lyricsScroll,
-      padding: const EdgeInsets.symmetric(vertical: 80),
-      itemCount: lyrics.lines.length,
-      itemExtent: 44,
-      itemBuilder: (BuildContext context, int index) {
-        final lyrics_api.LyricLine line = lyrics.lines[index];
-        final bool active = index == _activeLine;
-        return InkWell(
-          key: ValueKey<String>('lyric-$index'),
-          hoverColor: scheme.onSurface.withValues(alpha: 0.06),
-          onTap: () => unawaited(widget.onSeek(line.timeMs.toInt() / 1000)),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              line.text.isEmpty ? '♪' : line.text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                height: 2.2,
-                fontSize: active ? 19 : 16,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                color: active ? scheme.primary : scheme.onSurfaceVariant,
+    // 只有高亮行变化才重建这一块：进度刷新（500ms）不必重排整页
+    return ValueListenableBuilder<int>(
+      valueListenable: _activeLine,
+      builder: (BuildContext context, int activeLine, Widget? child) {
+        return ListView.builder(
+          controller: _lyricsScroll,
+          padding: const EdgeInsets.symmetric(vertical: 80),
+          itemCount: lyrics.lines.length,
+          itemExtent: 44,
+          itemBuilder: (BuildContext context, int index) {
+            final lyrics_api.LyricLine line = lyrics.lines[index];
+            final bool active = index == activeLine;
+            return InkWell(
+              key: ValueKey<String>('lyric-$index'),
+              hoverColor: scheme.onSurface.withValues(alpha: 0.06),
+              onTap: () => unawaited(widget.onSeek(line.timeMs.toInt() / 1000)),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  line.text.isEmpty ? '♪' : line.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    height: 2.2,
+                    fontSize: active ? 19 : 16,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                    color: active ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

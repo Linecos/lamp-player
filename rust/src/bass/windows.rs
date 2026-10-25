@@ -19,6 +19,12 @@ const ST_STOPPED: u8 = 0;
 const ST_PLAYING: u8 = 1;
 const ST_PAUSED: u8 = 2;
 
+/// 独占模式下位置多久没前进就判定设备掉线。
+///
+/// 取 3 秒：正常解码一帧只有几十毫秒，网络盘上的大文件也远到不了这个量级，
+/// 而用户拔线后 3 秒内就能看到回落，不至于以为播放器卡死了。
+const EXCLUSIVE_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// 状态轮询间隔，用于发现曲目自然播完
 const TICK: std::time::Duration = std::time::Duration::from_millis(200);
 
@@ -238,6 +244,13 @@ struct Engine {
     /// 自然播完后的末态：流已释放，但界面仍要显示「播到结尾」
     ended_position: f64,
     ended_duration: f64,
+    /// 独占输出的停滞检测：最近一次「位置前进」的时刻与位置。
+    ///
+    /// 拔掉 USB DAC、设备被别的程序抢走时，回调不再被拉数据，但解码流的
+    /// active 状态仍是 PLAYING —— 界面会显示「播放中」、进度冻住、也不会
+    /// 自动下一首。位置连续几秒不动就判定设备掉线。
+    stall_since: Option<std::time::Instant>,
+    stall_position: f64,
 }
 
 impl Engine {
@@ -273,6 +286,8 @@ impl Engine {
             eq_fx: Vec::new(),
             ended_position: 0.0,
             ended_duration: 0.0,
+            stall_since: None,
+            stall_position: 0.0,
         };
         engine.slot.lock().expect("新建的锁不会中毒").get_data = engine.api.channel_get_data;
         engine.init_output()?;
@@ -779,6 +794,8 @@ impl Engine {
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
         self.refresh_state();
+        // 独占设备掉线：接口状态仍是 PLAYING，但位置不再前进
+        self.check_output_stall();
         // 自然播完就释放流：挂着不放手会把文件句柄占住，Explorer 删 / 改名、
         // 「从曲库移除」后的删文件都会失败。
         // 暂停不会被误判：共享模式只有 STOPPED 才算结束（PAUSED ≠ 0），
@@ -787,6 +804,63 @@ impl Engine {
             self.finish_track();
         }
         self.release_idle_session();
+    }
+
+    /// 独占输出的停滞检测：位置连续 [`EXCLUSIVE_STALL_TIMEOUT`] 没前进就
+    /// 认为设备已经掉了（拔线 / 被别的程序独占），回落到共享输出继续放。
+    fn check_output_stall(&mut self) {
+        if self.output != Output::Exclusive || self.stream == 0 || self.slot_paused() {
+            self.stall_since = None;
+            return;
+        }
+        let position = self.position().unwrap_or(0.0);
+        let duration = self.duration().unwrap_or(0.0);
+        // 已经播到结尾：那是正常结束，交给 decode_ended / finish_track
+        if duration > 0.0 && position >= duration - 0.1 {
+            self.stall_since = None;
+            return;
+        }
+        if (position - self.stall_position).abs() >= 0.05 {
+            self.stall_position = position;
+            self.stall_since = Some(std::time::Instant::now());
+            return;
+        }
+        let since = *self.stall_since.get_or_insert_with(std::time::Instant::now);
+        if since.elapsed() >= EXCLUSIVE_STALL_TIMEOUT {
+            self.recover_from_stall();
+        }
+    }
+
+    /// 设备掉线后回落共享输出，尽量保住播放位置与播放状态
+    fn recover_from_stall(&mut self) {
+        let resume_at = self.position().unwrap_or(0.0);
+        let was_playing = state() == State::Playing;
+        let path = self.path.clone();
+
+        self.stall_since = None;
+        self.release_track();
+        self.teardown_session();
+        // 设备都没了，别再尝试独占：共享输出至少还能出声
+        self.request_exclusive = false;
+        self.output = Output::Shared;
+        if let Err(error) = self.init_output() {
+            eprintln!("独占设备掉线后回落共享失败：{error}");
+            self.exclusive_note = format!("设备已断开，回落共享也失败：{error}");
+            return;
+        }
+        self.exclusive_note = "输出设备已断开，已回落到共享输出".to_string();
+        if let Some(path) = path {
+            if let Err(error) = self.play(&path) {
+                eprintln!("掉线后用共享输出重开曲目失败：{error}");
+                return;
+            }
+            if resume_at > 0.05 {
+                let _ = self.seek(resume_at);
+            }
+            if !was_playing {
+                let _ = self.pause();
+            }
+        }
     }
 
     /// 解码流是否已经播到结尾
@@ -942,8 +1016,9 @@ impl Engine {
                 None => "WASAPI 独占（空闲已交还设备，播放时重新占用）".to_string(),
             },
             Output::Shared => {
-                if self.request_exclusive {
-                    format!("共享输出（独占失败：{}）", self.exclusive_note)
+                if !self.exclusive_note.is_empty() {
+                    // 两种情况共用这段：独占初始化失败、或独占设备中途掉线
+                    format!("共享输出（{}）", self.exclusive_note)
                 } else {
                     "共享输出（跟随系统混音格式）".to_string()
                 }
