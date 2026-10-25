@@ -250,8 +250,15 @@ class _LibraryPageState extends State<LibraryPage>
   /// 是否请求 WASAPI 独占输出（偏好；设备不支持时引擎会回落共享）
   bool _exclusive = false;
 
-  /// 拼音键缓存（path → 全拼|首字母）；首次英文查询时按需构建
+  /// 拼音键缓存（path → 全拼|首字母）。
+  ///
+  /// 由后台分帧预热（一次 200 条）：万级曲库同步构建会把 UI 卡住几百毫秒。
+  /// 曲库整体换新（扫描 / 重扫）时必须清空——标签可能已经变了。
   final Map<String, String> _pinyinKeys = <String, String>{};
+
+  /// 已预热到第几条；小于 `_tracks.length` 说明缓存还没建完
+  int _pinyinWarmedCount = 0;
+  bool _pinyinWarming = false;
 
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;

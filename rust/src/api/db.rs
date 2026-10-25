@@ -271,11 +271,12 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> anyhow::Result
 /// 每个词都包成短语并做前缀匹配（`"周杰"*`），因此 `-`、`+`、`:`、引号
 /// 等字符只会被当字面量，不会变成 FTS5 查询语法；空查询直接返回空列表。
 pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
+    let limit = limit.clamp(1, 2000);
     let Some(fts_query) = fts_prefix_query(&query) else {
         return Ok(Vec::new());
     };
 
-    with_conn(|conn| {
+    let mut results = with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
@@ -286,9 +287,85 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
             LIMIT ?2
             "#,
         )?;
-        let rows = stmt.query_map(params![fts_query, limit.clamp(1, 2000)], row_to_track)?;
+        let rows = stmt.query_map(params![fts_query, limit], row_to_track)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+
+    // FTS5 的 unicode61 不切分 CJK：「林间电台」整条是一个 token，
+    // 所以「电台」这种词中间的子串用前缀查询永远搜不到。
+    // 前缀没搜满时补一条子串匹配，命中结果按顺序追加在后面。
+    if results.len() >= limit as usize {
+        return Ok(results);
+    }
+    let extra = substring_search(&query, limit)?;
+    let mut seen: HashSet<String> = results.iter().map(|track| track.path.clone()).collect();
+    for track in extra {
+        if seen.insert(track.path.clone()) {
+            results.push(track);
+            if results.len() >= limit as usize {
+                break;
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// 子串匹配兜底：补上 FTS 前缀查不到的情况（中文词中间、英文词中片段）。
+///
+/// 只扫 title / artist / album 的拼接串并用 `LIMIT` 截断，万级曲库也是毫秒级；
+/// 多个词之间是 AND 关系，和搜索框的直觉一致。
+fn substring_search(query: &str, limit: i32) -> anyhow::Result<Vec<Track>> {
+    let terms: Vec<&str> = query
+        .split_whitespace()
+        .filter(|term| term.chars().any(char::is_alphanumeric))
+        .collect();
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let fields = "(title || ' ' || COALESCE(artist, '') || ' ' || COALESCE(album, ''))";
+    let mut sql = String::from(
+        "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path \
+         FROM tracks WHERE ",
+    );
+    for index in 0..terms.len() {
+        if index > 0 {
+            sql.push_str(" AND ");
+        }
+        sql.push_str(&format!("{fields} LIKE ?{} ESCAPE '\\'", index + 1));
+    }
+    sql.push_str(&format!(
+        " ORDER BY title, artist, id LIMIT ?{}",
+        terms.len() + 1
+    ));
+
+    let patterns: Vec<String> = terms
+        .iter()
+        .map(|term| format!("%{}%", escape_like(term)))
+        .collect();
+
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let mut values: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(patterns.len() + 1);
+        for pattern in &patterns {
+            values.push(pattern);
+        }
+        values.push(&limit);
+        let rows = stmt.query_map(rusqlite::params_from_iter(values), row_to_track)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })
+}
+
+/// 转义 LIKE 的通配符，否则用户输入的 `%` / `_` 会变成通配符
+fn escape_like(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 /// 把用户输入转成 FTS5 前缀查询；没有任何可检索词时返回 `None`。
@@ -551,7 +628,11 @@ pub fn prune_missing_tracks() -> anyhow::Result<i32> {
         );
     }
 
-    delete_tracks(&missing)
+    let deleted = delete_tracks(&missing)?;
+    if deleted > 0 {
+        let _ = prune_unused_covers();
+    }
+    Ok(deleted)
 }
 
 /// 清理某个目录下「本次扫描没看到」的记录（文件被删除/移走），返回删除数。
@@ -578,7 +659,11 @@ pub(crate) fn prune_tracks_under(folder: &Path, seen: &HashSet<String>) -> anyho
         .map(|(id, _)| id)
         .collect();
 
-    delete_tracks(&stale)
+    let deleted = delete_tracks(&stale)?;
+    if deleted > 0 {
+        let _ = prune_unused_covers();
+    }
+    Ok(deleted)
 }
 
 /// 目录前缀：去掉末尾分隔符后统一补一个分隔符，
@@ -702,45 +787,62 @@ fn merge_track_path(
 /// 按路径批量删除曲库记录，返回实际删除数。
 ///
 /// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
-/// 级联清理。整个批次在一个事务里完成，重复路径或不存在路径会被忽略。
+/// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
+/// （否则会「删 0 条且不报错」）。
 pub fn remove_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     if paths.is_empty() {
         return Ok(0);
     }
+    let keys: HashSet<String> = paths.iter().map(|path| path_key(path)).collect();
 
-    with_conn(|conn| {
-        let tx = conn.transaction()?;
-        let deleted = {
-            let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE path = ?1")?;
-            let mut count = 0;
-            for path in &paths {
-                count += stmt.execute([path])?;
-            }
-            count
-        };
-        tx.commit()?;
-        Ok(deleted as i32)
-    })
+    // path_key 是 Rust 侧算的，SQL 里没有同款函数：先取 (id, path) 再在内存里筛
+    let ids: Vec<i64> = with_conn(|conn| {
+        let mut stmt = conn.prepare_cached("SELECT id, path FROM tracks")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))?;
+        let rows = rows.collect::<Result<Vec<(i64, String)>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter(|(_, path)| keys.contains(&path_key(path)))
+            .map(|(id, _)| id)
+            .collect::<Vec<i64>>())
+    })?;
+
+    let deleted = delete_tracks(&ids)?;
+    if deleted > 0 {
+        // 曲目一删，它们的封面就没人引用了；不顺手回收的话 covers/ 会一直留到下次扫描
+        let _ = prune_unused_covers();
+    }
+    Ok(deleted)
 }
 
+/// 按 id 批量删除，返回删除数。
+///
+/// 一条 `DELETE ... WHERE id IN (...)` 比逐条执行快一个数量级；SQLite 的变量
+/// 数量有上限（默认 999），所以按 500 个一批分开执行。
 fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {
     if ids.is_empty() {
         return Ok(0);
     }
 
+    let mut deleted = 0usize;
     with_conn(|conn| {
         let tx = conn.transaction()?;
-        let deleted = {
-            let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE id = ?1")?;
-            let mut count = 0;
-            for id in ids {
-                count += stmt.execute([id])?;
+        {
+            for chunk in ids.chunks(500) {
+                let placeholders = std::iter::repeat_n("?", chunk.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!("DELETE FROM tracks WHERE id IN ({placeholders})");
+                let mut stmt = tx.prepare(&sql)?;
+                let params: Vec<&dyn rusqlite::ToSql> =
+                    chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+                deleted += stmt.execute(rusqlite::params_from_iter(params))?;
             }
-            count
-        };
+        }
         tx.commit()?;
-        Ok(deleted as i32)
-    })
+        Ok(())
+    })?;
+    Ok(deleted as i32)
 }
 
 pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
