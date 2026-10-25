@@ -247,7 +247,15 @@ class _LibraryPageState extends State<LibraryPage>
   bool _seeking = false;
   double _position = 0;
   double _duration = 0;
-  double _volume = 1;
+
+  /// 音量（滑块语义 0..1）。
+  ///
+  /// 用 notifier 而不是普通字段：拖动滑块时只重建播放条的音量控件，
+  /// 不推进 `_stateVersion`——否则当前分区（可能是一整页封面网格）会被重建。
+  final ValueNotifier<double> _volumeNotifier = ValueNotifier<double>(1);
+  double get _volume => _volumeNotifier.value;
+  set _volume(double value) => _volumeNotifier.value = value;
+
   double _lastVolume = 1;
   bool _engineNoticeShown = false;
 
@@ -297,9 +305,12 @@ class _LibraryPageState extends State<LibraryPage>
     });
   }
 
-  /// 首帧之后再探测音频引擎，避免引擎线程异常时卡住启动
+  /// 首帧画完再探测音频引擎，避免引擎线程异常时卡住启动。
+  ///
+  /// `Future.delayed(Duration.zero)` 不够：零延时 timer 排在 vsync 之前，
+  /// 实际仍会卡住首帧。`endOfFrame` 保证第一帧已经提交渲染后再探测。
   Future<void> _probeAvailability() async {
-    await Future<void>.delayed(Duration.zero);
+    await WidgetsBinding.instance.endOfFrame;
     if (!mounted) {
       return;
     }
@@ -382,6 +393,7 @@ class _LibraryPageState extends State<LibraryPage>
     _searchController.dispose();
     _progress.dispose();
     _nowPlaying.dispose();
+    _volumeNotifier.dispose();
     super.dispose();
   }
 
@@ -695,38 +707,20 @@ class _LibraryPageState extends State<LibraryPage>
                                             BuildContext context,
                                             _PlaybackProgress progress,
                                             Widget? child,
-                                          ) {
-                                            return PlayerBar(
-                                              track: _currentTrack,
-                                              isPlaying: progress.playing,
-                                              isAvailable: _isAvailable,
-                                              canSeek: !_isStopped,
-                                              position: progress.position,
-                                              duration: progress.duration,
-                                              volume: _volume,
-                                              onPlayPause: () =>
-                                                  unawaited(_togglePlayback()),
-                                              onPrevious: () =>
-                                                  unawaited(_previous()),
-                                              onNext: () => unawaited(_next()),
-                                              onSeekStart: _onSeekStart,
-                                              onSeekChanged: _onSeekChanged,
-                                              onSeekEnd: (double seconds) =>
-                                                  unawaited(
-                                                    _onSeekEnd(seconds),
-                                                  ),
-                                              onVolumeChanged: _setVolume,
-                                              onToggleMute: _toggleMute,
-                                              onShowQueue: () =>
-                                                  unawaited(_showQueue()),
-                                              repeat: _queue.repeat,
-                                              shuffle: _queue.shuffle,
-                                              onToggleRepeat: _cycleRepeat,
-                                              onToggleShuffle: _toggleShuffle,
-                                              onOpenNowPlaying: () =>
-                                                  unawaited(_openNowPlaying()),
-                                            );
-                                          },
+                                          ) => ValueListenableBuilder<double>(
+                                            // 音量单独一层：拖滑块只重建播放条，
+                                            // 不推进状态版本、不连累当前分区
+                                            valueListenable: _volumeNotifier,
+                                            builder:
+                                                (
+                                                  BuildContext context,
+                                                  double volume,
+                                                  Widget? child,
+                                                ) => _buildPlayerBar(
+                                                  progress,
+                                                  volume,
+                                                ),
+                                          ),
                                     ),
                               ),
                             ],
@@ -929,14 +923,54 @@ class _LibraryPageState extends State<LibraryPage>
     });
   }
 
+  /// 底部播放岛。
+  ///
+  /// [volume] 走独立 notifier：拖动音量只重建这一个子树，不碰分区内容。
+  Widget _buildPlayerBar(_PlaybackProgress progress, double volume) {
+    return PlayerBar(
+      track: _currentTrack,
+      isPlaying: progress.playing,
+      isAvailable: _isAvailable,
+      canSeek: !_isStopped,
+      position: progress.position,
+      duration: progress.duration,
+      volume: volume,
+      onPlayPause: () => unawaited(_togglePlayback()),
+      onPrevious: () => unawaited(_previous()),
+      onNext: () => unawaited(_next()),
+      onSeekStart: _onSeekStart,
+      onSeekChanged: _onSeekChanged,
+      onSeekEnd: (double seconds) => unawaited(_onSeekEnd(seconds)),
+      onVolumeChanged: _setVolume,
+      onToggleMute: _toggleMute,
+      onShowQueue: () => unawaited(_showQueue()),
+      repeat: _queue.repeat,
+      shuffle: _queue.shuffle,
+      onToggleRepeat: _cycleRepeat,
+      onToggleShuffle: _toggleShuffle,
+      onOpenNowPlaying: () => unawaited(_openNowPlaying()),
+    );
+  }
+
   /// 分区宿主：所有访问过的分区都留在树里（`Offstage` 隐藏，不参与布局与绘制），
   /// 切回来直接复用快照。旧分区不会被销毁，滚动位置与图片缓存也就跟着保住了。
+  ///
+  /// 只遍历「访问过的分区 + 当前分区」：从没进过的分区不必建，否则启动时
+  /// 会用空曲库把艺术家 / 专辑 / 设置先建一份空快照缓存起来，首次进入先闪
+  /// 一帧「0 位艺术家」再补真实内容。
   Widget _buildSectionsHost(BuildContext context) {
+    final Set<LibrarySection> visited = <LibrarySection>{
+      ..._sections.keys,
+      _displayedSection,
+    };
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        for (final LibrarySection section in LibrarySection.values)
+        for (final LibrarySection section in visited)
           Offstage(
+            // 集合会随访问变化，必须给 key：否则按位置复用 Element，
+            // 分区集合一变就错位拿到别的子树
+            key: ValueKey<LibrarySection>(section),
             offstage: section != _displayedSection,
             child: TickerMode(
               enabled: section == _displayedSection,

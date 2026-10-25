@@ -212,6 +212,27 @@ void main() {
     expect(find.text('2 位艺术家'), findsOneWidget);
   });
 
+  testWidgets('首次进入艺术家分区直接显示真实数据，不闪空快照', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        ...twoTracks(),
+        sampleTrack(title: '灯下', artist: '林间电台', album: '夜之专辑'),
+      ],
+    );
+
+    await tester.tap(find.byIcon(Icons.person_outline));
+    // 第一帧只换侧栏高亮，第二帧才切内容
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('0 位艺术家'), findsNothing, reason: '从未访问过的分区不该用空曲库建快照');
+    expect(find.text('2 位艺术家'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(find.text('2 位艺术家'), findsOneWidget);
+  });
+
   testWidgets('音乐分区右键加入歌单能看到已有歌单', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

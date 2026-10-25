@@ -519,7 +519,9 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   void _onSeekChanged(double seconds) {
-    _update(() => _position = seconds);
+    // 拖动预览只推播放条：`_update` 会推进 `_stateVersion`，
+    // 把当前分区（可能是一整页封面网格）整棵重建。
+    _position = seconds;
     _publishProgress();
   }
 
@@ -532,7 +534,7 @@ extension _PlaybackSection on _LibraryPageState {
       if (!mounted) {
         return;
       }
-      _update(() => _position = seconds);
+      _position = seconds;
       _publishProgress();
     } catch (error) {
       if (!mounted) {
@@ -567,14 +569,15 @@ extension _PlaybackSection on _LibraryPageState {
 
   /// 音量变化：UI 立即跟随，实际调用按 [_LibraryPageState._volumeThrottle] 合并，
   /// 避免拖动时每个像素都发一条 FFI 命令。
+  ///
+  /// 只改 notifier，不走 `_update`：音量不影响列表内容，推进 `_stateVersion`
+  /// 会把当前分区整棵子树（艺术家页是全量封面）一起重建。
   void _setVolume(double volume) {
     final double next = volume.clamp(0.0, 1.0).toDouble();
-    _update(() {
-      if (next > 0) {
-        _lastVolume = next;
-      }
-      _volume = next;
-    });
+    if (next > 0) {
+      _lastVolume = next;
+    }
+    _volume = next;
     _scheduleSessionSave();
     if (!_isAvailable) {
       return;
@@ -611,12 +614,10 @@ extension _PlaybackSection on _LibraryPageState {
     _volumeTimer?.cancel();
     _volumeTimer = null;
     _pendingVolume = null;
-    _update(() {
-      if (next > 0) {
-        _lastVolume = next;
-      }
-      _volume = next;
-    });
+    if (next > 0) {
+      _lastVolume = next;
+    }
+    _volume = next;
     _saveSessionNow();
     if (_isAvailable) {
       unawaited(_applyVolume(next));
