@@ -86,6 +86,7 @@
 | `search_tracks(query: String, limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> searchTracks({required String query, required int limit})` | 已实现 |
 | `upsert_tracks(tracks: Vec<Track>) -> Result<i32>` | `Future<int> upsertTracks({required List<Track> tracks})` | 已实现 |
 | `prune_missing_tracks() -> Result<i32>` | `Future<int> pruneMissingTracks()` | 已实现 |
+| `remove_tracks(paths: Vec<String>) -> Result<i32>` | `Future<int> removeTracks({required List<String> paths})` | 已实现 |
 
 语义补充：
 
@@ -101,6 +102,9 @@
   它不携带文件指纹（mtime/大小），因此不会破坏扫描记录的增量信息。
 - `prune_missing_tracks` 只清理磁盘上已不存在的 `path` 记录；磁盘检查在锁外完成，
   删除在单事务里完成。
+- `remove_tracks` 按路径批量删除曲库记录，**只删记录、不动磁盘上的音频文件**；
+  歌单 / 收藏 / 播放历史由外键级联清理。整批在单事务里完成，重复或不在库里的路径
+  直接忽略，返回实际删除条数；空列表返回 0。
 - 两道数据保护（会级联删除歌单 / 收藏 / 历史，不能误删）：
   1. **卷根可达性**：某块盘的根目录读不到时（移动硬盘 / 网络盘未挂载），该卷下的曲目
      一律不算缺失，直接跳过；
@@ -118,10 +122,12 @@
 | `playlist_tracks(id: i64) -> Result<Vec<Track>>` | `Future<List<Track>> playlistTracks({required PlatformInt64 id})` | 已实现 |
 | `add_track_to_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> addTrackToPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
 | `remove_track_from_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> removeTrackFromPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
+| `add_tracks_to_playlist(id: i64, paths: Vec<String>) -> Result<i32>` | `Future<int> addTracksToPlaylist({required PlatformInt64 id, required List<String> paths})` | 已实现 |
 | `list_favorites() -> Result<Vec<Track>>` | `Future<List<Track>> listFavorites()` | 已实现 |
 | `favorite_paths() -> Result<Vec<String>>` | `Future<List<String>> favoritePaths()` | 已实现 |
 | `is_favorite(path: String) -> Result<bool>` | `Future<bool> isFavorite({required String path})` | 已实现 |
 | `set_favorite(path: String, favorite: bool) -> Result<()>` | `Future<void> setFavorite({required String path, required bool favorite})` | 已实现 |
+| `set_favorites(paths: Vec<String>, favorite: bool) -> Result<i32>` | `Future<int> setFavorites({required List<String> paths, required bool favorite})` | 已实现 |
 | `record_play(path: String) -> Result<()>` | `Future<void> recordPlay({required String path})` | 已实现 |
 | `recent_tracks(limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> recentTracks({required int limit})` | 已实现 |
 | `clear_history() -> Result<()>` | `Future<void> clearHistory()` | 已实现 |
@@ -135,8 +141,12 @@
 - **歌单顺序**：按加入顺序（`added_at`，同一秒内按插入顺序），暂不支持手动排序。
 - `add_track_to_playlist` / `remove_track_from_playlist` 幂等：重复加 / 重复移除不报错，
   返回值表示这次是否真的改变了数据。
+- `add_tracks_to_playlist` 是批量版：整批在单事务里完成，任一曲目不在曲库时整体回滚，
+  不会留下半批数据；已在歌单内的曲目忽略，返回真正新增条数。
 - **收藏**：`set_favorite` 幂等；收藏时曲目必须已在曲库。`favorite_paths` 供列表页
   一次性拉取后做成员判断，避免逐曲调 `is_favorite`。
+- `set_favorites` 是批量版：收藏时逐条校验曲目存在、任一失败整体回滚；取消收藏不校验
+  （删库后的残留路径也能清掉）。重复路径幂等，返回真正改变的条数。
 - **历史**：按曲目去重，每首歌一行；`record_play` 更新最近播放时间并累加 `play_count`
   （当前不对外暴露计数），`recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=500`。
 - **记录时机**：由 Dart 侧在 `player_play` 成功后调用 `record_play`；播放层不反向依赖曲库，

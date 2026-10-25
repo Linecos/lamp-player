@@ -42,6 +42,18 @@ Future<bool> addTrackToPlaylist({
   path: path,
 );
 
+/// 批量加入歌单，返回真正新增的条数。
+///
+/// 整个批次在一个事务里：任一曲目不在曲库时整体回滚，不会留下半批数据。
+/// 已在歌单内的曲目会被忽略，不计入返回值。
+Future<int> addTracksToPlaylist({
+  required PlatformInt64 id,
+  required List<String> paths,
+}) => RustLib.instance.api.crateApiCollectionsAddTracksToPlaylist(
+  id: id,
+  paths: paths,
+);
+
 /// 从歌单移除曲目；本来就不在歌单内时返回 `false`。
 Future<bool> removeTrackFromPlaylist({
   required PlatformInt64 id,
@@ -69,6 +81,18 @@ Future<void> setFavorite({required String path, required bool favorite}) =>
       path: path,
       favorite: favorite,
     );
+
+/// 批量设置收藏状态，返回真正改变的条数。
+///
+/// 收藏时任一曲目不在曲库会整体回滚；取消收藏不校验曲目是否存在（删库后
+/// 的残留路径也能清掉）。重复路径会被幂等忽略。
+Future<int> setFavorites({
+  required List<String> paths,
+  required bool favorite,
+}) => RustLib.instance.api.crateApiCollectionsSetFavorites(
+  paths: paths,
+  favorite: favorite,
+);
 
 /// 记录一次播放：同曲目只保留一行，更新时间并累加次数。
 Future<void> recordPlay({required String path}) =>

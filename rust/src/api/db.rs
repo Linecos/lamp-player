@@ -62,6 +62,8 @@ pub fn init_db(path: String) -> anyhow::Result<()> {
     conn.execute_batch("PRAGMA journal_mode = WAL;")?;
     // 歌单 / 收藏 / 历史用外键关联 tracks.path，删除曲目时要级联清理
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    // 外部工具（备份脚本、DB 客户端）持写锁时等一会儿，而不是立刻 SQLITE_BUSY
+    conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
     migrate(&mut conn)?;
 
     *guard = Some(Database { path, conn });
@@ -442,8 +444,19 @@ const PRUNE_GUARD_MIN_TOTAL: usize = 10;
 /// 一次清理超过这个比例就判定为「整块盘不可达」，拒绝删除
 const PRUNE_GUARD_MAX_RATIO: f64 = 0.5;
 
-/// 曲目路径所在的卷根（`E:/Music/a.mp3` → `E:/`，UNC → `//server/share`）。
+/// 文件是否确实不存在。
 ///
+/// `Path::exists()` 把「权限不足 / 共享断连 / IO 错误」也一并当成不存在，
+/// 曲库不足 [`PRUNE_GUARD_MIN_TOTAL`] 首时删除比例保护不生效，会误删整批记录。
+/// 这里只认 `NotFound`；其它错误按「还在」处理，宁可少删也不删错。
+fn file_missing(path: &str) -> bool {
+    match fs::metadata(path) {
+        Ok(_) => false,
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// 曲目路径所在的卷根（`E:/Music/a.mp3` → `E:/`，UNC → `//server/share`）。///
 /// 用于判断「同一块盘的其它文件是否还在」：盘没挂载时整卷文件都 `exists()==false`，
 /// 直接按缺失删除会把歌单/收藏/历史级联清空。
 fn volume_root(path: &str) -> Option<String> {
@@ -500,7 +513,9 @@ pub fn prune_missing_tracks() -> anyhow::Result<i32> {
     let mut missing: Vec<i64> = Vec::new();
     let mut skipped_volumes: HashSet<String> = HashSet::new();
     for (id, path) in &rows {
-        if Path::new(path).exists() {
+        // 只有「确实不存在」才算缺失：权限不足、共享断连、IO 错误都会被
+        // `Path::exists()` 判成 false，那会误删整批记录（连带级联清收藏 / 歌单 / 历史）
+        if !file_missing(path) {
             continue;
         }
         let Some(root) = volume_root(path) else {
@@ -682,6 +697,30 @@ fn merge_track_path(
 
     tx.execute("DELETE FROM tracks WHERE path = ?1", [old_path])?;
     Ok(())
+}
+
+/// 按路径批量删除曲库记录，返回实际删除数。
+///
+/// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
+/// 级联清理。整个批次在一个事务里完成，重复路径或不存在路径会被忽略。
+pub fn remove_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        let deleted = {
+            let mut stmt = tx.prepare_cached("DELETE FROM tracks WHERE path = ?1")?;
+            let mut count = 0;
+            for path in &paths {
+                count += stmt.execute([path])?;
+            }
+            count
+        };
+        tx.commit()?;
+        Ok(deleted as i32)
+    })
 }
 
 fn delete_tracks(ids: &[i64]) -> anyhow::Result<i32> {

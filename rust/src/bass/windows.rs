@@ -170,8 +170,13 @@ unsafe extern "system" fn wasapi_proc(buffer: *mut c_void, length: u32, user: *m
         return 0;
     }
     let slot = &*(user as *const Mutex<Slot>);
-    let Ok(guard) = slot.lock() else {
-        return 0;
+    let guard = match slot.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            // 锁中毒时也要写静音：返回 0 会被 BASS 当成「输出结束」
+            std::ptr::write_bytes(buffer as *mut u8, 0, length as usize);
+            return length;
+        }
     };
     // 独占输出必须以混音流为数据源：源流没有经过重采样与音量处理
     let source = if guard.mixer != 0 {
@@ -230,6 +235,9 @@ struct Engine {
     eq_gains: Vec<f32>,
     /// 当前挂着的 FX 句柄，换曲 / 关开关时逐个移除
     eq_fx: Vec<u32>,
+    /// 自然播完后的末态：流已释放，但界面仍要显示「播到结尾」
+    ended_position: f64,
+    ended_duration: f64,
 }
 
 impl Engine {
@@ -263,6 +271,8 @@ impl Engine {
             eq_enabled: false,
             eq_gains: vec![0.0; EQ_CENTERS.len()],
             eq_fx: Vec::new(),
+            ended_position: 0.0,
+            ended_duration: 0.0,
         };
         engine.slot.lock().expect("新建的锁不会中毒").get_data = engine.api.channel_get_data;
         engine.init_output()?;
@@ -424,6 +434,9 @@ impl Engine {
     /// 释放 WASAPI 会话与混音流，设备交还系统
     fn teardown_session(&mut self) {
         self.set_slot(0, 0, true);
+        // FX 句柄挂在混音流上，先摘掉再释放：BASS 句柄会复用，
+        // 留着不清理，下次 clear_eq 可能误删复用后的句柄
+        self.clear_eq();
         if let Some(mix) = self.mix.as_ref() {
             if self.stream != 0 {
                 mix.remove_channel(self.stream);
@@ -532,6 +545,9 @@ impl Engine {
             bail!("音频路径为空");
         }
         self.release_track();
+        // 新曲目开始：上一首的末态位置作废
+        self.ended_position = 0.0;
+        self.ended_duration = 0.0;
         if self.output == Output::Exclusive && !self.session {
             if let Err(error) = self.init_exclusive() {
                 // 设备被别的程序抢走等：回落共享继续放，别让用户点了没反应
@@ -613,6 +629,9 @@ impl Engine {
     fn stop(&mut self) -> Result<()> {
         self.idle_since = None;
         self.release_track();
+        // 主动停止不是「播到结尾」，进度回到 0
+        self.ended_position = 0.0;
+        self.ended_duration = 0.0;
         // 独占模式下设备一直被本进程占着，停止后要立刻交还
         if self.output == Output::Exclusive {
             self.teardown_session();
@@ -742,7 +761,8 @@ impl Engine {
 
     fn position(&self) -> Result<f64> {
         if self.stream == 0 {
-            return Ok(0.0);
+            // 自然播完后流已释放，返回记录下来的末态位置
+            return Ok(self.ended_position);
         }
         let bytes = unsafe { (self.api.channel_get_position)(self.stream, BASS_POS_BYTE) };
         Ok(unsafe { (self.api.channel_bytes2seconds)(self.stream, bytes) })
@@ -750,7 +770,7 @@ impl Engine {
 
     fn duration(&self) -> Result<f64> {
         if self.stream == 0 {
-            return Ok(0.0);
+            return Ok(self.ended_duration);
         }
         let bytes = unsafe { (self.api.channel_get_length)(self.stream, BASS_POS_BYTE) };
         Ok(unsafe { (self.api.channel_bytes2seconds)(self.stream, bytes) })
@@ -759,7 +779,41 @@ impl Engine {
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
         self.refresh_state();
+        // 自然播完就释放流：挂着不放手会把文件句柄占住，Explorer 删 / 改名、
+        // 「从曲库移除」后的删文件都会失败。
+        // 暂停不会被误判：共享模式只有 STOPPED 才算结束（PAUSED ≠ 0），
+        // 独占用位置判断，暂停时位置不在末尾
+        if self.stream != 0 && self.decode_ended() {
+            self.finish_track();
+        }
         self.release_idle_session();
+    }
+
+    /// 解码流是否已经播到结尾
+    fn decode_ended(&self) -> bool {
+        if self.stream == 0 {
+            return false;
+        }
+        match self.output {
+            Output::Exclusive => {
+                let duration = self.duration().unwrap_or(0.0);
+                let position = self.position().unwrap_or(0.0);
+                duration > 0.0 && position >= duration - 0.1
+            }
+            Output::Shared => {
+                // 只有 STOPPED 才是播完；PAUSED / PAUSED_DEVICE 不能释放流，
+                // 否则暂停后 seek / resume 会报「没有加载曲目」
+                unsafe { (self.api.channel_is_active)(self.stream) == 0 }
+            }
+        }
+    }
+
+    /// 记录末态并释放流，界面仍能显示「播到结尾」
+    fn finish_track(&mut self) {
+        self.ended_duration = self.duration().unwrap_or(0.0);
+        self.ended_position = self.ended_duration;
+        self.release_track();
+        store_state(State::Stopped);
     }
 
     fn refresh_state(&self) {

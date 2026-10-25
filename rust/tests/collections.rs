@@ -189,6 +189,119 @@ fn favorites_are_idempotent_and_listed() {
 }
 
 #[test]
+fn batch_favorites_and_playlist_add_are_atomic() {
+    let (_lock, dir) = begin("batch");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+        ],
+    );
+
+    assert_eq!(
+        collections::set_favorites(
+            vec!["/music/a.mp3".to_string(), "/music/b.mp3".to_string()],
+            true
+        )
+        .expect("批量收藏"),
+        2
+    );
+    assert_eq!(
+        collections::set_favorites(
+            vec!["/music/a.mp3".to_string(), "/music/b.mp3".to_string()],
+            true
+        )
+        .expect("重复收藏"),
+        0,
+        "已经收藏过的曲目不应重复计数"
+    );
+
+    // 批量里混入不存在的曲目：整批回滚，C 不能被收藏
+    assert!(collections::set_favorites(
+        vec!["/music/c.mp3".to_string(), "/music/missing.mp3".to_string()],
+        true
+    )
+    .is_err());
+    assert!(!collections::is_favorite("/music/c.mp3".to_string()).expect("查询收藏"));
+
+    assert_eq!(
+        collections::set_favorites(
+            vec!["/music/a.mp3".to_string(), "/music/b.mp3".to_string()],
+            false
+        )
+        .expect("批量取消收藏"),
+        2
+    );
+    assert!(collections::favorite_paths().expect("收藏路径").is_empty());
+
+    let playlist = collections::create_playlist("Batch".to_string()).expect("新建歌单");
+    assert_eq!(
+        collections::add_tracks_to_playlist(
+            playlist.id,
+            vec![
+                "/music/a.mp3".to_string(),
+                "/music/b.mp3".to_string(),
+                "/music/a.mp3".to_string(),
+            ],
+        )
+        .expect("批量加入歌单"),
+        2,
+        "重复路径只算一次"
+    );
+    assert!(
+        collections::add_tracks_to_playlist(
+            playlist.id,
+            vec!["/music/c.mp3".to_string(), "/music/missing.mp3".to_string(),],
+        )
+        .is_err(),
+        "任一曲目不在曲库时应整批回滚"
+    );
+    assert_eq!(
+        collections::playlist_tracks(playlist.id)
+            .expect("歌单曲目")
+            .len(),
+        2,
+        "失败的批次不能留下半批数据"
+    );
+}
+
+#[test]
+fn remove_tracks_deletes_by_path_and_cascades() {
+    let (_lock, dir) = begin("remove");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+        ],
+    );
+    let playlist = collections::create_playlist("Remove".to_string()).expect("新建歌单");
+    collections::add_track_to_playlist(playlist.id, "/music/a.mp3".to_string()).expect("加入歌单");
+    collections::set_favorite("/music/a.mp3".to_string(), true).expect("收藏");
+
+    assert_eq!(
+        db::remove_tracks(vec![
+            "/music/a.mp3".to_string(),
+            "/music/missing.mp3".to_string(),
+            "/music/a.mp3".to_string(),
+        ])
+        .expect("批量移除"),
+        1,
+        "不存在的路径与重复路径应被忽略"
+    );
+    assert_eq!(db::all_tracks().expect("读取曲库").len(), 2);
+    assert!(collections::playlist_tracks(playlist.id)
+        .expect("歌单曲目")
+        .is_empty());
+    assert!(collections::favorite_paths().expect("收藏路径").is_empty());
+
+    assert_eq!(db::remove_tracks(Vec::new()).expect("空批次"), 0);
+}
+
+#[test]
 fn history_dedupes_plays_and_sorts_by_recent() {
     let (_lock, dir) = begin("history");
     seed(

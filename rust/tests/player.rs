@@ -145,3 +145,57 @@ fn pause_without_track_fails() {
     assert!(player_seek(1.0).is_err(), "没有曲目时 seek 应报错");
     assert_eq!(player_duration().expect("空载时长"), 0.0);
 }
+
+/// 自然播完要立刻释放流（否则文件句柄被占住，删 / 改名、移出曲库删文件都会失败），
+/// 但时长与位置仍保留末态，界面不会跳回 0:00。
+///
+/// 默认不跑：播放引擎是进程级单例，和同文件其它用例并行会互相踩状态。
+/// 手动验证：`cargo test --test player -- --ignored --test-threads=1`
+#[test]
+#[ignore = "共享全局播放引擎，需 --test-threads=1 手动跑"]
+fn finished_track_releases_stream_and_keeps_ended_position() {
+    if !cfg!(windows) {
+        return;
+    }
+    std::env::set_var("LAMP_BASS_DEVICE", "0");
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用");
+        return;
+    }
+
+    let wav = std::env::temp_dir().join("lamp_player_finished.wav");
+    write_wav(&wav, 1);
+    let path = wav.to_string_lossy().to_string();
+
+    player_play(path).expect("播放应成功");
+    assert_eq!(player_state(), PlaybackState::Playing);
+
+    let mut waited = 0;
+    while waited < 3000 {
+        thread::sleep(Duration::from_millis(100));
+        waited += 100;
+        if player_state() == PlaybackState::Stopped {
+            break;
+        }
+    }
+
+    assert_eq!(
+        player_state(),
+        PlaybackState::Stopped,
+        "自然播完后状态应为 Stopped"
+    );
+    let duration = player_duration().expect("读取末态时长");
+    let position = player_position().expect("读取末态位置");
+    assert!(
+        (duration - 1.0).abs() < 0.2,
+        "末态时长应保留约 1 秒，实际 {duration}"
+    );
+    assert!(position > 0.8, "末态位置应停在结尾附近，实际 {position}");
+    // 流已释放：此时 seek 会报「没有加载曲目」
+    assert!(
+        player_seek(0.5).is_err(),
+        "播完后流应已释放（seek 应报错），否则文件句柄仍被占用"
+    );
+
+    let _ = fs::remove_file(wav);
+}
