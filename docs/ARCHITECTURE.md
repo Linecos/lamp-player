@@ -47,7 +47,7 @@
 | `lib/src/features/library/playlist_io.dart` | 歌单导入导出（M3U8 拼串 / 解析 / 曲库匹配） | 纯逻辑可单测；文件读写与选择器在 `playlists_section` |
 | `rust/src/appearance.rs` | 读 Windows 系统强调色（MD3 动态取色） | 非 Windows 返回 `None`；`api::appearance` 只做转发 |
 | `lib/src/features/player/smtc_bridge.dart` | 把播放状态同步到系统媒体控制，并把系统按钮转成播放动作 | 页面只依赖这里的 `MediaSessionState`，不直接碰生成代码 |
-| `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
+| `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 过滤 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
 | `lib/src/theme/` | 全局主题（Material 3，seed 色可配置：预设色板或系统强调色） | 页面内禁止写死颜色 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
@@ -101,6 +101,11 @@ Dart: 用 all_tracks() 刷新列表
 Dart: allTracks()                  → 按 artist/album/track_num 排序
 Dart: searchTracks(query, limit)   → FTS5 前缀匹配（CJK 不分词，故统一加 *）
 ```
+
+顶栏搜索框按分区生效，关键词不带过界（切分区即清空）：音乐分区走
+`searchTracks` 全文检索；专辑 / 艺术家 / 歌单 / 收藏 / 历史的数据已在内存里，
+由 `sections/filter_section.dart` 就地过滤（字面包含 + 拼音首字母兜底），
+不再发数据库查询；设置分区直接禁用输入。
 
 **歌单 / 收藏 / 历史**
 
@@ -208,6 +213,7 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 | `test/support/fake_library.dart` | 曲库 / 播放 / 目录 / 会话的假实现，以及 `sampleTrack` |
 | `test/support/page_harness.dart` | `pumpLibrary` 与各分区入口（`openSettings` / `openHistory` …）、`playlistNameField` |
 | `test/features/library/library_music_test.dart` | 列表、空态、错误、搜索、排序、艺术家/专辑、拖拽导入、封面补扫 |
+| `test/features/library/library_search_scope_test.dart` | 搜索框按分区过滤、拼音兜底、切分区清词、设置页禁用 |
 | `test/features/library/library_playback_test.dart` | 播放 / 暂停 / 连播 / 队列 / 音量 / 进度 / 快捷键 / 右键菜单 / 会话恢复 |
 | `test/features/library/library_collections_test.dart` | 歌单、收藏、历史 |
 | `test/features/library/library_settings_test.dart` | 设置页、音乐目录管理、独占输出 |

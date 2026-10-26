@@ -84,6 +84,7 @@ extension _FavoritesSection on _LibraryPageState {
   Widget _buildFavoritesSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<Track> visible = _filterTracks(_favoriteTracks);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -98,9 +99,9 @@ extension _FavoritesSection on _LibraryPageState {
             ),
             const Spacer(),
             FilledButton.tonalIcon(
-              onPressed: _favoriteTracks.isEmpty
+              onPressed: visible.isEmpty
                   ? null
-                  : () => unawaited(_playAll(_favoriteTracks)),
+                  : () => unawaited(_playAll(visible)),
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
@@ -108,18 +109,20 @@ extension _FavoritesSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${_favoriteTracks.length} 首收藏',
+          _query.isEmpty
+              ? '${_favoriteTracks.length} 首收藏'
+              : '找到 ${visible.length} 首收藏',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(child: _buildFavoritesBody(context)),
+        Expanded(child: _buildFavoritesBody(context, visible)),
       ],
     );
   }
 
-  Widget _buildFavoritesBody(BuildContext context) {
+  Widget _buildFavoritesBody(BuildContext context, List<Track> visible) {
     if (_favoritesLoading && _favoriteTracks.isEmpty) {
       return const LoadingState(message: '正在读取收藏…');
     }
@@ -141,19 +144,22 @@ extension _FavoritesSection on _LibraryPageState {
         ),
       );
     }
+    if (visible.isEmpty) {
+      return _searchEmptyState('没有找到匹配的收藏');
+    }
     return TrackListView(
-      tracks: _favoriteTracks,
+      tracks: visible,
       storageKey: const PageStorageKey<String>('tracks:favorites'),
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playFrom(_favoriteTracks, track)),
+      onPlay: (Track track) => unawaited(_playFrom(visible, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
-          _onTrackContext(_favoriteTracks, track, action),
+          _onTrackContext(visible, track, action),
       selectionMode: _selectionMode,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
-          _onTrackSelect(_favoriteTracks, track, toggle: toggle, range: range),
+          _onTrackSelect(visible, track, toggle: toggle, range: range),
     );
   }
 }

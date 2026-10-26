@@ -93,6 +93,10 @@ extension _SearchSection on _LibraryPageState {
     if (query.isEmpty) {
       return;
     }
+    // 其余分区直接在内存里过滤，不必再问一次数据库
+    if (!_queriesDatabase) {
+      return;
+    }
     _debounce = Timer(_LibraryPageState._searchDebounce, () {
       unawaited(_runSearch(query));
     });

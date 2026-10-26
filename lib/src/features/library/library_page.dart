@@ -51,6 +51,7 @@ part 'sections/playlists_section.dart';
 part 'sections/music_section.dart';
 part 'sections/artists_section.dart';
 part 'sections/albums_section.dart';
+part 'sections/filter_section.dart';
 
 /// 目录选择器，测试可注入假实现。
 typedef DirectoryPicker = Future<String?> Function();
@@ -294,6 +295,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 已预热到第几条；小于 `_tracks.length` 说明缓存还没建完
   int _pinyinWarmedCount = 0;
   bool _pinyinWarming = false;
+
+  /// 专辑 / 艺术家 / 歌单名称的拼音键，供分区内过滤使用
+  final Map<String, String> _namePinyinKeys = <String, String>{};
 
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
@@ -778,6 +782,9 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   void _focusSearch() {
+    if (!_searchEnabled) {
+      return;
+    }
     _searchFocus.requestFocus();
     _searchController.selection = TextSelection(
       baseOffset: 0,
@@ -886,11 +893,12 @@ class _LibraryPageState extends State<LibraryPage>
     return TextField(
       controller: _searchController,
       focusNode: _searchFocus,
+      enabled: _searchEnabled,
       onChanged: _onSearchChanged,
       textAlignVertical: TextAlignVertical.center,
       style: theme.textTheme.bodyMedium,
       decoration: InputDecoration(
-        hintText: '搜索',
+        hintText: _searchHint,
         hintStyle: theme.textTheme.bodyMedium?.copyWith(
           color: scheme.onSurfaceVariant,
         ),
@@ -955,11 +963,27 @@ class _LibraryPageState extends State<LibraryPage>
       if (!mounted || _section != section) {
         return;
       }
+      // 搜索只作用于当前分区，换界面后旧关键词没有意义
+      final bool clearedQuery = _query.isNotEmpty;
+      if (clearedQuery) {
+        _debounce?.cancel();
+        _searchToken++;
+        _searchController.clear();
+        _query = '';
+        _results = null;
+        _searching = false;
+        _searchTruncated = false;
+        _searchError = null;
+      }
       setState(() {
         _displayedSection = section;
         _selectedArtist = null;
         _selectedAlbumKey = null;
         _selectedPlaylistId = null;
+        // 已在上面清过搜索词时，让所有分区快照过期，否则切回来会用到带过滤的旧快照
+        if (clearedQuery) {
+          _stateVersion += 1;
+        }
         // 已有快照的分区这一帧先显示旧内容，淡入结束后再补新数据
         _justSwitched = section;
       });

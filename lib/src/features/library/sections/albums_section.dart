@@ -7,11 +7,11 @@ extension _AlbumsSection on _LibraryPageState {
   Widget _buildAlbumsSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<AlbumGroup> groups = _albumGroupsCache;
+    final List<AlbumGroup> all = _albumGroupsCache;
 
     if (_selectedAlbumKey != null) {
       AlbumGroup? group;
-      for (final AlbumGroup candidate in groups) {
+      for (final AlbumGroup candidate in all) {
         if (candidate.key == _selectedAlbumKey) {
           group = candidate;
           break;
@@ -21,6 +21,8 @@ extension _AlbumsSection on _LibraryPageState {
         return _buildAlbumDetail(context, group);
       }
     }
+
+    final List<AlbumGroup> groups = _filterAlbums(all);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -33,23 +35,28 @@ extension _AlbumsSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${groups.length} 张专辑',
+          _query.isEmpty
+              ? '${all.length} 张专辑'
+              : '找到 ${groups.length} 张专辑',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: _buildCollectionBody(context, groups.isEmpty, () {
-            return AlbumGridView(
-              albums: groups,
-              storageKey: const PageStorageKey<String>('grid:albums'),
-              onSelect: (AlbumGroup album) {
-                _clearSelection();
-                _update(() => _selectedAlbumKey = album.key);
-              },
-            );
-          }),
+          child: groups.isEmpty && _query.isNotEmpty
+              ? _searchEmptyState('没有找到匹配的专辑')
+              : _buildCollectionBody(context, groups.isEmpty, () {
+                  return AlbumGridView(
+                    albums: groups,
+                    storageKey: const PageStorageKey<String>('grid:albums'),
+                    onSelect: (AlbumGroup album) {
+                      _clearSearch();
+                      _clearSelection();
+                      _update(() => _selectedAlbumKey = album.key);
+                    },
+                  );
+                }),
         ),
       ],
     );
