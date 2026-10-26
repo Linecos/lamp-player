@@ -105,3 +105,32 @@ Future<List<Track>> recentTracks({required int limit}) =>
 /// 清空播放历史。
 Future<void> clearHistory() =>
     RustLib.instance.api.crateApiCollectionsClearHistory();
+
+/// 累加某首歌在 `day` 这一天的播放秒数。
+///
+/// `day` 由前端按本地时区算好（`yyyyMMdd` 整数），Rust 侧不做时区推断——
+/// 后台线程没有可靠的本地时区信息，交给 Dart 的 `DateTime.now()` 更准。
+/// `seconds <= 0` 直接忽略，避免暂停瞬间上报 0 秒写坏聚合行。
+Future<void> recordPlayTime({
+  required String path,
+  required int day,
+  required PlatformInt64 seconds,
+}) => RustLib.instance.api.crateApiCollectionsRecordPlayTime(
+  path: path,
+  day: day,
+  seconds: seconds,
+);
+
+/// 听歌总览：累计时长、累计次数、曲目数、活跃天数。
+Future<PlayStats> playStats() =>
+    RustLib.instance.api.crateApiCollectionsPlayStats();
+
+/// 播放次数排行，`limit` 截断到 `1..=100`；次数相同按最近播放时间排。
+Future<List<TrackPlayStat>> topTracks({required int limit}) =>
+    RustLib.instance.api.crateApiCollectionsTopTracks(limit: limit);
+
+/// 自 `since_day` 起每天的播放时长，只返回有记录的天。
+///
+/// 不做「补齐空白天」——补零是展示层的事，Rust 只吐真实数据。
+Future<List<DailyPlaytime>> dailyPlaytime({required int sinceDay}) =>
+    RustLib.instance.api.crateApiCollectionsDailyPlaytime(sinceDay: sinceDay);
