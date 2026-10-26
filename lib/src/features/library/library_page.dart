@@ -99,6 +99,9 @@ class _LibraryPageState extends State<LibraryPage>
   static const Duration _searchDebounce = Duration(milliseconds: 300);
   static const Duration _pollInterval = Duration(milliseconds: 500);
 
+  /// 听歌时长攒够这么多秒再写库：每拍写一次会把 SQLite 打满。
+  static const double _playTimeFlushSeconds = 15;
+
   /// 悬浮播放岛给内容预留的高度：岛高 88 + 上方 8 间距。
   /// 内容区底部留这么多，滚到底时最后一行正好停在岛上方。
   static const double _playerBarReservedHeight = 96;
@@ -248,6 +251,14 @@ class _LibraryPageState extends State<LibraryPage>
   double _position = 0;
   double _duration = 0;
 
+  /// 听歌时长累计：当前曲目 + 本地日期 + 尚未写库的秒数（含小数）。
+  String? _playSessionPath;
+  int _playSessionDay = 0;
+  double _playSessionSeconds = 0;
+
+  /// 上一次轮询到的位置，用来算「这一拍真正听了多久」。
+  double _lastPollPosition = 0;
+
   /// 音量（滑块语义 0..1）。
   ///
   /// 用 notifier 而不是普通字段：拖动滑块时只重建播放条的音量控件，
@@ -343,7 +354,11 @@ class _LibraryPageState extends State<LibraryPage>
   static bool _samePath(String a, String b) => _pathKey(a) == _pathKey(b);
 
   /// 退出前落盘用的稳定引用（方法 tear-off 每次都是新对象，无法注销）
-  late final Future<void> Function() _exitHook = _saveSession;
+  /// 退出前把没写库的听歌时长补上：托盘退出时 `dispose` 不一定来得及跑。
+  Future<void> _exitHook() async {
+    await _saveSession();
+    await _flushPlayTime();
+  }
 
   @override
   void initState() {
@@ -384,6 +399,7 @@ class _LibraryPageState extends State<LibraryPage>
     _sectionNotifier.dispose();
     _railNotifier.dispose();
     unawaited(_saveSession());
+    unawaited(_flushPlayTime());
     widget.trayController?.unbindPlayback();
     widget.appLifecycle
       ?..removeListener(_onLifecycleChanged)

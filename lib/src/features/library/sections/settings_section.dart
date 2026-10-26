@@ -6,10 +6,6 @@ part of '../library_page.dart';
 extension _SettingsSection on _LibraryPageState {
   Widget _buildSettingsSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final double total = _tracks.fold<double>(
-      0,
-      (double sum, Track track) => sum + track.durationSecs,
-    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -24,7 +20,6 @@ extension _SettingsSection on _LibraryPageState {
         Expanded(
           child: SettingsView(
             trackCount: _tracks.length,
-            totalDurationSecs: total,
             engineAvailable: _isAvailable,
             exclusive: _exclusive,
             exclusiveActive: _playback.isExclusive,

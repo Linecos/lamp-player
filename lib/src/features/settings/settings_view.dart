@@ -7,6 +7,8 @@ import '../../common/common.dart';
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
+import 'listening_stats_page.dart';
+import 'listening_stats_repository.dart';
 import 'theme_controller.dart';
 
 /// 设置页骨架。
@@ -17,8 +19,8 @@ class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
     required this.trackCount,
-    required this.totalDurationSecs,
     required this.engineAvailable,
+    this.statsRepository,
     this.exclusive = false,
     this.exclusiveActive = false,
     this.switchingOutput = false,
@@ -45,8 +47,10 @@ class SettingsView extends StatelessWidget {
   });
 
   final int trackCount;
-  final double totalDurationSecs;
   final bool engineAvailable;
+
+  /// 听歌统计的数据源；不传则统计页自己走 Rust，测试注入假实现
+  final ListeningStatsRepository? statsRepository;
 
   /// 是否请求 WASAPI 独占输出（用户偏好）
   final bool exclusive;
@@ -126,10 +130,11 @@ class SettingsView extends StatelessWidget {
               title: '曲目数量',
               value: '$trackCount 首',
             ),
-            _InfoRow(
-              icon: Icons.schedule,
-              title: '总时长',
-              value: _formatTotal(totalDurationSecs),
+            _ActionRow(
+              icon: Icons.insights_outlined,
+              title: '听歌统计',
+              subtitle: '累计时长、播放次数排行与每日热力图',
+              onTap: () => _openStats(context),
             ),
             _ActionRow(
               icon: Icons.create_new_folder_outlined,
@@ -263,17 +268,12 @@ class SettingsView extends StatelessWidget {
     );
   }
 
-  String _formatTotal(double seconds) {
-    final int total = seconds.round();
-    if (total < 60) {
-      return '$total 秒';
-    }
-    final int hours = total ~/ 3600;
-    final int minutes = (total % 3600) ~/ 60;
-    if (hours > 0) {
-      return minutes > 0 ? '$hours 小时 $minutes 分钟' : '$hours 小时';
-    }
-    return '$minutes 分钟';
+  void _openStats(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ListeningStatsPage(repository: statsRepository),
+      ),
+    );
   }
 }
 
