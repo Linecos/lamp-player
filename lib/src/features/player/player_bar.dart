@@ -8,6 +8,7 @@ import '../../rust/api/lyrics.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'lyrics_view.dart';
+import 'playback_mode.dart';
 import 'playback_queue.dart';
 
 /// 加载一首曲目的歌词；不注入时播放条不显示歌词预览。
@@ -41,8 +42,7 @@ class PlayerBar extends StatelessWidget {
     this.onShowQueue,
     this.repeat = LoopMode.off,
     this.shuffle = false,
-    this.onToggleRepeat,
-    this.onToggleShuffle,
+    this.onCyclePlayMode,
     this.onOpenNowPlaying,
     this.lyricsLoader,
   });
@@ -75,8 +75,9 @@ class PlayerBar extends StatelessWidget {
 
   final LoopMode repeat;
   final bool shuffle;
-  final VoidCallback? onToggleRepeat;
-  final VoidCallback? onToggleShuffle;
+
+  /// 顺序 / 随机 / 列表循环 / 单曲循环四态轮换
+  final VoidCallback? onCyclePlayMode;
 
   /// 开始拖动进度：上游应暂停位置轮询，否则轮询值会把滑块拉回去。
   final ValueChanged<double>? onSeekStart;
@@ -212,7 +213,7 @@ class PlayerBar extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double width = constraints.maxWidth;
-        // 380 以上放得下三个模式按钮；再窄收进溢出菜单
+        // 380 以上放得下「播放模式 + 队列」两个按钮；再窄收进溢出菜单
         final bool showModeButtons = width >= 380;
         // 250 以下连总时长都放不下，只留当前时间
         final bool showTotal = width >= 250;
@@ -252,22 +253,11 @@ class PlayerBar extends StatelessWidget {
             const SizedBox(width: 8),
             if (showModeButtons) ...<Widget>[
               _BarIconButton(
-                icon: Icons.shuffle,
-                tooltip: shuffle ? '关闭随机播放' : '随机播放',
+                icon: playbackModeIcon(repeat, shuffle),
+                tooltip: '播放模式：${playbackModeLabel(repeat, shuffle)}',
                 size: buttonSize,
-                selected: shuffle,
-                onPressed: onToggleShuffle,
-              ),
-              _BarIconButton(
-                icon: repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-                tooltip: switch (repeat) {
-                  LoopMode.off => '循环播放：关',
-                  LoopMode.all => '循环播放：列表',
-                  LoopMode.one => '循环播放：单曲',
-                },
-                size: buttonSize,
-                selected: repeat != LoopMode.off,
-                onPressed: onToggleRepeat,
+                selected: playbackModeActive(repeat, shuffle),
+                onPressed: onCyclePlayMode,
               ),
               _BarIconButton(
                 icon: Icons.queue_music,
@@ -278,10 +268,9 @@ class PlayerBar extends StatelessWidget {
             ] else
               _ModesMenu(
                 size: buttonSize,
-                shuffle: shuffle,
                 repeat: repeat,
-                onToggleShuffle: onToggleShuffle,
-                onToggleRepeat: onToggleRepeat,
+                shuffle: shuffle,
+                onCyclePlayMode: onCyclePlayMode,
                 onShowQueue: onShowQueue,
               ),
             const SizedBox(width: 4),
@@ -591,22 +580,20 @@ class _BarIconButton extends StatelessWidget {
   }
 }
 
-/// 窄窗口下把随机 / 循环 / 队列收进溢出菜单，把宽度让给进度条
+/// 窄窗口下把播放模式 / 队列收进溢出菜单。
 class _ModesMenu extends StatelessWidget {
   const _ModesMenu({
     required this.size,
-    required this.shuffle,
     required this.repeat,
-    this.onToggleShuffle,
-    this.onToggleRepeat,
+    required this.shuffle,
+    this.onCyclePlayMode,
     this.onShowQueue,
   });
 
   final double size;
-  final bool shuffle;
   final LoopMode repeat;
-  final VoidCallback? onToggleShuffle;
-  final VoidCallback? onToggleRepeat;
+  final bool shuffle;
+  final VoidCallback? onCyclePlayMode;
   final VoidCallback? onShowQueue;
 
   Future<void> _show(BuildContext context) async {
@@ -624,27 +611,16 @@ class _ModesMenu extends StatelessWidget {
       context: context,
       position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
       items: <PopupMenuEntry<String>>[
-        CheckedPopupMenuItem<String>(
-          value: 'shuffle',
-          checked: shuffle,
-          child: const Text('随机播放'),
+        PopupMenuItem<String>(
+          value: 'mode',
+          child: Text('播放模式：${playbackModeLabel(repeat, shuffle)}'),
         ),
-        CheckedPopupMenuItem<String>(
-          value: 'repeat',
-          checked: repeat != LoopMode.off,
-          child: const Text('循环播放'),
-        ),
-        const PopupMenuDivider(),
         const PopupMenuItem<String>(value: 'queue', child: Text('播放队列')),
       ],
     );
-    // 用返回值分发，而不是菜单项自己的 onTap：后者在退出动画还没走完时就
-    // 触发，状态一重建菜单会跟着闪一下。
     switch (picked) {
-      case 'shuffle':
-        onToggleShuffle?.call();
-      case 'repeat':
-        onToggleRepeat?.call();
+      case 'mode':
+        onCyclePlayMode?.call();
       case 'queue':
         onShowQueue?.call();
     }
@@ -652,12 +628,11 @@ class _ModesMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool active = shuffle || repeat != LoopMode.off;
     return _BarIconButton(
       icon: Icons.tune,
       tooltip: '播放选项',
       size: size,
-      selected: active,
+      selected: playbackModeActive(repeat, shuffle),
       onPressed: () => unawaited(_show(context)),
     );
   }

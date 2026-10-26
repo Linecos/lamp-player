@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
+import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -12,6 +14,9 @@ NowPlayingData _data({
   bool isPlaying = true,
   double position = 0,
   double duration = 200,
+  double volume = 1,
+  LoopMode repeat = LoopMode.off,
+  bool shuffle = false,
 }) {
   return NowPlayingData(
     track: track ?? sampleTrack(title: '夜航', artist: '林间电台', album: '夜之专辑'),
@@ -19,6 +24,9 @@ NowPlayingData _data({
     position: position,
     duration: duration,
     isAvailable: true,
+    volume: volume,
+    repeat: repeat,
+    shuffle: shuffle,
   );
 }
 
@@ -56,6 +64,10 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   TrackLyrics? lyrics,
   ValueChanged<double>? onSeek,
   VoidCallback? onTogglePlay,
+  ValueChanged<double>? onVolumeChanged,
+  VoidCallback? onToggleMute,
+  VoidCallback? onShowQueue,
+  VoidCallback? onCyclePlayMode,
 }) async {
   tester.view.physicalSize = const Size(1280, 900);
   tester.view.devicePixelRatio = 1;
@@ -74,6 +86,10 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onPrevious: () async {},
         onNext: () async {},
         onSeek: (double seconds) async => onSeek?.call(seconds),
+        onVolumeChanged: onVolumeChanged,
+        onToggleMute: onToggleMute,
+        onShowQueue: onShowQueue,
+        onCyclePlayMode: onCyclePlayMode,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -93,6 +109,51 @@ void main() {
     expect(find.text('夜之专辑'), findsOneWidget);
     expect(find.text('暂无歌词'), findsOneWidget);
     expect(find.text('把同名 .lrc 放到歌曲旁边即可显示'), findsOneWidget);
+  });
+
+  testWidgets('底部控制区包含音量、播放模式与队列，封面与文字左对齐', (WidgetTester tester) async {
+    int modes = 0;
+    int queues = 0;
+    double? volume;
+    final ValueNotifier<NowPlayingData> notifier = await _pump(
+      tester,
+      data: _data(volume: 0.5, repeat: LoopMode.all),
+      onVolumeChanged: (double value) => volume = value,
+      onShowQueue: () => queues += 1,
+      onCyclePlayMode: () => modes += 1,
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-volume')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-mode')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-queue')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('播放模式：列表循环'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-mode')));
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-queue')));
+    await tester.pump();
+    expect(modes, 1);
+    expect(queues, 1);
+
+    final Slider slider = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('now-playing-volume')),
+    );
+    slider.onChanged!(0.3);
+    expect(volume, closeTo(0.3, 0.001));
+    expect(notifier.value.volume, 0.5, reason: '数据由上游刷新');
+
+    final Rect cover = tester.getRect(find.byType(AlbumCover));
+    final Rect title = tester.getRect(find.text('夜航'));
+    expect(cover.left, greaterThan(40), reason: '封面不再贴左');
+    expect(title.left, closeTo(cover.left, 1), reason: '文字与封面对齐');
   });
 
   testWidgets('有时间轴时高亮当前行，点歌词可跳转', (WidgetTester tester) async {
