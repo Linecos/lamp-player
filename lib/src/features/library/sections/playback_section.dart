@@ -25,6 +25,7 @@ extension _PlaybackSection on _LibraryPageState {
   /// [silent] 用于自然播完后的自动跳转：失败不弹提示，交给 [_next] 统一汇总，
   /// 否则整库损坏时会连续弹出多条 SnackBar。
   Future<bool> _startCurrent({double startAt = 0, bool silent = false}) async {
+    unawaited(_flushPlayTime());
     final Track? track = _queue.current;
     if (track == null) {
       return false;
@@ -158,6 +159,7 @@ extension _PlaybackSection on _LibraryPageState {
       return;
     }
     _stopPositionPolling();
+    unawaited(_flushPlayTime());
     if (_isAvailable) {
       try {
         await _playback.stop();
@@ -205,6 +207,47 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
+  /// 采样一次进度，把「距上次采样的增量」计入当天。
+  ///
+  /// 只认 0 < delta < 3 秒：seek 跳变、切歌跨度都不是真正听过的时长。
+  void _accumulatePlayTime(double position) {
+    final Track? track = _currentTrack;
+    final double delta = position - _lastPollPosition;
+    _lastPollPosition = position;
+    if (track == null || !_isPlaying || delta <= 0 || delta > 3) {
+      return;
+    }
+
+    final DateTime now = DateTime.now();
+    final int day = now.year * 10000 + now.month * 100 + now.day;
+    if (_playSessionPath != track.path || _playSessionDay != day) {
+      unawaited(_flushPlayTime());
+      _playSessionPath = track.path;
+      _playSessionDay = day;
+      _playSessionSeconds = 0;
+    }
+    _playSessionSeconds += delta;
+    if (_playSessionSeconds >= _LibraryPageState._playTimeFlushSeconds) {
+      unawaited(_flushPlayTime());
+    }
+  }
+
+  /// 把累计的整秒写库；不足 1 秒的零头留在内存里继续攒。
+  Future<void> _flushPlayTime() async {
+    final String? path = _playSessionPath;
+    final int day = _playSessionDay;
+    final int seconds = _playSessionSeconds.floor();
+    if (path == null || seconds <= 0) {
+      return;
+    }
+    _playSessionSeconds -= seconds;
+    try {
+      await _repository.recordPlayTime(path, day, seconds);
+    } catch (error) {
+      debugPrint('记录听歌时长失败：$error');
+    }
+  }
+
   Future<void> _togglePlayback() async {
     if (!_isAvailable) {
       _showEngineNotice();
@@ -237,6 +280,7 @@ extension _PlaybackSection on _LibraryPageState {
       } else {
         _stopPositionPolling();
         _saveSessionNow();
+        unawaited(_flushPlayTime());
       }
     } catch (error) {
       if (!mounted) {
@@ -268,6 +312,7 @@ extension _PlaybackSection on _LibraryPageState {
           return;
         }
         _stopPositionPolling();
+        unawaited(_flushPlayTime());
         if (!mounted) {
           return;
         }
@@ -376,6 +421,7 @@ extension _PlaybackSection on _LibraryPageState {
 
     if (target == null) {
       _stopPositionPolling();
+      unawaited(_flushPlayTime());
       if (_isAvailable && current != null) {
         try {
           await _playback.stop();
@@ -658,6 +704,7 @@ extension _PlaybackSection on _LibraryPageState {
       }
       _isPlaying = state == rust.PlaybackState.playing;
       _publishProgress();
+      _accumulatePlayTime(position);
       if (state == rust.PlaybackState.stopped) {
         _stopPositionPolling();
         if (wasPlaying && !_seeking) {

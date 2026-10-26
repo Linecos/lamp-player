@@ -64,6 +64,9 @@ abstract interface class LibraryRepository {
   /// 记录一次播放；同曲目只保留一条历史
   Future<void> recordPlay(String path);
 
+  /// 累加某首歌在 [day]（`yyyyMMdd` 整数）的播放秒数
+  Future<void> recordPlayTime(String path, int day, int seconds);
+
   /// 最近播放的曲目（按曲目去重），`limit` 由存储层截断
   Future<List<Track>> loadRecentTracks({int limit = 100});
 
@@ -141,6 +144,10 @@ class RustLibraryRepository implements LibraryRepository {
 
   @override
   Future<void> recordPlay(String path) => collections.recordPlay(path: path);
+
+  @override
+  Future<void> recordPlayTime(String path, int day, int seconds) =>
+      collections.recordPlayTime(path: path, day: day, seconds: seconds);
 
   @override
   Future<List<Track>> loadRecentTracks({int limit = 100}) =>

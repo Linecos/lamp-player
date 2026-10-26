@@ -52,6 +52,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  DailyPlaytime dco_decode_daily_playtime(dynamic raw);
+
+  @protected
   double dco_decode_f_32(dynamic raw);
 
   @protected
@@ -65,6 +68,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<DailyPlaytime> dco_decode_list_daily_playtime(dynamic raw);
 
   @protected
   List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
@@ -88,6 +94,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Track> dco_decode_list_track(dynamic raw);
 
   @protected
+  List<TrackPlayStat> dco_decode_list_track_play_stat(dynamic raw);
+
+  @protected
   LyricLine dco_decode_lyric_line(dynamic raw);
 
   @protected
@@ -109,6 +118,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
+  PlayStats dco_decode_play_stats(dynamic raw);
+
+  @protected
   PlaybackState dco_decode_playback_state(dynamic raw);
 
   @protected
@@ -122,6 +134,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TrackLyrics dco_decode_track_lyrics(dynamic raw);
+
+  @protected
+  TrackPlayStat dco_decode_track_play_stat(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -153,6 +168,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  DailyPlaytime sse_decode_daily_playtime(SseDeserializer deserializer);
+
+  @protected
   double sse_decode_f_32(SseDeserializer deserializer);
 
   @protected
@@ -166,6 +184,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<DailyPlaytime> sse_decode_list_daily_playtime(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer);
@@ -189,6 +212,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Track> sse_decode_list_track(SseDeserializer deserializer);
 
   @protected
+  List<TrackPlayStat> sse_decode_list_track_play_stat(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
 
   @protected
@@ -210,6 +238,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  PlayStats sse_decode_play_stats(SseDeserializer deserializer);
+
+  @protected
   PlaybackState sse_decode_playback_state(SseDeserializer deserializer);
 
   @protected
@@ -223,6 +254,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TrackLyrics sse_decode_track_lyrics(SseDeserializer deserializer);
+
+  @protected
+  TrackPlayStat sse_decode_track_play_stat(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -258,6 +292,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_daily_playtime(DailyPlaytime self, SseSerializer serializer);
+
+  @protected
   void sse_encode_f_32(double self, SseSerializer serializer);
 
   @protected
@@ -271,6 +308,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_daily_playtime(
+    List<DailyPlaytime> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_lyric_line(
@@ -309,6 +352,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_track(List<Track> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_track_play_stat(
+    List<TrackPlayStat> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_lyric_line(LyricLine self, SseSerializer serializer);
 
   @protected
@@ -333,6 +382,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_play_stats(PlayStats self, SseSerializer serializer);
+
+  @protected
   void sse_encode_playback_state(PlaybackState self, SseSerializer serializer);
 
   @protected
@@ -346,6 +398,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_track_lyrics(TrackLyrics self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_play_stat(TrackPlayStat self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

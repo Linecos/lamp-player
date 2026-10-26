@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 struct Database {
     path: String,
@@ -230,6 +230,21 @@ CREATE TABLE IF NOT EXISTS play_history (
 CREATE INDEX IF NOT EXISTS play_history_recent ON play_history(last_played_at DESC);
 "#;
 
+/// schema v4：听歌时长。
+///
+/// 按「曲目 × 本地日期」聚合，不记录每次播放，写放大可控；
+/// `day` 是本地日期整数（如 `20261026`），热力图按它做范围扫描。
+const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS play_sessions (
+    track_path TEXT    NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
+    day        INTEGER NOT NULL,
+    seconds    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (track_path, day)
+);
+
+CREATE INDEX IF NOT EXISTS play_sessions_day ON play_sessions(day DESC);
+"#;
+
 /// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -271,6 +286,11 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         }
         conn.execute_batch("UPDATE tracks SET file_mtime = 0, file_size = 0;")?;
         conn.pragma_update(None, "user_version", 3)?;
+    }
+
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
+        conn.pragma_update(None, "user_version", 4)?;
     }
 
     Ok(())

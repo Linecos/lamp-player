@@ -308,6 +308,15 @@ class FakeLibraryRepository implements LibraryRepository {
       ..insert(0, path);
   }
 
+  /// 听歌时长上报记录，按 `path` / `day` 累加，供测试断言。
+  final Map<String, int> playedSeconds = <String, int>{};
+
+  @override
+  Future<void> recordPlayTime(String path, int day, int seconds) async {
+    final String key = '$day|$path';
+    playedSeconds[key] = (playedSeconds[key] ?? 0) + seconds;
+  }
+
   @override
   Future<List<Track>> loadRecentTracks({int limit = 100}) async =>
       _tracksByPaths(_history.take(limit.clamp(1, 500)));

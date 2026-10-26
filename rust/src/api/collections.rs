@@ -10,7 +10,7 @@
 //! - 历史按曲目去重，重复播放只更新最近时间并累加 `play_count`。
 
 use crate::api::db::{row_to_track, with_conn};
-use crate::api::model::{Playlist, Track};
+use crate::api::model::{DailyPlaytime, PlayStats, Playlist, Track, TrackPlayStat};
 use anyhow::{bail, Context};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -385,5 +385,110 @@ pub fn clear_history() -> anyhow::Result<()> {
         conn.execute("DELETE FROM play_history", [])
             .context("清空播放历史失败")?;
         Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 听歌时长统计（schema v4）
+// ---------------------------------------------------------------------------
+
+/// 累加某首歌在 `day` 这一天的播放秒数。
+///
+/// `day` 由前端按本地时区算好（`yyyyMMdd` 整数），Rust 侧不做时区推断——
+/// 后台线程没有可靠的本地时区信息，交给 Dart 的 `DateTime.now()` 更准。
+/// `seconds <= 0` 直接忽略，避免暂停瞬间上报 0 秒写坏聚合行。
+pub fn record_play_time(path: String, day: i32, seconds: i64) -> anyhow::Result<()> {
+    if seconds <= 0 {
+        return Ok(());
+    }
+    with_conn(|conn| {
+        track_exists(conn, &path)?;
+        conn.execute(
+            r#"
+            INSERT INTO play_sessions (track_path, day, seconds)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(track_path, day) DO UPDATE SET
+                seconds = play_sessions.seconds + excluded.seconds
+            "#,
+            params![path, day, seconds],
+        )?;
+        Ok(())
+    })
+}
+
+/// 听歌总览：累计时长、累计次数、曲目数、活跃天数。
+pub fn play_stats() -> anyhow::Result<PlayStats> {
+    with_conn(|conn| {
+        let total_seconds: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(seconds), 0) FROM play_sessions",
+            [],
+            |row| row.get(0),
+        )?;
+        let total_plays: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(play_count), 0) FROM play_history",
+            [],
+            |row| row.get(0),
+        )?;
+        let track_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM play_history", [], |row| row.get(0))?;
+        let active_days: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT day) FROM play_sessions WHERE seconds > 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(PlayStats {
+            total_seconds,
+            total_plays,
+            track_count,
+            active_days,
+        })
+    })
+}
+
+/// 播放次数排行，`limit` 截断到 `1..=100`；次数相同按最近播放时间排。
+pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path,
+                   h.play_count
+            FROM play_history h
+            JOIN tracks t ON t.path = h.track_path
+            WHERE h.play_count > 0
+            ORDER BY h.play_count DESC, h.last_played_at DESC, t.id
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit.clamp(1, 100)], |row| {
+            Ok(TrackPlayStat {
+                track: row_to_track(row)?,
+                plays: row.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+/// 自 `since_day` 起每天的播放时长，只返回有记录的天。
+///
+/// 不做「补齐空白天」——补零是展示层的事，Rust 只吐真实数据。
+pub fn daily_playtime(since_day: i32) -> anyhow::Result<Vec<DailyPlaytime>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT day, SUM(seconds)
+            FROM play_sessions
+            WHERE day >= ?1
+            GROUP BY day
+            ORDER BY day
+            "#,
+        )?;
+        let rows = stmt.query_map([since_day], |row| {
+            Ok(DailyPlaytime {
+                day: row.get(0)?,
+                seconds: row.get(1)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })
 }

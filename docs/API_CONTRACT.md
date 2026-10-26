@@ -131,6 +131,10 @@
 | `record_play(path: String) -> Result<()>` | `Future<void> recordPlay({required String path})` | 已实现 |
 | `recent_tracks(limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> recentTracks({required int limit})` | 已实现 |
 | `clear_history() -> Result<()>` | `Future<void> clearHistory()` | 已实现 |
+| `record_play_time(path: String, day: i32, seconds: i64) -> Result<()>` | `Future<void> recordPlayTime({required String path, required int day, required PlatformInt64 seconds})` | 已实现 |
+| `play_stats() -> Result<PlayStats>` | `Future<PlayStats> playStats()` | 已实现 |
+| `top_tracks(limit: i32) -> Result<Vec<TrackPlayStat>>` | `Future<List<TrackPlayStat>> topTracks({required int limit})` | 已实现 |
+| `daily_playtime(since_day: i32) -> Result<Vec<DailyPlaytime>>` | `Future<List<DailyPlaytime>> dailyPlaytime({required int sinceDay})` | 已实现 |
 
 语义补充：
 
@@ -156,6 +160,15 @@
 - v3 给 `tracks` 加 `cover_path`（封面缓存路径），并**清零全部文件指纹**：
   下次扫描会重新解析一遍，把老曲目的封面补上；随后指纹恢复，增量扫描照常跳过未变化文件。
   旧程序打开 v3 库会报版本过高。
+- **听歌时长（v4）**：新增 `play_sessions(track_path, day, seconds)`，主键 `(track_path, day)`，
+  `day` 是本地日期整数（`20261026`）而非时间戳——热力图按天聚合，直接比大小即可。
+  `record_play_time` 累加同一个 `(曲目, 天)` 的秒数，`seconds <= 0` 静默忽略；
+  `play_stats` 的 `total_seconds` 只统计 v4 之后的记录，`total_plays` 沿用 `play_history.play_count`
+  （包含更早历史，两者口径不同，页面会说明）。
+  `top_tracks` 按 `play_count` 倒序、`limit` 截断到 `1..=100`；`daily_playtime` 只返回有记录的
+  天，不补零，补零是展示层的事。时长也通过外键 `ON DELETE CASCADE` 跟着曲目清理。
+- **时长上报时机**：Dart 侧按轮询增量累计（只认 0 < delta < 3 秒，seek 跳变与切歌跨度不计入），
+  攒到 15 秒或遇到暂停 / 切歌 / 播完 / 停止 / 退出时写库，不逐拍写。
 
 ## 6. 扫描 `api::scan`
 

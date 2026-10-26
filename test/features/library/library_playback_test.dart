@@ -762,4 +762,66 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+
+  testWidgets('播放中按增量累计听歌时长，暂停时写库', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 300,
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 每拍推进 2.5 秒（小于 seek 过滤阈值 3 秒），累计到 15 秒后应自动写库
+    for (int step = 1; step <= 7; step += 1) {
+      playback.positionSecs = step * 2.5;
+      await tester.pump(const Duration(milliseconds: 550));
+    }
+
+    final String key = repository.playedSeconds.keys.firstWhere(
+      (String item) => item.endsWith('/music/夜航.mp3'),
+      orElse: () => '',
+    );
+    expect(key, isNotEmpty, reason: '播放 15 秒后应写一次库');
+    expect(repository.playedSeconds[key], greaterThanOrEqualTo(15));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('拖动进度跳变不会被计入听歌时长', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 300,
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 一次 120 秒的跳变应当被过滤，不计入时长
+    playback.positionSecs = 120;
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.pump(const Duration(milliseconds: 550));
+
+    expect(
+      repository.playedSeconds.values.fold<int>(0, (int a, int b) => a + b),
+      lessThan(3),
+      reason: '大跨度跳变不是听过的时长',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
 }

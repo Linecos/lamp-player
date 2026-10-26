@@ -340,6 +340,57 @@ fn history_dedupes_plays_and_sorts_by_recent() {
 }
 
 #[test]
+fn play_time_accumulates_per_day_and_ranks_tracks() {
+    let (_lock, dir) = begin("playtime");
+    seed(&dir, &[("/music/a.mp3", "A"), ("/music/b.mp3", "B")]);
+
+    // 同一天多次上报要累加，跨天要分行
+    collections::record_play_time("/music/a.mp3".to_string(), 20261026, 30).expect("上报 A");
+    collections::record_play_time("/music/a.mp3".to_string(), 20261026, 45).expect("再上报 A");
+    collections::record_play_time("/music/a.mp3".to_string(), 20261027, 60).expect("跨天 A");
+    collections::record_play_time("/music/b.mp3".to_string(), 20261026, 10).expect("上报 B");
+    // 0 秒不写库，避免暂停瞬间把聚合行写坏
+    collections::record_play_time("/music/b.mp3".to_string(), 20261026, 0).expect("零秒忽略");
+
+    let daily = collections::daily_playtime(20261001).expect("每日时长");
+    assert_eq!(
+        daily
+            .iter()
+            .map(|item| (item.day, item.seconds))
+            .collect::<Vec<_>>(),
+        vec![(20261026, 85), (20261027, 60)],
+        "按天聚合，同曲同日累加"
+    );
+
+    let ranged = collections::daily_playtime(20261027).expect("范围过滤");
+    assert_eq!(ranged.len(), 1, "只返回起始日期之后的天");
+    assert_eq!(ranged[0].day, 20261027);
+
+    let stats = collections::play_stats().expect("总览");
+    assert_eq!(stats.total_seconds, 145);
+    assert_eq!(stats.active_days, 2);
+    assert_eq!(stats.total_plays, 0, "只上报时长时还没有播放次数");
+
+    collections::record_play("/music/b.mp3".to_string()).expect("B 播一次");
+    collections::record_play("/music/b.mp3".to_string()).expect("B 再播一次");
+    collections::record_play("/music/a.mp3".to_string()).expect("A 播一次");
+
+    let top = collections::top_tracks(100).expect("排行");
+    assert_eq!(top[0].track.title, "B");
+    assert_eq!(top[0].plays, 2, "次数多的排前面");
+    assert_eq!(top[1].track.title, "A");
+    assert_eq!(top[1].plays, 1);
+
+    let capped = collections::top_tracks(0).expect("limit 截断");
+    assert_eq!(capped.len(), 1, "limit 最小按 1 处理");
+
+    assert!(
+        collections::record_play_time("/music/missing.mp3".to_string(), 20261026, 10).is_err(),
+        "不在曲库的曲目不能记时长"
+    );
+}
+
+#[test]
 fn deleting_track_cascades_playlist_favorites_and_history() {
     let (_lock, dir) = begin("cascade");
     let music = dir.0.join("music");
