@@ -121,6 +121,9 @@ extension _OutputSection on _LibraryPageState {
       position: _position,
       duration: _duration,
       isAvailable: _isAvailable,
+      volume: _volume,
+      repeat: _queue.repeat,
+      shuffle: _queue.shuffle,
     );
   }
 
