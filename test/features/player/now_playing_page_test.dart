@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -230,11 +229,7 @@ void main() {
       reason: '热区只该覆盖箭头周围一圈，不应扩散到整行',
     );
     expect(target.height, inInclusiveRange(48, 80));
-    expect(
-      target.top,
-      greaterThanOrEqualTo(LampTitleBar.height),
-      reason: '标题条浮在页面之上，header 必须让开这一段，否则上半截点不到',
-    );
+    expect(target.top, lessThanOrEqualTo(8), reason: 'header 贴住窗口顶端，与右侧窗口按钮齐平');
 
     // 点标题文字不应收起
     await tester.tap(find.text('正在播放'));
