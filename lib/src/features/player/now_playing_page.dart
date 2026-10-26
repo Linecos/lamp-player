@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../app/title_bar.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -176,28 +175,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             child: SafeArea(
-              // 标题条浮在页面之上（overlay），顶部 44px 会被它吃掉点击，
-              // 不预留这段高度的话收起按钮的上半截永远点不到。
-              child: Padding(
-                padding: const EdgeInsets.only(top: LampTitleBar.height),
-                child: Column(
-                  children: <Widget>[
-                    _header(context),
-                    // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
-                    Expanded(
-                      child: ValueListenableBuilder<Track?>(
-                        valueListenable: _track,
-                        builder: (
-                          BuildContext context,
-                          Track? track,
-                          Widget? child,
-                        ) => _body(context, track),
-                      ),
+              // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
+              // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
+              child: Column(
+                children: <Widget>[
+                  _header(context),
+                  // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
+                  Expanded(
+                    child: ValueListenableBuilder<Track?>(
+                      valueListenable: _track,
+                      builder: (
+                        BuildContext context,
+                        Track? track,
+                        Widget? child,
+                      ) => _body(context, track),
                     ),
-                    _controls(context),
-                    const SizedBox(height: 12),
-                  ],
-                ),
+                  ),
+                  _controls(context),
+                  const SizedBox(height: 12),
+                ],
               ),
             ),
           ),
@@ -209,7 +205,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _header(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
-      // 与自绘标题栏紧接：按钮/文字中心落在 y≈68（原来 80，明显偏下）
+      // 贴住窗口顶端，中心 y≈24，与右侧窗口按钮（中心 y≈22）齐平
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: SizedBox(
         height: 48,

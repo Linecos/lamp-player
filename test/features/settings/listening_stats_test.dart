@@ -179,4 +179,15 @@ void main() {
 
     expect(find.text('10 分钟'), findsOneWidget);
   });
+
+  testWidgets('返回按钮热区放大到 56×56', (WidgetTester tester) async {
+    await _pump(tester, _FakeStatsRepository());
+
+    final Size size = tester.getSize(
+      find.byKey(const ValueKey<String>('stats-back')),
+    );
+    expect(size.width, 56);
+    expect(size.height, 56, reason: '默认 BackButton 只有 48，不好点');
+    expect(find.byTooltip('返回'), findsOneWidget);
+  });
 }

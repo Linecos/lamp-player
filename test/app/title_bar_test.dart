@@ -118,6 +118,39 @@ void main() {
     expect(find.byKey(_closeKey), findsOneWidget);
   });
 
+  testWidgets('overlay 模式左上角让给页面，点击不被拖动区吃掉', (WidgetTester tester) async {
+    int taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WindowChrome(
+          controls: FakeWindowControls(),
+          overlay: true,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => taps += 1,
+              child: const SizedBox(width: 120, height: LampTitleBar.height),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Rect dragRect = tester.getRect(find.byKey(_dragKey));
+    expect(
+      dragRect.left,
+      LampTitleBar.defaultLeftInset,
+      reason: '拖动区应从让位宽度之后开始',
+    );
+
+    await tester.tapAt(const Offset(60, 20));
+    await tester.pump();
+
+    expect(taps, 1, reason: '让位区的点击要透给页面');
+  });
+
   testWidgets('点最小化与关闭会调用窗口控制', (WidgetTester tester) async {
     final FakeWindowControls controls = FakeWindowControls();
     await _pumpTitleBar(tester, controls);
