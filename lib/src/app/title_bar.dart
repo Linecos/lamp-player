@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'immersive_chrome.dart';
 import 'window_controls.dart';
 
 /// 自绘的窗口标题区：左侧是拖动区，右侧是最小化 / 最大化 / 关闭按钮。
@@ -378,13 +380,40 @@ class WindowChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget titleBar = LampTitleBar(
-      controls: controls ?? const WindowManagerControls(),
-      background: overlay ? Colors.transparent : background,
-      leftInset: leftInset ?? (overlay ? LampTitleBar.defaultLeftInset : 0),
-      controlsOnly: controlsOnly,
+    final Widget titleBar = AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[immersiveMode, pointerNearTop]),
+      // 沉浸模式下窗口按钮跟着页面一起隐，指针靠近顶端才露出来
+      builder: (BuildContext context, Widget? child) {
+        final bool hidden = immersiveMode.value && !pointerNearTop.value;
+        return IgnorePointer(
+          ignoring: hidden,
+          child: AnimatedOpacity(
+            opacity: hidden ? 0 : 1,
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            child: child,
+          ),
+        );
+      },
+      child: LampTitleBar(
+        controls: controls ?? const WindowManagerControls(),
+        background: overlay ? Colors.transparent : background,
+        leftInset: leftInset ?? (overlay ? LampTitleBar.defaultLeftInset : 0),
+        controlsOnly: controlsOnly,
+      ),
     );
 
+    return MouseRegion(
+      // 铺满整个窗口：右上角按钮区被它自己盖住，页面收不到 hover，
+      // 所以感应统一放在外壳这一层。
+      onHover: (PointerHoverEvent event) =>
+          trackPointerNearTop(event.localPosition),
+      onExit: (_) => pointerNearTop.value = false,
+      child: _layout(titleBar),
+    );
+  }
+
+  Widget _layout(Widget titleBar) {
     if (controlsOnly) {
       if (overlay) {
         return Stack(

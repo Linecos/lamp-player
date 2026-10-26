@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/immersive_chrome.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/app/window_controls.dart';
 
@@ -265,6 +267,58 @@ void main() {
       findsOneWidget,
     );
     await controls.maximizeEvents.close();
+  });
+
+  testWidgets('沉浸模式下窗口按钮隐藏，指针靠近顶端才露出', (WidgetTester tester) async {
+    addTearDown(() {
+      immersiveMode.value = false;
+      pointerNearTop.value = false;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WindowChrome(
+            controls: FakeWindowControls(),
+            overlay: true,
+            controlsOnly: true,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    double chromeOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find
+              .ancestor(
+                of: find.byKey(_closeKey),
+                matching: find.byType(AnimatedOpacity),
+              )
+              .first,
+        )
+        .opacity;
+
+    expect(chromeOpacity(), 1, reason: '普通模式下窗口按钮常显');
+
+    immersiveMode.value = true;
+    await tester.pumpAndSettle();
+
+    expect(chromeOpacity(), 0);
+    expect(find.byKey(_closeKey).hitTestable(), findsNothing, reason: '藏起来就点不到');
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer(location: const Offset(400, 400));
+    addTearDown(mouse.removePointer);
+
+    await mouse.moveTo(const Offset(400, 10));
+    await tester.pumpAndSettle();
+
+    expect(chromeOpacity(), 1, reason: '指针靠近顶端应渐显');
+    expect(find.byKey(_closeKey).hitTestable(), findsOneWidget);
   });
 
   testWidgets('窗口控制不可用时点按钮不崩溃', (WidgetTester tester) async {
