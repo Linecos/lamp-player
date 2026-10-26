@@ -108,6 +108,10 @@ abstract final class AppTheme {
       fontFamilyFallback: fontFallback,
       appBarTheme: const AppBarTheme(centerTitle: false),
       visualDensity: VisualDensity.adaptivePlatformDensity,
+      // Flutter 默认 `Clip.none`：弹窗里的子节点（ListTile 的选中背景、水波纹
+      // 都是画在 Material 上的墨迹）可以画到 28px 圆角外面，露出直角方块。
+      // 统一裁到弹窗形状，避免任何墨迹越界。
+      dialogTheme: const DialogThemeData(clipBehavior: Clip.antiAlias),
     );
   }
 }

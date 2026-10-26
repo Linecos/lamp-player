@@ -143,6 +143,8 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
 
     return AlertDialog(
       key: const ValueKey<String>('queue-dialog'),
+      // 子节点不允许画到 28px 圆角外面（主题里也统一设了，这里显式写明意图）
+      clipBehavior: Clip.antiAlias,
       titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
       contentPadding: const EdgeInsets.only(bottom: 8),
       title: Row(
@@ -174,103 +176,119 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
       content: SizedBox(
         width: 440,
         height: 420,
-        child: tracks.isEmpty
-            ? Center(
-                child: Text(
-                  '队列还是空的，先从曲库播放一首',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
+        // ListTile 的悬停 / 水波纹都画在最近的 Material 上。这里给列表一层
+        // 自己的透明 Material，墨迹只会落在列表区域内，不会跑到标题或圆角外。
+        child: Material(
+          type: MaterialType.transparency,
+          child: tracks.isEmpty
+              ? Center(
+                  child: Text(
+                    '队列还是空的，先从曲库播放一首',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              )
-            : Scrollbar(
-                controller: _scroll,
-                child: ListView.builder(
+                )
+              : Scrollbar(
                   controller: _scroll,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: tracks.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final Track track = tracks[index];
-                    final bool current = index == currentIndex;
-                    return ListTile(
-                      key: ValueKey<String>('queue-item-$index'),
-                      selected: current,
-                      selectedTileColor: scheme.primaryContainer.withValues(
-                        alpha: 0.35,
-                      ),
-                      contentPadding: const EdgeInsets.only(left: 24, right: 8),
-                      leading: SizedBox(
-                        width: 28,
-                        child: Center(
-                          child: current
-                              ? Icon(
-                                  Icons.graphic_eq,
-                                  size: 18,
-                                  color: scheme.primary,
-                                )
-                              : Text(
-                                  '${index + 1}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: scheme.onSurfaceVariant,
-                                  ),
-                                ),
+                  child: ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: tracks.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final Track track = tracks[index];
+                      final bool current = index == currentIndex;
+                      // 选中底色用 DecoratedBox 自己画，不用 selectedTileColor：
+                      // 后者是画在 Material 上的墨迹，位置依赖 Material 坐标系，
+                      // 曾出现高亮跑到弹窗左上角、露出直角方块的问题。
+                      return DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: current
+                              ? scheme.primaryContainer.withValues(alpha: 0.35)
+                              : null,
                         ),
-                      ),
-                      title: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: current ? scheme.primary : null,
-                        ),
-                      ),
-                      subtitle: Text(
-                        trackArtist(track),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            formatDuration(track.durationSecs),
+                        child: ListTile(
+                          key: ValueKey<String>('queue-item-$index'),
+                          selected: current,
+                          contentPadding: const EdgeInsets.only(
+                            left: 24,
+                            right: 8,
+                          ),
+                          leading: SizedBox(
+                            width: 28,
+                            child: Center(
+                              child: current
+                                  ? Icon(
+                                      Icons.graphic_eq,
+                                      size: 18,
+                                      color: scheme.primary,
+                                    )
+                                  : Text(
+                                      '${index + 1}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: current ? scheme.primary : null,
+                            ),
+                          ),
+                          subtitle: Text(
+                            trackArtist(track),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
-                              fontFeatures: const <FontFeature>[
-                                FontFeature.tabularFigures(),
-                              ],
                             ),
                           ),
-                          IconButton(
-                            tooltip: '从队列移除',
-                            onPressed: () => unawaited(_removeAt(index)),
-                            iconSize: 18,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 36,
-                              height: 36,
-                            ),
-                            padding: EdgeInsets.zero,
-                            icon: Icon(
-                              Icons.close,
-                              color: scheme.onSurfaceVariant,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                formatDuration(track.durationSecs),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  fontFeatures: const <FontFeature>[
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '从队列移除',
+                                onPressed: () => unawaited(_removeAt(index)),
+                                iconSize: 18,
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 36,
+                                  height: 36,
+                                ),
+                                padding: EdgeInsets.zero,
+                                icon: Icon(
+                                  Icons.close,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      onTap: current
-                          ? null
-                          : () {
-                              Navigator.of(context).pop();
-                              widget.queue.jumpTo(index);
-                              unawaited(widget.onChanged());
-                            },
-                    );
-                  },
+                          onTap: current
+                              ? null
+                              : () {
+                                  Navigator.of(context).pop();
+                                  widget.queue.jumpTo(index);
+                                  unawaited(widget.onChanged());
+                                },
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
+        ),
       ),
       actions: <Widget>[
         TextButton(
