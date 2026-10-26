@@ -329,7 +329,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 3, "升级后应写入当前结构版本");
+    assert_eq!(version, 4, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -353,6 +353,15 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         .is_empty());
     assert!(collections::recent_tracks(10)
         .expect("历史表已建")
+        .is_empty());
+
+    // v4 的听歌时长表
+    assert_eq!(
+        collections::play_stats().expect("时长表已建").total_seconds,
+        0
+    );
+    assert!(collections::daily_playtime(0)
+        .expect("时长表已建")
         .is_empty());
 
     // 触发器与索引在升级时补齐/重建，老数据也要能搜到
