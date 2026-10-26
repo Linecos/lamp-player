@@ -58,6 +58,16 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
     return Scaffold(
       backgroundColor: scheme.surfaceContainerLow,
       appBar: AppBar(
+        // 默认 BackButton 只有 48×48，改成 56 更好点；图标与位置不变
+        leading: IconButton(
+          key: const ValueKey<String>('stats-back'),
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: '返回',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 56, height: 56),
+        ),
+        leadingWidth: 56,
         title: const Text('听歌统计'),
         backgroundColor: scheme.surfaceContainerLow,
       ),
