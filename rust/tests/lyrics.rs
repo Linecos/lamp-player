@@ -122,3 +122,30 @@ fn utf16_sidecar_is_decoded() {
     assert_eq!(lyrics.lines.len(), 1);
     assert_eq!(lyrics.lines[0].text, "中文歌词");
 }
+
+#[test]
+fn sidecar_with_inline_words_and_translation() {
+    // 国内音乐软件导出的「原文 + 音译 + 翻译」三行结构
+    let dir = TempDir::new("words");
+    let song = dir.0.join("逐字.wav");
+    write_wav(&song);
+    fs::write(
+        song.with_extension("lrc"),
+        "[00:05.691]大[00:06.365]人[00:06.582]は\n\
+         [00:05.691]o to na wa\n\
+         [00:05.691]大人是啊\n\
+         [00:09.019]次[00:09.500]の\n",
+    )
+    .expect("写入逐字 lrc");
+
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读取歌词");
+    assert_eq!(lyrics.source, "sidecar");
+    assert_eq!(lyrics.lines.len(), 2, "同时间戳的三行要合并成一行");
+    let first = &lyrics.lines[0];
+    assert_eq!(first.text, "大人は");
+    assert_eq!(first.words.len(), 3);
+    assert_eq!(first.words[2].time_ms, 6_582);
+    assert_eq!(first.translation, "o to na wa\n大人是啊");
+    assert_eq!(first.end_ms, 9_019);
+    assert_eq!(lyrics.lines[1].words.len(), 2);
+}

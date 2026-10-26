@@ -4,11 +4,24 @@ use crate::lyrics as core;
 use anyhow::Result;
 use std::path::Path;
 
+/// 一个逐字片段（时间标签之间的文本）
+pub struct LyricWord {
+    /// 起始时间（毫秒）
+    pub time_ms: i64,
+    pub text: String,
+}
+
 /// 一行带时间戳的歌词
 pub struct LyricLine {
     /// 起始时间（毫秒）
     pub time_ms: i64,
+    /// 结束时间（毫秒）
+    pub end_ms: i64,
     pub text: String,
+    /// 逐字时间轴；为空表示整行按行级时间轴处理
+    pub words: Vec<LyricWord>,
+    /// 同一时间戳的其余行（罗马音 / 翻译），`\n` 分隔
+    pub translation: String,
 }
 
 /// 一次歌词读取的结果
@@ -33,7 +46,17 @@ pub fn lyrics_load(path: String) -> Result<TrackLyrics> {
             .into_iter()
             .map(|line| LyricLine {
                 time_ms: line.time_ms,
+                end_ms: line.end_ms,
                 text: line.text,
+                words: line
+                    .words
+                    .into_iter()
+                    .map(|word| LyricWord {
+                        time_ms: word.time_ms,
+                        text: word.text,
+                    })
+                    .collect(),
+                translation: line.translation,
             })
             .collect(),
         plain: lyrics.plain,

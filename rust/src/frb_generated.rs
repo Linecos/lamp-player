@@ -1920,6 +1920,18 @@ impl SseDecode for Vec<crate::api::lyrics::LyricLine> {
     }
 }
 
+impl SseDecode for Vec<crate::api::lyrics::LyricWord> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::lyrics::LyricWord>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::model::Playlist> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1972,8 +1984,26 @@ impl SseDecode for crate::api::lyrics::LyricLine {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_timeMs = <i64>::sse_decode(deserializer);
+        let mut var_endMs = <i64>::sse_decode(deserializer);
         let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_words = <Vec<crate::api::lyrics::LyricWord>>::sse_decode(deserializer);
+        let mut var_translation = <String>::sse_decode(deserializer);
         return crate::api::lyrics::LyricLine {
+            time_ms: var_timeMs,
+            end_ms: var_endMs,
+            text: var_text,
+            words: var_words,
+            translation: var_translation,
+        };
+    }
+}
+
+impl SseDecode for crate::api::lyrics::LyricWord {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_timeMs = <i64>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
+        return crate::api::lyrics::LyricWord {
             time_ms: var_timeMs,
             text: var_text,
         };
@@ -2269,7 +2299,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::lyrics::LyricLine {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.time_ms.into_into_dart().into_dart(),
+            self.end_ms.into_into_dart().into_dart(),
             self.text.into_into_dart().into_dart(),
+            self.words.into_into_dart().into_dart(),
+            self.translation.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2279,6 +2312,24 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::lyrics::LyricLine>
     for crate::api::lyrics::LyricLine
 {
     fn into_into_dart(self) -> crate::api::lyrics::LyricLine {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::lyrics::LyricWord {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.time_ms.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::lyrics::LyricWord {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::lyrics::LyricWord>
+    for crate::api::lyrics::LyricWord
+{
+    fn into_into_dart(self) -> crate::api::lyrics::LyricWord {
         self
     }
 }
@@ -2517,6 +2568,16 @@ impl SseEncode for Vec<crate::api::lyrics::LyricLine> {
     }
 }
 
+impl SseEncode for Vec<crate::api::lyrics::LyricWord> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::lyrics::LyricWord>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::model::Playlist> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2558,6 +2619,17 @@ impl SseEncode for Vec<crate::api::model::Track> {
 }
 
 impl SseEncode for crate::api::lyrics::LyricLine {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.time_ms, serializer);
+        <i64>::sse_encode(self.end_ms, serializer);
+        <String>::sse_encode(self.text, serializer);
+        <Vec<crate::api::lyrics::LyricWord>>::sse_encode(self.words, serializer);
+        <String>::sse_encode(self.translation, serializer);
+    }
+}
+
+impl SseEncode for crate::api::lyrics::LyricWord {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i64>::sse_encode(self.time_ms, serializer);

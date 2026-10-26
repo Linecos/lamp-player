@@ -251,9 +251,12 @@
 语义补充：
 
 - `TrackLyrics`：`lines`（按时间升序，毫秒）+ `plain`（无时间轴文本）+ `source`（`sidecar` / `embedded` / `none`）。
+- `LyricLine`：`time_ms` / `end_ms`（下一行起点，末行按最后一个字推算）+ `text` + `words`（逐字时间轴，空表示行级）+ `translation`（同时间戳的其余行，`\n` 分隔）。
+- `LyricWord`：`time_ms` + `text`。
 - 优先级：同目录同名 `.lrc`（`.LRC` 也试）> 内嵌 `Lyrics` / `UnsynchronizedLyrics`。
 - **没有歌词不是错误**：返回空结构、`source = none`；只有音频文件本身读不了才会抛。
 - 解析规则：一行多个时间戳会展开成多行；`[ar:...]` 这类元数据忽略；空行（间奏）保留为空文本。
+- 逐字歌词：行内 `[mm:ss.xx]`（网易云 / QQ 导出）与 `<mm:ss.xx>`（增强 LRC）都支持；同一起始时间的多行合并为一行，带逐字标签的当正文，其余（罗马音 / 翻译）进 `translation`；`[offset:±ms]` 会整体平移时间轴。
 
 ## 10. 系统集成 `api::media`
 
