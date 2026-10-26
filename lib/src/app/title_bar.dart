@@ -14,16 +14,30 @@ import 'window_controls.dart';
 /// - 拖动 / 双击最大化：左侧整块空白区域
 /// - 右侧三个按钮不参与拖动
 class LampTitleBar extends StatefulWidget {
-  const LampTitleBar({super.key, required this.controls, this.background});
+  const LampTitleBar({
+    super.key,
+    required this.controls,
+    this.background,
+    this.leftInset = 0,
+  });
 
   final WindowControls controls;
 
   /// 与页面底色保持一致；不传时用 `surfaceContainerLow`（曲库页底色）
   final Color? background;
 
+  /// 左上角让给页面的宽度：这段不接管拖动，页面顶部的按钮才收得到点击。
+  final double leftInset;
+
   /// 高度；[WindowChrome] 据此预留布局。
   /// 44 给侧栏顶部的占位图标留出上下呼吸空间，不再贴着窗口上沿。
   static const double height = 44;
+
+  /// overlay 页面左上角放可点控件时默认让出的宽度。
+  ///
+  /// 标题条浮在页面之上，整条左侧都是拖动区；不让开的话，
+  /// 页面顶部（y < 44）的按钮会被它整个吃掉点击。
+  static const double defaultLeftInset = 160;
 
   @override
   State<LampTitleBar> createState() => _LampTitleBarState();
@@ -117,44 +131,59 @@ class _LampTitleBarState extends State<LampTitleBar> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color background = widget.background ?? scheme.surfaceContainerLow;
 
+    // 用透明 Material + 分区 ColoredBox 而不是 Material(color:)：
+    // 不透明 Material 会把整条区域都当成实体吞掉点击，让位区就透不到页面。
     return Material(
-      color: widget.background ?? scheme.surfaceContainerLow,
+      type: MaterialType.transparency,
       child: SizedBox(
         height: LampTitleBar.height,
         child: Row(
           children: <Widget>[
+            if (widget.leftInset > 0) SizedBox(width: widget.leftInset),
             Expanded(
-              child: GestureDetector(
-                key: const ValueKey<String>('window-drag-area'),
-                behavior: HitTestBehavior.opaque,
-                onPanStart: (_) => unawaited(_startDragging()),
-                onDoubleTap: () => unawaited(_toggleMaximize()),
-                child: Semantics(
-                  label: '窗口标题栏（可拖动）',
-                  child: const SizedBox.expand(),
+              child: ColoredBox(
+                color: background,
+                child: GestureDetector(
+                  key: const ValueKey<String>('window-drag-area'),
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (_) => unawaited(_startDragging()),
+                  onDoubleTap: () => unawaited(_toggleMaximize()),
+                  child: Semantics(
+                    label: '窗口标题栏（可拖动）',
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
             ),
-            _CaptionButton(
-              key: const ValueKey<String>('window-minimize'),
-              icon: Icons.remove,
-              label: '最小化',
-              onTap: () => unawaited(_minimize()),
-            ),
-            _CaptionButton(
-              key: const ValueKey<String>('window-maximize'),
-              icon: _maximized ? Icons.filter_none : Icons.crop_square,
-              label: _maximized ? '还原' : '最大化',
-              iconSize: 13,
-              onTap: () => unawaited(_toggleMaximize()),
-            ),
-            _CaptionButton(
-              key: const ValueKey<String>('window-close'),
-              icon: Icons.close,
-              label: '关闭',
-              danger: true,
-              onTap: () => unawaited(_close()),
+            ColoredBox(
+              color: background,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _CaptionButton(
+                    key: const ValueKey<String>('window-minimize'),
+                    icon: Icons.remove,
+                    label: '最小化',
+                    onTap: () => unawaited(_minimize()),
+                  ),
+                  _CaptionButton(
+                    key: const ValueKey<String>('window-maximize'),
+                    icon: _maximized ? Icons.filter_none : Icons.crop_square,
+                    label: _maximized ? '还原' : '最大化',
+                    iconSize: 13,
+                    onTap: () => unawaited(_toggleMaximize()),
+                  ),
+                  _CaptionButton(
+                    key: const ValueKey<String>('window-close'),
+                    icon: Icons.close,
+                    label: '关闭',
+                    danger: true,
+                    onTap: () => unawaited(_close()),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -236,7 +265,9 @@ class _CaptionButtonState extends State<_CaptionButton> {
 ///
 /// [overlay] 为 true 时，页面铺满整个窗口，标题条浮在最上层并保持透明；
 /// 曲库页会把侧栏一直画到窗口顶部，让应用图标 / 名称被侧栏背景包住。
-/// 使用 overlay 的页面需要自己预留 [LampTitleBar.height] 的顶部空间。
+/// 使用 overlay 的页面需要自己预留 [LampTitleBar.height] 的顶部空间；
+/// 只有左上角 [LampTitleBar.defaultLeftInset] 宽的小块是例外——那段标题条
+/// 不接管拖动，页面可以把顶部控件放进去。
 class WindowChrome extends StatelessWidget {
   const WindowChrome({
     super.key,
@@ -244,6 +275,7 @@ class WindowChrome extends StatelessWidget {
     this.controls,
     this.background,
     this.overlay = false,
+    this.leftInset,
   });
 
   final Widget child;
@@ -257,11 +289,15 @@ class WindowChrome extends StatelessWidget {
   /// 页面是否铺满窗口、标题条浮在内容之上
   final bool overlay;
 
+  /// 标题条左侧让给页面的宽度；不传时 overlay 页面用默认值，非 overlay 为 0
+  final double? leftInset;
+
   @override
   Widget build(BuildContext context) {
     final Widget titleBar = LampTitleBar(
       controls: controls ?? const WindowManagerControls(),
       background: overlay ? Colors.transparent : background,
+      leftInset: leftInset ?? (overlay ? LampTitleBar.defaultLeftInset : 0),
     );
 
     if (!overlay) {
