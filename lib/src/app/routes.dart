@@ -5,6 +5,7 @@ import 'tray_controller.dart';
 import '../features/library/library_page.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
+import '../rust/api/lyrics.dart' as lyrics_api;
 
 /// 路由名称常量。
 ///
@@ -39,6 +40,9 @@ abstract final class LampRouter {
             playbackService: playbackService,
             appLifecycle: lifecycle,
             trayController: trayController,
+            // 播放条左侧的滚动歌词：与「正在播放」页同一个解析入口
+            // （同目录 .lrc 优先，其次内嵌标签）
+            lyricsLoader: (String path) => lyrics_api.lyricsLoad(path: path),
           ),
         );
       default:

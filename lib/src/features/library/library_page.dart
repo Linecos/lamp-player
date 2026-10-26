@@ -67,6 +67,7 @@ class LibraryPage extends StatefulWidget {
     this.sessionStore,
     this.appLifecycle,
     this.trayController,
+    this.lyricsLoader,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -89,6 +90,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 托盘：把播放控制绑上去，关窗后在托盘菜单里也能暂停 / 切歌
   final TrayController? trayController;
+
+  /// 播放条左侧的歌词来源；不传则播放条不显示歌词（测试默认走这条）
+  final TrackLyricsLoader? lyricsLoader;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -949,6 +953,7 @@ class _LibraryPageState extends State<LibraryPage>
       onToggleRepeat: _cycleRepeat,
       onToggleShuffle: _toggleShuffle,
       onOpenNowPlaying: () => unawaited(_openNowPlaying()),
+      lyricsLoader: widget.lyricsLoader,
     );
   }
 
