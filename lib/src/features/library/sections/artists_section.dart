@@ -35,9 +35,7 @@ extension _ArtistsSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          _query.isEmpty
-              ? '${all.length} 位艺术家'
-              : '找到 ${groups.length} 位艺术家',
+          _query.isEmpty ? '${all.length} 位艺术家' : '找到 ${groups.length} 位艺术家',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),

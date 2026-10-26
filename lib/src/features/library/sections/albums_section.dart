@@ -35,9 +35,7 @@ extension _AlbumsSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          _query.isEmpty
-              ? '${all.length} 张专辑'
-              : '找到 ${groups.length} 张专辑',
+          _query.isEmpty ? '${all.length} 张专辑' : '找到 ${groups.length} 张专辑',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
