@@ -306,7 +306,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(chromeOpacity(), 0);
-    expect(find.byKey(_closeKey).hitTestable(), findsNothing, reason: '藏起来就点不到');
+    expect(
+      find.byKey(_closeKey).hitTestable(),
+      findsNothing,
+      reason: '藏起来就点不到',
+    );
 
     final TestGesture mouse = await tester.createGesture(
       kind: PointerDeviceKind.mouse,

@@ -121,7 +121,10 @@ void main() {
     await openSection(tester, '音乐');
 
     expect(find.text('2 首音乐'), findsOneWidget, reason: '切回来应看到完整列表');
-    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, '');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      '',
+    );
   });
 
   testWidgets('搜索框提示语跟随分区，设置页禁用', (WidgetTester tester) async {

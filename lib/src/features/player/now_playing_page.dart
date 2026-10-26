@@ -662,9 +662,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                           child: GestureDetector(
                             onLongPress: ready ? _toggleImmersive : null,
                             child: IconButton.filled(
-                              key: const ValueKey<String>(
-                                'now-playing-toggle',
-                              ),
+                              key: const ValueKey<String>('now-playing-toggle'),
                               iconSize: 34,
                               padding: const EdgeInsets.all(14),
                               onPressed: ready

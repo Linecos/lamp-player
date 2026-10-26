@@ -49,9 +49,7 @@ extension _FilterSection on _LibraryPageState {
     if (_query.isEmpty) {
       return tracks;
     }
-    return tracks
-        .where((Track track) => _matchesTrack(track, _query))
-        .toList();
+    return tracks.where((Track track) => _matchesTrack(track, _query)).toList();
   }
 
   List<AlbumGroup> _filterAlbums(List<AlbumGroup> albums) {

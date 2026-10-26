@@ -350,11 +350,7 @@ void main() {
       closeTo(toggleRect.center.dx, 2),
       reason: '提示与播放键水平对齐',
     );
-    expect(
-      toastRect.bottom,
-      lessThan(toggleRect.top),
-      reason: '提示应弹在按钮上方',
-    );
+    expect(toastRect.bottom, lessThan(toggleRect.top), reason: '提示应弹在按钮上方');
     expect(
       find.byKey(const ValueKey<String>('now-playing-progress')),
       findsNothing,
