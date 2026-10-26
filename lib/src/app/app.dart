@@ -102,8 +102,9 @@ class _LampAppState extends State<LampApp> {
             builder: (BuildContext context, Widget? child) => WindowChrome(
               controls: _windowControls,
               background: Theme.of(context).colorScheme.surfaceContainerLow,
-              // 曲库页自己把侧栏画到窗口顶部，标题条只保留拖动区和窗口按钮。
+              // 曲库页自己绘制顶栏、搜索框与拖动区，这里只保留右侧窗口按钮。
               overlay: true,
+              controlsOnly: true,
               child: child ?? const SizedBox.shrink(),
             ),
             onGenerateRoute: (RouteSettings settings) =>
@@ -113,6 +114,7 @@ class _LampAppState extends State<LampApp> {
                   playbackService: widget.playbackService,
                   lifecycle: widget.lifecycle,
                   trayController: widget.trayController,
+                  windowControls: _windowControls,
                 ),
           );
         },
