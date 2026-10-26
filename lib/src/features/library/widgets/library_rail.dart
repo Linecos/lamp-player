@@ -41,12 +41,20 @@ class LibraryRail extends StatefulWidget {
     required this.section,
     required this.onSelect,
     required this.onToggle,
+    this.onWindowDragStart,
+    this.onWindowDoubleTap,
   });
 
   final bool expanded;
   final LibrarySection section;
   final ValueChanged<LibrarySection> onSelect;
   final VoidCallback onToggle;
+
+  /// 品牌区拖动窗口；为空时保持纯展示
+  final VoidCallback? onWindowDragStart;
+
+  /// 品牌区双击最大化 / 还原
+  final VoidCallback? onWindowDoubleTap;
 
   static const double expandedWidth = 220;
   static const double collapsedWidth = 72;
@@ -100,7 +108,12 @@ class _LibraryRailState extends State<LibraryRail> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _RailBrand(expanded: widget.expanded, showLabel: _showLabels),
+          _RailBrand(
+            expanded: widget.expanded,
+            showLabel: _showLabels,
+            onDragStart: widget.onWindowDragStart,
+            onDoubleTap: widget.onWindowDoubleTap,
+          ),
           SizedBox(
             height: 64,
             child: Align(
@@ -147,10 +160,17 @@ class _LibraryRailState extends State<LibraryRail> {
 
 /// 侧栏顶部的品牌区：占位应用图标 + 应用名，高度与窗口标题条一致。
 class _RailBrand extends StatelessWidget {
-  const _RailBrand({required this.expanded, required this.showLabel});
+  const _RailBrand({
+    required this.expanded,
+    required this.showLabel,
+    this.onDragStart,
+    this.onDoubleTap,
+  });
 
   final bool expanded;
   final bool showLabel;
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -169,7 +189,7 @@ class _RailBrand extends StatelessWidget {
       child: Icon(Icons.lightbulb, size: 17, color: scheme.onPrimaryContainer),
     );
 
-    final Widget brand = SizedBox(
+    final Widget brandRow = SizedBox(
       height: LampTitleBar.height,
       child: Padding(
         padding: const EdgeInsets.only(left: 12, right: 12),
@@ -216,6 +236,13 @@ class _RailBrand extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    final Widget brand = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanStart: onDragStart == null ? null : (_) => onDragStart!(),
+      onDoubleTap: onDoubleTap,
+      child: brandRow,
     );
 
     return Semantics(
