@@ -26,6 +26,7 @@ Future<void> _pumpBar(
   double position = 0,
   double duration = 200,
   double volume = 1,
+  double width = 1280,
   ValueChanged<double>? onSeekStart,
   ValueChanged<double>? onSeekChanged,
   ValueChanged<double>? onSeekEnd,
@@ -40,7 +41,7 @@ Future<void> _pumpBar(
   bool shuffle = false,
   VoidCallback? onOpenNowPlaying,
 }) async {
-  tester.view.physicalSize = const Size(1280, 600);
+  tester.view.physicalSize = Size(width, 600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -298,5 +299,90 @@ void main() {
     await tester.tap(find.descendant(of: titleArea, matching: find.text('夜航')));
     await tester.pump();
     expect(opens, 1);
+  });
+
+  testWidgets('三键落在播放条中轴上', (WidgetTester tester) async {
+    // 宽窗口和最小窗口（900 + 侧栏展开 → 618）都要居中
+    for (final double width in <double>[1280, 618]) {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        width: width,
+      );
+
+      // 左段与右段等宽，播放键就落在整条播放条的中轴上
+      final double center = tester.getCenter(find.byType(PlayerBar)).dx;
+      final double play = tester
+          .getCenter(find.widgetWithIcon(IconButton, Icons.play_arrow))
+          .dx;
+      expect(play, closeTo(center, 1), reason: '宽度 $width 下三键偏了');
+    }
+  });
+
+  testWidgets('窄窗口不挤爆：模式收进菜单、音量滑块变窄', (WidgetTester tester) async {
+    // 900 宽窗口 + 侧栏展开时，播放条可用宽度就是 618
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 618);
+
+    expect(tester.takeException(), isNull, reason: '窄窗口不允许溢出');
+    expect(find.byTooltip('播放模式'), findsOneWidget);
+    expect(find.byTooltip('随机播放'), findsNothing, reason: '随机 / 循环已收进菜单');
+    expect(find.byTooltip('播放队列'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(_volumeKey)).width,
+      inInclusiveRange(40, 48),
+    );
+    // 测试字体每个字符都按字号宽度渲染，时间标签比真实字体宽近一倍，所以只卡
+    // 下限；真实窗口（900 + 侧栏展开）下进度条约 190px。
+    expect(
+      tester.getSize(find.byKey(_progressKey)).width,
+      greaterThan(120),
+      reason: '进度条在窄窗口也要有可用宽度',
+    );
+  });
+
+  testWidgets('窄窗口下从溢出菜单里仍能切换随机与循环', (WidgetTester tester) async {
+    int shuffles = 0;
+    int repeats = 0;
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      width: 618,
+      onToggleShuffle: () => shuffles += 1,
+      onToggleRepeat: () => repeats += 1,
+    );
+
+    // 点菜单项本身：文字被 ListTile 包着，直接点 Text 会命中测试失败告警
+    Finder item(int index) =>
+        find.byType(CheckedPopupMenuItem<String>).at(index);
+
+    await tester.tap(find.byTooltip('播放模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(item(0));
+    await tester.pumpAndSettle();
+    expect(shuffles, 1);
+    expect(repeats, 0);
+
+    await tester.tap(find.byTooltip('播放模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(item(1));
+    await tester.pumpAndSettle();
+    expect(repeats, 1);
+  });
+
+  testWidgets('宽窗口下三个模式按钮全部显示', (WidgetTester tester) async {
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'));
+
+    expect(find.byTooltip('播放模式'), findsNothing);
+    expect(find.byTooltip('随机播放'), findsOneWidget);
+    expect(find.byTooltip('循环播放：关'), findsOneWidget);
+    expect(tester.getSize(find.byKey(_volumeKey)).width, 120);
+  });
+
+  testWidgets('比窗口下限还窄时也不溢出（兜底）', (WidgetTester tester) async {
+    // 真实窗口最小 900（侧栏展开时播放条 618），这里只验证布局算式在更窄的
+    // 宽度下也不会让 Row 溢出
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 420);
+
+    expect(tester.takeException(), isNull);
   });
 }
