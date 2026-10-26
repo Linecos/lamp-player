@@ -34,7 +34,7 @@ void main() {
     expect(find.byType(LampTitleBar), findsOneWidget);
     expect(find.text('Lamp Player'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('window-drag-area')),
+      find.byKey(const ValueKey<String>('library-window-drag')),
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey<String>('window-close')), findsOneWidget);
@@ -49,11 +49,11 @@ void main() {
       findsOneWidget,
     );
 
-    // 内容区给标题条留出空间，搜索不会压在窗口按钮下面
-    expect(
-      tester.getRect(find.byType(TextField)).top,
-      greaterThanOrEqualTo(LampTitleBar.height),
-    );
+    // 搜索框已上移到顶栏内部，不会压到窗口按钮
+    final Rect searchRect = tester.getRect(find.byType(TextField));
+    expect(searchRect.top, greaterThanOrEqualTo(0));
+    expect(searchRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
+    expect(searchRect.width, greaterThan(400));
     // 侧边导航与曲库页标题
     expect(find.text('音乐'), findsWidgets);
     expect(find.text('夜航'), findsOneWidget);
