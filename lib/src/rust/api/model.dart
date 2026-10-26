@@ -7,7 +7,66 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+
+/// 某一天的播放时长。
+class DailyPlaytime {
+  /// 本地日期，形如 `20261026`
+  final int day;
+  final PlatformInt64 seconds;
+
+  const DailyPlaytime({required this.day, required this.seconds});
+
+  @override
+  int get hashCode => day.hashCode ^ seconds.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DailyPlaytime &&
+          runtimeType == other.runtimeType &&
+          day == other.day &&
+          seconds == other.seconds;
+}
+
+/// 听歌总览（统计页顶部）。
+class PlayStats {
+  /// 累计播放秒数；只统计 v4 之后有 `play_sessions` 记录的部分
+  final PlatformInt64 totalSeconds;
+
+  /// 累计播放次数（含 v4 之前的历史）
+  final PlatformInt64 totalPlays;
+
+  /// 有过播放记录的曲目数
+  final PlatformInt64 trackCount;
+
+  /// 有播放记录的天数
+  final PlatformInt64 activeDays;
+
+  const PlayStats({
+    required this.totalSeconds,
+    required this.totalPlays,
+    required this.trackCount,
+    required this.activeDays,
+  });
+
+  @override
+  int get hashCode =>
+      totalSeconds.hashCode ^
+      totalPlays.hashCode ^
+      trackCount.hashCode ^
+      activeDays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlayStats &&
+          runtimeType == other.runtimeType &&
+          totalSeconds == other.totalSeconds &&
+          totalPlays == other.totalPlays &&
+          trackCount == other.trackCount &&
+          activeDays == other.activeDays;
+}
 
 /// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。
 class Playlist {
@@ -108,4 +167,23 @@ class Track {
           trackNum == other.trackNum &&
           addedAt == other.addedAt &&
           coverPath == other.coverPath;
+}
+
+/// 单曲播放次数（排行榜用）。
+class TrackPlayStat {
+  final Track track;
+  final PlatformInt64 plays;
+
+  const TrackPlayStat({required this.track, required this.plays});
+
+  @override
+  int get hashCode => track.hashCode ^ plays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackPlayStat &&
+          runtimeType == other.runtimeType &&
+          track == other.track &&
+          plays == other.plays;
 }
