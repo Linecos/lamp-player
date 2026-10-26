@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
@@ -22,6 +23,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   MusicFolderStore? folderStore,
   SessionStore? sessionStore,
   AppLifecycle? lifecycle,
+  WindowControls? windowControls,
   Size viewSize = const Size(1280, 800),
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
@@ -49,6 +51,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         musicFolderStore: folderStore,
         sessionStore: sessionStore ?? FakeSessionStore(),
         appLifecycle: lifecycle,
+        windowControls: windowControls,
       ),
     ),
   );

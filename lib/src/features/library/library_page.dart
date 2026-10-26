@@ -10,6 +10,7 @@ import 'package:flutter/services.dart'
 
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
+import '../../app/window_controls.dart';
 import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/text/pinyin_key.dart';
@@ -66,6 +67,7 @@ class LibraryPage extends StatefulWidget {
     this.musicFolderStore,
     this.sessionStore,
     this.appLifecycle,
+    this.windowControls,
     this.trayController,
     this.lyricsLoader,
   });
@@ -87,6 +89,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 应用级行为（关闭到托盘）；不传时设置页里的开关禁用
   final AppLifecycle? appLifecycle;
+
+  /// 窗口控制；不传时走真实的 window_manager
+  final WindowControls? windowControls;
 
   /// 托盘：把播放控制绑上去，关窗后在托盘菜单里也能暂停 / 切歌
   final TrayController? trayController;
@@ -123,6 +128,8 @@ class _LibraryPageState extends State<LibraryPage>
       widget.repository ?? const RustLibraryRepository();
   late final PlaybackService _playback =
       widget.playbackService ?? const RustPlaybackService();
+  late final WindowControls _windowControls =
+      widget.windowControls ?? const WindowManagerControls();
   late final MusicFolderStore _folderStore =
       widget.musicFolderStore ?? const PrefsMusicFolderStore();
   late final SessionStore _sessionStore =
@@ -673,6 +680,10 @@ class _LibraryPageState extends State<LibraryPage>
                                   section: section,
                                   onSelect: _selectSection,
                                   onToggle: _toggleRail,
+                                  onWindowDragStart: () =>
+                                      unawaited(_startWindowDrag()),
+                                  onWindowDoubleTap: () =>
+                                      unawaited(_toggleWindowMaximize()),
                                 ),
                           ),
                     ),
@@ -682,9 +693,7 @@ class _LibraryPageState extends State<LibraryPage>
                       // 侧栏自己的重绘不会连带整块内容区一起重画
                       child: RepaintBoundary(
                         child: Padding(
-                          padding: const EdgeInsets.only(
-                            top: LampTitleBar.height,
-                          ),
+                          padding: EdgeInsets.zero,
                           // 播放岛悬浮在内容之上：列表可以滚到岛下面（悬浮观感），
                           // 但底部留出岛的高度，滚到底时最后一行不会被压住
                           child: Stack(
@@ -692,14 +701,14 @@ class _LibraryPageState extends State<LibraryPage>
                             children: <Widget>[
                               Column(
                                 children: <Widget>[
-                                  _buildTopBar(context),
+                                  _buildTitleRow(context),
                                   if (_selectionMode)
                                     _buildSelectionBar(context),
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.fromLTRB(
                                         16,
-                                        0,
+                                        12,
                                         16,
                                         _playerBarReservedHeight,
                                       ),
@@ -804,32 +813,62 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_togglePlayback());
   }
 
-  Widget _buildTopBar(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-      child: Row(
+  Future<void> _startWindowDrag() async {
+    try {
+      await _windowControls.startDragging();
+    } catch (_) {
+      // 测试或平台不支持时忽略
+    }
+  }
+
+  Future<void> _toggleWindowMaximize() async {
+    try {
+      await _windowControls.toggleMaximize();
+    } catch (_) {
+      // 同上
+    }
+  }
+
+  /// 页面顶栏：搜索、多选入口与窗口拖动区。
+  ///
+  /// 右侧 [LampTitleBar.controlsWidth] 留给悬浮在最上层的窗口按钮，
+  /// 空白处交给拖动区，交互控件盖在拖动区之上。
+  Widget _buildTitleRow(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      height: LampTitleBar.height,
+      child: Stack(
+        fit: StackFit.expand,
         children: <Widget>[
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: ConstrainedBox(
-                // 搜索框不铺满整行：太宽时放大镜挤在最左边、右侧一大片空白，
-                // 视觉重心会失衡；420 在 1280 宽的窗口里刚好
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: _buildSearchField(context),
+          GestureDetector(
+            key: const ValueKey<String>('library-window-drag'),
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) => unawaited(_startWindowDrag()),
+            onDoubleTap: () => unawaited(_toggleWindowMaximize()),
+            child: ColoredBox(color: scheme.surfaceContainerLow),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: 16,
+              right: LampTitleBar.controlsWidth + 24,
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: SizedBox(
+                    height: 36,
+                    child: _buildSearchField(context),
+                  ),
                 ),
-              ),
+                if (_selectionMode ||
+                    _selectionVisibleTracks.isNotEmpty) ...<Widget>[
+                  const SizedBox(width: 12),
+                  _buildSelectionToggle(context),
+                ],
+              ],
             ),
           ),
-          // 当前分区没有可选曲目时（设置页、歌单列表、未进详情）不显示：
-          // 点开只会得到一条「0 首」的空白操作条
-          if (_selectionMode || _selectionVisibleTracks.isNotEmpty) ...<Widget>[
-            const SizedBox(width: 8),
-            _buildSelectionToggle(context),
-          ],
         ],
       ),
     );
@@ -839,7 +878,7 @@ class _LibraryPageState extends State<LibraryPage>
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final OutlineInputBorder border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(18),
       borderSide: BorderSide.none,
     );
 
@@ -848,33 +887,43 @@ class _LibraryPageState extends State<LibraryPage>
       focusNode: _searchFocus,
       onChanged: _onSearchChanged,
       textAlignVertical: TextAlignVertical.center,
-      style: theme.textTheme.bodyLarge,
+      style: theme.textTheme.bodyMedium,
       decoration: InputDecoration(
         hintText: '搜索',
-        hintStyle: theme.textTheme.bodyLarge?.copyWith(
+        hintStyle: theme.textTheme.bodyMedium?.copyWith(
           color: scheme.onSurfaceVariant,
         ),
+        isDense: true,
         filled: true,
         fillColor: scheme.surfaceContainerHigh,
         border: border,
         enabledBorder: border,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(24),
-          borderSide: BorderSide(color: scheme.primary, width: 2),
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: scheme.primary, width: 1.6),
         ),
-        // 放大镜左侧留 16、与提示文字间距 8：图标不再贴死左边缘
         prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: Icon(Icons.search, color: scheme.onSurfaceVariant),
+          padding: const EdgeInsets.only(left: 6),
+          child: Icon(Icons.search, size: 20, color: scheme.onSurfaceVariant),
+        ),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 38,
+          minHeight: 36,
         ),
         suffixIcon: _query.isEmpty
             ? null
             : IconButton(
                 onPressed: _clearSearch,
                 tooltip: '清除搜索',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 36,
+                  height: 36,
+                ),
+                iconSize: 18,
                 icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
               ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(vertical: 8),
       ),
     );
   }

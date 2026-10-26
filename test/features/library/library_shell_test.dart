@@ -1,11 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
+import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
+
+class _RecordingWindowControls implements WindowControls {
+  int dragCalls = 0;
+  int toggleCalls = 0;
+
+  @override
+  Future<bool> isMaximized() async => false;
+
+  @override
+  Stream<bool> get maximizeChanges => const Stream<bool>.empty();
+
+  @override
+  Future<void> minimize() async {}
+
+  @override
+  Future<bool> toggleMaximize() async {
+    toggleCalls += 1;
+    return true;
+  }
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  Future<void> startDragging() async {
+    dragCalls += 1;
+  }
+}
 
 void main() {
   testWidgets('侧边导航可收起与展开', (WidgetTester tester) async {
@@ -20,6 +49,37 @@ void main() {
     await tester.tap(find.byTooltip('展开导航栏'));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.menu_open), findsOneWidget);
+  });
+
+  testWidgets('搜索在顶栏内，空白处可拖动窗口', (WidgetTester tester) async {
+    final _RecordingWindowControls controls = _RecordingWindowControls();
+    await pumpLibrary(tester, tracks: twoTracks(), windowControls: controls);
+
+    final Rect searchRect = tester.getRect(find.byType(TextField));
+    expect(searchRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
+
+    final GestureDetector drag = tester.widget<GestureDetector>(
+      find.byKey(const ValueKey<String>('library-window-drag')),
+    );
+    drag.onPanStart?.call(DragStartDetails());
+    drag.onDoubleTap?.call();
+    await tester.pump();
+
+    expect(controls.dragCalls, 1);
+    expect(controls.toggleCalls, 1);
+  });
+
+  testWidgets('侧栏品牌区可拖动窗口', (WidgetTester tester) async {
+    final _RecordingWindowControls controls = _RecordingWindowControls();
+    await pumpLibrary(tester, tracks: twoTracks(), windowControls: controls);
+
+    await tester.drag(
+      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      const Offset(40, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controls.dragCalls, greaterThan(0));
   });
 
   testWidgets('侧边栏顶部显示应用图标与名称，并贴住窗口顶部', (WidgetTester tester) async {

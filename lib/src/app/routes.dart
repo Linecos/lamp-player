@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_lifecycle.dart';
 import 'tray_controller.dart';
+import 'window_controls.dart';
 import '../features/library/library_page.dart';
 import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
@@ -30,6 +31,7 @@ abstract final class LampRouter {
     PlaybackService? playbackService,
     AppLifecycle? lifecycle,
     TrayController? trayController,
+    WindowControls? windowControls,
   }) {
     switch (settings.name) {
       case AppRoutes.library:
@@ -40,6 +42,7 @@ abstract final class LampRouter {
             playbackService: playbackService,
             appLifecycle: lifecycle,
             trayController: trayController,
+            windowControls: windowControls,
             // 播放条左侧的滚动歌词：与「正在播放」页同一个解析入口
             // （同目录 .lrc 优先，其次内嵌标签）
             lyricsLoader: (String path) => lyrics_api.lyricsLoad(path: path),
