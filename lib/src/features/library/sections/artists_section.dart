@@ -7,11 +7,11 @@ extension _ArtistsSection on _LibraryPageState {
   Widget _buildArtistsSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<ArtistGroup> groups = _artistGroupsCache;
+    final List<ArtistGroup> all = _artistGroupsCache;
 
     if (_selectedArtist != null) {
       ArtistGroup? group;
-      for (final ArtistGroup candidate in groups) {
+      for (final ArtistGroup candidate in all) {
         if (candidate.name == _selectedArtist) {
           group = candidate;
           break;
@@ -21,6 +21,8 @@ extension _ArtistsSection on _LibraryPageState {
         return _buildArtistDetail(context, group);
       }
     }
+
+    final List<ArtistGroup> groups = _filterArtists(all);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -33,23 +35,28 @@ extension _ArtistsSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${groups.length} 位艺术家',
+          _query.isEmpty
+              ? '${all.length} 位艺术家'
+              : '找到 ${groups.length} 位艺术家',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: _buildCollectionBody(context, groups.isEmpty, () {
-            return ArtistGridView(
-              artists: groups,
-              storageKey: const PageStorageKey<String>('grid:artists'),
-              onSelect: (ArtistGroup artist) {
-                _clearSelection();
-                _update(() => _selectedArtist = artist.name);
-              },
-            );
-          }),
+          child: groups.isEmpty && _query.isNotEmpty
+              ? _searchEmptyState('没有找到匹配的艺术家')
+              : _buildCollectionBody(context, groups.isEmpty, () {
+                  return ArtistGridView(
+                    artists: groups,
+                    storageKey: const PageStorageKey<String>('grid:artists'),
+                    onSelect: (ArtistGroup artist) {
+                      _clearSearch();
+                      _clearSelection();
+                      _update(() => _selectedArtist = artist.name);
+                    },
+                  );
+                }),
         ),
       ],
     );

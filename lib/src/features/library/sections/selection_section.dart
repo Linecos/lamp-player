@@ -11,11 +11,13 @@ extension _SelectionSection on _LibraryPageState {
       case LibrarySection.music:
         return _query.isEmpty ? _tracks : (_results ?? const <Track>[]);
       case LibrarySection.favorites:
-        return _favoriteTracks;
+        return _filterTracks(_favoriteTracks);
       case LibrarySection.history:
-        return _historyTracks;
+        return _filterTracks(_historyTracks);
       case LibrarySection.playlists:
-        return _selectedPlaylistId == null ? const <Track>[] : _playlistTracks;
+        return _selectedPlaylistId == null
+            ? const <Track>[]
+            : _filterTracks(_playlistTracks);
       case LibrarySection.artists:
         final String? name = _selectedArtist;
         if (name == null) {
@@ -23,7 +25,7 @@ extension _SelectionSection on _LibraryPageState {
         }
         for (final ArtistGroup group in _artistGroupsCache) {
           if (group.name == name) {
-            return group.tracks;
+            return _filterTracks(group.tracks);
           }
         }
         return const <Track>[];
@@ -34,7 +36,7 @@ extension _SelectionSection on _LibraryPageState {
         }
         for (final AlbumGroup group in _albumGroupsCache) {
           if (group.key == key) {
-            return group.tracks;
+            return _filterTracks(group.tracks);
           }
         }
         return const <Track>[];

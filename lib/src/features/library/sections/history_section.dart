@@ -78,6 +78,7 @@ extension _HistorySection on _LibraryPageState {
   Widget _buildHistorySection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<Track> visible = _filterTracks(_historyTracks);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -92,9 +93,9 @@ extension _HistorySection on _LibraryPageState {
             ),
             const Spacer(),
             FilledButton.tonalIcon(
-              onPressed: _historyTracks.isEmpty
+              onPressed: visible.isEmpty
                   ? null
-                  : () => unawaited(_playAll(_historyTracks)),
+                  : () => unawaited(_playAll(visible)),
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
@@ -111,18 +112,20 @@ extension _HistorySection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${_historyTracks.length} 条播放记录',
+          _query.isEmpty
+              ? '${_historyTracks.length} 条播放记录'
+              : '找到 ${visible.length} 条播放记录',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(child: _buildHistoryBody(context)),
+        Expanded(child: _buildHistoryBody(context, visible)),
       ],
     );
   }
 
-  Widget _buildHistoryBody(BuildContext context) {
+  Widget _buildHistoryBody(BuildContext context, List<Track> visible) {
     if (_historyLoading && _historyTracks.isEmpty) {
       return const LoadingState(message: '正在读取播放历史…');
     }
@@ -144,19 +147,22 @@ extension _HistorySection on _LibraryPageState {
         ),
       );
     }
+    if (visible.isEmpty) {
+      return _searchEmptyState('没有找到匹配的记录');
+    }
     return TrackListView(
-      tracks: _historyTracks,
+      tracks: visible,
       storageKey: const PageStorageKey<String>('tracks:history'),
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playFrom(_historyTracks, track)),
+      onPlay: (Track track) => unawaited(_playFrom(visible, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
-          _onTrackContext(_historyTracks, track, action),
+          _onTrackContext(visible, track, action),
       selectionMode: _selectionMode,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
-          _onTrackSelect(_historyTracks, track, toggle: toggle, range: range),
+          _onTrackSelect(visible, track, toggle: toggle, range: range),
     );
   }
 }

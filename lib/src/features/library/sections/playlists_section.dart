@@ -74,6 +74,7 @@ extension _PlaylistsSection on _LibraryPageState {
 
   Future<void> _openPlaylist(Playlist playlist) async {
     final int id = playlist.id.toInt();
+    _clearSearch();
     _clearSelection();
     _update(() {
       _selectedPlaylistId = id;
@@ -452,6 +453,7 @@ extension _PlaylistsSection on _LibraryPageState {
 
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<Playlist> visible = _filterPlaylists(_playlists);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -480,18 +482,20 @@ extension _PlaylistsSection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${_playlists.length} 个歌单',
+          _query.isEmpty
+              ? '${_playlists.length} 个歌单'
+              : '找到 ${visible.length} 个歌单',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(child: _buildPlaylistsBody(context)),
+        Expanded(child: _buildPlaylistsBody(context, visible)),
       ],
     );
   }
 
-  Widget _buildPlaylistsBody(BuildContext context) {
+  Widget _buildPlaylistsBody(BuildContext context, List<Playlist> visible) {
     if (_playlistsLoading) {
       return const LoadingState(message: '正在读取歌单…');
     }
@@ -514,8 +518,11 @@ extension _PlaylistsSection on _LibraryPageState {
         ),
       );
     }
+    if (visible.isEmpty) {
+      return _searchEmptyState('没有找到匹配的歌单');
+    }
     return PlaylistGridView(
-      playlists: _playlists,
+      playlists: visible,
       storageKey: const PageStorageKey<String>('grid:playlists'),
       onOpen: (Playlist playlist) => unawaited(_openPlaylist(playlist)),
       onAction: (Playlist playlist, PlaylistAction action) {
