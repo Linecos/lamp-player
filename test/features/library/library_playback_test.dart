@@ -311,7 +311,7 @@ void main() {
 
     expect(find.text('还没有收藏'), findsOneWidget, reason: '应恢复到收藏分区');
     expect(find.byTooltip('展开导航栏'), findsOneWidget, reason: '侧栏应保持收起');
-    expect(find.byTooltip('循环播放：列表'), findsOneWidget);
+    expect(find.byTooltip('播放模式：列表循环'), findsOneWidget);
     expect(
       playback.volumeCalls.last,
       closeTo(volumeToAmplitude(0.4), 0.001),
@@ -728,8 +728,12 @@ void main() {
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
     // 打开列表循环，保证每次失败后队列都还有「下一首」
-    await tester.tap(find.byTooltip('循环播放：关'));
+    // 顺序 → 随机 → 列表循环
+    await tester.tap(find.byTooltip('播放模式：顺序播放'));
     await tester.pump();
+    await tester.tap(find.byTooltip('播放模式：随机播放'));
+    await tester.pump();
+    expect(find.byTooltip('播放模式：列表循环'), findsOneWidget);
 
     await tester.tap(find.text('夜航'));
     await tester.pump();

@@ -17,6 +17,7 @@ import '../../common/text/pinyin_key.dart';
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
+import '../player/playback_mode.dart';
 import '../player/playback_queue.dart';
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
@@ -1015,8 +1016,7 @@ class _LibraryPageState extends State<LibraryPage>
       onShowQueue: () => unawaited(_showQueue()),
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,
-      onToggleRepeat: _cycleRepeat,
-      onToggleShuffle: _toggleShuffle,
+      onCyclePlayMode: _cyclePlayMode,
       onOpenNowPlaying: () => unawaited(_openNowPlaying()),
       lyricsLoader: widget.lyricsLoader,
     );
