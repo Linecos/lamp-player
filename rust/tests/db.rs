@@ -28,7 +28,7 @@ impl TempDir {
     }
 
     fn db_path(&self) -> String {
-        self.0.join("library.lampdb").to_string_lossy().into_owned()
+        self.0.join("library.db").to_string_lossy().into_owned()
     }
 }
 
@@ -272,7 +272,7 @@ fn prune_missing_tracks_only_removes_missing_files() {
 fn init_db_rejects_path_switch_until_closed() {
     let (_lock, dir) = begin("switch");
     let first = dir.db_path();
-    let second = dir.0.join("other.lampdb").to_string_lossy().into_owned();
+    let second = dir.0.join("other.db").to_string_lossy().into_owned();
 
     db::init_db(first.clone()).expect("初始化");
     db::init_db(first.clone()).expect("同路径重复初始化应幂等");

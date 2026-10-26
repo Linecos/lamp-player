@@ -113,7 +113,7 @@ fn scan_folder_is_incremental_and_prunes_deleted_files() {
     // 全局连接是单例，涉及 DB 的用例都需要拿锁串行
     let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = unique_dir("pipeline");
-    let db_path = root.join("library.lampdb");
+    let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
 
     let music = root.join("music");
@@ -164,7 +164,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
 
     let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = unique_dir("cover");
-    let db_path = root.join("library.lampdb");
+    let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
 
     let music = root.join("music");
@@ -242,7 +242,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
 fn scan_merges_legacy_separator_variants() {
     let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = unique_dir("legacy_sep");
-    let db_path = root.join("library.lampdb");
+    let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
 
     let music = root.join("music");
@@ -308,7 +308,7 @@ fn scan_merges_legacy_separator_variants() {
 fn scan_matches_paths_across_case_and_separator_changes() {
     let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let root = unique_dir("casing");
-    let db_path = root.join("library.lampdb");
+    let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
 
     let music = root.join("music");
