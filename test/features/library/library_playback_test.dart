@@ -491,9 +491,8 @@ void main() {
     final Rect slider = tester.getRect(
       find.byKey(const ValueKey<String>('player-volume')),
     );
-    await tester.tapAt(
-      Offset(slider.left + slider.width * 0.25, slider.center.dy),
-    );
+    // 点滑块正中：两侧内缩对称，映射出的值恒为 0.5，不受滑块宽度影响
+    await tester.tapAt(slider.center);
     await tester.pump();
     // 音量调用有 80ms 合并窗口
     await tester.pump(const Duration(milliseconds: 120));
@@ -503,8 +502,8 @@ void main() {
     expect(playback.volumeCalls.last, greaterThan(0));
     expect(
       playback.volumeCalls.last,
-      lessThan(0.05),
-      reason: '滑块 25% 左右应压到约 -36 dB，而不是线性 0.25',
+      closeTo(0.125, 0.02),
+      reason: '滑块中点应压到约 0.125（三次曲线），而不是线性 0.5',
     );
 
     await tester.tap(find.byTooltip('静音'));

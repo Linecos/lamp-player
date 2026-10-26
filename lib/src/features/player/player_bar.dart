@@ -4,19 +4,22 @@ import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
+import '../../rust/api/lyrics.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
+import 'lyrics_view.dart';
 import 'playback_queue.dart';
+
+/// 加载一首曲目的歌词；不注入时播放条不显示歌词预览。
+typedef TrackLyricsLoader = Future<TrackLyrics> Function(String path);
 
 /// 底部播放条：曲目信息、上一首 / 播放暂停 / 下一首、进度、音量与队列入口。
 ///
-/// 布局是经典三段式：左「封面 + 曲名」与右「模式 + 音量」各占 flex 1（等宽），
-/// 中间 flex 2 —— 两侧等宽，播放键才真正落在整条播放条的中轴上。以前左 3 右 4
-/// 的分配让三键永远偏左。
+/// 布局是经典三段式：左「封面 + 曲名（+ 当前歌词）」与右「时间 + 进度 +
+/// 模式 + 音量」各占 flex 1（等宽），中间是三键 —— 两侧等宽，播放键才真正
+/// 落在整条播放条的中轴上。
 ///
-/// 进度条放在中间三键下面而不是右侧：最小窗口（900 宽 + 侧栏展开）时每侧只有
-/// 约 245px，右侧还要装时间、随机 / 循环 / 队列、音量，进度条会被挤到 100px
-/// 以内；放进中间能拿到整条播放条一半的宽度。
+/// 右段宽度不够时逐级收：模式按钮 → 音量滑块 → 总时长，宽度永远先给进度条。
 class PlayerBar extends StatelessWidget {
   const PlayerBar({
     super.key,
@@ -41,7 +44,11 @@ class PlayerBar extends StatelessWidget {
     this.onToggleRepeat,
     this.onToggleShuffle,
     this.onOpenNowPlaying,
+    this.lyricsLoader,
   });
+
+  /// 当前曲目的歌词来源；不传时左段只显示曲名 / 艺术家
+  final TrackLyricsLoader? lyricsLoader;
 
   final Track? track;
   final bool isPlaying;
@@ -123,17 +130,26 @@ class PlayerBar extends StatelessWidget {
             type: MaterialType.transparency,
             child: Row(
               children: <Widget>[
-                Expanded(child: _left(context, current)),
                 Expanded(
-                  flex: 2,
-                  child: _center(
+                  child: _PlayerBarLeft(
+                    track: current,
+                    isPlaying: isPlaying,
+                    isAvailable: isAvailable,
+                    position: shown,
+                    lyricsLoader: lyricsLoader,
+                    onOpenNowPlaying: onOpenNowPlaying,
+                  ),
+                ),
+                // 中段宽度固定、两侧 Expanded 等宽 → 三键落在整条中轴上
+                _center(context, canControl: canControl),
+                Expanded(
+                  child: _right(
                     context,
                     canControl: canControl,
                     shown: shown,
                     total: total,
                   ),
                 ),
-                Expanded(child: _right(context)),
               ],
             ),
           ),
@@ -142,74 +158,44 @@ class PlayerBar extends StatelessWidget {
     );
   }
 
-  /// 左段：封面 + 曲名 / 艺术家
-  Widget _left(BuildContext context, Track? current) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final String subtitle = current != null
-        ? trackArtist(current)
-        : (isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
-
+  /// 中段：上一首 / 播放暂停 / 下一首
+  Widget _center(BuildContext context, {required bool canControl}) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // 封面可点：打开正在播放页（歌词 / 大封面）
-        // 高亮只包封面本身：把 12px 间距放进 InkWell 会让高亮比封面
-        // 宽出一截，看起来和封面错位
-        InkWell(
-          key: const ValueKey<String>('player-bar-open-now-playing'),
-          borderRadius: BorderRadius.circular(16),
-          hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-          onTap: current == null ? null : onOpenNowPlaying,
-          child: AlbumCover(
-            path: current?.coverPath,
-            size: 56,
-            radius: 16,
-            playing: isPlaying,
-          ),
+        _BarIconButton(
+          icon: Icons.skip_previous,
+          tooltip: '上一首 (Ctrl+←)',
+          size: 36,
+          onPressed: canControl ? onPrevious : null,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: InkWell(
-              key: const ValueKey<String>('player-bar-open-now-playing-title'),
-              borderRadius: BorderRadius.circular(12),
-              hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-              onTap: current == null ? null : onOpenNowPlaying,
-              // Align 让高亮收缩到文字块大小，而不是整行高度
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      current?.title ?? '尚未播放',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        IconButton.filled(
+          onPressed: canControl ? onPlayPause : null,
+          tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
+          iconSize: 24,
+          style: IconButton.styleFrom(
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          padding: EdgeInsets.zero,
+          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+        ),
+        _BarIconButton(
+          icon: Icons.skip_next,
+          tooltip: '下一首 (Ctrl+→)',
+          size: 36,
+          onPressed: canControl ? onNext : null,
         ),
       ],
     );
   }
 
-  /// 中段：三键 + 进度（时间标签与滑块同行）
-  Widget _center(
+  /// 右段：时间 + 进度 + 随机 / 循环 / 队列 + 音量
+  ///
+  /// 三段式把右段压到最小窗口约 215px、默认窗口约 546px，全塞进去会挤爆，
+  /// 所以按可用宽度分档：先收模式按钮，再收音量滑块，最后只留当前时间。
+  /// 收掉的顺序与 Spotify 一致——进度是主操作，宁可先牺牲音量滑块。
+  Widget _right(
     BuildContext context, {
     required bool canControl,
     required double shown,
@@ -223,102 +209,48 @@ class PlayerBar extends StatelessWidget {
           fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
         );
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            _BarIconButton(
-              icon: Icons.skip_previous,
-              tooltip: '上一首 (Ctrl+←)',
-              size: 36,
-              onPressed: canControl ? onPrevious : null,
-            ),
-            IconButton.filled(
-              onPressed: canControl ? onPlayPause : null,
-              tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
-              iconSize: 24,
-              style: IconButton.styleFrom(
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-              padding: EdgeInsets.zero,
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-            ),
-            _BarIconButton(
-              icon: Icons.skip_next,
-              tooltip: '下一首 (Ctrl+→)',
-              size: 36,
-              onPressed: canControl ? onNext : null,
-            ),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            children: <Widget>[
-              Text(formatDuration(shown), style: timeStyle),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  // Slider 默认占 48 高，这里压到 28：三键 40 + 间距 2 + 28
-                  // 正好塞进 88 的播放条
-                  height: 28,
-                  child: _SlimSlider(
-                    key: const ValueKey<String>('player-progress'),
-                    value: shown,
-                    max: total > 0 ? total : 1,
-                    enabled: canControl && canSeek && total > 0,
-                    onChangeStart: onSeekStart,
-                    onChanged: onSeekChanged,
-                    onChangeEnd: onSeekEnd,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(formatDuration(total), style: timeStyle),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 右段：随机 / 循环 / 队列 + 音量
-  ///
-  /// 宽度按三段式分到约 1/4（最小窗口 900 + 侧栏展开时约 140），所以音量滑块
-  /// 宽度直接吃剩余空间，而不是写死 88：写死时最小窗口会把这一行挤爆。
-  Widget _right(BuildContext context) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double width = constraints.maxWidth;
-        // 210 以下把随机 / 循环收进溢出菜单，省出两个按钮的位置给音量；
-        // 剩下的宽度全给滑块，上限 120，低于 24 就没法拖了，只留静音按钮。
-        final bool compact = width < 210;
-        final double buttonSize = compact ? 32 : 36;
-        // 窄到连「菜单 + 队列 + 静音」都放不下时省掉队列（窗口下限 900 时不会
-        // 触发，这里只是防止布局在极端宽度下溢出）
-        final bool showQueue = width >= buttonSize * 3;
-        final int buttonCount = (compact ? 2 : 3) + (showQueue ? 1 : 0);
-        final double leftover = width - buttonSize * buttonCount;
-        final double volumeWidth = leftover < 24
-            ? 0
-            : leftover.clamp(24.0, 120.0).toDouble();
+        // 380 以上放得下三个模式按钮；再窄收进溢出菜单
+        final bool showModeButtons = width >= 380;
+        // 250 以下连总时长都放不下，只留当前时间
+        final bool showTotal = width >= 250;
+        // 再窄连时间标签也去掉（窗口下限 900 时不会触发，纯兜底）
+        final bool showTime = width >= 160;
+        // 音量滑块：宽窗口 120，中等 64 / 48，300 以下只留静音按钮（Spotify 的做法）
+        final double volumeWidth = width >= 500
+            ? 120
+            : (width >= 380 ? 64 : (width >= 300 ? 48 : 0));
+        final double buttonSize = showModeButtons ? 36 : 32;
 
         return Row(
-          mainAxisAlignment: MainAxisAlignment.end,
           children: <Widget>[
-            if (compact)
-              _ModesMenu(
-                size: buttonSize,
-                shuffle: shuffle,
-                repeat: repeat,
-                onToggleShuffle: onToggleShuffle,
-                onToggleRepeat: onToggleRepeat,
-              )
-            else ...<Widget>[
+            if (showTime) ...<Widget>[
+              Text(formatDuration(shown), style: timeStyle),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: SizedBox(
+                // Slider 默认 48 高，压到 28 才塞得进 88 的播放条
+                height: 28,
+                child: _SlimSlider(
+                  key: const ValueKey<String>('player-progress'),
+                  value: shown,
+                  max: total > 0 ? total : 1,
+                  enabled: canControl && canSeek && total > 0,
+                  onChangeStart: onSeekStart,
+                  onChanged: onSeekChanged,
+                  onChangeEnd: onSeekEnd,
+                ),
+              ),
+            ),
+            if (showTotal) ...<Widget>[
+              const SizedBox(width: 8),
+              Text(formatDuration(total), style: timeStyle),
+            ],
+            const SizedBox(width: 8),
+            if (showModeButtons) ...<Widget>[
               _BarIconButton(
                 icon: Icons.shuffle,
                 tooltip: shuffle ? '关闭随机播放' : '随机播放',
@@ -337,14 +269,22 @@ class PlayerBar extends StatelessWidget {
                 selected: repeat != LoopMode.off,
                 onPressed: onToggleRepeat,
               ),
-            ],
-            if (showQueue)
               _BarIconButton(
                 icon: Icons.queue_music,
                 tooltip: '播放队列',
                 size: buttonSize,
                 onPressed: onShowQueue,
               ),
+            ] else
+              _ModesMenu(
+                size: buttonSize,
+                shuffle: shuffle,
+                repeat: repeat,
+                onToggleShuffle: onToggleShuffle,
+                onToggleRepeat: onToggleRepeat,
+                onShowQueue: onShowQueue,
+              ),
+            const SizedBox(width: 4),
             _VolumeControl(
               volume: volume,
               enabled: isAvailable,
@@ -356,6 +296,257 @@ class PlayerBar extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// 左段：封面 + 曲名 / 艺术家，宽窗口时再补一句当前歌词。
+///
+/// 歌词单独做成 `StatefulWidget`：播放位置每几百毫秒推一次，只有这里需要按
+/// 位置重算当前行，没必要把三键 / 进度 / 音量一起卷进重建。
+class _PlayerBarLeft extends StatefulWidget {
+  const _PlayerBarLeft({
+    required this.track,
+    required this.isPlaying,
+    required this.isAvailable,
+    required this.position,
+    required this.lyricsLoader,
+    required this.onOpenNowPlaying,
+  });
+
+  final Track? track;
+  final bool isPlaying;
+  final bool isAvailable;
+
+  /// 当前播放位置（秒），用来定位歌词行
+  final double position;
+
+  final TrackLyricsLoader? lyricsLoader;
+  final VoidCallback? onOpenNowPlaying;
+
+  @override
+  State<_PlayerBarLeft> createState() => _PlayerBarLeftState();
+}
+
+class _PlayerBarLeftState extends State<_PlayerBarLeft> {
+  /// 切歌会来回切（上一首 / 下一首），缓存最近几首的歌词免得重复解析
+  static const int _cacheLimit = 8;
+
+  /// 歌词够宽才占位：再窄曲名和歌词会互相挤到只剩几个字
+  static const double _lyricMinWidth = 340;
+
+  /// 封面边长：算曲名最大宽度时要用
+  static const double _coverSize = 56;
+
+  final Map<String, TrackLyrics> _cache = <String, TrackLyrics>{};
+
+  TrackLyrics? _lyrics;
+
+  /// 已经发起过加载的曲目，避免每次位置刷新都重新读一遍
+  String? _loadedPath;
+
+  /// 递增令牌：切歌后旧的加载结果直接丢掉
+  int _request = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTrack();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlayerBarLeft oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.track?.path != widget.track?.path ||
+        oldWidget.lyricsLoader != widget.lyricsLoader) {
+      _syncTrack();
+    }
+  }
+
+  void _syncTrack() {
+    final String? path = widget.track?.path;
+    if (path == null) {
+      // 停止 / 清空队列：别把上一首的歌词留在播放条上
+      _request += 1;
+      _loadedPath = null;
+      _lyrics = null;
+      return;
+    }
+    if (path == _loadedPath) {
+      return;
+    }
+    _loadedPath = path;
+    _request += 1;
+    final TrackLyrics? cached = _cache.remove(path);
+    if (cached != null) {
+      // 命中缓存：重新插回队尾，保持 LRU 顺序
+      _cache[path] = cached;
+      _lyrics = cached;
+      return;
+    }
+    _lyrics = null;
+    final TrackLyricsLoader? loader = widget.lyricsLoader;
+    if (loader != null) {
+      unawaited(_load(loader, path, _request));
+    }
+  }
+
+  Future<void> _load(TrackLyricsLoader loader, String path, int token) async {
+    TrackLyrics? result;
+    try {
+      result = await loader(path);
+    } catch (error) {
+      // 歌词缺失不该影响播放：读失败就当这首没有歌词
+      debugPrint('读取播放条歌词失败：$error');
+      return;
+    }
+    if (!mounted || token != _request) {
+      return;
+    }
+    _cache[path] = result;
+    while (_cache.length > _cacheLimit) {
+      _cache.remove(_cache.keys.first);
+    }
+    setState(() => _lyrics = result);
+  }
+
+  /// 当前应显示的歌词：间奏空行往前找最近一句有字的，避免预览闪成空白
+  String _currentLyric() {
+    final List<LyricLine> lines = _lyrics?.lines ?? const <LyricLine>[];
+    int index = lyricIndexAt(lines, widget.position);
+    while (index >= 0 && lines[index].text.trim().isEmpty) {
+      index -= 1;
+    }
+    return index < 0 ? '' : lines[index].text.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Track? current = widget.track;
+    final String subtitle = current != null
+        ? trackArtist(current)
+        : (widget.isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
+
+    final Widget titleBlock = Align(
+      alignment: Alignment.centerLeft,
+      child: InkWell(
+        key: const ValueKey<String>('player-bar-open-now-playing-title'),
+        borderRadius: BorderRadius.circular(12),
+        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+        onTap: current == null ? null : widget.onOpenNowPlaying,
+        // Align 让高亮收缩到文字块大小，而不是整行高度
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                current?.title ?? '尚未播放',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool showLyric =
+            (_lyrics?.lines.isNotEmpty ?? false) &&
+            constraints.maxWidth >= _lyricMinWidth;
+
+        return Row(
+          children: <Widget>[
+            // 封面可点：打开正在播放页（歌词 / 大封面）
+            // 高亮只包封面本身：把 12px 间距放进 InkWell 会让高亮比封面
+            // 宽出一截，看起来和封面错位
+            InkWell(
+              key: const ValueKey<String>('player-bar-open-now-playing'),
+              borderRadius: BorderRadius.circular(16),
+              hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+              onTap: current == null ? null : widget.onOpenNowPlaying,
+              child: AlbumCover(
+                path: current?.coverPath,
+                size: _coverSize,
+                radius: 16,
+                playing: widget.isPlaying,
+              ),
+            ),
+            const SizedBox(width: 12),
+            // 曲名与歌词各占一半：歌词区域宽度固定，换歌时居中位置不会跟着
+            // 标题长短左右跳
+            Expanded(child: titleBlock),
+            if (showLyric) ...<Widget>[
+              const SizedBox(width: 12),
+              Expanded(child: _LyricPreview(text: _currentLyric())),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 播放条上的一句歌词：换行时淡入 + 上滑
+class _LyricPreview extends StatelessWidget {
+  const _LyricPreview({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return SizedBox(
+      key: const ValueKey<String>('player-bar-lyric'),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (Widget child, Animation<double> animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.35),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        // 与展开页一致：歌词居中。Stack 的每个子项（新行 / 旧行）各自居中，
+        // 换行时两行不会互相顶到左边
+        layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
+          alignment: Alignment.center,
+          children: <Widget>[...previous, ?current],
+        ),
+        child: Text(
+          text,
+          // 空串也要换 key：间奏时切到空白，再切回来才重新淡入
+          key: ValueKey<String>(text),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary),
+        ),
+      ),
     );
   }
 }
@@ -400,7 +591,7 @@ class _BarIconButton extends StatelessWidget {
   }
 }
 
-/// 窄窗口下把随机 / 循环收进溢出菜单，省出两个按钮的位置给进度和音量
+/// 窄窗口下把随机 / 循环 / 队列收进溢出菜单，把宽度让给进度条
 class _ModesMenu extends StatelessWidget {
   const _ModesMenu({
     required this.size,
@@ -408,6 +599,7 @@ class _ModesMenu extends StatelessWidget {
     required this.repeat,
     this.onToggleShuffle,
     this.onToggleRepeat,
+    this.onShowQueue,
   });
 
   final double size;
@@ -415,6 +607,7 @@ class _ModesMenu extends StatelessWidget {
   final LoopMode repeat;
   final VoidCallback? onToggleShuffle;
   final VoidCallback? onToggleRepeat;
+  final VoidCallback? onShowQueue;
 
   Future<void> _show(BuildContext context) async {
     final RenderBox button = context.findRenderObject()! as RenderBox;
@@ -441,6 +634,8 @@ class _ModesMenu extends StatelessWidget {
           checked: repeat != LoopMode.off,
           child: const Text('循环播放'),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(value: 'queue', child: Text('播放队列')),
       ],
     );
     // 用返回值分发，而不是菜单项自己的 onTap：后者在退出动画还没走完时就
@@ -450,6 +645,8 @@ class _ModesMenu extends StatelessWidget {
         onToggleShuffle?.call();
       case 'repeat':
         onToggleRepeat?.call();
+      case 'queue':
+        onShowQueue?.call();
     }
   }
 
@@ -458,7 +655,7 @@ class _ModesMenu extends StatelessWidget {
     final bool active = shuffle || repeat != LoopMode.off;
     return _BarIconButton(
       icon: Icons.tune,
-      tooltip: '播放模式',
+      tooltip: '播放选项',
       size: size,
       selected: active,
       onPressed: () => unawaited(_show(context)),

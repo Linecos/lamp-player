@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
@@ -40,6 +41,7 @@ Future<void> _pumpBar(
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
   VoidCallback? onOpenNowPlaying,
+  TrackLyricsLoader? lyricsLoader,
 }) async {
   tester.view.physicalSize = Size(width, 600);
   tester.view.devicePixelRatio = 1;
@@ -73,6 +75,7 @@ Future<void> _pumpBar(
             repeat: repeat,
             shuffle: shuffle,
             onOpenNowPlaying: onOpenNowPlaying,
+            lyricsLoader: lyricsLoader,
           ),
         ),
       ),
@@ -319,63 +322,84 @@ void main() {
     }
   });
 
-  testWidgets('窄窗口不挤爆：模式收进菜单、音量滑块变窄', (WidgetTester tester) async {
+  testWidgets('窄窗口不挤爆：模式与队列收进菜单、音量只留静音', (WidgetTester tester) async {
     // 900 宽窗口 + 侧栏展开时，播放条可用宽度就是 618
     await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 618);
 
     expect(tester.takeException(), isNull, reason: '窄窗口不允许溢出');
-    expect(find.byTooltip('播放模式'), findsOneWidget);
+    expect(find.byTooltip('播放选项'), findsOneWidget);
     expect(find.byTooltip('随机播放'), findsNothing, reason: '随机 / 循环已收进菜单');
-    expect(find.byTooltip('播放队列'), findsOneWidget);
-    expect(
-      tester.getSize(find.byKey(_volumeKey)).width,
-      inInclusiveRange(40, 48),
-    );
+    expect(find.byTooltip('播放队列'), findsNothing, reason: '队列也收进菜单');
+    expect(find.byTooltip('静音'), findsOneWidget);
+    expect(find.byKey(_volumeKey), findsNothing, reason: '窄窗口音量只留静音按钮');
     // 测试字体每个字符都按字号宽度渲染，时间标签比真实字体宽近一倍，所以只卡
-    // 下限；真实窗口（900 + 侧栏展开）下进度条约 190px。
+    // 下限；真实窗口（900 + 侧栏展开）下进度条约 97px。
     expect(
       tester.getSize(find.byKey(_progressKey)).width,
-      greaterThan(120),
+      greaterThan(60),
       reason: '进度条在窄窗口也要有可用宽度',
     );
   });
 
-  testWidgets('窄窗口下从溢出菜单里仍能切换随机与循环', (WidgetTester tester) async {
+  testWidgets('中等宽度：模式收进菜单但仍保留音量滑块', (WidgetTester tester) async {
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 800);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('播放选项'), findsOneWidget);
+    expect(find.byKey(_volumeKey), findsOneWidget);
+  });
+
+  testWidgets('窄窗口下从溢出菜单里仍能切模式与打开队列', (WidgetTester tester) async {
     int shuffles = 0;
     int repeats = 0;
+    int queues = 0;
     await _pumpBar(
       tester,
       track: sampleTrack(title: '夜航'),
       width: 618,
       onToggleShuffle: () => shuffles += 1,
       onToggleRepeat: () => repeats += 1,
+      onShowQueue: () => queues += 1,
     );
 
     // 点菜单项本身：文字被 ListTile 包着，直接点 Text 会命中测试失败告警
     Finder item(int index) =>
         find.byType(CheckedPopupMenuItem<String>).at(index);
 
-    await tester.tap(find.byTooltip('播放模式'));
+    await tester.tap(find.byTooltip('播放选项'));
     await tester.pumpAndSettle();
     await tester.tap(item(0));
     await tester.pumpAndSettle();
     expect(shuffles, 1);
     expect(repeats, 0);
 
-    await tester.tap(find.byTooltip('播放模式'));
+    await tester.tap(find.byTooltip('播放选项'));
     await tester.pumpAndSettle();
     await tester.tap(item(1));
     await tester.pumpAndSettle();
     expect(repeats, 1);
+
+    await tester.tap(find.byTooltip('播放选项'));
+    await tester.pumpAndSettle();
+    // CheckedPopupMenuItem 是 PopupMenuItem 的子类，byType 只按精确类型匹配
+    await tester.tap(find.byType(PopupMenuItem<String>));
+    await tester.pumpAndSettle();
+    expect(queues, 1);
   });
 
   testWidgets('宽窗口下三个模式按钮全部显示', (WidgetTester tester) async {
     await _pumpBar(tester, track: sampleTrack(title: '夜航'));
 
-    expect(find.byTooltip('播放模式'), findsNothing);
+    expect(find.byTooltip('播放选项'), findsNothing);
     expect(find.byTooltip('随机播放'), findsOneWidget);
     expect(find.byTooltip('循环播放：关'), findsOneWidget);
+    expect(find.byTooltip('播放队列'), findsOneWidget);
     expect(tester.getSize(find.byKey(_volumeKey)).width, 120);
+    expect(
+      tester.getSize(find.byKey(_progressKey)).width,
+      greaterThan(120),
+      reason: '默认窗口下进度条要够长',
+    );
   });
 
   testWidgets('比窗口下限还窄时也不溢出（兜底）', (WidgetTester tester) async {
@@ -385,4 +409,178 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  group('播放条歌词', () {
+    // 左段在 1280 窗口约 444、900 + 侧栏展开时约 223：前者放得下歌词，
+    // 后者只够曲名
+    testWidgets('宽窗口在曲名右侧显示当前歌词行', (WidgetTester tester) async {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        position: 12,
+        lyricsLoader: (String path) async =>
+            _lyrics(<(int, String)>[(0, '第一句'), (10000, '第二句')]),
+      );
+      await tester.pump();
+
+      expect(find.byKey(_lyricKey), findsOneWidget);
+      expect(find.text('第二句'), findsOneWidget);
+      expect(find.text('第一句'), findsNothing, reason: '只显示当前行');
+      // 与展开页一致：歌词在曲名右侧那一块里居中
+      final Rect area = tester.getRect(find.byKey(_lyricKey));
+      final Rect line = tester.getRect(find.text('第二句'));
+      expect(area.width, greaterThan(line.width), reason: '歌词区域应比文字宽');
+      expect(line.center.dx, closeTo(area.center.dx, 1), reason: '歌词要居中，不能左对齐');
+    });
+
+    testWidgets('播放位置推进时切到下一行', (WidgetTester tester) async {
+      Future<TrackLyrics> loader(String path) async =>
+          _lyrics(<(int, String)>[(0, '第一句'), (10000, '第二句')]);
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: loader,
+      );
+      await tester.pump();
+      expect(find.text('第一句'), findsOneWidget);
+
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        position: 30,
+        lyricsLoader: loader,
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('第二句'), findsOneWidget);
+      expect(find.text('第一句'), findsNothing, reason: '旧行淡出后应被移除');
+    });
+
+    testWidgets('间奏空行沿用上一句，不闪成空白', (WidgetTester tester) async {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        position: 14,
+        lyricsLoader: (String path) async =>
+            _lyrics(<(int, String)>[(0, '有词的一句'), (10000, '   ')]),
+      );
+      await tester.pump();
+
+      expect(find.text('有词的一句'), findsOneWidget);
+    });
+
+    testWidgets('窄窗口不占位：曲名独占整段', (WidgetTester tester) async {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        width: 618,
+        lyricsLoader: (String path) async =>
+            _lyrics(<(int, String)>[(0, '第一句')]),
+      );
+      await tester.pump();
+
+      expect(find.byKey(_lyricKey), findsNothing);
+      expect(find.text('第一句'), findsNothing);
+    });
+
+    testWidgets('没有歌词时不占位，也不抛异常', (WidgetTester tester) async {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: (String path) async =>
+            const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_lyricKey), findsNothing);
+    });
+
+    testWidgets('歌词读取失败按没有歌词处理', (WidgetTester tester) async {
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: (String path) async => throw StateError('读不到'),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_lyricKey), findsNothing);
+    });
+
+    testWidgets('清空当前曲目后不残留上一首的歌词', (WidgetTester tester) async {
+      Future<TrackLyrics> loader(String path) async =>
+          _lyrics(<(int, String)>[(0, '第一句')]);
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: loader,
+      );
+      await tester.pump();
+      expect(find.byKey(_lyricKey), findsOneWidget);
+
+      // 播放队列清空 / 停止后 track 变 null，歌词不能留在播放条上
+      await _pumpBar(tester, lyricsLoader: loader);
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byKey(_lyricKey), findsNothing);
+      expect(find.text('第一句'), findsNothing);
+    });
+
+    testWidgets('切歌重新读歌词，切回来命中缓存', (WidgetTester tester) async {
+      final List<String> calls = <String>[];
+      Future<TrackLyrics> loader(String path) async {
+        calls.add(path);
+        return _lyrics(<(int, String)>[
+          (0, path.contains('夜航') ? '夜航的词' : '归途的词'),
+        ]);
+      }
+
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: loader,
+      );
+      await tester.pump();
+      expect(find.text('夜航的词'), findsOneWidget);
+
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '归途'),
+        lyricsLoader: loader,
+      );
+      await tester.pump();
+      expect(find.text('归途的词'), findsOneWidget);
+      expect(calls, <String>['/music/夜航.mp3', '/music/归途.mp3']);
+
+      await _pumpBar(
+        tester,
+        track: sampleTrack(title: '夜航'),
+        lyricsLoader: loader,
+      );
+      await tester.pump();
+      expect(find.text('夜航的词'), findsOneWidget);
+      expect(calls, hasLength(2), reason: '第二遍走缓存，不再读文件');
+    });
+  });
+}
+
+const ValueKey<String> _lyricKey = ValueKey<String>('player-bar-lyric');
+
+/// 造一份行级歌词；每行给 1 秒时长，够 `lyricIndexAt` 定位
+TrackLyrics _lyrics(List<(int, String)> entries) {
+  return TrackLyrics(
+    lines: <LyricLine>[
+      for (final (int ms, String text) in entries)
+        LyricLine(
+          timeMs: ms,
+          endMs: ms + 1000,
+          text: text,
+          words: const <LyricWord>[],
+          translation: '',
+        ),
+    ],
+    plain: '',
+    source: 'sidecar',
+  );
 }

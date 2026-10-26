@@ -163,26 +163,7 @@ class _LyricsViewState extends State<LyricsView>
   }
 
   /// 二分找最后一条 `time <= position` 的歌词
-  int _indexAt(double seconds) {
-    final List<lyrics_api.LyricLine> lines = widget.lines;
-    if (lines.isEmpty) {
-      return -1;
-    }
-    final int ms = (seconds * 1000).round();
-    int low = 0;
-    int high = lines.length - 1;
-    int found = -1;
-    while (low <= high) {
-      final int mid = (low + high) >> 1;
-      if (lines[mid].timeMs.toInt() <= ms) {
-        found = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-    return found;
-  }
+  int _indexAt(double seconds) => lyricIndexAt(widget.lines, seconds);
 
   void _scrollToActive({bool animate = true}) {
     if (_active < 0 || _active >= _keys.length) {
@@ -273,6 +254,29 @@ class _LyricsViewState extends State<LyricsView>
       },
     );
   }
+}
+
+/// 二分找最后一条 `time <= seconds` 的歌词下标；没有歌词返回 -1。
+///
+/// 正在播放页（多行视图）与播放条（单行预览）共用，避免两处各写一份二分。
+int lyricIndexAt(List<lyrics_api.LyricLine> lines, double seconds) {
+  if (lines.isEmpty) {
+    return -1;
+  }
+  final int ms = (seconds * 1000).round();
+  int low = 0;
+  int high = lines.length - 1;
+  int found = -1;
+  while (low <= high) {
+    final int mid = (low + high) >> 1;
+    if (lines[mid].timeMs.toInt() <= ms) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
 }
 
 /// 单行歌词：正文 +（罗马音 / 翻译）
