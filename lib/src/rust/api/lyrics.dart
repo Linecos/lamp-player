@@ -18,9 +18,52 @@ Future<TrackLyrics> lyricsLoad({required String path}) =>
 class LyricLine {
   /// 起始时间（毫秒）
   final PlatformInt64 timeMs;
+
+  /// 结束时间（毫秒）
+  final PlatformInt64 endMs;
   final String text;
 
-  const LyricLine({required this.timeMs, required this.text});
+  /// 逐字时间轴；为空表示整行按行级时间轴处理
+  final List<LyricWord> words;
+
+  /// 同一时间戳的其余行（罗马音 / 翻译），`\n` 分隔
+  final String translation;
+
+  const LyricLine({
+    required this.timeMs,
+    required this.endMs,
+    required this.text,
+    required this.words,
+    required this.translation,
+  });
+
+  @override
+  int get hashCode =>
+      timeMs.hashCode ^
+      endMs.hashCode ^
+      text.hashCode ^
+      words.hashCode ^
+      translation.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricLine &&
+          runtimeType == other.runtimeType &&
+          timeMs == other.timeMs &&
+          endMs == other.endMs &&
+          text == other.text &&
+          words == other.words &&
+          translation == other.translation;
+}
+
+/// 一个逐字片段（时间标签之间的文本）
+class LyricWord {
+  /// 起始时间（毫秒）
+  final PlatformInt64 timeMs;
+  final String text;
+
+  const LyricWord({required this.timeMs, required this.text});
 
   @override
   int get hashCode => timeMs.hashCode ^ text.hashCode;
@@ -28,7 +71,7 @@ class LyricLine {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is LyricLine &&
+      other is LyricWord &&
           runtimeType == other.runtimeType &&
           timeMs == other.timeMs &&
           text == other.text;

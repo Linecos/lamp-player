@@ -10,6 +10,7 @@ import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart' show trackArtist;
+import 'lyrics_view.dart';
 
 /// 正在播放页的实时快照。
 ///
@@ -61,17 +62,12 @@ class NowPlayingPage extends StatefulWidget {
 }
 
 class _NowPlayingPageState extends State<NowPlayingPage> {
-  final ScrollController _lyricsScroll = ScrollController();
-
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
   bool _loading = false;
 
-  /// 当前高亮的歌词行。
-  ///
-  /// 用 `ValueNotifier` 而不是 State 字段：播放进度每 500ms 推一次，
-  /// 走 setState 会整页重建（封面 + 歌词列表 + 进度条），行高亮却只变一行。
-  final ValueNotifier<int> _activeLine = ValueNotifier<int>(-1);
+  /// 播放进度（秒）：歌词视图拿它做插值，拖动预览不碰它。
+  final ValueNotifier<double> _position = ValueNotifier<double>(0);
 
   /// 当前曲目：只在切歌 / 曲目对象刷新时通知。
   ///
@@ -97,8 +93,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   @override
   void dispose() {
     widget.data.removeListener(_onData);
-    _lyricsScroll.dispose();
-    _activeLine.dispose();
+    _position.dispose();
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
@@ -116,13 +111,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (_playing.value != data.isPlaying) {
       _playing.value = data.isPlaying;
     }
-    _syncTrack();
-    final int active = _activeIndex(data.position);
-    if (active != _activeLine.value) {
-      _activeLine.value = active;
-      _scrollToActive(active);
+    if (_position.value != data.position) {
+      _position.value = data.position;
     }
-    // 进度与播放态由 `_controls` 自己的 builder 局部刷新。
+    _syncTrack();
+    // 进度与播放态由各自的 builder 局部刷新。
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
@@ -134,7 +127,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     _loadedPath = path;
     _lyrics = null;
-    _activeLine.value = -1;
     unawaited(_loadLyrics(path));
   }
 
@@ -156,44 +148,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       _lyrics = result;
       _loading = false;
     });
-    // 打开页面时可能已经播到一半：立即定位当前行，而不是等下一次进度刷新
-    _activeLine.value = _activeIndex(widget.data.value.position);
-    _scrollToActive(_activeLine.value);
-  }
-
-  int _activeIndex(double position) {
-    final List<lyrics_api.LyricLine> lines = _lyrics?.lines ?? const [];
-    if (lines.isEmpty) {
-      return -1;
-    }
-    final int ms = (position * 1000).round();
-    int index = -1;
-    for (int i = 0; i < lines.length; i += 1) {
-      if (lines[i].timeMs.toInt() <= ms) {
-        index = i;
-      } else {
-        break;
-      }
-    }
-    return index;
-  }
-
-  void _scrollToActive(int index) {
-    if (index < 0 || !_lyricsScroll.hasClients) {
-      return;
-    }
-    // 让当前行停在视口中部：固定行高便于计算，不做测量
-    const double lineExtent = 44;
-    final double target =
-        (index * lineExtent - _lyricsScroll.position.viewportDimension / 2 + 22)
-            .clamp(0.0, _lyricsScroll.position.maxScrollExtent);
-    unawaited(
-      _lyricsScroll.animateTo(
-        target,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      ),
-    );
   }
 
   @override
@@ -402,8 +356,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (lyrics.lines.isEmpty) {
       // 无时间轴：整段展示，不跟随进度
       return SingleChildScrollView(
-        controller: _lyricsScroll,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         child: Text(
           lyrics.plain,
           style: theme.textTheme.bodyLarge?.copyWith(height: 1.7),
@@ -411,40 +364,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       );
     }
 
-    // 只有高亮行变化才重建这一块：进度刷新（500ms）不必重排整页
-    return ValueListenableBuilder<int>(
-      valueListenable: _activeLine,
-      builder: (BuildContext context, int activeLine, Widget? child) {
-        return ListView.builder(
-          controller: _lyricsScroll,
-          padding: const EdgeInsets.symmetric(vertical: 80),
-          itemCount: lyrics.lines.length,
-          itemExtent: 44,
-          itemBuilder: (BuildContext context, int index) {
-            final lyrics_api.LyricLine line = lyrics.lines[index];
-            final bool active = index == activeLine;
-            return InkWell(
-              key: ValueKey<String>('lyric-$index'),
-              hoverColor: scheme.onSurface.withValues(alpha: 0.06),
-              onTap: () => unawaited(widget.onSeek(line.timeMs.toInt() / 1000)),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  line.text.isEmpty ? '♪' : line.text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    height: 2.2,
-                    fontSize: active ? 19 : 16,
-                    fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                    color: active ? scheme.primary : scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    return LyricsView(
+      key: ValueKey<String>('lyrics-${_loadedPath ?? ''}'),
+      lines: lyrics.lines,
+      position: _position,
+      playing: _playing,
+      onSeek: widget.onSeek,
     );
   }
 

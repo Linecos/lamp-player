@@ -2,6 +2,17 @@
 //!
 //! 只做「拿到文本并解析时间轴」，不联网、不猜歌词。没有时间戳的纯文本歌词
 //! 放在 `plain` 里，界面原样滚动显示。
+//!
+//! 逐字歌词有两种常见写法，都按「行内时间标签」处理：
+//!
+//! ```text
+//! [00:05.691]大[00:06.365]人[00:06.582]は        ← 方括号内联（网易云/QQ 导出的主流格式）
+//! [00:05.691]<00:06.365>大<00:06.582>人        ← 尖括号（增强 LRC）
+//! ```
+//!
+//! 同一起始时间的多行会被合并成一行歌词：带逐字标签的那行是正文，其余行
+//! （罗马音、翻译）收进 `translation`。这是国内音乐软件导出「原文 + 音译 +
+//! 翻译」三行歌词的标准结构。
 
 use anyhow::Result;
 use lofty::config::ParseOptions;
@@ -10,12 +21,26 @@ use lofty::prelude::ItemKey;
 use lofty::probe::Probe;
 use std::path::Path;
 
+/// 一个逐字片段（时间标签之间的文本）
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LyricWord {
+    /// 起始时间（毫秒）
+    pub time_ms: i64,
+    pub text: String,
+}
+
 /// 一行带时间戳的歌词
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LyricLine {
     /// 起始时间（毫秒）
     pub time_ms: i64,
+    /// 结束时间（毫秒）：下一行的起点，末行按最后一个字推算
+    pub end_ms: i64,
     pub text: String,
+    /// 逐字时间轴；不足两个片段时为空（整行按行级时间轴处理）
+    pub words: Vec<LyricWord>,
+    /// 同一时间戳的其余行（罗马音 / 翻译），`\n` 分隔，按文件顺序
+    pub translation: String,
 }
 
 /// 一次歌词读取的结果
@@ -46,7 +71,7 @@ impl Lyrics {
 /// 读取歌词：[音频路径] 旁的 `.lrc` 优先，其次内嵌。
 pub fn load(audio: &Path) -> Result<Lyrics> {
     if let Some(text) = read_sidecar(audio) {
-        let mut lyrics = parse_lrc(&text);
+        let mut lyrics = parse(&text);
         if !lyrics.is_empty() {
             lyrics.source = "sidecar".to_string();
             return Ok(lyrics);
@@ -55,7 +80,7 @@ pub fn load(audio: &Path) -> Result<Lyrics> {
 
     match read_embedded(audio) {
         Ok(Some(text)) => {
-            let mut lyrics = parse_lrc(&text);
+            let mut lyrics = parse(&text);
             if lyrics.is_empty() {
                 // 没有时间戳：交给界面当纯文本显示
                 lyrics.plain = text.trim().to_string();
@@ -125,72 +150,235 @@ fn read_embedded(audio: &Path) -> Result<Option<String>> {
     Ok(text)
 }
 
-/// 解析 LRC：支持一行多个时间戳、`[mm:ss.xx]` / `[mm:ss:xx]`，忽略元数据标签
-pub fn parse_lrc(text: &str) -> Lyrics {
-    let mut lines: Vec<LyricLine> = Vec::new();
+/// 解析歌词：行级时间轴 + 行内逐字标签 + 同时间戳多行合并。
+pub fn parse(text: &str) -> Lyrics {
+    let offset = parse_offset(text);
+    let mut raw_lines: Vec<RawLine> = Vec::new();
     let mut plain_lines: Vec<String> = Vec::new();
-    let mut saw_timestamp = false;
 
     for raw in text.lines() {
-        let mut rest = raw.trim();
-        if rest.is_empty() {
+        let raw = raw.trim();
+        if raw.is_empty() {
             continue;
         }
-        let mut stamps: Vec<i64> = Vec::new();
-        while let Some(stripped) = rest.strip_prefix('[') {
-            let Some(end) = stripped.find(']') else {
-                break;
-            };
-            let inner = &stripped[..end];
-            match parse_timestamp(inner) {
-                Some(ms) => {
-                    stamps.push(ms);
-                    rest = &stripped[end + 1..];
-                }
-                // [ar:xxx] / [ti:xxx] 这类元数据：整行跳过
-                None => {
-                    if inner.contains(':')
-                        && !inner.contains('.')
-                        && inner
-                            .chars()
-                            .all(|c| c.is_ascii_alphabetic() || c == ':' || c.is_whitespace())
-                    {
-                        rest = "";
-                    }
-                    break;
-                }
-            }
-        }
-
-        let content = rest.trim().to_string();
+        let (stamps, rest) = leading_stamps(raw);
         if stamps.is_empty() {
-            if !content.is_empty() {
-                plain_lines.push(content);
+            // 没有时间戳：可能是纯文本歌词，也可能是 `[ar:xxx]` 之类的元数据。
+            // 元数据行在 leading_stamps 里会被剥掉，这里只剩真正的文本行。
+            if !rest.is_empty() {
+                plain_lines.push(rest.to_string());
             }
             continue;
         }
-        saw_timestamp = true;
-        for ms in stamps {
-            lines.push(LyricLine {
-                time_ms: ms,
-                text: content.clone(),
+        for stamp in stamps {
+            let start = stamp + offset;
+            let (line_text, words) = split_words(rest, start);
+            raw_lines.push(RawLine {
+                time_ms: start,
+                text: line_text,
+                words,
             });
         }
     }
 
-    lines.sort_by_key(|line| line.time_ms);
-    // 去掉连续重复的空行（很多 LRC 用空行当间奏）
-    lines.dedup_by(|a, b| a.time_ms == b.time_ms && a.text == b.text);
+    let lines = group_lines(raw_lines);
 
     Lyrics {
-        lines,
-        plain: if saw_timestamp {
-            String::new()
-        } else {
+        plain: if lines.is_empty() {
             plain_lines.join("\n")
+        } else {
+            String::new()
         },
+        lines,
         source: "none".to_string(),
     }
+}
+
+/// 一行尚未分组的原始歌词
+struct RawLine {
+    time_ms: i64,
+    text: String,
+    words: Vec<LyricWord>,
+}
+
+/// 剥掉行首连续的时间标签，返回（时间戳列表，剩余文本）
+fn leading_stamps(raw: &str) -> (Vec<i64>, &str) {
+    let mut stamps = Vec::new();
+    let mut rest = raw;
+    while let Some(stripped) = rest.strip_prefix('[') {
+        let Some(end) = stripped.find(']') else {
+            break;
+        };
+        let inner = &stripped[..end];
+        match parse_timestamp(inner) {
+            Some(ms) => {
+                stamps.push(ms);
+                rest = &stripped[end + 1..];
+            }
+            // `[ar:xxx]` / `[ti:xxx]` 这类元数据：整行丢弃
+            None => {
+                if is_metadata_tag(inner) {
+                    rest = "";
+                }
+                break;
+            }
+        }
+    }
+    (stamps, rest)
+}
+
+/// `ar:歌手` / `offset:-500` 这类非时间标签
+fn is_metadata_tag(inner: &str) -> bool {
+    match inner.split_once(':') {
+        Some((key, _)) => !key.is_empty() && key.chars().all(|c| c.is_ascii_alphabetic()),
+        None => false,
+    }
+}
+
+/// `[offset:+500]` → 毫秒偏移
+fn parse_offset(text: &str) -> i64 {
+    for raw in text.lines() {
+        let raw = raw.trim();
+        let Some(inner) = raw.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+            continue;
+        };
+        let Some((key, value)) = inner.split_once(':') else {
+            continue;
+        };
+        if key.eq_ignore_ascii_case("offset") {
+            return value.trim().parse().unwrap_or(0);
+        }
+    }
+    0
+}
+
+/// 把行内时间标签拆成逐字片段。
+///
+/// `content` 已经去掉了行首的行级时间戳；第一个片段沿用行起始时间。
+/// 返回（去掉标签后的纯文本，逐字片段）。
+fn split_words(content: &str, line_start: i64) -> (String, Vec<LyricWord>) {
+    let mut text = String::new();
+    let mut words: Vec<LyricWord> = Vec::new();
+    let mut pending = line_start;
+    let mut rest = content;
+
+    loop {
+        let Some((idx, ch)) = rest.char_indices().find(|(_, c)| *c == '[' || *c == '<') else {
+            push_word(&mut words, &mut text, pending, rest);
+            break;
+        };
+        let (before, after) = rest.split_at(idx);
+        if !before.is_empty() {
+            push_word(&mut words, &mut text, pending, before);
+        }
+        let close = if ch == '[' { ']' } else { '>' };
+        let inner_start = ch.len_utf8();
+        let Some(end) = after[inner_start..].find(close) else {
+            // 没有闭合：当普通文本
+            push_word(&mut words, &mut text, pending, after);
+            break;
+        };
+        let inner = &after[inner_start..inner_start + end];
+        let consumed = inner_start + end + close.len_utf8();
+        match parse_timestamp(inner) {
+            Some(ms) => {
+                pending = ms;
+                rest = &after[consumed..];
+            }
+            None => {
+                // 非时间标签（`[ar:xx]`）：原样保留在文本里
+                let keep = &after[..consumed];
+                push_word(&mut words, &mut text, pending, keep);
+                rest = &after[consumed..];
+            }
+        }
+    }
+
+    // 只有一个片段说明没有真正的逐字时间轴，按行级处理
+    if words.len() < 2 {
+        words.clear();
+    }
+    (text.trim().to_string(), words)
+}
+
+fn push_word(words: &mut Vec<LyricWord>, text: &mut String, time_ms: i64, segment: &str) {
+    text.push_str(segment);
+    if segment.trim().is_empty() {
+        return;
+    }
+    words.push(LyricWord {
+        time_ms,
+        text: segment.to_string(),
+    });
+}
+
+/// 把同一起始时间的行合并：带逐字标签的当正文，其余当译文。
+fn group_lines(mut raw: Vec<RawLine>) -> Vec<LyricLine> {
+    if raw.is_empty() {
+        return Vec::new();
+    }
+    // sort_by_key 是稳定排序：同一时间戳保持文件里的原始顺序
+    raw.sort_by_key(|line| line.time_ms);
+
+    let mut groups: Vec<Vec<RawLine>> = Vec::new();
+    for line in raw {
+        match groups.last_mut() {
+            Some(group) if group[0].time_ms == line.time_ms => group.push(line),
+            _ => groups.push(vec![line]),
+        }
+    }
+
+    let starts: Vec<i64> = groups.iter().map(|group| group[0].time_ms).collect();
+    let mut lines = Vec::with_capacity(groups.len());
+
+    for (index, group) in groups.into_iter().enumerate() {
+        let mut main = 0usize;
+        for (i, line) in group.iter().enumerate() {
+            if line.words.len() > group[main].words.len() {
+                main = i;
+            }
+        }
+        // 都没有逐字时间轴时，取最长的一行当正文（通常是原文，译文更短）
+        if group[main].words.is_empty() {
+            for (i, line) in group.iter().enumerate() {
+                if line.text.chars().count() > group[main].text.chars().count() {
+                    main = i;
+                }
+            }
+        }
+
+        let chosen = &group[main];
+        let mut extras: Vec<String> = Vec::new();
+        for (i, line) in group.iter().enumerate() {
+            if i == main {
+                continue;
+            }
+            let text = line.text.trim();
+            if text.is_empty() || text == chosen.text.trim() || extras.iter().any(|e| e == text) {
+                continue;
+            }
+            extras.push(text.to_string());
+        }
+
+        let end_ms = match starts.get(index + 1) {
+            Some(next) => *next,
+            None => chosen
+                .words
+                .last()
+                .map(|word| word.time_ms + 1_000)
+                .unwrap_or(chosen.time_ms + 5_000),
+        };
+
+        lines.push(LyricLine {
+            time_ms: chosen.time_ms,
+            end_ms: end_ms.max(chosen.time_ms),
+            text: chosen.text.trim().to_string(),
+            words: chosen.words.clone(),
+            translation: extras.join("\n"),
+        });
+    }
+
+    lines
 }
 
 /// `mm:ss.xx` / `mm:ss:xx` / `mm:ss` → 毫秒；不是时间戳时返回 `None`
@@ -230,7 +418,7 @@ fn parse_timestamp(raw: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_lrc, parse_timestamp};
+    use super::{parse, parse_timestamp};
 
     #[test]
     fn parses_basic_timestamps() {
@@ -244,7 +432,7 @@ mod tests {
     fn parses_multiple_stamps_and_metadata() {
         let text = "[ti:夜航]\n[ar:林间电台]\n[00:01.00]第一行\n\
                     [00:03.50][00:10.00]副歌\n[00:05.20]\n";
-        let lyrics = parse_lrc(text);
+        let lyrics = parse(text);
         assert_eq!(lyrics.lines.len(), 4);
         assert_eq!(lyrics.lines[0].time_ms, 1_000);
         assert_eq!(lyrics.lines[0].text, "第一行");
@@ -256,8 +444,63 @@ mod tests {
     }
 
     #[test]
+    fn parses_inline_word_timestamps() {
+        let text = "[00:05.691]大[00:06.365]人[00:06.582]は[00:07.468]\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines.len(), 1);
+        let line = &lyrics.lines[0];
+        assert_eq!(line.text, "大人は");
+        assert_eq!(line.words.len(), 3);
+        assert_eq!(line.words[0].time_ms, 5_691);
+        assert_eq!(line.words[0].text, "大");
+        assert_eq!(line.words[1].time_ms, 6_365);
+        assert_eq!(line.words[2].time_ms, 6_582);
+        assert_eq!(line.end_ms, 7_582, "末行按最后一个字 +1s 收尾");
+    }
+
+    #[test]
+    fn merges_translation_lines_with_same_timestamp() {
+        // 原文（逐字）/ 罗马音 / 翻译三行同一时间戳，是日文歌词的常见结构
+        let text = "[00:05.691]大[00:06.365]人[00:06.582]は\n\
+                    [00:05.691]o to na wa\n\
+                    [00:05.691]大人是啊\n\
+                    [00:09.019]次[00:09.500]の[00:09.800]行\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines.len(), 2);
+        assert_eq!(lyrics.lines[0].text, "大人は");
+        assert_eq!(lyrics.lines[0].translation, "o to na wa\n大人是啊");
+        assert_eq!(lyrics.lines[0].words.len(), 3);
+        assert_eq!(lyrics.lines[0].end_ms, 9_019);
+        assert_eq!(lyrics.lines[1].translation, "");
+    }
+
+    #[test]
+    fn parses_angle_bracket_words() {
+        let text = "[00:01.00]<00:01.00>Hel<00:01.50>lo\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines[0].text, "Hello");
+        assert_eq!(lyrics.lines[0].words.len(), 2);
+        assert_eq!(lyrics.lines[0].words[1].time_ms, 1_500);
+    }
+
+    #[test]
+    fn applies_offset_tag() {
+        let text = "[offset:-500]\n[00:02.00]第一行\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines[0].time_ms, 1_500);
+    }
+
+    #[test]
+    fn single_word_is_not_treated_as_word_timing() {
+        let text = "[00:01.00]整行歌词[00:02.00]\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines[0].text, "整行歌词");
+        assert!(lyrics.lines[0].words.is_empty());
+    }
+
+    #[test]
     fn falls_back_to_plain_text() {
-        let lyrics = parse_lrc("第一段\n第二段\n");
+        let lyrics = parse("第一段\n第二段\n");
         assert!(lyrics.lines.is_empty());
         assert_eq!(lyrics.plain, "第一段\n第二段");
     }

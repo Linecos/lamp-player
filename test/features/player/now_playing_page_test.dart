@@ -25,9 +25,27 @@ NowPlayingData _data({
 
 TrackLyrics _timed() => const TrackLyrics(
   lines: <LyricLine>[
-    LyricLine(timeMs: 1000, text: '第一行'),
-    LyricLine(timeMs: 5000, text: '第二行'),
-    LyricLine(timeMs: 9000, text: '第三行'),
+    LyricLine(
+      timeMs: 1000,
+      endMs: 5000,
+      text: '第一行',
+      words: <LyricWord>[],
+      translation: '',
+    ),
+    LyricLine(
+      timeMs: 5000,
+      endMs: 9000,
+      text: '第二行',
+      words: <LyricWord>[],
+      translation: '',
+    ),
+    LyricLine(
+      timeMs: 9000,
+      endMs: 12000,
+      text: '第三行',
+      words: <LyricWord>[],
+      translation: '',
+    ),
   ],
   plain: '',
   source: 'sidecar',
