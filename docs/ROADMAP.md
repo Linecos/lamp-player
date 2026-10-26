@@ -44,6 +44,7 @@
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | 已完成（进度拖动 + 音量滑块的合并节流） |
 | 主题切换（跟随系统 / 浅色 / 深色，`shared_preferences` 持久化） | Dart `features/settings` | 小 | 已完成（PR #5） |
 | 设置页其余交互（默认音量等） | Dart `features/settings` | 中 | 待认领 |
+| 听歌统计：累计时长、播放次数排行、每日热力图（含 `play_sessions` 表） | Dart `features/settings` + Rust `api/collections.rs` | 中 | 已完成（issue #14，schema v4） |
 | 空态 / 加载 / 错误重试通用组件 | Dart `common/widgets/` | 小 | 已完成（`common/widgets` + `test/common/widgets_test.dart`） |
 
 ## M3 · 打磨与发布

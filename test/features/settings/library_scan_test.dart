@@ -34,7 +34,6 @@ Future<void> _pumpSettings(
       home: Scaffold(
         body: SettingsView(
           trackCount: 3,
-          totalDurationSecs: 180,
           engineAvailable: true,
           scanning: scanning,
           scanFolder: folder,
