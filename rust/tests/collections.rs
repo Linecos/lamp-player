@@ -32,7 +32,7 @@ impl TempDir {
     }
 
     fn db_path(&self) -> String {
-        self.0.join("library.lampdb").to_string_lossy().into_owned()
+        self.0.join("library.db").to_string_lossy().into_owned()
     }
 }
 

@@ -52,7 +52,10 @@ app.*.map.json
 # BASS 第三方二进制（闭源库，不入库，用 scripts/setup-bass.ps1 下载）
 /third_party/bass/
 
-# 曲库运行时数据
+# 曲库运行时数据（现用 library.db；老版本的 *.lampdb 一并挡住）
+library.db
+library.db-wal
+library.db-shm
 *.lampdb
 *.lampdb-wal
 *.lampdb-shm

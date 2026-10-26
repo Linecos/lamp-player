@@ -31,7 +31,7 @@
 - **热扫描**：紧接着再执行一次，验证增量跳过
 - `allTracks`：一次全量读取 10,000 条
 - `searchTracks`：4 个查询（精确曲名、艺术家、专辑、数字前缀），limit 500
-- 数据库体积：关闭连接后统计 `.lampdb` + `-wal` + `-shm`
+- 数据库体积：关闭连接后统计 `library.db` + `-wal` + `-shm`
 - **列表滚动**：release 应用加载 10k 曲库，向曲库列表发送 180 次滚轮事件，
   用 `SchedulerBinding.addTimingsCallback` 统计每帧 `build + raster` 耗时
 
