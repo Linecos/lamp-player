@@ -11,11 +11,7 @@ import '../../support/fake_library.dart';
 
 Widget _harness({ThemeController? controller}) {
   final Widget view = Scaffold(
-    body: SettingsView(
-      trackCount: 2,
-      totalDurationSecs: 125,
-      engineAvailable: true,
-    ),
+    body: SettingsView(trackCount: 2, engineAvailable: true),
   );
   return controller == null
       ? MaterialApp(theme: AppTheme.light(AppTheme.defaultSeed), home: view)
@@ -65,7 +61,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            totalDurationSecs: 125,
             engineAvailable: true,
             onAddFolder: () => calls += 1,
           ),
@@ -92,7 +87,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            totalDurationSecs: 125,
             engineAvailable: true,
             scanning: true,
             onAddFolder: () => calls += 1,
@@ -173,11 +167,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
-          body: SettingsView(
-            trackCount: 0,
-            totalDurationSecs: 0,
-            engineAvailable: false,
-          ),
+          body: SettingsView(trackCount: 0, engineAvailable: false),
         ),
       ),
     );
@@ -201,7 +191,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            totalDurationSecs: 200,
             engineAvailable: true,
             folders: const <String>['D:/Music', 'E:/Songs'],
             onRescanFolder: rescanned.add,
@@ -236,7 +225,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            totalDurationSecs: 200,
             engineAvailable: true,
             exclusive: false,
             exclusiveActive: false,
@@ -270,7 +258,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            totalDurationSecs: 200,
             engineAvailable: true,
             exclusive: true,
             switchingOutput: true,
@@ -302,7 +289,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            totalDurationSecs: 100,
             engineAvailable: true,
             closeToTray: true,
             onCloseToTrayChanged: changes.add,
@@ -332,11 +318,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
-          body: SettingsView(
-            trackCount: 1,
-            totalDurationSecs: 100,
-            engineAvailable: true,
-          ),
+          body: SettingsView(trackCount: 1, engineAvailable: true),
         ),
       ),
     );
@@ -361,7 +343,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            totalDurationSecs: 100,
             engineAvailable: true,
             eqEnabled: true,
             eqGains: List<double>.filled(10, 0),
@@ -406,7 +387,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            totalDurationSecs: 100,
             engineAvailable: true,
             eqEnabled: false,
             onEqualizerChanged: (_, _) {},
@@ -441,11 +421,7 @@ void main() {
           ),
         ),
         child: const Scaffold(
-          body: SettingsView(
-            trackCount: 1,
-            totalDurationSecs: 100,
-            engineAvailable: true,
-          ),
+          body: SettingsView(trackCount: 1, engineAvailable: true),
         ),
       ),
     );
@@ -504,11 +480,7 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
           home: const Scaffold(
-            body: SettingsView(
-              trackCount: 1,
-              totalDurationSecs: 100,
-              engineAvailable: true,
-            ),
+            body: SettingsView(trackCount: 1, engineAvailable: true),
           ),
         ),
       ),
@@ -546,11 +518,7 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
           home: const Scaffold(
-            body: SettingsView(
-              trackCount: 1,
-              totalDurationSecs: 100,
-              engineAvailable: true,
-            ),
+            body: SettingsView(trackCount: 1, engineAvailable: true),
           ),
         ),
       ),
@@ -596,11 +564,7 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
           home: const Scaffold(
-            body: SettingsView(
-              trackCount: 1,
-              totalDurationSecs: 100,
-              engineAvailable: true,
-            ),
+            body: SettingsView(trackCount: 1, engineAvailable: true),
           ),
         ),
       ),
@@ -630,7 +594,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            totalDurationSecs: 125,
             engineAvailable: true,
             onAddFolder: () {},
             onExclusiveChanged: (_) {},
