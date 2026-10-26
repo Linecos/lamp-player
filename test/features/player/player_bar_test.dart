@@ -36,8 +36,7 @@ Future<void> _pumpBar(
   VoidCallback? onPrevious,
   VoidCallback? onNext,
   VoidCallback? onShowQueue,
-  VoidCallback? onToggleRepeat,
-  VoidCallback? onToggleShuffle,
+  VoidCallback? onCyclePlayMode,
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
   VoidCallback? onOpenNowPlaying,
@@ -70,8 +69,7 @@ Future<void> _pumpBar(
             onPrevious: onPrevious,
             onNext: onNext,
             onShowQueue: onShowQueue,
-            onToggleRepeat: onToggleRepeat,
-            onToggleShuffle: onToggleShuffle,
+            onCyclePlayMode: onCyclePlayMode,
             repeat: repeat,
             shuffle: shuffle,
             onOpenNowPlaying: onOpenNowPlaying,
@@ -205,36 +203,31 @@ void main() {
     expect(ends, isEmpty, reason: '停止态不应触发 seek');
   });
 
-  testWidgets('上一首 / 下一首 / 队列 / 随机循环按钮转发回调', (WidgetTester tester) async {
+  testWidgets('上一首 / 下一首 / 队列 / 播放模式按钮转发回调', (WidgetTester tester) async {
     int previous = 0;
     int next = 0;
     int queue = 0;
-    int repeat = 0;
-    int shuffle = 0;
+    int mode = 0;
     await _pumpBar(
       tester,
       track: sampleTrack(title: '夜航'),
       repeat: LoopMode.all,
-      shuffle: true,
       onPrevious: () => previous += 1,
       onNext: () => next += 1,
       onShowQueue: () => queue += 1,
-      onToggleRepeat: () => repeat += 1,
-      onToggleShuffle: () => shuffle += 1,
+      onCyclePlayMode: () => mode += 1,
     );
 
     await tester.tap(find.byTooltip('上一首 (Ctrl+←)'));
     await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
     await tester.tap(find.byTooltip('播放队列'));
-    await tester.tap(find.byTooltip('循环播放：列表'));
-    await tester.tap(find.byTooltip('关闭随机播放'));
+    await tester.tap(find.byTooltip('播放模式：列表循环'));
     await tester.pump();
 
     expect(previous, 1);
     expect(next, 1);
     expect(queue, 1);
-    expect(repeat, 1);
-    expect(shuffle, 1);
+    expect(mode, 1);
     expect(find.byType(Badge), findsNothing, reason: '队列按钮不再显示数量角标');
   });
 
@@ -328,7 +321,7 @@ void main() {
 
     expect(tester.takeException(), isNull, reason: '窄窗口不允许溢出');
     expect(find.byTooltip('播放选项'), findsOneWidget);
-    expect(find.byTooltip('随机播放'), findsNothing, reason: '随机 / 循环已收进菜单');
+    expect(find.byTooltip('播放模式：顺序播放'), findsNothing, reason: '播放模式已收进菜单');
     expect(find.byTooltip('播放队列'), findsNothing, reason: '队列也收进菜单');
     expect(find.byTooltip('静音'), findsOneWidget);
     expect(find.byKey(_volumeKey), findsNothing, reason: '窄窗口音量只留静音按钮');
@@ -350,49 +343,34 @@ void main() {
   });
 
   testWidgets('窄窗口下从溢出菜单里仍能切模式与打开队列', (WidgetTester tester) async {
-    int shuffles = 0;
-    int repeats = 0;
+    int modes = 0;
     int queues = 0;
     await _pumpBar(
       tester,
       track: sampleTrack(title: '夜航'),
       width: 618,
-      onToggleShuffle: () => shuffles += 1,
-      onToggleRepeat: () => repeats += 1,
+      onCyclePlayMode: () => modes += 1,
       onShowQueue: () => queues += 1,
     );
 
-    // 点菜单项本身：文字被 ListTile 包着，直接点 Text 会命中测试失败告警
-    Finder item(int index) =>
-        find.byType(CheckedPopupMenuItem<String>).at(index);
+    await tester.tap(find.byTooltip('播放选项'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放模式：顺序播放'));
+    await tester.pumpAndSettle();
+    expect(modes, 1);
 
     await tester.tap(find.byTooltip('播放选项'));
     await tester.pumpAndSettle();
-    await tester.tap(item(0));
-    await tester.pumpAndSettle();
-    expect(shuffles, 1);
-    expect(repeats, 0);
-
-    await tester.tap(find.byTooltip('播放选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(item(1));
-    await tester.pumpAndSettle();
-    expect(repeats, 1);
-
-    await tester.tap(find.byTooltip('播放选项'));
-    await tester.pumpAndSettle();
-    // CheckedPopupMenuItem 是 PopupMenuItem 的子类，byType 只按精确类型匹配
-    await tester.tap(find.byType(PopupMenuItem<String>));
+    await tester.tap(find.text('播放队列'));
     await tester.pumpAndSettle();
     expect(queues, 1);
   });
 
-  testWidgets('宽窗口下三个模式按钮全部显示', (WidgetTester tester) async {
+  testWidgets('宽窗口下模式与队列按钮显示', (WidgetTester tester) async {
     await _pumpBar(tester, track: sampleTrack(title: '夜航'));
 
     expect(find.byTooltip('播放选项'), findsNothing);
-    expect(find.byTooltip('随机播放'), findsOneWidget);
-    expect(find.byTooltip('循环播放：关'), findsOneWidget);
+    expect(find.byTooltip('播放模式：顺序播放'), findsOneWidget);
     expect(find.byTooltip('播放队列'), findsOneWidget);
     expect(tester.getSize(find.byKey(_volumeKey)).width, 120);
     expect(

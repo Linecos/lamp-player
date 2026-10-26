@@ -10,6 +10,8 @@ import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart' show trackArtist;
 import 'lyrics_view.dart';
+import 'playback_mode.dart';
+import 'playback_queue.dart';
 
 /// 正在播放页的实时快照。
 ///
@@ -22,6 +24,9 @@ class NowPlayingData {
     this.position = 0,
     this.duration = 0,
     this.isAvailable = false,
+    this.volume = 1,
+    this.repeat = LoopMode.off,
+    this.shuffle = false,
   });
 
   final Track? track;
@@ -29,6 +34,9 @@ class NowPlayingData {
   final double position;
   final double duration;
   final bool isAvailable;
+  final double volume;
+  final LoopMode repeat;
+  final bool shuffle;
 }
 
 /// 歌词加载函数；测试可注入，避免落盘 / 依赖 Rust。
@@ -46,6 +54,10 @@ class NowPlayingPage extends StatefulWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onSeek,
+    this.onVolumeChanged,
+    this.onToggleMute,
+    this.onShowQueue,
+    this.onCyclePlayMode,
     this.lyricsLoader,
   });
 
@@ -54,6 +66,13 @@ class NowPlayingPage extends StatefulWidget {
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
   final Future<void> Function(double seconds) onSeek;
+
+  /// 音量 / 静音 / 队列 / 播放模式：不传时对应控件禁用
+  final ValueChanged<double>? onVolumeChanged;
+  final VoidCallback? onToggleMute;
+  final VoidCallback? onShowQueue;
+  final VoidCallback? onCyclePlayMode;
+
   final LyricsLoader? lyricsLoader;
 
   @override
@@ -245,7 +264,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                SizedBox(width: 300, child: Center(child: info)),
+                SizedBox(
+                  width: 360,
+                  child: Center(child: SizedBox(width: 280, child: info)),
+                ),
                 const SizedBox(width: 32),
                 Expanded(child: lyric),
               ],
@@ -275,18 +297,16 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Center(
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _playing,
-            builder: (BuildContext context, bool playing, Widget? child) {
-              return AlbumCover(
-                path: track.coverPath,
-                size: coverSize,
-                radius: 20,
-                playing: playing,
-              );
-            },
-          ),
+        ValueListenableBuilder<bool>(
+          valueListenable: _playing,
+          builder: (BuildContext context, bool playing, Widget? child) {
+            return AlbumCover(
+              path: track.coverPath,
+              size: coverSize,
+              radius: 20,
+              playing: playing,
+            );
+          },
         ),
         const SizedBox(height: 20),
         Text(
@@ -369,6 +389,45 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  Widget _volumeControl(BuildContext context, NowPlayingData data, bool ready) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final double volume = data.volume.clamp(0.0, 1.0).toDouble();
+    final IconData icon = volume == 0
+        ? Icons.volume_off
+        : (volume < 0.5 ? Icons.volume_down : Icons.volume_up);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        IconButton(
+          key: const ValueKey<String>('now-playing-mute'),
+          tooltip: volume == 0 ? '取消静音' : '静音',
+          onPressed: ready ? widget.onToggleMute : null,
+          iconSize: 22,
+          icon: Icon(icon, color: scheme.onSurfaceVariant),
+        ),
+        SizedBox(
+          width: 120,
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            ),
+            child: Slider(
+              key: const ValueKey<String>('now-playing-volume'),
+              value: volume,
+              max: 1,
+              onChanged: ready && widget.onVolumeChanged != null
+                  ? widget.onVolumeChanged
+                  : null,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// 播放控制区。
   ///
   /// 只有这一块监听进度（每 500ms 一次）：滑块 + 时间 + 播放键都是小控件，
@@ -443,32 +502,85 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
               const SizedBox(height: 4),
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  IconButton(
-                    key: const ValueKey<String>('now-playing-previous'),
-                    iconSize: 30,
-                    onPressed: ready
-                        ? () => unawaited(widget.onPrevious())
-                        : null,
-                    icon: const Icon(Icons.skip_previous),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 24),
+                        child: _volumeControl(context, data, ready),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  IconButton.filled(
-                    key: const ValueKey<String>('now-playing-toggle'),
-                    iconSize: 34,
-                    padding: const EdgeInsets.all(14),
-                    onPressed: ready
-                        ? () => unawaited(widget.onTogglePlay())
-                        : null,
-                    icon: Icon(data.isPlaying ? Icons.pause : Icons.play_arrow),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        key: const ValueKey<String>('now-playing-previous'),
+                        iconSize: 30,
+                        onPressed: ready
+                            ? () => unawaited(widget.onPrevious())
+                            : null,
+                        icon: const Icon(Icons.skip_previous),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton.filled(
+                        key: const ValueKey<String>('now-playing-toggle'),
+                        iconSize: 34,
+                        padding: const EdgeInsets.all(14),
+                        onPressed: ready
+                            ? () => unawaited(widget.onTogglePlay())
+                            : null,
+                        icon: Icon(
+                          data.isPlaying ? Icons.pause : Icons.play_arrow,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        key: const ValueKey<String>('now-playing-next'),
+                        iconSize: 30,
+                        onPressed: ready
+                            ? () => unawaited(widget.onNext())
+                            : null,
+                        icon: const Icon(Icons.skip_next),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  IconButton(
-                    key: const ValueKey<String>('now-playing-next'),
-                    iconSize: 30,
-                    onPressed: ready ? () => unawaited(widget.onNext()) : null,
-                    icon: const Icon(Icons.skip_next),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 24),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            IconButton(
+                              key: const ValueKey<String>('now-playing-mode'),
+                              tooltip:
+                                  '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
+                              onPressed: ready ? widget.onCyclePlayMode : null,
+                              icon: Icon(
+                                playbackModeIcon(data.repeat, data.shuffle),
+                                size: 24,
+                                color:
+                                    playbackModeActive(
+                                      data.repeat,
+                                      data.shuffle,
+                                    )
+                                    ? scheme.primary
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            IconButton(
+                              key: const ValueKey<String>('now-playing-queue'),
+                              tooltip: '播放队列',
+                              onPressed: ready ? widget.onShowQueue : null,
+                              icon: const Icon(Icons.queue_music, size: 24),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),

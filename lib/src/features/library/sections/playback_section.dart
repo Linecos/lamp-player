@@ -178,6 +178,7 @@ extension _PlaybackSection on _LibraryPageState {
 
   /// 打开「正在播放」页（大封面 + 同步歌词）
   Future<void> _openNowPlaying() {
+    _publishProgress();
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => NowPlayingPage(
@@ -186,6 +187,10 @@ extension _PlaybackSection on _LibraryPageState {
           onPrevious: _previous,
           onNext: () => _next(),
           onSeek: _onSeekEnd,
+          onVolumeChanged: _setVolume,
+          onToggleMute: _toggleMute,
+          onShowQueue: () => unawaited(_showQueue()),
+          onCyclePlayMode: _cyclePlayMode,
         ),
       ),
     );
@@ -390,13 +395,10 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  void _cycleRepeat() {
-    _update(() => _queue.setRepeat(_queue.repeat.next));
-    _saveSessionNow();
-  }
-
-  void _toggleShuffle() {
-    _update(() => _queue.setShuffle(!_queue.shuffle));
+  /// 顺序 → 随机 → 列表循环 → 单曲循环：播放条 / 正在播放页共用一个按钮。
+  void _cyclePlayMode() {
+    _update(() => cyclePlayMode(_queue));
+    _publishProgress();
     _saveSessionNow();
   }
 
@@ -413,6 +415,7 @@ extension _PlaybackSection on _LibraryPageState {
   /// 删除当前曲目时切到顶上来的那首；队列清空时停下并清掉播放条。
   /// 原本暂停就保持暂停，不因为删了一首突然出声。
   Future<void> _onQueueChanged() async {
+    _publishProgress();
     if (!mounted) {
       return;
     }
@@ -624,6 +627,7 @@ extension _PlaybackSection on _LibraryPageState {
       _lastVolume = next;
     }
     _volume = next;
+    _publishProgress();
     _scheduleSessionSave();
     if (!_isAvailable) {
       return;
