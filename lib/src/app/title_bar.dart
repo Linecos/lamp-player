@@ -19,6 +19,7 @@ class LampTitleBar extends StatefulWidget {
     required this.controls,
     this.background,
     this.leftInset = 0,
+    this.controlsOnly = false,
   });
 
   final WindowControls controls;
@@ -29,9 +30,15 @@ class LampTitleBar extends StatefulWidget {
   /// 左上角让给页面的宽度：这段不接管拖动，页面顶部的按钮才收得到点击。
   final double leftInset;
 
+  /// 只画右侧三个窗口按钮：页面自己绘制顶栏与拖动区时使用。
+  final bool controlsOnly;
+
+  /// 三个按钮的总宽度；页面顶栏据此预留右侧空间。
+  static const double controlsWidth = 46 * 3;
+
   /// 高度；[WindowChrome] 据此预留布局。
-  /// 44 给侧栏顶部的占位图标留出上下呼吸空间，不再贴着窗口上沿。
-  static const double height = 44;
+  /// 48 给顶栏里的搜索框和窗口按钮留出上下呼吸空间。
+  static const double height = 48;
 
   /// overlay 页面左上角放可点控件时默认让出的宽度。
   ///
@@ -133,6 +140,42 @@ class _LampTitleBarState extends State<LampTitleBar> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final Color background = widget.background ?? scheme.surfaceContainerLow;
 
+    final Widget controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _CaptionButton(
+          key: const ValueKey<String>('window-minimize'),
+          glyph: WindowGlyph.minimize,
+          label: '最小化',
+          onTap: () => unawaited(_minimize()),
+        ),
+        _CaptionButton(
+          key: const ValueKey<String>('window-maximize'),
+          glyph: _maximized ? WindowGlyph.restore : WindowGlyph.maximize,
+          label: _maximized ? '还原' : '最大化',
+          onTap: () => unawaited(_toggleMaximize()),
+        ),
+        _CaptionButton(
+          key: const ValueKey<String>('window-close'),
+          glyph: WindowGlyph.close,
+          label: '关闭',
+          danger: true,
+          onTap: () => unawaited(_close()),
+        ),
+      ],
+    );
+
+    if (widget.controlsOnly) {
+      return Material(
+        type: MaterialType.transparency,
+        child: SizedBox(
+          height: LampTitleBar.height,
+          width: LampTitleBar.controlsWidth,
+          child: controls,
+        ),
+      );
+    }
+
     // 用透明 Material + 分区 ColoredBox 而不是 Material(color:)：
     // 不透明 Material 会把整条区域都当成实体吞掉点击，让位区就透不到页面。
     return Material(
@@ -157,38 +200,68 @@ class _LampTitleBarState extends State<LampTitleBar> {
                 ),
               ),
             ),
-            ColoredBox(
-              color: background,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _CaptionButton(
-                    key: const ValueKey<String>('window-minimize'),
-                    icon: Icons.remove,
-                    label: '最小化',
-                    onTap: () => unawaited(_minimize()),
-                  ),
-                  _CaptionButton(
-                    key: const ValueKey<String>('window-maximize'),
-                    icon: _maximized ? Icons.filter_none : Icons.crop_square,
-                    label: _maximized ? '还原' : '最大化',
-                    iconSize: 13,
-                    onTap: () => unawaited(_toggleMaximize()),
-                  ),
-                  _CaptionButton(
-                    key: const ValueKey<String>('window-close'),
-                    icon: Icons.close,
-                    label: '关闭',
-                    danger: true,
-                    onTap: () => unawaited(_close()),
-                  ),
-                ],
-              ),
-            ),
+            ColoredBox(color: background, child: controls),
           ],
         ),
       ),
     );
+  }
+}
+
+/// 自绘窗口按钮的图形类型。
+enum WindowGlyph { minimize, maximize, restore, close }
+
+class _WindowGlyphPainter extends CustomPainter {
+  const _WindowGlyphPainter({required this.glyph, required this.color});
+
+  final WindowGlyph glyph;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 图形按 14×14 设计，按实际尺寸等比缩放
+    canvas.save();
+    canvas.scale(size.width / 14, size.height / 14);
+
+    switch (glyph) {
+      case WindowGlyph.minimize:
+        canvas.drawLine(const Offset(2, 7), const Offset(12, 7), paint);
+      case WindowGlyph.maximize:
+        // 四角括号，参考 Coriander 的全屏图标
+        final Path path = Path()
+          ..moveTo(2, 5)
+          ..lineTo(2, 2)
+          ..lineTo(5, 2)
+          ..moveTo(9, 2)
+          ..lineTo(12, 2)
+          ..lineTo(12, 5)
+          ..moveTo(12, 9)
+          ..lineTo(12, 12)
+          ..lineTo(9, 12)
+          ..moveTo(5, 12)
+          ..lineTo(2, 12)
+          ..lineTo(2, 9);
+        canvas.drawPath(path, paint);
+      case WindowGlyph.restore:
+        canvas.drawRect(const Rect.fromLTWH(2, 5, 7, 7), paint);
+        canvas.drawRect(const Rect.fromLTWH(5, 2, 7, 7), paint);
+      case WindowGlyph.close:
+        canvas.drawLine(const Offset(3, 3), const Offset(11, 11), paint);
+        canvas.drawLine(const Offset(11, 3), const Offset(3, 11), paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _WindowGlyphPainter oldDelegate) {
+    return oldDelegate.glyph != glyph || oldDelegate.color != color;
   }
 }
 
@@ -200,20 +273,18 @@ class _LampTitleBarState extends State<LampTitleBar> {
 class _CaptionButton extends StatefulWidget {
   const _CaptionButton({
     super.key,
-    required this.icon,
+    required this.glyph,
     required this.label,
     required this.onTap,
-    this.iconSize = 15,
     this.danger = false,
   });
 
-  final IconData icon;
+  final WindowGlyph glyph;
 
   /// 语义标签（读屏与测试用）
   final String label;
 
   final VoidCallback onTap;
-  final double iconSize;
   final bool danger;
 
   @override
@@ -251,7 +322,16 @@ class _CaptionButtonState extends State<_CaptionButton> {
             width: 46,
             height: LampTitleBar.height,
             color: background,
-            child: Icon(widget.icon, size: widget.iconSize, color: foreground),
+            child: Center(
+              child: CustomPaint(
+                key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
+                size: const Size(15, 15),
+                painter: _WindowGlyphPainter(
+                  glyph: widget.glyph,
+                  color: foreground,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -276,6 +356,7 @@ class WindowChrome extends StatelessWidget {
     this.background,
     this.overlay = false,
     this.leftInset,
+    this.controlsOnly = false,
   });
 
   final Widget child;
@@ -292,13 +373,43 @@ class WindowChrome extends StatelessWidget {
   /// 标题条左侧让给页面的宽度；不传时 overlay 页面用默认值，非 overlay 为 0
   final double? leftInset;
 
+  /// 只画窗口按钮，页面自己负责顶栏与拖动区。
+  final bool controlsOnly;
+
   @override
   Widget build(BuildContext context) {
     final Widget titleBar = LampTitleBar(
       controls: controls ?? const WindowManagerControls(),
       background: overlay ? Colors.transparent : background,
       leftInset: leftInset ?? (overlay ? LampTitleBar.defaultLeftInset : 0),
+      controlsOnly: controlsOnly,
     );
+
+    if (controlsOnly) {
+      if (overlay) {
+        return Stack(
+          children: <Widget>[
+            Positioned.fill(child: child),
+            Positioned(
+              top: 0,
+              right: 0,
+              width: LampTitleBar.controlsWidth,
+              height: LampTitleBar.height,
+              child: titleBar,
+            ),
+          ],
+        );
+      }
+      return Column(
+        children: <Widget>[
+          SizedBox(
+            height: LampTitleBar.height,
+            child: Align(alignment: Alignment.centerRight, child: titleBar),
+          ),
+          Expanded(child: child),
+        ],
+      );
+    }
 
     if (!overlay) {
       return Column(

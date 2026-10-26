@@ -151,6 +151,22 @@ void main() {
     expect(taps, 1, reason: '让位区的点击要透给页面');
   });
 
+  testWidgets('controlsOnly 只保留窗口按钮，不画拖动区', (WidgetTester tester) async {
+    final FakeWindowControls controls = FakeWindowControls();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LampTitleBar(controls: controls, controlsOnly: true),
+        ),
+      ),
+    );
+
+    expect(find.byKey(_dragKey), findsNothing);
+    expect(find.byKey(_minimizeKey), findsOneWidget);
+    expect(find.byKey(_maximizeKey), findsOneWidget);
+    expect(find.byKey(_closeKey), findsOneWidget);
+  });
+
   testWidgets('点最小化与关闭会调用窗口控制', (WidgetTester tester) async {
     final FakeWindowControls controls = FakeWindowControls();
     await _pumpTitleBar(tester, controls);
@@ -168,22 +184,34 @@ void main() {
     final FakeWindowControls controls = FakeWindowControls();
     await _pumpTitleBar(tester, controls);
 
-    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-maximize')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(_maximizeKey));
     await tester.pumpAndSettle();
 
     expect(controls.toggleCalls, 1);
     expect(controls.maximized, isTrue);
-    expect(find.byIcon(Icons.filter_none), findsOneWidget);
-    expect(find.byIcon(Icons.crop_square), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-restore')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-maximize')),
+      findsNothing,
+    );
 
     await tester.tap(find.byKey(_maximizeKey));
     await tester.pumpAndSettle();
 
     expect(controls.toggleCalls, 2);
     expect(controls.maximized, isFalse);
-    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-maximize')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('双击标题区域切换最大化', (WidgetTester tester) async {
@@ -212,20 +240,30 @@ void main() {
     final FakeWindowControls controls = FakeWindowControls();
     await _pumpTitleBar(tester, controls);
 
-    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-maximize')),
+      findsOneWidget,
+    );
 
     // 模拟 Win+↑：窗口管理器发事件，但没人点我们的按钮
     controls.maximized = true;
     controls.maximizeEvents.add(true);
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.filter_none), findsOneWidget, reason: '应显示「还原」图标');
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-restore')),
+      findsOneWidget,
+      reason: '应显示「还原」图标',
+    );
 
     controls.maximized = false;
     controls.maximizeEvents.add(false);
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('window-glyph-maximize')),
+      findsOneWidget,
+    );
     await controls.maximizeEvents.close();
   });
 
