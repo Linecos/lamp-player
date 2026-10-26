@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/immersive_chrome.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -101,6 +102,56 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 歌词列表跟着重新布局。
   final ValueNotifier<double?> _dragPosition = ValueNotifier<double?>(null);
 
+  /// 沉浸模式：长按播放键切换，只留封面 / 歌名 / 歌词与三个控制键。
+  bool _immersive = false;
+
+  /// 进入沉浸模式时的轻提示；退出不提示。
+  OverlayEntry? _toastEntry;
+
+  /// 播放键的位置锚点：提示框跟着它弹在正上方
+  final LayerLink _toggleLink = LayerLink();
+
+  void _toggleImmersive() {
+    final bool next = !_immersive;
+    setState(() => _immersive = next);
+    // 窗口按钮画在路由上层，只能靠全局开关联动
+    immersiveMode.value = next;
+    if (next) {
+      _showToast('沉浸模式');
+    }
+  }
+
+  void _showToast(String message) {
+    _removeToast();
+    final OverlayState? overlay = Overlay.maybeOf(context);
+    if (overlay == null) {
+      return;
+    }
+    final OverlayEntry entry = OverlayEntry(
+      // 锚在播放键正上方：提示就弹在刚长按的位置旁边
+      builder: (BuildContext context) => Positioned(
+        left: 0,
+        top: 0,
+        child: CompositedTransformFollower(
+          link: _toggleLink,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.topCenter,
+          followerAnchor: Alignment.bottomCenter,
+          offset: const Offset(0, -14),
+          child: _ImmersiveToast(message: message, onDone: _removeToast),
+        ),
+      ),
+    );
+    _toastEntry = entry;
+    overlay.insert(entry);
+  }
+
+  void _removeToast() {
+    final OverlayEntry? entry = _toastEntry;
+    _toastEntry = null;
+    entry?.remove();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -115,6 +166,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
+    // 离开页面必须复位：窗口按钮跟着这个开关隐，留着会让别的页面也看不到
+    immersiveMode.value = false;
+    _removeToast();
     super.dispose();
   }
 
@@ -180,39 +234,44 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
-          backgroundColor: scheme.surfaceContainerLow,
-          body: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[
-                  scheme.surfaceContainerHighest,
-                  scheme.surfaceContainerLow,
-                ],
+        child: MouseRegion(
+          // 沉浸模式下顶部浮层靠它唤出；窗口外壳也更新同一份状态
+          onHover: (PointerHoverEvent event) =>
+              trackPointerNearTop(event.localPosition),
+          child: Scaffold(
+            backgroundColor: scheme.surfaceContainerLow,
+            body: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    scheme.surfaceContainerHighest,
+                    scheme.surfaceContainerLow,
+                  ],
+                ),
               ),
-            ),
-            child: SafeArea(
-              // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
-              // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
-              child: Column(
-                children: <Widget>[
-                  _header(context),
-                  // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
-                  Expanded(
-                    child: ValueListenableBuilder<Track?>(
-                      valueListenable: _track,
-                      builder: (
-                        BuildContext context,
-                        Track? track,
-                        Widget? child,
-                      ) => _body(context, track),
+              child: SafeArea(
+                // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
+                // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
+                child: Column(
+                  children: <Widget>[
+                    _header(context),
+                    // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
+                    Expanded(
+                      child: ValueListenableBuilder<Track?>(
+                        valueListenable: _track,
+                        builder: (
+                          BuildContext context,
+                          Track? track,
+                          Widget? child,
+                        ) => _body(context, track),
+                      ),
                     ),
-                  ),
-                  _controls(context),
-                  const SizedBox(height: 12),
-                ],
+                    _controls(context),
+                    const SizedBox(height: 12),
+                  ],
+                ),
               ),
             ),
           ),
@@ -224,24 +283,47 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _header(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
+      key: const ValueKey<String>('now-playing-header'),
       // 贴住窗口顶端，中心 y≈24，与右侧窗口按钮（中心 y≈22）齐平
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: SizedBox(
         height: 48,
-        child: Row(
-          children: <Widget>[
-            // 热区只覆盖箭头周围这一圈，标题文字不参与点击。
-            IconButton(
-              key: const ValueKey<String>('now-playing-collapse'),
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.keyboard_arrow_down, size: 22),
-              tooltip: '收起',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 48, height: 48),
-            ),
-            const SizedBox(width: 4),
-            Text('正在播放', style: theme.textTheme.titleMedium),
-          ],
+        child: AnimatedBuilder(
+          animation: Listenable.merge(<Listenable>[
+            immersiveMode,
+            pointerNearTop,
+          ]),
+          // 沉浸模式下只保留封面 / 歌名 / 歌词，返回键与标题靠指针靠近顶端唤出
+          builder: (BuildContext context, Widget? child) {
+            final bool hidden = immersiveMode.value && !pointerNearTop.value;
+            return IgnorePointer(
+              ignoring: hidden,
+              child: AnimatedOpacity(
+                opacity: hidden ? 0 : 1,
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                child: child,
+              ),
+            );
+          },
+          child: Row(
+            children: <Widget>[
+              // 热区只覆盖箭头周围这一圈，标题文字不参与点击。
+              IconButton(
+                key: const ValueKey<String>('now-playing-collapse'),
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.keyboard_arrow_down, size: 22),
+                tooltip: '收起',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 48,
+                  height: 48,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text('正在播放', style: theme.textTheme.titleMedium),
+            ],
+          ),
         ),
       ),
     );
@@ -389,6 +471,26 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  /// 沉浸模式下把两侧控件淡出。
+  ///
+  /// 只改透明度、不摘出树：占位还在，中间三个键的位置就不会跳。
+  Widget _fadeWhenImmersive({required Key chromeKey, required Widget child}) {
+    final bool visible = !_immersive;
+    return IgnorePointer(
+      key: chromeKey,
+      ignoring: !visible,
+      child: ExcludeSemantics(
+        excluding: !visible,
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Widget _volumeControl(BuildContext context, NowPlayingData data, bool ready) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final double volume = data.volume.clamp(0.0, 1.0).toDouble();
@@ -446,69 +548,94 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             children: <Widget>[
-              ValueListenableBuilder<double?>(
-                valueListenable: _dragPosition,
-                builder: (BuildContext context, double? drag, Widget? child) {
-                  final double shown = (drag ?? data.position)
-                      .clamp(0.0, total)
-                      .toDouble();
-                  return Column(
-                    children: <Widget>[
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 7,
-                          ),
-                          overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 14,
-                          ),
-                        ),
-                        child: Slider(
-                          key: const ValueKey<String>('now-playing-progress'),
-                          value: total > 0 ? shown : 0,
-                          max: total > 0 ? total : 1,
-                          onChanged: ready && total > 0
-                              ? (double value) => _dragPosition.value = value
-                              : null,
-                          onChangeEnd: ready && total > 0
-                              ? (double value) {
-                                  _dragPosition.value = null;
-                                  unawaited(widget.onSeek(value));
-                                }
-                              : null,
-                        ),
+              // 沉浸模式连进度条一起收起，只留三个控制键
+              AnimatedSize(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: _immersive
+                    ? const SizedBox(width: double.infinity)
+                    : ValueListenableBuilder<double?>(
+                        valueListenable: _dragPosition,
+                        builder:
+                            (
+                              BuildContext context,
+                              double? drag,
+                              Widget? child,
+                            ) {
+                              final double shown = (drag ?? data.position)
+                                  .clamp(0.0, total)
+                                  .toDouble();
+                              return Column(
+                                children: <Widget>[
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 4,
+                                      thumbShape: const RoundSliderThumbShape(
+                                        enabledThumbRadius: 7,
+                                      ),
+                                      overlayShape:
+                                          const RoundSliderOverlayShape(
+                                            overlayRadius: 14,
+                                          ),
+                                    ),
+                                    child: Slider(
+                                      key: const ValueKey<String>(
+                                        'now-playing-progress',
+                                      ),
+                                      value: total > 0 ? shown : 0,
+                                      max: total > 0 ? total : 1,
+                                      onChanged: ready && total > 0
+                                          ? (double value) =>
+                                                _dragPosition.value = value
+                                          : null,
+                                      onChangeEnd: ready && total > 0
+                                          ? (double value) {
+                                              _dragPosition.value = null;
+                                              unawaited(widget.onSeek(value));
+                                            }
+                                          : null,
+                                    ),
+                                  ),
+                                  Padding(
+                                    // 12 与上面滑块的 overlay 半径对齐，时间才落在轨道两端内侧
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: <Widget>[
+                                        Text(
+                                          formatDuration(shown),
+                                          style: theme.textTheme.bodySmall,
+                                        ),
+                                        Text(
+                                          formatDuration(total),
+                                          style: theme.textTheme.bodySmall,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                       ),
-                      Padding(
-                        // 12 与上面滑块的 overlay 半径对齐，时间才落在轨道两端内侧
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: <Widget>[
-                            Text(
-                              formatDuration(shown),
-                              style: theme.textTheme.bodySmall,
-                            ),
-                            Text(
-                              formatDuration(total),
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                },
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: _immersive ? 0 : 4),
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 24),
-                        child: _volumeControl(context, data, ready),
+                    child: _fadeWhenImmersive(
+                      chromeKey: const ValueKey<String>(
+                        'now-playing-chrome-volume',
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 24),
+                          child: _volumeControl(context, data, ready),
+                        ),
                       ),
                     ),
                   ),
@@ -524,15 +651,30 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         icon: const Icon(Icons.skip_previous),
                       ),
                       const SizedBox(width: 12),
-                      IconButton.filled(
-                        key: const ValueKey<String>('now-playing-toggle'),
-                        iconSize: 34,
-                        padding: const EdgeInsets.all(14),
-                        onPressed: ready
-                            ? () => unawaited(widget.onTogglePlay())
-                            : null,
-                        icon: Icon(
-                          data.isPlaying ? Icons.pause : Icons.play_arrow,
+                      Tooltip(
+                        // manual：长按要留给沉浸模式，别让 Tooltip 抢走手势
+                        triggerMode: TooltipTriggerMode.manual,
+                        message: _immersive
+                            ? '播放 / 暂停（长按退出沉浸模式）'
+                            : '播放 / 暂停（长按切换沉浸模式）',
+                        child: CompositedTransformTarget(
+                          link: _toggleLink,
+                          child: GestureDetector(
+                            onLongPress: ready ? _toggleImmersive : null,
+                            child: IconButton.filled(
+                              key: const ValueKey<String>(
+                                'now-playing-toggle',
+                              ),
+                              iconSize: 34,
+                              padding: const EdgeInsets.all(14),
+                              onPressed: ready
+                                  ? () => unawaited(widget.onTogglePlay())
+                                  : null,
+                              icon: Icon(
+                                data.isPlaying ? Icons.pause : Icons.play_arrow,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -547,37 +689,46 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     ],
                   ),
                   Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 24),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            IconButton(
-                              key: const ValueKey<String>('now-playing-mode'),
-                              tooltip:
-                                  '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
-                              onPressed: ready ? widget.onCyclePlayMode : null,
-                              icon: Icon(
-                                playbackModeIcon(data.repeat, data.shuffle),
-                                size: 24,
-                                color:
-                                    playbackModeActive(
-                                      data.repeat,
-                                      data.shuffle,
-                                    )
-                                    ? scheme.primary
-                                    : scheme.onSurfaceVariant,
+                    child: _fadeWhenImmersive(
+                      chromeKey: const ValueKey<String>(
+                        'now-playing-chrome-extra',
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 24),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              IconButton(
+                                key: const ValueKey<String>('now-playing-mode'),
+                                tooltip:
+                                    '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
+                                onPressed: ready
+                                    ? widget.onCyclePlayMode
+                                    : null,
+                                icon: Icon(
+                                  playbackModeIcon(data.repeat, data.shuffle),
+                                  size: 24,
+                                  color:
+                                      playbackModeActive(
+                                        data.repeat,
+                                        data.shuffle,
+                                      )
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              key: const ValueKey<String>('now-playing-queue'),
-                              tooltip: '播放队列',
-                              onPressed: ready ? widget.onShowQueue : null,
-                              icon: const Icon(Icons.queue_music, size: 24),
-                            ),
-                          ],
+                              IconButton(
+                                key: const ValueKey<String>(
+                                  'now-playing-queue',
+                                ),
+                                tooltip: '播放队列',
+                                onPressed: ready ? widget.onShowQueue : null,
+                                icon: const Icon(Icons.queue_music, size: 24),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -593,6 +744,83 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 进入沉浸模式时的轻提示：淡入 → 停留 → 淡出后自删。
+class _ImmersiveToast extends StatefulWidget {
+  const _ImmersiveToast({required this.message, required this.onDone});
+
+  final String message;
+  final VoidCallback onDone;
+
+  @override
+  State<_ImmersiveToast> createState() => _ImmersiveToastState();
+}
+
+class _ImmersiveToastState extends State<_ImmersiveToast>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  );
+
+  Timer? _hold;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_play());
+  }
+
+  Future<void> _play() async {
+    await _fade.forward();
+    if (!mounted) {
+      return;
+    }
+    // 停留交给 Timer：页面销毁时能取消，不留悬挂的等待
+    _hold = Timer(const Duration(milliseconds: 1100), () {
+      unawaited(_dismiss());
+    });
+  }
+
+  Future<void> _dismiss() async {
+    await _fade.reverse();
+    if (!mounted) {
+      return;
+    }
+    widget.onDone();
+  }
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return IgnorePointer(
+      child: FadeTransition(
+        opacity: _fade,
+        child: Material(
+          color: scheme.inverseSurface,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Text(
+              widget.message,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onInverseSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

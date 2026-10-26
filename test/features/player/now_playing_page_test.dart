@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
@@ -98,6 +99,14 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   );
   await tester.pumpAndSettle();
   return notifier;
+}
+
+/// 让「沉浸模式」提示走完（停留 1100ms + 淡出 180ms）。
+///
+/// 不推完的话，测试结束时还挂着定时器，flutter_test 会判失败。
+Future<void> _settleToast(WidgetTester tester) async {
+  await tester.pump(const Duration(milliseconds: 1400));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -303,5 +312,134 @@ void main() {
 
     expect(find.text('正在播放'), findsNothing);
     expect(find.text('打开'), findsOneWidget);
+  });
+
+  testWidgets('长按进入沉浸模式：进度条与两侧控件收起，只留三个键', (WidgetTester tester) async {
+    int toggles = 0;
+    await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
+
+    AnimatedOpacity chrome(String key) => tester.widget<AnimatedOpacity>(
+      find
+          .descendant(
+            of: find.byKey(ValueKey<String>(key)),
+            matching: find.byType(AnimatedOpacity),
+          )
+          .first,
+    );
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('now-playing-toggle'),
+    );
+
+    expect(chrome('now-playing-chrome-volume').opacity, 1);
+    expect(chrome('now-playing-chrome-extra').opacity, 1);
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+      findsOneWidget,
+    );
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+
+    expect(find.text('沉浸模式'), findsOneWidget, reason: '进入时给一次轻提示');
+
+    // 提示弹在刚长按的播放键附近，而不是页面顶部
+    final Rect toastRect = tester.getRect(find.text('沉浸模式'));
+    final Rect toggleRect = tester.getRect(toggle);
+    expect(
+      toastRect.center.dx,
+      closeTo(toggleRect.center.dx, 2),
+      reason: '提示与播放键水平对齐',
+    );
+    expect(
+      toastRect.bottom,
+      lessThan(toggleRect.top),
+      reason: '提示应弹在按钮上方',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+      findsNothing,
+      reason: '进度条属于多余元素',
+    );
+    expect(chrome('now-playing-chrome-volume').opacity, 0);
+    expect(chrome('now-playing-chrome-extra').opacity, 0);
+    expect(toggles, 0, reason: '长按不该顺带触发播放 / 暂停');
+    for (final String key in <String>[
+      'now-playing-previous',
+      'now-playing-toggle',
+      'now-playing-next',
+    ]) {
+      expect(find.byKey(ValueKey<String>(key)), findsOneWidget);
+    }
+    expect(
+      find
+          .byKey(const ValueKey<String>('now-playing-chrome-extra'))
+          .hitTestable(),
+      findsNothing,
+      reason: '淡出的控件不该还能点',
+    );
+
+    await _settleToast(tester);
+  });
+
+  testWidgets('沉浸模式下三个键位置不变，退出不弹提示', (WidgetTester tester) async {
+    await _pump(tester, data: _data());
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('now-playing-toggle'),
+    );
+    final Offset before = tester.getCenter(toggle);
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+    await _settleToast(tester);
+
+    expect(tester.getCenter(toggle), before, reason: '收起控件不该挪动这三个键');
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+      findsOneWidget,
+    );
+    expect(find.text('沉浸模式'), findsNothing, reason: '退出不需要提示');
+  });
+
+  testWidgets('沉浸模式下返回键靠鼠标靠近顶端才显', (WidgetTester tester) async {
+    await _pump(tester, data: _data());
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('now-playing-toggle'),
+    );
+
+    double headerOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find
+              .descendant(
+                of: find.byKey(const ValueKey<String>('now-playing-header')),
+                matching: find.byType(AnimatedOpacity),
+              )
+              .first,
+        )
+        .opacity;
+
+    expect(headerOpacity(), 1, reason: '普通模式下返回键常显');
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+    await _settleToast(tester);
+    expect(headerOpacity(), 0, reason: '沉浸模式下鼠标不在顶部就隐藏');
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer(location: const Offset(600, 500));
+    addTearDown(mouse.removePointer);
+
+    await mouse.moveTo(const Offset(600, 12));
+    await tester.pumpAndSettle();
+    expect(headerOpacity(), 1, reason: '指针靠近顶端应渐显');
+
+    await mouse.moveTo(const Offset(600, 500));
+    await tester.pumpAndSettle();
+    expect(headerOpacity(), 0);
   });
 }

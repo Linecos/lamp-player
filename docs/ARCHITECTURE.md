@@ -40,8 +40,8 @@
 | 路径 | 职责 | 备注 |
 |---|---|---|
 | `lib/main.dart` | 入口：初始化桥接、挂载 `LampApp` | 不写业务逻辑 |
-| `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`）、会话恢复（`session_store.dart`）、窗口状态（`window_state.dart`）、关闭行为（`app_lifecycle.dart`）与托盘（`tray_controller.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象、存储通过接口注入，测试可替换假实现 |
-| `lib/src/features/player/now_playing_page.dart` | 正在播放页（大封面 + 同步歌词） | 数据来自 `_nowPlaying` notifier，页面自己不轮询 |
+| `lib/src/app/` | 应用外壳、路由表（`routes.dart`）、自绘标题栏（`title_bar.dart` + `window_controls.dart`）、沉浸模式联动（`immersive_chrome.dart`）、会话恢复（`session_store.dart`）、窗口状态（`window_state.dart`）、关闭行为（`app_lifecycle.dart`）与托盘（`tray_controller.dart`） | 新增页面在这里登记；窗口按钮通过 `WindowControls` 抽象、存储通过接口注入，测试可替换假实现 |
+| `lib/src/features/player/now_playing_page.dart` | 正在播放页（大封面 + 同步歌词；长按播放键进沉浸模式，只留三个控制键） | 数据来自 `_nowPlaying` notifier，页面自己不轮询 |
 | `lib/src/features/player/equalizer.dart` | 均衡器频段常量与 `normalizeEqGains` | 与 Rust `EQ_CENTERS` 一一对应 |
 | `lib/src/common/text/pinyin_key.dart` | 拼音键构建（全拼 + 首字母） | 只在查询不含汉字时使用 |
 | `lib/src/features/library/playlist_io.dart` | 歌单导入导出（M3U8 拼串 / 解析 / 曲库匹配） | 纯逻辑可单测；文件读写与选择器在 `playlists_section` |
