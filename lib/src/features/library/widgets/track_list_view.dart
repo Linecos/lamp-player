@@ -152,6 +152,7 @@ class _TrackHeader extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final TextStyle? style = theme.textTheme.labelMedium?.copyWith(
       color: scheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
     );
 
     return Container(
@@ -171,8 +172,15 @@ class _TrackHeader extends StatelessWidget {
           const SizedBox(width: 40),
           const SizedBox(width: 12),
           Expanded(flex: 5, child: Text('标题', style: style)),
-          if (showArtist) Expanded(flex: 2, child: Text('艺术家', style: style)),
-          if (showAlbum) Expanded(flex: 2, child: Text('专辑', style: style)),
+          if (showArtist) ...<Widget>[
+            const SizedBox(width: 16),
+            Expanded(flex: 2, child: Text('艺术家', style: style)),
+          ],
+          if (showAlbum) ...<Widget>[
+            const SizedBox(width: 16),
+            Expanded(flex: 2, child: Text('专辑', style: style)),
+          ],
+          const SizedBox(width: 16),
           SizedBox(
             width: 64,
             child: Text('时长', textAlign: TextAlign.right, style: style),
@@ -299,6 +307,13 @@ class _TrackRow extends StatelessWidget {
       color: scheme.onSurfaceVariant,
     );
 
+    // 序号与时长同档：13 + 等宽数字，跟着副列走但比正文小一号
+    final TextStyle? meta = theme.textTheme.bodyMedium?.copyWith(
+      fontSize: 13,
+      color: scheme.onSurfaceVariant,
+      fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Material(
@@ -340,15 +355,7 @@ class _TrackRow extends StatelessWidget {
                             size: 18,
                             color: scheme.primary,
                           )
-                        : Text(
-                            '${index + 1}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontFeatures: const <FontFeature>[
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
-                          ),
+                        : Text('${index + 1}', style: meta),
                   ),
                 ),
                 AlbumCover(
@@ -369,6 +376,7 @@ class _TrackRow extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (showArtist) const SizedBox(width: 16),
                 if (showArtist)
                   Expanded(
                     flex: 2,
@@ -379,6 +387,7 @@ class _TrackRow extends StatelessWidget {
                       style: secondary,
                     ),
                   ),
+                if (showAlbum) const SizedBox(width: 16),
                 if (showAlbum)
                   Expanded(
                     flex: 2,
@@ -389,17 +398,13 @@ class _TrackRow extends StatelessWidget {
                       style: secondary,
                     ),
                   ),
+                const SizedBox(width: 16),
                 SizedBox(
                   width: 64,
                   child: Text(
                     formatDuration(track.durationSecs),
                     textAlign: TextAlign.right,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontFeatures: const <FontFeature>[
-                        FontFeature.tabularFigures(),
-                      ],
-                    ),
+                    style: meta,
                   ),
                 ),
                 if (onToggleFavorite != null)
