@@ -331,6 +331,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 是否按标签里的 ReplayGain 统一响度
   bool _replayGain = false;
 
+  /// 标签缺增益时现场分析的结果缓存（路径 → dB），本次会话内复用
+  final Map<String, double> _autoGains = <String, double>{};
+
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 

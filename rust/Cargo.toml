@@ -22,6 +22,8 @@ walkdir = "2.5.0"
 # Windows 系统集成：SMTC（媒体键 / 任务栏按钮）与单实例互斥体。
 # 用 0.56 是因为本机 registry 已缓存，CI 首次拉取也只是多几个包。
 [target.'cfg(windows)'.dependencies]
+# ReplayGain 2.0 响度分析：EBU R128 加权 + 门限，纯 Rust 实现
+ebur128 = "0.1"
 windows = { version = "0.56", features = [
     "Foundation",
     "Media_Playback",

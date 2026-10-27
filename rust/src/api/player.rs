@@ -31,6 +31,15 @@ pub fn player_play(path: String, replay_gain_db: f64) -> Result<()> {
     bass::play(&path, replay_gain_db)
 }
 
+/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+///
+/// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算
+/// （EBU R128 积分响度，目标 -18 LUFS），结果夹取 ±24 dB，全静音返回 0。
+/// 全曲解码约需零点几秒到几秒，失败（文件损坏 / 格式不支持）直接报错。
+pub fn player_analyze_replay_gain(path: String) -> Result<f64> {
+    bass::analyze_gain(&path)
+}
+
 /// 可切换的输出设备
 #[derive(Clone, Debug)]
 pub struct PlayerDevice {
