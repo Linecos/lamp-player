@@ -1,6 +1,7 @@
 import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/db.dart' as db;
 import '../../rust/api/model.dart';
+import '../../rust/api/replaygain.dart' as replaygain;
 import '../../rust/api/scan.dart' as scan;
 
 /// 曲库数据源接口：读取、搜索与目录扫描。
@@ -43,6 +44,9 @@ abstract interface class LibraryRepository {
 
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   Future<int> removeTracks(List<String> paths);
+
+  /// 把 ReplayGain 增益写进音频文件标签（`REPLAYGAIN_TRACK_GAIN`）
+  Future<void> writeReplayGain(String path, double gainDb);
 
   /// 清理磁盘上已不存在的曲库记录；返回清理条数
   Future<int> pruneMissingTracks();
@@ -120,6 +124,10 @@ class RustLibraryRepository implements LibraryRepository {
 
   @override
   Future<int> removeTracks(List<String> paths) => db.removeTracks(paths: paths);
+
+  @override
+  Future<void> writeReplayGain(String path, double gainDb) =>
+      replaygain.writeReplayGain(path: path, gainDb: gainDb);
 
   @override
   Future<int> pruneMissingTracks() => db.pruneMissingTracks();

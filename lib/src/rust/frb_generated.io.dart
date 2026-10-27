@@ -10,6 +10,7 @@ import 'api/lyrics.dart';
 import 'api/media.dart';
 import 'api/model.dart';
 import 'api/player.dart';
+import 'api/replaygain.dart';
 import 'api/scan.dart';
 import 'api/simple.dart';
 

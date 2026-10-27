@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, LogicalKeyboardKey;
+import 'package:path/path.dart' as p;
 
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
