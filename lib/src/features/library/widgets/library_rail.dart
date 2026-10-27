@@ -9,9 +9,11 @@ import '../../../app/title_bar.dart';
 /// 七个分区都已接入真实数据：歌单 / 收藏 / 历史走 `api::collections`（契约 v0.3），
 /// 艺术家 / 专辑由曲库聚合得到，设置页含主题切换与扫描结果展示。
 enum LibrarySection {
+  // 未选中用线性图标、选中用实心图标：七个分区保持同一套状态语言。
+  // 「歌单」「历史」原先两种状态是同一个字形，点击后只剩底色变化，看不出来。
   music('音乐', Icons.music_note_outlined, Icons.music_note),
-  playlists('歌单', Icons.format_list_bulleted, Icons.format_list_bulleted),
-  history('历史', Icons.schedule_outlined, Icons.schedule),
+  playlists('歌单', Icons.playlist_play_outlined, Icons.playlist_play),
+  history('历史', Icons.access_time, Icons.access_time_filled),
   favorites('收藏', Icons.favorite_outline, Icons.favorite),
   artists('艺术家', Icons.person_outline, Icons.person),
   albums('专辑', Icons.library_books_outlined, Icons.library_books),
