@@ -9,6 +9,7 @@
 //! - [`collections`]：歌单 / 收藏 / 播放历史
 //! - [`scan`]：目录扫描与元数据解析
 //! - [`player`]：BASS 播放引擎
+//! - [`replaygain`]：ReplayGain 标签写入（多选「计算 ReplayGain」）
 //! - [`lyrics`]：歌词读取（`.lrc` / 内嵌标签）
 //! - [`media`]：系统媒体控制（SMTC）与单实例
 //! - [`appearance`]：系统强调色（动态取色）
@@ -21,5 +22,6 @@ pub mod lyrics;
 pub mod media;
 pub mod model;
 pub mod player;
+pub mod replaygain;
 pub mod scan;
 pub mod simple;
