@@ -817,9 +817,6 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   void _focusSearch() {
-    if (!_searchEnabled) {
-      return;
-    }
     _searchFocus.requestFocus();
     _searchController.selection = TextSelection(
       baseOffset: 0,
@@ -928,7 +925,6 @@ class _LibraryPageState extends State<LibraryPage>
     return TextField(
       controller: _searchController,
       focusNode: _searchFocus,
-      enabled: _searchEnabled,
       onChanged: _onSearchChanged,
       textAlignVertical: TextAlignVertical.center,
       style: theme.textTheme.bodyMedium,

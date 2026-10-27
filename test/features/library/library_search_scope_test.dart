@@ -127,7 +127,7 @@ void main() {
     );
   });
 
-  testWidgets('搜索框提示语跟随分区，设置页禁用', (WidgetTester tester) async {
+  testWidgets('搜索框提示语跟随分区', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
     expect(find.text('搜索音乐'), findsOneWidget);
@@ -136,7 +136,38 @@ void main() {
     expect(find.text('搜索专辑'), findsOneWidget);
 
     await openSettings(tester);
-    expect(find.text('设置页无需搜索'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+    expect(find.text('搜索设置项'), findsOneWidget);
+    // enabled 不传即为可输入（null 表示走默认的 true）
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).enabled,
+      isNot(false),
+    );
+  });
+
+  testWidgets('设置页搜索只留命中的设置行', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    expect(find.text('听歌统计'), findsOneWidget);
+    expect(find.text('输出设备'), findsOneWidget);
+
+    await search(tester, '均衡器');
+    expect(find.text('均衡器'), findsWidgets, reason: '命中的行留着');
+    expect(find.text('听歌统计'), findsNothing, reason: '没命中的行收起来');
+    expect(find.text('音乐库'), findsNothing, reason: '整组没命中，分区标题一起收起');
+    expect(find.text('播放'), findsWidgets, reason: '命中行所在分区的标题还在');
+  });
+
+  testWidgets('设置页搜索没有结果时给空态与清除入口', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    await search(tester, 'zzz没有这个设置');
+    expect(find.text('没有匹配的设置项'), findsOneWidget);
+    expect(find.text('听歌统计'), findsNothing);
+
+    await tester.tap(find.text('清除搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('听歌统计'), findsOneWidget, reason: '清除后恢复全部设置');
   });
 }
