@@ -47,22 +47,116 @@ List<double> normalizeEqGains(List<double> gains) {
 bool isEqFlat(List<double> gains) =>
     normalizeEqGains(gains).every((double gain) => gain.abs() < 0.05);
 
-/// 一个内置预设：名称与 10 段增益（dB，31Hz→16kHz）。
+/// 一套均衡器预设：名称与 10 段增益（dB，31Hz→16kHz）。
 class EqualizerPreset {
-  const EqualizerPreset(this.name, this.gains);
+  const EqualizerPreset(this.name, this.gains, {this.builtin = false});
 
   final String name;
   final List<double> gains;
+
+  /// 内置预设不可删除；用户自己存的预设为 false
+  final bool builtin;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'name': name,
+    'gains': gains,
+  };
+
+  static EqualizerPreset? fromJson(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return null;
+    }
+    final Object? name = json['name'];
+    final Object? gains = json['gains'];
+    if (name is! String || name.trim().isEmpty || gains is! List<Object?>) {
+      return null;
+    }
+    return EqualizerPreset(
+      name.trim(),
+      normalizeEqGains(
+        gains
+            .map((Object? value) => value is num ? value.toDouble() : 0.0)
+            .toList(),
+      ),
+    );
+  }
 }
 
 /// 内置预设。曲线偏保守：都在 ±7 dB 以内，避免一开就削波。
 const List<EqualizerPreset> equalizerPresets = <EqualizerPreset>[
-  EqualizerPreset('流行', <double>[-1, 0, 2, 3, 2, 0, -1, -2, -1, 0]),
-  EqualizerPreset('摇滚', <double>[4, 3, 1.5, -1, -2, 0, 2, 3.5, 4, 3.5]),
-  EqualizerPreset('古典', <double>[2, 1.5, 0.5, 0, 0, 0, 0.5, 1.5, 2.5, 3]),
-  EqualizerPreset('人声', <double>[-3, -2, -1, 2, 4, 4.5, 3, 1, -1, -2]),
-  EqualizerPreset('重低音', <double>[7, 6, 4.5, 2.5, 0, -1, -1.5, -1, 0, 0.5]),
+  EqualizerPreset('流行', <double>[
+    -1,
+    0,
+    2,
+    3,
+    2,
+    0,
+    -1,
+    -2,
+    -1,
+    0,
+  ], builtin: true),
+  EqualizerPreset('摇滚', <double>[
+    4,
+    3,
+    1.5,
+    -1,
+    -2,
+    0,
+    2,
+    3.5,
+    4,
+    3.5,
+  ], builtin: true),
+  EqualizerPreset('古典', <double>[
+    2,
+    1.5,
+    0.5,
+    0,
+    0,
+    0,
+    0.5,
+    1.5,
+    2.5,
+    3,
+  ], builtin: true),
+  EqualizerPreset('人声', <double>[
+    -3,
+    -2,
+    -1,
+    2,
+    4,
+    4.5,
+    3,
+    1,
+    -1,
+    -2,
+  ], builtin: true),
+  EqualizerPreset('重低音', <double>[
+    7,
+    6,
+    4.5,
+    2.5,
+    0,
+    -1,
+    -1.5,
+    -1,
+    0,
+    0.5,
+  ], builtin: true),
 ];
+
+/// 两组增益是否几乎相同（0.05 dB 容差）
+bool sameEqGains(List<double> a, List<double> b) {
+  final List<double> left = normalizeEqGains(a);
+  final List<double> right = normalizeEqGains(b);
+  for (int band = 0; band < left.length; band += 1) {
+    if ((left[band] - right[band]).abs() > 0.05) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /// 当前增益是否正好等于某个预设；不是则返回 -1（自定义）
 int matchedPresetIndex(List<double> gains) {
@@ -81,4 +175,18 @@ int matchedPresetIndex(List<double> gains) {
     }
   }
   return -1;
+}
+
+/// 当前增益匹配到的预设名（先内置、再自定义）；都没匹配到返回 null
+String? matchedPresetName(List<double> gains, List<EqualizerPreset> custom) {
+  final int builtin = matchedPresetIndex(gains);
+  if (builtin >= 0) {
+    return equalizerPresets[builtin].name;
+  }
+  for (final EqualizerPreset preset in custom) {
+    if (sameEqGains(preset.gains, gains)) {
+      return preset.name;
+    }
+  }
+  return null;
 }

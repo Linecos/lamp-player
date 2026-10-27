@@ -30,6 +30,7 @@ import '../player/now_playing_page.dart';
 import '../player/queue_dialog.dart';
 import '../player/smtc_bridge.dart';
 import '../player/spectrum_controller.dart';
+import '../settings/equalizer_page.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'drop_import.dart';
@@ -341,6 +342,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
+
+  /// 当前套用的预设名；null 表示手动调过
+  String? _eqPresetName;
+
+  /// 用户自存的预设（内置 5 套不在此列）
+  List<EqualizerPreset> _eqCustomPresets = const <EqualizerPreset>[];
   bool _switchingOutput = false;
 
   /// 当前输出的实际描述，来自引擎（含回落原因）
@@ -512,6 +519,8 @@ class _LibraryPageState extends State<LibraryPage>
       _exclusive = snapshot.exclusiveOutput;
       _eqEnabled = snapshot.eqEnabled;
       _eqGains = normalizeEqGains(snapshot.eqGains);
+      _eqPresetName = snapshot.eqPresetName;
+      _eqCustomPresets = snapshot.eqCustomPresets;
       _outputDevice = snapshot.outputDevice;
       _outputDeviceNotifier.value = snapshot.outputDevice;
       _replayGain = snapshot.replayGain;
@@ -620,6 +629,8 @@ class _LibraryPageState extends State<LibraryPage>
       exclusiveOutput: _exclusive,
       eqEnabled: _eqEnabled,
       eqGains: _eqGains,
+      eqPresetName: _eqPresetName,
+      eqCustomPresets: _eqCustomPresets,
       outputDevice: _outputDevice,
       replayGain: _replayGain,
       crossfadeSeconds: _crossfadeSeconds,
