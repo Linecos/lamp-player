@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../common/widgets/slider_semantics_scope.dart';
 import '../player/equalizer.dart';
 
 /// 均衡器独立页：开关 + 预设切换 + 10 段推子 + 自存预设。
@@ -212,16 +213,19 @@ class _EqualizerPageState extends State<EqualizerPage> {
                     enabledThumbRadius: 7,
                   ),
                 ),
-                child: Slider(
-                  key: ValueKey<String>('eq-band-$index'),
-                  value: gain,
-                  min: -equalizerMaxGain,
-                  max: equalizerMaxGain,
-                  divisions: (equalizerMaxGain * 2).round(),
-                  onChanged: widget.onChanged == null
-                      ? null
-                      : (double value) => setState(() => _gains[index] = value),
-                  onChangeEnd: (_) => _commit(custom: true),
+                child: SliderSemanticsScope(
+                  child: Slider(
+                    key: ValueKey<String>('eq-band-$index'),
+                    value: gain,
+                    min: -equalizerMaxGain,
+                    max: equalizerMaxGain,
+                    divisions: (equalizerMaxGain * 2).round(),
+                    onChanged: widget.onChanged == null
+                        ? null
+                        : (double value) =>
+                              setState(() => _gains[index] = value),
+                    onChangeEnd: (_) => _commit(custom: true),
+                  ),
                 ),
               ),
             ),
