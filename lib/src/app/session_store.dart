@@ -23,6 +23,9 @@ class SessionSnapshot {
     this.exclusiveOutput = false,
     this.eqEnabled = false,
     this.eqGains = const <double>[],
+    this.outputDevice = -1,
+    this.replayGain = false,
+    this.crossfadeSeconds = 0,
   });
 
   final double volume;
@@ -57,6 +60,15 @@ class SessionSnapshot {
 
   /// 均衡器各段增益（dB，31Hz→16kHz）；空表示还没设置过
   final List<double> eqGains;
+
+  /// 共享输出设备索引；`-1` 表示系统默认
+  final int outputDevice;
+
+  /// 是否按标签里的 ReplayGain 统一响度
+  final bool replayGain;
+
+  /// 换曲交叉淡变时长（秒）；0 表示关闭
+  final double crossfadeSeconds;
 }
 
 abstract interface class SessionStore {
@@ -80,6 +92,9 @@ class PrefsSessionStore implements SessionStore {
   static const String exclusiveKey = 'player_exclusive_output';
   static const String eqEnabledKey = 'player_eq_enabled';
   static const String eqGainsKey = 'player_eq_gains';
+  static const String outputDeviceKey = 'player_output_device';
+  static const String replayGainKey = 'player_replay_gain';
+  static const String crossfadeKey = 'player_crossfade_seconds';
   static const String sortKey = 'ui_sort';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
   static const String volumeCurveVersionKey = 'volume_curve_version';
@@ -123,6 +138,9 @@ class PrefsSessionStore implements SessionStore {
         eqGains: (prefs.getStringList(eqGainsKey) ?? const <String>[])
             .map((String value) => double.tryParse(value) ?? 0)
             .toList(growable: false),
+        outputDevice: prefs.getInt(outputDeviceKey) ?? -1,
+        replayGain: prefs.getBool(replayGainKey) ?? false,
+        crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
@@ -164,6 +182,9 @@ class PrefsSessionStore implements SessionStore {
             .map((double gain) => gain.toStringAsFixed(1))
             .toList(growable: false),
       );
+      await prefs.setInt(outputDeviceKey, snapshot.outputDevice);
+      await prefs.setBool(replayGainKey, snapshot.replayGain);
+      await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,

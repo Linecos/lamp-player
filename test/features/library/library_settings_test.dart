@@ -21,8 +21,8 @@ void main() {
     expect(find.text('2 首'), findsOneWidget);
     expect(find.text('不可用（未加载 BASS）'), findsOneWidget);
 
-    // 新增独占行后设置页变长，外观分区要滚动才在视口内
-    await tester.drag(find.byType(SettingsView), const Offset(0, -400));
+    // 新增独占 / 设备 / ReplayGain / 淡变几行后设置页更长，外观分区要滚得更多
+    await tester.drag(find.byType(SettingsView), const Offset(0, -700));
     await tester.pumpAndSettle();
     expect(find.text('跟随系统'), findsOneWidget);
   });
@@ -94,7 +94,7 @@ void main() {
       playback: playback,
       sessionStore: store,
       // 新增「清理缺失文件」行后设置页更长，独占开关需要更高的视口
-      viewSize: const Size(1280, 1000),
+      viewSize: const Size(1280, 1400),
     );
     await openSettings(tester);
 
@@ -138,7 +138,7 @@ void main() {
       tester,
       tracks: twoTracks(),
       playback: playback,
-      viewSize: const Size(1280, 1000),
+      viewSize: const Size(1280, 1400),
     );
     await openSettings(tester);
 

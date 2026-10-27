@@ -163,7 +163,7 @@ pub fn playlist_tracks(id: i64) -> anyhow::Result<Vec<Track>> {
         playlist_exists(conn, id)?;
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM playlist_items i
             JOIN tracks t ON t.path = i.track_path
             WHERE i.playlist_id = ?1
@@ -260,7 +260,7 @@ pub fn list_favorites() -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM favorites f
             JOIN tracks t ON t.path = f.track_path
             ORDER BY f.added_at DESC, t.id
@@ -367,7 +367,7 @@ pub fn recent_tracks(limit: i32) -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM play_history h
             JOIN tracks t ON t.path = h.track_path
             ORDER BY h.last_played_at DESC, t.id
@@ -450,7 +450,7 @@ pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path,
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain,
                    h.play_count
             FROM play_history h
             JOIN tracks t ON t.path = h.track_path
@@ -462,7 +462,7 @@ pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
         let rows = stmt.query_map([limit.clamp(1, 100)], |row| {
             Ok(TrackPlayStat {
                 track: row_to_track(row)?,
-                plays: row.get(8)?,
+                plays: row.get(9)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

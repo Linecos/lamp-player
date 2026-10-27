@@ -73,7 +73,7 @@ fn exclusive_output_chain() {
     write_wav(&wav, 3);
     let path = wav.to_string_lossy().to_string();
 
-    player_play(path.clone()).expect("独占模式下播放应成功");
+    player_play(path.clone(), 0.0).expect("独占模式下播放应成功");
     assert_eq!(player_state(), PlaybackState::Playing);
 
     let duration = player_duration().expect("读取时长");
@@ -139,7 +139,7 @@ fn exclusive_output_chain() {
     assert!(!player_is_exclusive(), "停止后应释放独占设备，实际仍是独占");
 
     // 停止后重新播放应能重建会话（而不是一直失败）
-    player_play(path.clone()).expect("释放设备后应能重新建立独占会话");
+    player_play(path.clone(), 0.0).expect("释放设备后应能重新建立独占会话");
     assert_eq!(player_state(), PlaybackState::Playing);
 
     assert!(player_is_exclusive(), "重新播放后应再次占用设备");
@@ -147,7 +147,7 @@ fn exclusive_output_chain() {
     // 播完停在末态：空闲 1 秒后自动交还设备
     let short = std::env::temp_dir().join("lamp_player_exclusive_short.wav");
     write_wav(&short, 1);
-    player_play(short.to_string_lossy().to_string()).expect("播放短音频");
+    player_play(short.to_string_lossy().to_string(), 0.0).expect("播放短音频");
     // 轮询等它播完：固定 sleep 在慢机器上会越过空闲阈值，造成假失败
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while player_state() != PlaybackState::Stopped && std::time::Instant::now() < deadline {

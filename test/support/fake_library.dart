@@ -18,6 +18,7 @@ Track sampleTrack({
   int addedAt = 0,
   String? path,
   String? coverPath,
+  double replayGain = 0,
 }) {
   return Track(
     path: path ?? '/music/$title.mp3',
@@ -28,6 +29,7 @@ Track sampleTrack({
     trackNum: trackNum,
     addedAt: addedAt,
     coverPath: coverPath,
+    replayGain: replayGain,
   );
 }
 
@@ -412,6 +414,9 @@ class FakePlaybackService implements PlaybackService {
 
   rust.PlaybackState current = rust.PlaybackState.stopped;
   final List<String> playedPaths = <String>[];
+
+  /// 每次 play 传入的 ReplayGain（dB），与 [playedPaths] 一一对应
+  final List<double> playedGains = <double>[];
   final List<double> seekCalls = <double>[];
   final List<double> volumeCalls = <double>[];
   int pauseCalls = 0;
@@ -422,6 +427,7 @@ class FakePlaybackService implements PlaybackService {
   bool exclusive = false;
   Object? exclusiveError;
   int exclusiveCalls = 0;
+  final List<int> deviceCalls = <int>[];
   int outputInfoCalls = 0;
   String outputInfoText = '共享输出（测试）';
 
@@ -429,7 +435,7 @@ class FakePlaybackService implements PlaybackService {
   rust.PlaybackState get state => current;
 
   @override
-  Future<void> play(String path) async {
+  Future<void> play(String path, {double replayGainDb = 0}) async {
     final Object? error = playError;
     if (error != null) {
       throw error;
@@ -438,6 +444,7 @@ class FakePlaybackService implements PlaybackService {
       throw StateError('无法播放: $path');
     }
     playedPaths.add(path);
+    playedGains.add(replayGainDb);
     current = rust.PlaybackState.playing;
   }
 
@@ -504,6 +511,37 @@ class FakePlaybackService implements PlaybackService {
   Future<String> outputInfo() async {
     outputInfoCalls += 1;
     return outputInfoText;
+  }
+
+  /// 测试用的设备列表；默认只有一条模拟设备
+  List<rust.PlayerDevice> deviceList = <rust.PlayerDevice>[
+    const rust.PlayerDevice(index: 1, name: '模拟设备', isDefault: true),
+  ];
+  int selectedDevice = -1;
+  final List<double> crossfadeCalls = <double>[];
+  Object? devicesError;
+
+  @override
+  Future<List<rust.PlayerDevice>> devices() async {
+    final Object? error = devicesError;
+    if (error != null) {
+      throw error;
+    }
+    return deviceList;
+  }
+
+  @override
+  Future<void> setDevice(int index) async {
+    selectedDevice = index;
+    deviceCalls.add(index);
+  }
+
+  @override
+  int get currentDevice => selectedDevice;
+
+  @override
+  Future<void> setCrossfade(double seconds) async {
+    crossfadeCalls.add(seconds);
   }
 
   bool eqEnabled = false;

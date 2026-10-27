@@ -16,6 +16,7 @@ Track _track(
   trackNum: 1,
   addedAt: 0,
   coverPath: null,
+  replayGain: 0,
 );
 
 void main() {

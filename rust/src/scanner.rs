@@ -7,7 +7,7 @@ use crate::api::model::Track;
 use anyhow::{Context, Result};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
-use lofty::tag::{Accessor, Tag};
+use lofty::tag::{Accessor, ItemKey, Tag};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -198,6 +198,13 @@ fn read_track(
 
     let cover_path = covers_dir.and_then(|dir| tag.and_then(|t| extract_cover(t, dir)));
 
+    // ReplayGain 曲目增益，标签里通常写成 "-7.23 dB"；没有就按 0 处理。
+    // 上下限夹一下：个别文件写过 +60 dB 这种离谱值，直接套用会削波到失真。
+    let replay_gain = tag
+        .and_then(|t| t.get_string(ItemKey::ReplayGainTrackGain))
+        .and_then(parse_replay_gain)
+        .unwrap_or(0.0);
+
     Ok(ScannedTrack {
         track: Track {
             path: path.to_string_lossy().into_owned(),
@@ -208,10 +215,18 @@ fn read_track(
             track_num,
             added_at,
             cover_path,
+            replay_gain,
         },
         mtime_ns,
         size,
     })
+}
+
+/// 解析 ReplayGain 文本（"-7.23 dB" / "-7.23"），超出 ±24 dB 夹回范围。
+fn parse_replay_gain(raw: &str) -> Option<f64> {
+    let value = raw.trim().trim_end_matches("dB").trim();
+    let gain = value.parse::<f64>().ok().filter(|g| g.is_finite())?;
+    Some(gain.clamp(-24.0, 24.0))
 }
 
 /// 从标签里取封面并落盘，返回缓存文件的绝对路径。
@@ -330,11 +345,23 @@ fn path_key_with(path: &str, windows: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_hash, path_key_with, store_cover};
+    use super::{content_hash, parse_replay_gain, path_key_with, store_cover};
     use lofty::picture::{MimeType, Picture, PictureType};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn replay_gain_parses_tag_text() {
+        // 标签里的常见写法
+        assert_eq!(parse_replay_gain("-7.23 dB"), Some(-7.23));
+        assert_eq!(parse_replay_gain("+3.5dB"), Some(3.5));
+        assert_eq!(parse_replay_gain(" 0 "), Some(0.0));
+        // 离谱值夹回 ±24 dB，垃圾值按「没有标签」处理
+        assert_eq!(parse_replay_gain("60 dB"), Some(24.0));
+        assert_eq!(parse_replay_gain("loud"), None);
+        assert_eq!(parse_replay_gain(""), None);
+    }
 
     #[test]
     fn path_key_normalizes_only_on_windows() {

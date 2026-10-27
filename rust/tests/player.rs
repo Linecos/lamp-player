@@ -93,7 +93,7 @@ fn playback_chain() {
     write_wav(&wav, 1);
     let path = wav.to_string_lossy().to_string();
 
-    player_play(path).expect("播放应成功");
+    player_play(path, 0.0).expect("播放应成功");
     assert_eq!(player_state(), PlaybackState::Playing);
 
     let duration = player_duration().expect("读取时长");
@@ -167,7 +167,7 @@ fn finished_track_releases_stream_and_keeps_ended_position() {
     write_wav(&wav, 1);
     let path = wav.to_string_lossy().to_string();
 
-    player_play(path).expect("播放应成功");
+    player_play(path, 0.0).expect("播放应成功");
     assert_eq!(player_state(), PlaybackState::Playing);
 
     let mut waited = 0;

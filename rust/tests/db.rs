@@ -57,6 +57,7 @@ fn track(path: &str, title: &str, artist: Option<&str>, album: Option<&str>) -> 
         track_num: None,
         added_at: 1,
         cover_path: None,
+        replay_gain: 0.0,
     }
 }
 
@@ -329,7 +330,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 4, "升级后应写入当前结构版本");
+    assert_eq!(version, 5, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -342,6 +343,10 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     assert!(columns.contains(&"file_mtime".to_string()));
     assert!(columns.contains(&"file_size".to_string()));
     assert!(columns.contains(&"cover_path".to_string()));
+    assert!(
+        columns.contains(&"replay_gain".to_string()),
+        "v5 应补上 ReplayGain 列"
+    );
     drop(conn);
 
     // v2 新增的三张表也要在升级时建好

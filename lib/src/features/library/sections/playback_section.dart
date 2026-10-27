@@ -45,7 +45,11 @@ extension _PlaybackSection on _LibraryPageState {
       return false;
     }
     try {
-      await _playback.play(track.path);
+      // ReplayGain 只在开关打开时生效：标签缺省为 0 dB，等价于不调整
+      await _playback.play(
+        track.path,
+        replayGainDb: _replayGain ? track.replayGain : 0,
+      );
     } catch (error) {
       if (!mounted) {
         return false;
@@ -725,6 +729,87 @@ extension _PlaybackSection on _LibraryPageState {
       }
     } finally {
       _ticking = false;
+    }
+  }
+
+  /* --------------------------------------------------- 输出设备 / 淡变 */
+
+  /// 刷新可用设备列表；设置页打开时低频轮询，用于发现热插拔
+  Future<void> _refreshDevices() async {
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      final List<rust.PlayerDevice> devices = await _playback.devices();
+      if (!mounted) {
+        return;
+      }
+      // 列表没变就不 setState：轮询每 3 秒一次，白重建设置页没意义
+      final bool same =
+          devices.length == _devices.length &&
+          <int>[for (final rust.PlayerDevice device in devices) device.index]
+                  .join(',') ==
+              <int>[
+                for (final rust.PlayerDevice device in _devices) device.index,
+              ].join(',');
+      if (same) {
+        return;
+      }
+      _update(() => _devices = devices);
+    } catch (_) {
+      // 枚举失败（引擎忙 / DLL 缺失）保持旧列表，不影响其它操作
+    }
+  }
+
+  /// 切换输出设备：引擎会保留当前曲目与进度重开会话
+  Future<void> _setOutputDevice(int index) async {
+    if (_outputDevice == index) {
+      return;
+    }
+    _update(() {
+      _outputDevice = index;
+      _switchingOutput = true;
+    });
+    _saveSessionNow();
+    try {
+      await _playback.setDevice(index);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('切换输出设备失败：${ErrorRetry.describe(error)}');
+      unawaited(_refreshOutputInfo());
+    } finally {
+      if (mounted) {
+        _update(() => _switchingOutput = false);
+      }
+      unawaited(_refreshOutputInfo());
+      unawaited(_refreshDevices());
+    }
+  }
+
+  /// ReplayGain 开关：只影响下一首起播，不做实时调整（改增益会突然变响）
+  void _setReplayGain(bool value) {
+    if (_replayGain == value) {
+      return;
+    }
+    _update(() => _replayGain = value);
+    _saveSessionNow();
+  }
+
+  /// 换曲淡变时长（秒）；0 关闭
+  Future<void> _setCrossfade(double seconds) async {
+    if (_crossfadeSeconds == seconds) {
+      return;
+    }
+    _update(() => _crossfadeSeconds = seconds);
+    _saveSessionNow();
+    try {
+      await _playback.setCrossfade(seconds);
+    } catch (error) {
+      if (mounted) {
+        _showMessage('设置淡入淡出失败：${ErrorRetry.describe(error)}');
+      }
     }
   }
 

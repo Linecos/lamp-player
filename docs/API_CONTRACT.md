@@ -4,6 +4,10 @@
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
 >
+> v0.5 变更：`Track` 新增 `replay_gain`（ReplayGain 曲目增益，dB；无标签为 0），
+> 曲库结构升到 v5（`user_version = 5`）；`player_play` 增加 `replay_gain_db` 入参；
+> 新增输出设备枚举 / 切换与换曲淡变时长接口。纯新增 + 一个入参，Dart 侧同步更新。
+>
 > v0.4 变更：`Track` 新增 `cover_path`（内嵌封面缓存路径）；曲库结构升到 v3
 > （`user_version = 3`），升级时清零文件指纹以补封面。纯新增字段，不改现有语义。
 >
@@ -47,6 +51,7 @@
 | `album` | `album` | `String?` | 可空 |
 | `duration_secs` | `durationSecs` | `double` | 时长（秒），未知为 `0` |
 | `track_num` | `trackNum` | `int?` | 专辑内曲目号，未知为空或 `0` |
+| `replay_gain` | `replayGain` | `double` | ReplayGain 曲目增益（dB）；标签里没有时为 `0` |
 | `added_at` | `addedAt` | `PlatformInt64` | 入库时间戳（Unix 秒；native 上就是 `int`，web 上是 `BigInt`） |
 | `cover_path` | `coverPath` | `String?` | 内嵌封面的缓存文件绝对路径；无封面或提取失败为空 |
 
@@ -210,7 +215,7 @@
 | Rust 签名 | Dart 签名 | 同步 | 状态 |
 |---|---|---|---|
 | `player_is_available() -> bool` | `bool playerIsAvailable()` | 是 | **已实现** |
-| `player_play(path: String) -> Result<()>` | `Future<void> playerPlay({required String path})` | 否 | **已实现** |
+| `player_play(path: String, replay_gain_db: f64) -> Result<()>` | `Future<void> playerPlay({required String path, required double replayGainDb})` | 否 | **已实现** |
 | `player_pause() -> Result<()>` | `Future<void> playerPause()` | 否 | **已实现** |
 | `player_resume() -> Result<()>` | `Future<void> playerResume()` | 否 | **已实现** |
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
@@ -223,6 +228,10 @@
 | `player_is_exclusive() -> bool` | `bool playerIsExclusive()` | 是 | **已实现** |
 | `player_set_exclusive(exclusive: bool) -> Result<()>` | `Future<void> playerSetExclusive({required bool exclusive})` | 否 | **已实现** |
 | `player_output_info() -> Result<String>` | `Future<String> playerOutputInfo()` | 否 | **已实现** |
+| `player_devices() -> Result<Vec<PlayerDevice>>` | `Future<List<PlayerDevice>> playerDevices()` | 否 | **已实现** |
+| `player_set_device(index: i32) -> Result<()>` | `Future<void> playerSetDevice({required int index})` | 否 | **已实现** |
+| `player_current_device() -> i32` | `int playerCurrentDevice()` | 是 | **已实现** |
+| `player_set_crossfade(seconds: f64) -> Result<()>` | `Future<void> playerSetCrossfade({required double seconds})` | 否 | **已实现** |
 | `player_set_equalizer(enabled: bool, gains: Vec<f32>) -> Result<()>` | `Future<void> playerSetEqualizer({required bool enabled, required List<double> gains})` | 否 | **已实现** |
 | `player_shutdown() -> Result<()>` | `Future<void> playerShutdown()` | 否 | **已实现** |
 
@@ -235,6 +244,14 @@
 - `bass.dll` 优先从 exe 同级目录加载（构建时由 `windows/CMakeLists.txt` 拷入），
   开发态再回退 `third_party/bass/windows/x64/`；不要依赖当前工作目录。
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
+  `replay_gain_db` 由调用方按设置决定传标签值还是 `0`，引擎把它与用户音量相乘后下发
+  （夹在 −24…+12 dB，避免离谱标签削波）。
+- `player_set_device` 只影响共享输出；`index = -1` 表示系统默认。切换会保留当前曲目、
+  位置与播放状态重开会话。设备已拔掉时引擎回退系统默认并在 `player_output_info` 里说明。
+- `player_devices` 只返回可用设备（索引与 `BASS_GetDeviceInfo` 一致，从 1 开始）；
+  系统默认那一项由界面自己补，热插拔靠界面低频轮询本函数发现。
+- `player_set_crossfade` 传 0 关闭。共享模式是两条流重叠的真交叉淡变；独占模式输出只有
+  一条混音流，只做新曲淡入（不重叠）。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
 - `player_now` 返回 `PlayerProgress { position_secs, duration_secs, state }`，轮询用它：
   一次跨线程往返拿全三项，也不会出现「位置是新曲、时长还是旧曲」的错位。

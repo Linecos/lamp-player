@@ -132,6 +132,9 @@ class Track {
   /// 内嵌封面的缓存文件路径；没有封面或提取失败时为空
   final String? coverPath;
 
+  /// ReplayGain 曲目增益（dB）；标签里没有时为 0
+  final double replayGain;
+
   const Track({
     required this.path,
     required this.title,
@@ -141,6 +144,7 @@ class Track {
     this.trackNum,
     required this.addedAt,
     this.coverPath,
+    required this.replayGain,
   });
 
   @override
@@ -152,7 +156,8 @@ class Track {
       durationSecs.hashCode ^
       trackNum.hashCode ^
       addedAt.hashCode ^
-      coverPath.hashCode;
+      coverPath.hashCode ^
+      replayGain.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -166,7 +171,8 @@ class Track {
           durationSecs == other.durationSecs &&
           trackNum == other.trackNum &&
           addedAt == other.addedAt &&
-          coverPath == other.coverPath;
+          coverPath == other.coverPath &&
+          replayGain == other.replayGain;
 }
 
 /// 单曲播放次数（排行榜用）。

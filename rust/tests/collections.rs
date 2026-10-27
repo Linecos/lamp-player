@@ -60,6 +60,7 @@ fn track(path: &str, title: &str) -> Track {
         track_num: None,
         added_at: 1,
         cover_path: None,
+        replay_gain: 0.0,
     }
 }
 

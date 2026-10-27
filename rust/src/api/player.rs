@@ -23,8 +23,56 @@ pub fn player_is_available() -> bool {
 }
 
 /// 加载并播放指定文件；当前正在播放的曲目会被停止
-pub fn player_play(path: String) -> Result<()> {
-    bass::play(&path)
+///
+/// `replay_gain_db` 是该曲目标签里的 ReplayGain 增益（dB），`0.0` 表示不做响度归一；
+/// 由调用方按设置决定传标签值还是 0。
+pub fn player_play(path: String, replay_gain_db: f64) -> Result<()> {
+    bass::play(&path, replay_gain_db)
+}
+
+/// 可切换的输出设备
+#[derive(Clone, Debug)]
+pub struct PlayerDevice {
+    /// `BASS_GetDeviceInfo` 的索引，切换时原样传回
+    pub index: i32,
+    pub name: String,
+    /// 是否为当前选中的设备（默认设备也算）
+    pub is_default: bool,
+}
+
+/// 可用的输出设备；`-1`（系统默认）由界面自己补一条，不在这里返回
+pub fn player_devices() -> Result<Vec<PlayerDevice>> {
+    Ok(bass::devices()?
+        .into_iter()
+        .map(|device| PlayerDevice {
+            index: device.index,
+            name: device.name,
+            is_default: device.is_default,
+        })
+        .collect())
+}
+
+/// 切换输出设备（`-1` = 系统默认），保留当前曲目、位置与播放状态
+pub fn player_set_device(index: i32) -> Result<()> {
+    bass::set_device(index)
+}
+
+/// 当前选中的设备索引；`-1` 表示系统默认
+#[flutter_rust_bridge::frb(sync)]
+pub fn player_current_device() -> i32 {
+    bass::current_device()
+}
+
+/// 换曲交叉淡变时长（秒）；`0` 关闭
+///
+/// 共享模式是真正的重叠交叉淡变；独占模式只有新曲淡入。
+pub fn player_set_crossfade(seconds: f64) -> Result<()> {
+    let millis = if seconds.is_finite() && seconds > 0.0 {
+        (seconds * 1000.0).clamp(0.0, 20_000.0) as u32
+    } else {
+        0
+    };
+    bass::set_crossfade(millis)
 }
 
 /// 暂停当前曲目

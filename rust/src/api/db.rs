@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 struct Database {
     path: String,
@@ -330,6 +330,16 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         conn.pragma_update(None, "user_version", 4)?;
     }
 
+    if version < 5 {
+        // v5：ReplayGain 曲目增益。老库没有这个标签，清零即可；下次扫描会补。
+        if !column_exists(conn, "tracks", "replay_gain")? {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN replay_gain REAL NOT NULL DEFAULT 0;",
+            )?;
+        }
+        conn.pragma_update(None, "user_version", 5)?;
+    }
+
     Ok(())
 }
 
@@ -358,7 +368,7 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
     let mut results = with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM tracks t
             JOIN tracks_fts f ON f.rowid = t.id
             WHERE tracks_fts MATCH ?1
@@ -404,7 +414,7 @@ fn substring_search(query: &str, limit: i32) -> anyhow::Result<Vec<Track>> {
 
     let fields = "(title || ' ' || COALESCE(artist, '') || ' ' || COALESCE(album, ''))";
     let mut sql = String::from(
-        "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path \
+        "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain \
          FROM tracks WHERE ",
     );
     for index in 0..terms.len() {
@@ -463,7 +473,7 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path
+            SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain
             FROM tracks
             ORDER BY artist, album, track_num, title
             "#,
@@ -488,15 +498,16 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
         {
             let mut stmt = tx.prepare_cached(
                 r#"
-                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at, cover_path)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, ''))
+                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, ''), ?9)
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
                     album         = excluded.album,
                     duration_secs = excluded.duration_secs,
                     track_num     = excluded.track_num,
-                    cover_path    = COALESCE(?8, tracks.cover_path)
+                    cover_path    = COALESCE(?8, tracks.cover_path),
+                    replay_gain   = excluded.replay_gain
                 "#,
             )?;
             for t in &tracks {
@@ -508,7 +519,8 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                     t.duration_secs,
                     t.track_num.unwrap_or(0),
                     t.added_at,
-                    t.cover_path
+                    t.cover_path,
+                    t.replay_gain
                 ])?;
             }
         }
@@ -533,8 +545,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks
-                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, ''))
+                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, ''), ?11)
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
@@ -547,7 +559,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     cover_path    = CASE
                         WHEN excluded.cover_path <> '' THEN excluded.cover_path
                         ELSE tracks.cover_path
-                    END
+                    END,
+                    replay_gain   = excluded.replay_gain
                 "#,
             )?;
             for item in items {
@@ -562,7 +575,8 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     t.added_at,
                     item.mtime_ns,
                     item.size,
-                    t.cover_path
+                    t.cover_path,
+                    t.replay_gain
                 ])?;
             }
         }
@@ -811,8 +825,8 @@ fn merge_track_path(
         let copied = tx.execute(
             r#"
             INSERT INTO tracks
-                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path)
-            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain
             FROM tracks
             WHERE path = ?2
             "#,
@@ -934,6 +948,7 @@ pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
         track_num: Some(row.get::<_, i32>(5)?).filter(|n| *n > 0),
         added_at: row.get(6)?,
         cover_path: some_if_not_empty(row.get::<_, String>(7)?),
+        replay_gain: row.get(8)?,
     })
 }
 
@@ -961,7 +976,8 @@ mod tests {
                 added_at      INTEGER NOT NULL DEFAULT 0,
                 file_mtime    INTEGER NOT NULL DEFAULT 0,
                 file_size     INTEGER NOT NULL DEFAULT 0,
-                cover_path    TEXT NOT NULL DEFAULT ''
+                cover_path    TEXT NOT NULL DEFAULT '',
+                replay_gain   REAL NOT NULL DEFAULT 0
             );
             CREATE TABLE playlists (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,

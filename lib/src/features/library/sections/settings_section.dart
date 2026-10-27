@@ -32,6 +32,17 @@ extension _SettingsSection on _LibraryPageState {
             eqEnabled: _eqEnabled,
             eqGains: _eqGains,
             onEqualizerChanged: _isAvailable ? _setEqualizer : null,
+            devices: _devices,
+            outputDevice: _outputDevice,
+            onOutputDeviceChanged: _isAvailable && !_switchingOutput
+                ? (int index) => unawaited(_setOutputDevice(index))
+                : null,
+            replayGain: _replayGain,
+            onReplayGainChanged: _setReplayGain,
+            crossfadeSeconds: _crossfadeSeconds,
+            onCrossfadeChanged: _isAvailable
+                ? (double seconds) => unawaited(_setCrossfade(seconds))
+                : null,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,

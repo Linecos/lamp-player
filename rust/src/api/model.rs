@@ -15,6 +15,8 @@ pub struct Track {
     pub added_at: i64,
     /// 内嵌封面的缓存文件路径；没有封面或提取失败时为空
     pub cover_path: Option<String>,
+    /// ReplayGain 曲目增益（dB）；标签里没有时为 0
+    pub replay_gain: f64,
 }
 
 /// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。
