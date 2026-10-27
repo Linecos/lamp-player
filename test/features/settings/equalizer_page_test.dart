@@ -49,7 +49,8 @@ void main() {
 
     final Finder band = find.byKey(const ValueKey<String>('eq-band-5'));
     await tester.ensureVisible(band);
-    await tester.dragFrom(tester.getRect(band).center, const Offset(40, 0));
+    // 竖推子：向上拖 = 增益变大
+    await tester.dragFrom(tester.getRect(band).center, const Offset(0, -60));
     await tester.pumpAndSettle();
 
     expect(changes, isNotEmpty, reason: '松手应提交一次');

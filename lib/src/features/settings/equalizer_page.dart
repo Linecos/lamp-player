@@ -123,11 +123,19 @@ class _EqualizerPageState extends State<EqualizerPage> {
           ),
           const SizedBox(height: 4),
           _Card(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
             child: Column(
               children: <Widget>[
-                for (int index = 0; index < _gains.length; index += 1)
-                  _bandRow(context, index),
+                SizedBox(
+                  height: 280,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      for (int index = 0; index < _gains.length; index += 1)
+                        _bandColumn(context, index),
+                    ],
+                  ),
+                ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
@@ -171,49 +179,61 @@ class _EqualizerPageState extends State<EqualizerPage> {
     );
   }
 
-  Widget _bandRow(BuildContext context, int index) {
+  /// 单根竖推子：上面增益读数、中间旋转 270° 的滑块、下面频率标签。
+  ///
+  /// Flutter 没有竖向 Slider，`RotatedBox` 反转后「向上 = 增益变大」。
+  Widget _bandColumn(BuildContext context, int index) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final double gain = _gains[index];
     final int rounded = gain.round();
+    final bool boosted = rounded != 0;
 
-    return Row(
-      children: <Widget>[
-        SizedBox(
-          width: 48,
-          child: Text(
+    return Expanded(
+      child: Column(
+        children: <Widget>[
+          Text(
+            rounded == 0 ? '0' : (rounded > 0 ? '+$rounded' : '$rounded'),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: boosted ? scheme.primary : scheme.onSurfaceVariant,
+              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+            ),
+          ),
+          Expanded(
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 12,
+                  ),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 7,
+                  ),
+                ),
+                child: Slider(
+                  key: ValueKey<String>('eq-band-$index'),
+                  value: gain,
+                  min: -equalizerMaxGain,
+                  max: equalizerMaxGain,
+                  divisions: (equalizerMaxGain * 2).round(),
+                  onChanged: widget.onChanged == null
+                      ? null
+                      : (double value) => setState(() => _gains[index] = value),
+                  onChangeEnd: (_) => _commit(custom: true),
+                ),
+              ),
+            ),
+          ),
+          Text(
             equalizerBandLabels[index],
-            style: theme.textTheme.bodySmall?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
           ),
-        ),
-        Expanded(
-          child: Slider(
-            key: ValueKey<String>('eq-band-$index'),
-            value: gain,
-            min: -equalizerMaxGain,
-            max: equalizerMaxGain,
-            divisions: (equalizerMaxGain * 2).round(),
-            onChanged: widget.onChanged == null
-                ? null
-                : (double value) => setState(() => _gains[index] = value),
-            onChangeEnd: (_) => _commit(custom: true),
-          ),
-        ),
-        SizedBox(
-          width: 56,
-          child: Text(
-            rounded == 0
-                ? '0 dB'
-                : (rounded > 0 ? '+$rounded dB' : '$rounded dB'),
-            textAlign: TextAlign.right,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
