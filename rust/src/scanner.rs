@@ -11,7 +11,7 @@ use lofty::tag::{Accessor, ItemKey, Tag};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
@@ -196,7 +196,11 @@ fn read_track(
         .and_then(|t| t.track())
         .and_then(|n| i32::try_from(n).ok());
 
-    let cover_path = covers_dir.and_then(|dir| tag.and_then(|t| extract_cover(t, dir)));
+    // 封面来源优先级：标签内嵌 → 同目录外挂图（cover.jpg / folder.jpg …）
+    let cover_path = covers_dir.and_then(|dir| {
+        tag.and_then(|t| extract_cover(t, dir))
+            .or_else(|| sidecar_cover(path, dir))
+    });
 
     // ReplayGain 曲目增益，标签里通常写成 "-7.23 dB"；没有就按 0 处理。
     // 上下限夹一下：个别文件写过 +60 dB 这种离谱值，直接套用会削波到失真。
@@ -244,12 +248,15 @@ fn extract_cover(tag: &Tag, covers_dir: &Path) -> Option<String> {
 ///
 /// 用 FNV-1a 而不是 `DefaultHasher`，保证跨进程、跨构建的文件名稳定。
 fn store_cover(covers_dir: &Path, picture: &Picture) -> Option<String> {
-    let data = picture.data();
+    let extension = cover_extension(picture)?;
+    store_cover_bytes(covers_dir, picture.data(), extension)
+}
+
+/// 把图片字节按内容哈希写进缓存目录（内嵌封面与外挂图共用）。
+fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str) -> Option<String> {
     if data.is_empty() || data.len() > MAX_COVER_BYTES {
         return None;
     }
-    let extension = cover_extension(picture)?;
-
     fs::create_dir_all(covers_dir).ok()?;
     let name = format!("{:016x}.{extension}", content_hash(data));
     let path = covers_dir.join(name);
@@ -257,6 +264,51 @@ fn store_cover(covers_dir: &Path, picture: &Picture) -> Option<String> {
         fs::write(&path, data).ok()?;
     }
     path.to_str().map(str::to_owned)
+}
+
+/// 同目录外挂封面兜底：`cover.jpg` / `folder.jpg` / `album.png` 之类。
+///
+/// 抓轨工具的习惯并不统一（Windows 媒体播放器写 `Folder.jpg`，多数工具写
+/// `cover.jpg`），这里按固定名单 + 大小写不敏感匹配，命中的图仍按内容哈希
+/// 进缓存目录，同一张专辑只会存一份。
+fn sidecar_cover(path: &Path, covers_dir: &Path) -> Option<String> {
+    /// 文件名优先级：越靠前越像「这张专辑的封面」
+    const NAMES: [&str; 4] = ["cover", "folder", "albumart", "album"];
+    const EXTS: [&str; 4] = ["jpg", "jpeg", "png", "gif"];
+
+    let dir = path.parent()?;
+    let mut best: Option<(usize, usize, PathBuf)> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let candidate = entry.path();
+        if !candidate.is_file() {
+            continue;
+        }
+        let (Some(stem), Some(ext)) = (candidate.file_stem(), candidate.extension()) else {
+            continue;
+        };
+        let stem = stem.to_string_lossy().to_ascii_lowercase();
+        let ext = ext.to_string_lossy().to_ascii_lowercase();
+        let (Some(name_rank), Some(ext_rank)) = (
+            NAMES.iter().position(|name| *name == stem),
+            EXTS.iter().position(|known| *known == ext),
+        ) else {
+            continue;
+        };
+        // 名字优先、其次格式（jpg 比 gif 常见，解码也更快）
+        let rank = (name_rank, ext_rank, candidate);
+        if best
+            .as_ref()
+            .is_none_or(|current| (rank.0, rank.1) < (current.0, current.1))
+        {
+            best = Some((rank.0, rank.1, rank.2));
+        }
+    }
+
+    let (_, _, file) = best?;
+    let data = fs::read(&file).ok()?;
+    // 扩展名不可信（用户可能把 png 存成 .jpg），按文件头再认一次
+    let extension = sniff_image_extension(&data)?;
+    store_cover_bytes(covers_dir, &data, extension)
 }
 
 /// 封面文件扩展名；不支持的格式返回 `None`（存下来也显示不了）。
@@ -345,7 +397,7 @@ fn path_key_with(path: &str, windows: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_hash, parse_replay_gain, path_key_with, store_cover};
+    use super::{content_hash, parse_replay_gain, path_key_with, sidecar_cover, store_cover};
     use lofty::picture::{MimeType, Picture, PictureType};
     use std::fs;
     use std::path::PathBuf;
@@ -398,6 +450,41 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("创建临时目录");
         dir
+    }
+
+    #[test]
+    fn sidecar_cover_prefers_cover_jpg_and_is_case_insensitive() {
+        let dir = temp_dir("sidecar");
+        let covers = dir.join("covers");
+        fs::write(
+            dir.join("album.png"),
+            [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'],
+        )
+        .expect("写 png");
+        let track = dir.join("a.mp3");
+        fs::write(&track, b"not-really-audio").expect("写曲目占位");
+
+        // 只有 album.png 时也认；命中后写进缓存目录
+        let picked = sidecar_cover(&track, &covers).expect("应找到外挂封面");
+        assert!(std::path::Path::new(&picked).exists(), "封面应写进缓存目录");
+
+        // 大小写不敏感的 folder 也算，但 cover 优先
+        fs::write(dir.join("Folder.JPG"), [0xFF, 0xD8, 0xFF, 0x11]).expect("写 Folder.JPG");
+        let folder_only = sidecar_cover(&track, &covers).expect("应找到 Folder.JPG");
+        fs::write(dir.join("cover.jpg"), [0xFF, 0xD8, 0xFF, 0x22]).expect("写 cover.jpg");
+        let preferred = sidecar_cover(&track, &covers).expect("应找到 cover.jpg");
+        assert_ne!(
+            folder_only, preferred,
+            "cover.jpg 的优先级要高于 Folder.JPG"
+        );
+
+        // 没有可用图片时返回 None，不要写到缓存目录外面去
+        let empty = temp_dir("sidecar_empty");
+        fs::write(empty.join("a.mp3"), b"x").expect("写曲目占位");
+        assert!(sidecar_cover(&empty.join("a.mp3"), &covers).is_none());
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&empty);
     }
 
     #[test]
