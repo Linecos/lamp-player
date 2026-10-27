@@ -417,6 +417,12 @@ class FakePlaybackService implements PlaybackService {
 
   /// 每次 play 传入的 ReplayGain（dB），与 [playedPaths] 一一对应
   final List<double> playedGains = <double>[];
+
+  /// `analyzeReplayGain()` 返回的固定值
+  double analyzedGain = -7.5;
+
+  /// 非空时 `analyzeReplayGain()` 抛出该错误，用于测试无标签曲目回落 0
+  Object? analyzeError;
   final List<double> seekCalls = <double>[];
   final List<double> volumeCalls = <double>[];
   int pauseCalls = 0;
@@ -446,6 +452,15 @@ class FakePlaybackService implements PlaybackService {
     playedPaths.add(path);
     playedGains.add(replayGainDb);
     current = rust.PlaybackState.playing;
+  }
+
+  @override
+  Future<double> analyzeReplayGain(String path) async {
+    final Object? error = analyzeError;
+    if (error != null) {
+      throw error;
+    }
+    return analyzedGain;
   }
 
   @override

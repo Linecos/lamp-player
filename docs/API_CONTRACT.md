@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.4（2026-10-23）**
+> **当前版本：v0.6（2026-10-27）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.6 变更：新增 `player_analyze_replay_gain`（整曲响度分析，返回 ReplayGain 建议增益）。
+> 纯新增，不改现有语义。
 >
 > v0.5 变更：`Track` 新增 `replay_gain`（ReplayGain 曲目增益，dB；无标签为 0），
 > 曲库结构升到 v5（`user_version = 5`）；`player_play` 增加 `replay_gain_db` 入参；
@@ -216,6 +219,7 @@
 |---|---|---|---|
 | `player_is_available() -> bool` | `bool playerIsAvailable()` | 是 | **已实现** |
 | `player_play(path: String, replay_gain_db: f64) -> Result<()>` | `Future<void> playerPlay({required String path, required double replayGainDb})` | 否 | **已实现** |
+| `player_analyze_replay_gain(path: String) -> Result<f64>` | `Future<double> playerAnalyzeReplayGain({required String path})` | 否 | **已实现** |
 | `player_pause() -> Result<()>` | `Future<void> playerPause()` | 否 | **已实现** |
 | `player_resume() -> Result<()>` | `Future<void> playerResume()` | 否 | **已实现** |
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
@@ -246,6 +250,10 @@
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
   `replay_gain_db` 由调用方按设置决定传标签值还是 `0`，引擎把它与用户音量相乘后下发
   （夹在 −24…+12 dB，避免离谱标签削波）。
+- `player_analyze_replay_gain` 整曲解码并按 ReplayGain 2.0 计算建议增益
+  （EBU R128 积分响度，目标 −18 LUFS，夹在 ±24 dB，全静音返回 0）。解码走独立
+  线程、不需要输出设备，也不占用引擎线程；全曲分析约零点几秒到几秒，Dart 侧
+  自行缓存结果（标签有增益的曲目不要调它）。
 - `player_set_device` 只影响共享输出；`index = -1` 表示系统默认。切换会保留当前曲目、
   位置与播放状态重开会话。设备已拔掉时引擎回退系统默认并在 `player_output_info` 里说明。
 - `player_devices` 只返回可用设备（索引与 `BASS_GetDeviceInfo` 一致，从 1 开始）；

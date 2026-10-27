@@ -26,6 +26,20 @@ impl Default for BassDeviceInfo {
     }
 }
 
+/// `BASS_CHANNELINFO`（bass.h）：采样率与声道数是分析时需要的
+#[repr(C)]
+#[derive(Default)]
+pub(super) struct BassChannelInfo {
+    pub(super) freq: u32,
+    pub(super) chans: u32,
+    pub(super) flags: u32,
+    pub(super) ctype: u32,
+    pub(super) origres: u32,
+    pub(super) plugin: u32,
+    pub(super) sample: u32,
+    pub(super) origlen: u64,
+}
+
 pub(super) struct Api {
     pub(super) _lib: Library,
     pub(super) init: unsafe extern "system" fn(i32, u32, u32, *mut c_void, *const c_void) -> i32,
@@ -41,6 +55,7 @@ pub(super) struct Api {
     pub(super) channel_set_position: unsafe extern "system" fn(u32, u64, u32) -> i32,
     pub(super) channel_get_position: unsafe extern "system" fn(u32, u32) -> u64,
     pub(super) channel_get_length: unsafe extern "system" fn(u32, u32) -> u64,
+    pub(super) channel_get_info: unsafe extern "system" fn(u32, *mut BassChannelInfo) -> i32,
     pub(super) channel_set_attribute: unsafe extern "system" fn(u32, u32, f32) -> i32,
     pub(super) channel_slide_attribute: unsafe extern "system" fn(u32, u32, f32, u32) -> i32,
     pub(super) get_device_info: unsafe extern "system" fn(i32, *mut BassDeviceInfo) -> i32,
@@ -70,6 +85,7 @@ impl Api {
             channel_set_position: sym(&lib, "BASS_ChannelSetPosition")?,
             channel_get_position: sym(&lib, "BASS_ChannelGetPosition")?,
             channel_get_length: sym(&lib, "BASS_ChannelGetLength")?,
+            channel_get_info: sym(&lib, "BASS_ChannelGetInfo")?,
             channel_set_attribute: sym(&lib, "BASS_ChannelSetAttribute")?,
             channel_slide_attribute: sym(&lib, "BASS_ChannelSlideAttribute")?,
             get_device_info: sym(&lib, "BASS_GetDeviceInfo")?,
@@ -119,6 +135,7 @@ fn error_text(code: i32) -> &'static str {
         37 => "请求的操作不可用",
         41 => "不支持的文件格式",
         44 => "缺少对应的解码器",
+        45 => "文件已读到结尾",
         _ => "未知错误",
     }
 }

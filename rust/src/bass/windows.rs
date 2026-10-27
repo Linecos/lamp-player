@@ -15,6 +15,10 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
+/// 整曲响度分析（ReplayGain 2.0），独立于引擎线程
+#[path = "analyze.rs"]
+pub(super) mod analyze;
+
 const ST_STOPPED: u8 = 0;
 const ST_PLAYING: u8 = 1;
 const ST_PAUSED: u8 = 2;
@@ -136,7 +140,7 @@ const ACTIVE_PAUSED: u32 = 3;
 const ACTIVE_PAUSED_DEVICE: u32 = 4;
 
 /// 支持的插件，缺失会被跳过而不是整体失败
-const PLUGINS: [&str; 5] = [
+pub(super) const PLUGINS: [&str; 5] = [
     "bassflac.dll",
     "bassopus.dll",
     "bass_aac.dll",
@@ -1534,6 +1538,10 @@ pub fn play(path: &str, replay_gain_db: f64) -> Result<()> {
     call(Class::Transport, |reply| {
         Cmd::Play(path.to_string(), replay_gain_db, reply)
     })
+}
+
+pub fn analyze_gain(path: &str) -> Result<f64> {
+    analyze::analyze_gain(path)
 }
 
 pub fn devices() -> Result<Vec<Device>> {

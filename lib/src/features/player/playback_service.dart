@@ -14,6 +14,11 @@ abstract interface class PlaybackService {
   /// 播放 [path]；[replayGainDb] 为曲目标签里的 ReplayGain 增益（0 = 不归一）
   Future<void> play(String path, {double replayGainDb = 0});
 
+  /// 分析 [path] 的整曲响度，返回 ReplayGain 建议增益（dB）。
+  ///
+  /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需零点几秒）。
+  Future<double> analyzeReplayGain(String path);
+
   Future<void> pause();
 
   Future<void> resume();
@@ -87,6 +92,10 @@ class RustPlaybackService implements PlaybackService {
   @override
   Future<void> play(String path, {double replayGainDb = 0}) =>
       rust.playerPlay(path: path, replayGainDb: replayGainDb);
+
+  @override
+  Future<double> analyzeReplayGain(String path) =>
+      rust.playerAnalyzeReplayGain(path: path);
 
   @override
   Future<void> pause() => rust.playerPause();
