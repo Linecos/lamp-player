@@ -31,6 +31,7 @@ class SessionSnapshot {
     this.outputDevice = -1,
     this.replayGain = false,
     this.crossfadeSeconds = 0,
+    this.flowBackground = true,
   });
 
   final double volume;
@@ -80,6 +81,9 @@ class SessionSnapshot {
 
   /// 换曲交叉淡变时长（秒）；0 表示关闭
   final double crossfadeSeconds;
+
+  /// 正在播放页是否启用封面取色流光背景
+  final bool flowBackground;
 }
 
 abstract interface class SessionStore {
@@ -109,6 +113,7 @@ class PrefsSessionStore implements SessionStore {
   static const String replayGainKey = 'player_replay_gain';
   static const String crossfadeKey = 'player_crossfade_seconds';
   static const String sortKey = 'ui_sort';
+  static const String flowBackgroundKey = 'ui_flow_background';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
   static const String volumeCurveVersionKey = 'volume_curve_version';
 
@@ -163,6 +168,7 @@ class PrefsSessionStore implements SessionStore {
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
+        flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
       );
     } catch (_) {
       return const SessionSnapshot();
@@ -184,6 +190,7 @@ class PrefsSessionStore implements SessionStore {
         await prefs.setString(lastTrackKey, path);
       }
       await prefs.setDouble(lastPositionKey, snapshot.lastPositionSecs);
+      await prefs.setBool(flowBackgroundKey, snapshot.flowBackground);
       await prefs.setString(repeatKey, snapshot.repeat.name);
       await prefs.setBool(shuffleKey, snapshot.shuffle);
       final String? section = snapshot.section;

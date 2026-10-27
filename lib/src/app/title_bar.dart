@@ -142,29 +142,37 @@ class _LampTitleBarState extends State<LampTitleBar> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final Color background = widget.background ?? scheme.surfaceContainerLow;
 
-    final Widget controls = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        _CaptionButton(
-          key: const ValueKey<String>('window-minimize'),
-          glyph: WindowGlyph.minimize,
-          label: '最小化',
-          onTap: () => unawaited(_minimize()),
-        ),
-        _CaptionButton(
-          key: const ValueKey<String>('window-maximize'),
-          glyph: _maximized ? WindowGlyph.restore : WindowGlyph.maximize,
-          label: _maximized ? '还原' : '最大化',
-          onTap: () => unawaited(_toggleMaximize()),
-        ),
-        _CaptionButton(
-          key: const ValueKey<String>('window-close'),
-          glyph: WindowGlyph.close,
-          label: '关闭',
-          danger: true,
-          onTap: () => unawaited(_close()),
-        ),
-      ],
+    final Widget controls = ValueListenableBuilder<bool>(
+      valueListenable: forceLightWindowControls,
+      builder: (BuildContext context, bool light, Widget? child) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _CaptionButton(
+              key: const ValueKey<String>('window-minimize'),
+              glyph: WindowGlyph.minimize,
+              label: '最小化',
+              light: light,
+              onTap: () => unawaited(_minimize()),
+            ),
+            _CaptionButton(
+              key: const ValueKey<String>('window-maximize'),
+              glyph: _maximized ? WindowGlyph.restore : WindowGlyph.maximize,
+              label: _maximized ? '还原' : '最大化',
+              light: light,
+              onTap: () => unawaited(_toggleMaximize()),
+            ),
+            _CaptionButton(
+              key: const ValueKey<String>('window-close'),
+              glyph: WindowGlyph.close,
+              label: '关闭',
+              light: light,
+              danger: true,
+              onTap: () => unawaited(_close()),
+            ),
+          ],
+        );
+      },
     );
 
     if (widget.controlsOnly) {
@@ -278,6 +286,7 @@ class _CaptionButton extends StatefulWidget {
     required this.glyph,
     required this.label,
     required this.onTap,
+    this.light = false,
     this.danger = false,
   });
 
@@ -287,6 +296,7 @@ class _CaptionButton extends StatefulWidget {
   final String label;
 
   final VoidCallback onTap;
+  final bool light;
   final bool danger;
 
   @override
@@ -303,11 +313,15 @@ class _CaptionButtonState extends State<_CaptionButton> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final bool highlight = _hovering;
     final Color background = highlight
-        ? (widget.danger ? _closeHover : scheme.surfaceContainerHighest)
+        ? (widget.danger
+              ? _closeHover
+              : (widget.light
+                    ? Colors.white.withValues(alpha: 0.16)
+                    : scheme.surfaceContainerHighest))
         : Colors.transparent;
     final Color foreground = highlight && widget.danger
         ? Colors.white
-        : scheme.onSurfaceVariant;
+        : (widget.light ? Colors.white : scheme.onSurfaceVariant);
 
     return Semantics(
       button: true,

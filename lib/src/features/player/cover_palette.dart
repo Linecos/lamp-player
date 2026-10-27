@@ -72,7 +72,7 @@ abstract final class CoverPaletteCache {
           break;
         }
       }
-      if (colors.length < 2) {
+      if (colors.isEmpty) {
         return null;
       }
 
