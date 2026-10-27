@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
+import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart';
 import 'spectrum_bars.dart';
 import '../../rust/api/model.dart';
@@ -770,12 +771,14 @@ class _SlimSlider extends StatelessWidget {
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
         trackShape: const RoundedRectSliderTrackShape(),
       ),
-      child: Slider(
-        value: value.clamp(0.0, max).toDouble(),
-        max: max,
-        onChangeStart: enabled ? onChangeStart : null,
-        onChanged: enabled ? onChanged : null,
-        onChangeEnd: enabled ? onChangeEnd : null,
+      child: SliderSemanticsScope(
+        child: Slider(
+          value: value.clamp(0.0, max).toDouble(),
+          max: max,
+          onChangeStart: enabled ? onChangeStart : null,
+          onChanged: enabled ? onChanged : null,
+          onChangeEnd: enabled ? onChangeEnd : null,
+        ),
       ),
     );
   }
