@@ -309,7 +309,7 @@ class SettingsView extends StatelessWidget {
         title: 'ReplayGain 响度归一',
         switchKey: const ValueKey<String>('settings-replay-gain-switch'),
         subtitle: replayGain
-            ? '按标签里的增益调整每首歌的音量，专辑之间不再忽大忽小'
+            ? '按标签或现场分析的增益统一各首歌的音量，专辑之间不再忽大忽小'
             : '关闭时按原始音量播放（切换后从下一首起生效）',
         value: replayGain,
         onChanged: onReplayGainChanged,

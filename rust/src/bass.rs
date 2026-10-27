@@ -63,6 +63,14 @@ pub fn devices() -> Result<Vec<Device>> {
     imp::devices()
 }
 
+/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+///
+/// 按 ReplayGain 2.0 计算：EBU R128 积分响度，目标 -18 LUFS，结果夹取 ±24 dB；
+/// 全静音返回 0。解码不需要输出设备，也不经过引擎线程，不影响当前播放。
+pub fn analyze_gain(path: &str) -> Result<f64> {
+    imp::analyze_gain(path)
+}
+
 /// 切换共享输出设备；保留当前曲目、位置与播放状态
 pub fn set_device(index: i32) -> Result<()> {
     imp::set_device(index)

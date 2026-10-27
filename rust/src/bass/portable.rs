@@ -19,6 +19,10 @@ pub fn play(_path: &str, _replay_gain_db: f64) -> Result<()> {
     unsupported()
 }
 
+pub fn analyze_gain(_path: &str) -> Result<f64> {
+    unsupported()
+}
+
 pub fn devices() -> Result<Vec<Device>> {
     Ok(Vec::new())
 }
