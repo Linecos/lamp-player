@@ -58,7 +58,7 @@ class LibraryRail extends StatefulWidget {
 
   static const double expandedWidth = 220;
   static const double collapsedWidth = 72;
-  static const Duration animationDuration = Duration(milliseconds: 240);
+  static const Duration animationDuration = Duration(milliseconds: 180);
 
   @override
   State<LibraryRail> createState() => _LibraryRailState();

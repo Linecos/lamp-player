@@ -1041,8 +1041,12 @@ class _LibraryPageState extends State<LibraryPage>
 
       _sectionRefreshTimer?.cancel();
       _sectionRefreshTimer = Timer(const Duration(milliseconds: 170), () {
+        // 淡入期间显示的是旧快照，这里补一次真数据。数据其实没变时
+        // （切来切回、或该分区数据未刷新）不必重建——那一次 setState 会
+        // 把整个分区再建一遍，是切换后 ~170ms 又卡一下的来源。
+        final bool stale = _sectionVersions[section] != _stateVersion;
         _justSwitched = null;
-        if (mounted && _displayedSection == section) {
+        if (stale && mounted && _displayedSection == section) {
           setState(() {});
         }
       });

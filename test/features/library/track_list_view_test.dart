@@ -70,4 +70,29 @@ void main() {
     expect(find.text('专辑'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('只改宽度（侧栏动画）时列表不重建，只重新布局', (WidgetTester tester) async {
+    await _pump(tester, width: 1000);
+    final Finder list = find.descendant(
+      of: find.byType(TrackListView),
+      matching: find.byType(ListView),
+    );
+    final ListView before = tester.widget<ListView>(list);
+
+    // 模拟侧栏展开 / 收起时内容区宽度每帧变化
+    tester.view.physicalSize = const Size(960, 600);
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final ListView after = tester.widget<ListView>(list);
+    expect(
+      identical(before, after),
+      isTrue,
+      reason: '宽度变化没跨过列阈值时应复用同一棵子树，不能重建可见行',
+    );
+
+    // 跨过列阈值才允许重建（副列要显隐）
+    tester.view.physicalSize = const Size(700, 600);
+    await tester.pump(const Duration(milliseconds: 16));
+    final ListView narrow = tester.widget<ListView>(list);
+    expect(identical(after, narrow), isFalse, reason: '跨阈值要重建出新列布局');
+  });
 }
