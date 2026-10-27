@@ -65,17 +65,54 @@ pub fn init_db(path: String) -> anyhow::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     // 外部工具（备份脚本、DB 客户端）持写锁时等一会儿，而不是立刻 SQLITE_BUSY
     conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
+    backup_before_upgrade(&mut conn, &path);
     migrate(&mut conn)?;
 
     *guard = Some(Database { path, conn });
     Ok(())
 }
 
+/// 升级结构前把整个库复制成 `<path>.bak`。
+///
+/// 迁移里全是 `ALTER TABLE` / `UPDATE`，中途失败或新版有 bug 时数据是回不去的；
+/// 有一份升级前的副本，用户改回旧版（或手工换回 .bak）就能回到原样。
+/// 备份失败只记日志不阻断启动——打不开曲库比缺一份副本更糟。
+fn backup_before_upgrade(conn: &mut Connection, path: &str) {
+    let Ok(version) = conn.pragma_query_value(None, "user_version", |row| row.get::<_, i32>(0))
+    else {
+        return;
+    };
+    if version >= SCHEMA_VERSION {
+        return;
+    }
+    let source = Path::new(path);
+    if source.metadata().map(|meta| meta.len()).unwrap_or(0) == 0 {
+        // 刚建的空库，没有可备份的东西
+        return;
+    }
+    // WAL 里可能压着还没落盘的数据，先合并再复制，否则副本是残缺的
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    let backup = PathBuf::from(format!("{path}.bak"));
+    if let Err(error) = fs::copy(source, &backup) {
+        eprintln!("升级前备份曲库失败（{}）：{error}", backup.display());
+    }
+}
+
 /// 关闭曲库连接，释放文件句柄；之后可以再次 `init_db` 到别的路径。
+///
+/// 关闭前做两件收尾：`PRAGMA optimize` 让查询计划统计信息落盘、
+/// `wal_checkpoint(TRUNCATE)` 把 WAL 合并回主库并清空——只关连接不 checkpoint，
+/// 曲目数据会一直堆在 `-wal` 里（主库看着只有几 KB），任何「只拷主库」的备份
+/// 都会丢数据。
 pub fn close_db() -> anyhow::Result<()> {
     let mut guard = cell()
         .lock()
         .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    if let Some(db) = guard.as_mut() {
+        // 两条都是尽力而为：外部工具正持锁时 checkpoint 会返回 busy，不该让退出失败
+        let _ = db.conn.execute_batch("PRAGMA optimize;");
+        let _ = db.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
     *guard = None;
     Ok(())
 }
@@ -1088,6 +1125,7 @@ mod tests {
         use super::{close_db, init_db, prune_unused_covers, with_scanning};
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        let _guard = db_guard();
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -1122,5 +1160,110 @@ mod tests {
 
         close_db().expect("关闭曲库");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 曲库是进程级单例：凡是要 `init_db` 的用例必须串行跑
+    static DB_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn db_guard() -> std::sync::MutexGuard<'static, ()> {
+        DB_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn temp_path(tag: &str) -> std::path::PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|dur| dur.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("lamp_{tag}_{}_{}", std::process::id(), nanos));
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+        dir.join("library.db")
+    }
+
+    /// 关闭曲库要把 WAL 合并回主库并截断：只关连接的话曲目数据一直压在
+    /// `-wal` 里（主库看着只有几 KB），只拷主库的备份会丢数据。
+    #[test]
+    fn close_db_checkpoints_and_truncates_wal() {
+        use super::{close_db, init_db, with_conn};
+
+        let _guard = db_guard();
+        let path = temp_path("close_wal");
+        let path_text = path.to_string_lossy().into_owned();
+        init_db(path_text.clone()).expect("初始化曲库");
+        with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO tracks (path, title) VALUES ('/music/a.mp3', '夜航')",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("写入曲目");
+
+        let wal = std::path::PathBuf::from(format!("{path_text}-wal"));
+        assert!(
+            wal.metadata().map(|meta| meta.len()).unwrap_or(0) > 0,
+            "写入后 WAL 应非空"
+        );
+
+        close_db().expect("关闭曲库");
+        assert_eq!(
+            wal.metadata().map(|meta| meta.len()).unwrap_or(0),
+            0,
+            "关闭时应截断 WAL"
+        );
+
+        let conn = Connection::open(&path).expect("直接打开主库");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .expect("曲目数");
+        assert_eq!(count, 1, "数据应已合并进主库");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// 结构升级前留一份 `.bak`：迁移中途失败或新版有 bug 时有回退点。
+    #[test]
+    fn upgrade_keeps_backup_of_previous_version() {
+        use super::{close_db, init_db, with_conn};
+
+        let _guard = db_guard();
+        let path = temp_path("upgrade_bak");
+        let path_text = path.to_string_lossy().into_owned();
+        init_db(path_text.clone()).expect("初始化曲库");
+        with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO tracks (path, title) VALUES ('/music/b.mp3', '灯下')",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("写入曲目");
+        close_db().expect("关闭曲库");
+
+        // 把版本号退回去，模拟旧版程序建的曲库
+        {
+            let conn = Connection::open(&path).expect("改版本号");
+            conn.pragma_update(None, "user_version", 3).expect("写版本");
+        }
+
+        init_db(path_text.clone()).expect("重新初始化触发升级");
+        let backup = std::path::PathBuf::from(format!("{path_text}.bak"));
+        assert!(backup.is_file(), "升级前应留下 .bak");
+
+        let conn = Connection::open(&backup).expect("打开备份");
+        let version: i32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("备份版本");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .expect("备份曲目数");
+        assert_eq!(version, 3, "备份应是升级前的结构版本");
+        assert_eq!(count, 1, "备份里应含升级前的数据");
+        drop(conn);
+
+        close_db().expect("关闭曲库");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

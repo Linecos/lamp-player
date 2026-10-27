@@ -121,7 +121,7 @@ Dart: recordPlay(path) / recentTracks(limit) → 历史（页面在播放成功�
 Dart: 列表 / 播放全部 → PlaybackQueue.replace(tracks, start)
 Dart: 播放 / 下一首 / 上一首 / 队列跳播 → 从队列取路径 → playerPlay(path)
       → Rust: 停旧曲 → BASS_StreamCreateFile → BASS_ChannelPlay
-Dart: 轮询 playerPosition()/playerState() 更新进度条（当前用轮询，后续可换事件流）
+Dart: 轮询 playerNow() 一次拿全位置 / 时长 / 状态，更新进度条（当前用轮询，后续可换事件流）
 Dart: 检测到自然播完（playing → stopped 且未 seek）→ queue.advance() → 播放下一首
 Dart: 播放成功后 recordPlay(path) + 写入会话快照
 ```

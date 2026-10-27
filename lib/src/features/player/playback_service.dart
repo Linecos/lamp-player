@@ -19,9 +19,10 @@ abstract interface class PlaybackService {
 
   Future<void> stop();
 
-  Future<double> position();
-
-  Future<double> duration();
+  /// 位置、时长与状态一次取全（轮询用）。
+  ///
+  /// 分开取会多出跨线程往返，而且两次之间可能换曲，进度条会跳一下。
+  Future<rust.PlayerProgress> now();
 
   /// 跳转到 [positionSecs] 秒；超出曲目时长会被后端截断。
   Future<void> seek(double positionSecs);
@@ -83,10 +84,7 @@ class RustPlaybackService implements PlaybackService {
   Future<void> stop() => rust.playerStop();
 
   @override
-  Future<double> position() => rust.playerPosition();
-
-  @override
-  Future<double> duration() => rust.playerDuration();
+  Future<rust.PlayerProgress> now() => rust.playerNow();
 
   @override
   Future<void> seek(double positionSecs) =>

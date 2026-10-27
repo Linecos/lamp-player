@@ -1,6 +1,6 @@
 //! 非 Windows 平台的空实现：保证 Linux CI 能编译、能跑测试。
 
-use super::State;
+use super::{Progress, State};
 use anyhow::{bail, Result};
 
 pub fn available() -> bool {
@@ -36,6 +36,10 @@ pub fn seek(_position_secs: f64) -> Result<()> {
 }
 
 pub fn set_volume(_volume: f64) -> Result<()> {
+    unsupported()
+}
+
+pub fn snapshot() -> Result<Progress> {
     unsupported()
 }
 

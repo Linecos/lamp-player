@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`
 
 /// BASS 是否可用；DLL 缺失或初始化失败时为 `false`
 bool playerIsAvailable() =>
@@ -37,6 +37,13 @@ Future<void> playerSeek({required double positionSecs}) =>
 /// 设置音量，取值 `0.0..=1.0`（超出范围会被截断）
 Future<void> playerSetVolume({required double volume}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetVolume(volume: volume);
+
+/// 一次调用拿全进度、时长与状态；未加载曲目时位置与时长都是 `0.0`。
+///
+/// 界面每 500 ms 轮询用这个：分三次取会多出两次跨线程往返，而且可能落在
+/// 换曲两侧，进度条会跳一下。
+Future<PlayerProgress> playerNow() =>
+    RustLib.instance.api.crateApiPlayerPlayerNow();
 
 /// 当前播放位置（秒）；未加载曲目时返回 `0.0`
 Future<double> playerPosition() =>
@@ -97,4 +104,35 @@ enum PlaybackState {
 
   /// 已暂停（可 `player_resume` 续播）
   paused,
+}
+
+/// 播放进度快照：位置、时长与状态一次取全
+class PlayerProgress {
+  /// 当前播放位置（秒）
+  final double positionSecs;
+
+  /// 曲目总时长（秒）
+  final double durationSecs;
+
+  /// 同一时刻的播放状态
+  final PlaybackState state;
+
+  const PlayerProgress({
+    required this.positionSecs,
+    required this.durationSecs,
+    required this.state,
+  });
+
+  @override
+  int get hashCode =>
+      positionSecs.hashCode ^ durationSecs.hashCode ^ state.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlayerProgress &&
+          runtimeType == other.runtimeType &&
+          positionSecs == other.positionSecs &&
+          durationSecs == other.durationSecs &&
+          state == other.state;
 }

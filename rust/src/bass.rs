@@ -21,6 +21,16 @@ pub enum State {
     Paused,
 }
 
+/// 一次调用同时拿到的播放进度。
+///
+/// 位置与时长分两次取时，两次之间可能跨过换曲：位置属于新曲、时长还是旧曲，
+/// 进度条会跳一下；合并成一条命令也少一半跨线程往返。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Progress {
+    pub position: f64,
+    pub duration: f64,
+}
+
 /// BASS 是否可用（DLL 加载 + 初始化成功）
 ///
 /// 首次调用会触发初始化并等待引擎就绪（约几十毫秒），之后只读原子量。
@@ -61,6 +71,14 @@ pub fn seek(position_secs: f64) -> Result<()> {
 /// 设置音量（0.0~1.0，越界截断）
 pub fn set_volume(volume: f64) -> Result<()> {
     imp::set_volume(volume)
+}
+
+/// 当前位置与总时长（秒），未加载曲目时为 0.0。
+///
+/// 轮询用这个而不是分别调 `position` / `duration`：一次线程往返拿全，
+/// 也不会出现「位置是新曲、时长还是旧曲」的错位。
+pub fn snapshot() -> Result<Progress> {
+    imp::snapshot()
 }
 
 /// 当前位置（秒），未加载曲目时为 0.0
