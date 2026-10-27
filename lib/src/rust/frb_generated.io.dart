@@ -122,6 +122,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlaybackState dco_decode_playback_state(dynamic raw);
 
   @protected
+  PlayerProgress dco_decode_player_progress(dynamic raw);
+
+  @protected
   Playlist dco_decode_playlist(dynamic raw);
 
   @protected
@@ -240,6 +243,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlaybackState sse_decode_playback_state(SseDeserializer deserializer);
+
+  @protected
+  PlayerProgress sse_decode_player_progress(SseDeserializer deserializer);
 
   @protected
   Playlist sse_decode_playlist(SseDeserializer deserializer);
@@ -384,6 +390,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_playback_state(PlaybackState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_player_progress(
+    PlayerProgress self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_playlist(Playlist self, SseSerializer serializer);

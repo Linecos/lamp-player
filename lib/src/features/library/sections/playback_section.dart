@@ -693,9 +693,10 @@ extension _PlaybackSection on _LibraryPageState {
     }
     _ticking = true;
     try {
-      final double position = await _playback.position();
-      final double duration = await _playback.duration();
-      final rust.PlaybackState state = _playback.state;
+      final rust.PlayerProgress progress = await _playback.now();
+      final double position = progress.positionSecs;
+      final double duration = progress.durationSecs;
+      final rust.PlaybackState state = progress.state;
       final bool wasPlaying = _isPlaying;
       _pollFailures = 0;
       if (!mounted || _seeking) {

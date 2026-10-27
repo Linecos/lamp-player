@@ -55,6 +55,30 @@ pub fn player_set_volume(volume: f64) -> Result<()> {
     bass::set_volume(volume)
 }
 
+/// 播放进度快照：位置、时长与状态一次取全
+#[derive(Clone, Copy, Debug)]
+pub struct PlayerProgress {
+    /// 当前播放位置（秒）
+    pub position_secs: f64,
+    /// 曲目总时长（秒）
+    pub duration_secs: f64,
+    /// 同一时刻的播放状态
+    pub state: PlaybackState,
+}
+
+/// 一次调用拿全进度、时长与状态；未加载曲目时位置与时长都是 `0.0`。
+///
+/// 界面每 500 ms 轮询用这个：分三次取会多出两次跨线程往返，而且可能落在
+/// 换曲两侧，进度条会跳一下。
+pub fn player_now() -> Result<PlayerProgress> {
+    let progress = bass::snapshot()?;
+    Ok(PlayerProgress {
+        position_secs: progress.position,
+        duration_secs: progress.duration,
+        state: player_state(),
+    })
+}
+
 /// 当前播放位置（秒）；未加载曲目时返回 `0.0`
 pub fn player_position() -> Result<f64> {
     bass::position()

@@ -125,3 +125,8 @@ Future<void> initLibrary({Directory? supportDirectory}) async {
   final String dbPath = await resolveLibraryDbPath(supportDirectory);
   await initDb(path: dbPath);
 }
+
+/// 退出前关闭曲库：Rust 侧会 `optimize` 并截断 WAL，把数据合并回主库。
+///
+/// 不关的话 WAL 会一直涨（主库看着仍只有几 KB），只拷主库的备份会丢数据。
+Future<void> closeLibrary() => closeDb();

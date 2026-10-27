@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `substring_search`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
+// These functions are ignored because they are not marked as `pub`: `backup_before_upgrade`, `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `substring_search`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 
 /// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
@@ -19,6 +19,11 @@ Future<void> initDb({required String path}) =>
     RustLib.instance.api.crateApiDbInitDb(path: path);
 
 /// 关闭曲库连接，释放文件句柄；之后可以再次 `init_db` 到别的路径。
+///
+/// 关闭前做两件收尾：`PRAGMA optimize` 让查询计划统计信息落盘、
+/// `wal_checkpoint(TRUNCATE)` 把 WAL 合并回主库并清空——只关连接不 checkpoint，
+/// 曲目数据会一直堆在 `-wal` 里（主库看着只有几 KB），任何「只拷主库」的备份
+/// 都会丢数据。
 Future<void> closeDb() => RustLib.instance.api.crateApiDbCloseDb();
 
 /// FTS5 全文检索（歌名/歌手/专辑）。

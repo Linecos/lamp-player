@@ -94,6 +94,10 @@
   必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
 - 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
   库版本高于程序支持的版本时报错，提示升级。
+- 升级前会先 `wal_checkpoint(TRUNCATE)` 再把库复制成 `<path>.bak`，迁移失败可回退；
+  这是新库（0 字节）或版本已是最新时不做备份。
+- `close_db` 不只是关连接：先 `PRAGMA optimize`，再 `wal_checkpoint(TRUNCATE)` 把 WAL
+  合并回主库并清空。应用退出时必须调用，否则曲目数据一直压在 `-wal` 里。
 - `search_tracks` 采用**前缀匹配**（每个词包成短语再补 `*`），`limit` 截断到 `1..=2000`。
   查询词里的 `-`、`+`、`:`、引号等按字面量处理，不会触发 FTS5 语法错误；
   空查询直接返回空列表。结果按 `bm25` 相关度排序。
@@ -212,6 +216,7 @@
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
 | `player_seek(position_secs: f64) -> Result<()>` | `Future<void> playerSeek({required double positionSecs})` | 否 | **已实现** |
 | `player_set_volume(volume: f64) -> Result<()>` | `Future<void> playerSetVolume({required double volume})` | 否 | **已实现** |
+| `player_now() -> Result<PlayerProgress>` | `Future<PlayerProgress> playerNow()` | 否 | **已实现** |
 | `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **已实现** |
 | `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **已实现** |
 | `player_state() -> PlaybackState` | `PlaybackState playerState()` | 是 | **已实现** |
@@ -231,6 +236,11 @@
   开发态再回退 `third_party/bass/windows/x64/`；不要依赖当前工作目录。
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
+- `player_now` 返回 `PlayerProgress { position_secs, duration_secs, state }`，轮询用它：
+  一次跨线程往返拿全三项，也不会出现「位置是新曲、时长还是旧曲」的错位。
+- 命令带单调序号与入队时刻：同类命令（换曲 / 跳转 / 音量、均衡器与独占切换）只认最新一条，
+  在队列里等到超过 10 秒的会被直接丢弃并回成功——调用方早就超时了，迟到的命令执行下去
+  只会让引擎状态和界面对不上。查询与 `player_shutdown` 永不丢弃。
 - 所有 `player_*` 命令都在同一条引擎线程上串行执行，单条命令等待 **10 秒**超时
   （`LAMP_ENGINE_TIMEOUT_SECS` 仅供测试调短）。超时返回「播放引擎无响应」而不是永久挂起：
   打开断连的 SMB / 休眠中的移动盘上的文件时，`CreateFile` 可能阻塞数十秒。

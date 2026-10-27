@@ -4,7 +4,7 @@
 //! 所有 BASS 调用都在同一条引擎线程上串行执行（命令队列 + 回执通道）。
 
 use super::wasapi;
-use super::State;
+use super::{Progress, State};
 use anyhow::{anyhow, bail, Result};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -147,12 +147,88 @@ enum Cmd {
     Stop(Reply<()>),
     Seek(f64, Reply<()>),
     Volume(f32, Reply<()>),
-    Position(Reply<f64>),
-    Duration(Reply<f64>),
+    Snapshot(Reply<Progress>),
     SetEq(bool, Vec<f32>, Reply<()>),
     SetExclusive(bool, Reply<()>),
     OutputInfo(Reply<String>),
     Shutdown(Reply<()>),
+}
+
+/// 命令分类：同一类里后发的命令让先发的作废。
+///
+/// 引擎线程卡在打开文件上（断连的网络盘、休眠中的移动盘）时，排队的命令
+/// 可能迟到好几秒：迟到的 `Play(A)` 会在用户已经切到 B 之后才真正执行，
+/// 界面显示 B 却在放 A。序号 + 入队时刻就是用来丢掉这类过期命令的。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    /// 换曲 / 暂停 / 继续 / 停止：只认最新的一条
+    Transport,
+    Seek,
+    Volume,
+    /// 均衡器 / 独占切换：都是整份状态覆盖，新的顶掉旧的
+    Config,
+    /// 查询与关闭：永不丢弃
+    Passive,
+}
+
+impl Class {
+    fn index(self) -> Option<usize> {
+        match self {
+            Class::Transport => Some(0),
+            Class::Seek => Some(1),
+            Class::Volume => Some(2),
+            Class::Config => Some(3),
+            Class::Passive => None,
+        }
+    }
+}
+
+/// 每类命令最近一次入队的序号
+static LATEST: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static NEXT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// 排队中的命令
+struct Queued {
+    seq: u64,
+    class: Class,
+    queued_at: std::time::Instant,
+    cmd: Cmd,
+}
+
+impl Queued {
+    /// 该丢弃时返回 `true`
+    fn discarded(&self) -> bool {
+        if self.class == Class::Passive {
+            return false;
+        }
+        // 调用方已经等超时并拿到错误了：再执行只会让引擎状态比界面更「新」
+        if self.queued_at.elapsed() > call_timeout() {
+            return true;
+        }
+        match self.class.index() {
+            Some(index) => self.seq < LATEST[index].load(Ordering::SeqCst),
+            None => false,
+        }
+    }
+}
+
+impl Cmd {
+    /// 丢掉的命令都回一个成功：调用方要的是「这条不再影响状态」，不是错误
+    fn reply_discarded(self) {
+        let reply = match self {
+            Cmd::Play(_, reply)
+            | Cmd::Pause(reply)
+            | Cmd::Resume(reply)
+            | Cmd::Stop(reply)
+            | Cmd::Seek(_, reply)
+            | Cmd::Volume(_, reply)
+            | Cmd::SetEq(_, _, reply)
+            | Cmd::SetExclusive(_, reply) => reply,
+            _ => return,
+        };
+        let _ = reply.send(Ok(()));
+    }
 }
 
 struct Slot {
@@ -791,6 +867,13 @@ impl Engine {
         Ok(unsafe { (self.api.channel_bytes2seconds)(self.stream, bytes) })
     }
 
+    fn snapshot(&self) -> Result<Progress> {
+        Ok(Progress {
+            position: self.position()?,
+            duration: self.duration()?,
+        })
+    }
+
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
         self.refresh_state();
@@ -1034,7 +1117,7 @@ impl Engine {
 }
 
 struct Shared {
-    tx: Sender<Cmd>,
+    tx: Sender<Queued>,
 }
 
 /// 引擎单例。
@@ -1052,7 +1135,7 @@ fn lock_engine() -> std::sync::MutexGuard<'static, Option<Result<Shared, String>
 }
 
 /// 取引擎命令发送端；首次调用会拉起引擎线程。
-fn sender() -> Result<Sender<Cmd>> {
+fn sender() -> Result<Sender<Queued>> {
     let mut guard = lock_engine();
     match guard.as_ref() {
         Some(Ok(shared)) => return Ok(shared.tx.clone()),
@@ -1075,7 +1158,7 @@ fn sender() -> Result<Sender<Cmd>> {
 }
 
 fn spawn() -> Result<Shared> {
-    let (tx, rx) = channel::<Cmd>();
+    let (tx, rx) = channel::<Queued>();
     let (ready_tx, ready_rx) = channel::<Result<(), String>>();
 
     thread::Builder::new()
@@ -1099,46 +1182,15 @@ fn spawn() -> Result<Shared> {
     }
 }
 
-fn run(mut engine: Engine, rx: Receiver<Cmd>) {
+fn run(mut engine: Engine, rx: Receiver<Queued>) {
     loop {
         match rx.recv_timeout(TICK) {
-            Ok(Cmd::Play(path, reply)) => {
-                let _ = reply.send(engine.play(&path));
-            }
-            Ok(Cmd::Pause(reply)) => {
-                let _ = reply.send(engine.pause());
-            }
-            Ok(Cmd::Resume(reply)) => {
-                let _ = reply.send(engine.resume());
-            }
-            Ok(Cmd::Stop(reply)) => {
-                let _ = reply.send(engine.stop());
-            }
-            Ok(Cmd::Seek(secs, reply)) => {
-                let _ = reply.send(engine.seek(secs));
-            }
-            Ok(Cmd::Volume(volume, reply)) => {
-                let _ = reply.send(engine.set_volume(volume));
-            }
-            Ok(Cmd::Position(reply)) => {
-                let _ = reply.send(engine.position());
-            }
-            Ok(Cmd::Duration(reply)) => {
-                let _ = reply.send(engine.duration());
-            }
-            Ok(Cmd::SetEq(enabled, gains, reply)) => {
-                let _ = reply.send(engine.set_eq(enabled, gains));
-            }
-            Ok(Cmd::SetExclusive(exclusive, reply)) => {
-                let _ = reply.send(engine.set_exclusive(exclusive));
-            }
-            Ok(Cmd::OutputInfo(reply)) => {
-                let _ = reply.send(Ok(engine.output_info()));
-            }
-            Ok(Cmd::Shutdown(reply)) => {
-                engine.shutdown();
-                let _ = reply.send(Ok(()));
-                return;
+            Ok(queued) => {
+                if queued.discarded() {
+                    queued.cmd.reply_discarded();
+                } else if dispatch(&mut engine, queued.cmd) {
+                    return;
+                }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
@@ -1148,6 +1200,48 @@ fn run(mut engine: Engine, rx: Receiver<Cmd>) {
         }
         engine.refresh();
     }
+}
+
+/// 执行一条命令；返回 `true` 表示引擎线程该退出了
+fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
+    match cmd {
+        Cmd::Play(path, reply) => {
+            let _ = reply.send(engine.play(&path));
+        }
+        Cmd::Pause(reply) => {
+            let _ = reply.send(engine.pause());
+        }
+        Cmd::Resume(reply) => {
+            let _ = reply.send(engine.resume());
+        }
+        Cmd::Stop(reply) => {
+            let _ = reply.send(engine.stop());
+        }
+        Cmd::Seek(secs, reply) => {
+            let _ = reply.send(engine.seek(secs));
+        }
+        Cmd::Volume(volume, reply) => {
+            let _ = reply.send(engine.set_volume(volume));
+        }
+        Cmd::Snapshot(reply) => {
+            let _ = reply.send(engine.snapshot());
+        }
+        Cmd::SetEq(enabled, gains, reply) => {
+            let _ = reply.send(engine.set_eq(enabled, gains));
+        }
+        Cmd::SetExclusive(exclusive, reply) => {
+            let _ = reply.send(engine.set_exclusive(exclusive));
+        }
+        Cmd::OutputInfo(reply) => {
+            let _ = reply.send(Ok(engine.output_info()));
+        }
+        Cmd::Shutdown(reply) => {
+            engine.shutdown();
+            let _ = reply.send(Ok(()));
+            return true;
+        }
+    }
+    false
 }
 
 /// 单条命令的最长等待：引擎线程卡在打不开的文件（断连的 SMB、休眠中的移动盘）
@@ -1163,11 +1257,21 @@ fn call_timeout() -> std::time::Duration {
     })
 }
 
-fn call<T>(make: impl FnOnce(Reply<T>) -> Cmd) -> Result<T> {
+fn call<T>(class: Class, make: impl FnOnce(Reply<T>) -> Cmd) -> Result<T> {
     let sender = sender()?;
+    let seq = NEXT_SEQ.fetch_add(1, Ordering::SeqCst);
+    if let Some(index) = class.index() {
+        // 入队即登记：后来的命令让还在排队的同类作废
+        LATEST[index].store(seq, Ordering::SeqCst);
+    }
     let (tx, rx) = channel();
     sender
-        .send(make(tx))
+        .send(Queued {
+            seq,
+            class,
+            queued_at: std::time::Instant::now(),
+            cmd: make(tx),
+        })
         .map_err(|_| anyhow!("播放引擎已退出"))?;
     match rx.recv_timeout(call_timeout()) {
         Ok(result) => result,
@@ -1187,35 +1291,39 @@ pub fn available() -> bool {
 }
 
 pub fn play(path: &str) -> Result<()> {
-    call(|reply| Cmd::Play(path.to_string(), reply))
+    call(Class::Transport, |reply| Cmd::Play(path.to_string(), reply))
 }
 
 pub fn pause() -> Result<()> {
-    call(Cmd::Pause)
+    call(Class::Transport, Cmd::Pause)
 }
 
 pub fn resume() -> Result<()> {
-    call(Cmd::Resume)
+    call(Class::Transport, Cmd::Resume)
 }
 
 pub fn stop() -> Result<()> {
-    call(Cmd::Stop)
+    call(Class::Transport, Cmd::Stop)
 }
 
 pub fn seek(position_secs: f64) -> Result<()> {
-    call(|reply| Cmd::Seek(position_secs, reply))
+    call(Class::Seek, |reply| Cmd::Seek(position_secs, reply))
 }
 
 pub fn set_volume(volume: f64) -> Result<()> {
-    call(|reply| Cmd::Volume(volume as f32, reply))
+    call(Class::Volume, |reply| Cmd::Volume(volume as f32, reply))
+}
+
+pub fn snapshot() -> Result<Progress> {
+    call(Class::Passive, Cmd::Snapshot)
 }
 
 pub fn position() -> Result<f64> {
-    call(Cmd::Position)
+    snapshot().map(|progress| progress.position)
 }
 
 pub fn duration() -> Result<f64> {
-    call(Cmd::Duration)
+    snapshot().map(|progress| progress.duration)
 }
 
 pub fn is_exclusive() -> bool {
@@ -1223,15 +1331,15 @@ pub fn is_exclusive() -> bool {
 }
 
 pub fn set_exclusive(exclusive: bool) -> Result<()> {
-    call(|reply| Cmd::SetExclusive(exclusive, reply))
+    call(Class::Config, |reply| Cmd::SetExclusive(exclusive, reply))
 }
 
 pub fn set_eq(enabled: bool, gains: Vec<f32>) -> Result<()> {
-    call(|reply| Cmd::SetEq(enabled, gains, reply))
+    call(Class::Config, |reply| Cmd::SetEq(enabled, gains, reply))
 }
 
 pub fn output_info() -> Result<String> {
-    call(Cmd::OutputInfo)
+    call(Class::Passive, Cmd::OutputInfo)
 }
 
 pub fn shutdown() -> Result<()> {
@@ -1245,7 +1353,12 @@ pub fn shutdown() -> Result<()> {
     };
     let (tx, rx) = channel();
     sender
-        .send(Cmd::Shutdown(tx))
+        .send(Queued {
+            seq: NEXT_SEQ.fetch_add(1, Ordering::SeqCst),
+            class: Class::Passive,
+            queued_at: std::time::Instant::now(),
+            cmd: Cmd::Shutdown(tx),
+        })
         .map_err(|_| anyhow!("播放引擎已退出"))?;
     // 设备释放不该把退出流程拖住
     let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
@@ -1282,5 +1395,52 @@ mod tests {
         assert_eq!(flags & BASS_SAMPLE_FLOAT, BASS_SAMPLE_FLOAT);
         assert_eq!(flags & BASS_UNICODE, BASS_UNICODE);
         assert_eq!(flags & BASS_STREAM_PRESCAN, BASS_STREAM_PRESCAN);
+    }
+
+    /// 构造一条排队命令；`age` 用来模拟「已经在队列里躺了很久」
+    fn queued(class: Class, seq: u64, age: std::time::Duration) -> Queued {
+        let now = std::time::Instant::now();
+        Queued {
+            seq,
+            class,
+            queued_at: now.checked_sub(age).unwrap_or(now),
+            cmd: Cmd::Pause(channel().0),
+        }
+    }
+
+    #[test]
+    fn newer_transport_command_supersedes_older_queued_one() {
+        let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
+        LATEST[0].store(seq, Ordering::SeqCst);
+        assert!(
+            queued(Class::Transport, seq - 1, std::time::Duration::ZERO).discarded(),
+            "排在前面的换曲命令应作废"
+        );
+        assert!(
+            !queued(Class::Transport, seq, std::time::Duration::ZERO).discarded(),
+            "最新那条要执行"
+        );
+    }
+
+    #[test]
+    fn passive_commands_are_never_discarded() {
+        let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
+        LATEST[0].store(seq + 5, Ordering::SeqCst);
+        assert!(
+            !queued(Class::Passive, seq, std::time::Duration::ZERO).discarded(),
+            "查询与关闭命令不参与作废"
+        );
+    }
+
+    #[test]
+    fn command_that_waited_past_the_timeout_is_dropped() {
+        let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
+        // Seek 类：序号是最新的，只按「等太久」判定
+        LATEST[1].store(seq, Ordering::SeqCst);
+        let expired = call_timeout() + std::time::Duration::from_secs(1);
+        assert!(
+            queued(Class::Seek, seq, expired).discarded(),
+            "调用方早已放弃等待，这条不该再生效"
+        );
     }
 }

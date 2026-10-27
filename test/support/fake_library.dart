@@ -460,16 +460,17 @@ class FakePlaybackService implements PlaybackService {
   }
 
   @override
-  Future<double> position() async {
+  Future<rust.PlayerProgress> now() async {
     final Object? error = positionError;
     if (error != null) {
       throw error;
     }
-    return positionSecs;
+    return rust.PlayerProgress(
+      positionSecs: positionSecs,
+      durationSecs: durationSecs,
+      state: current,
+    );
   }
-
-  @override
-  Future<double> duration() async => durationSecs;
 
   @override
   Future<void> seek(double positionSecs) async {

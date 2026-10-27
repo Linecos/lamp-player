@@ -147,7 +147,7 @@ Future<void> _quitFromTray(AppLifecycle lifecycle, TrayController tray) async {
   lifecycle.requestQuit();
   // 先让界面把播放会话落盘，再释放引擎；顺序反了会丢掉最后的位置
   await lifecycle.runBeforeExit();
-  await _shutdownAudio();
+  await _shutdownResources();
   // 图标要在窗口关闭前撤掉，否则托盘里会留一个幽灵图标
   await tray.dispose();
   try {
@@ -158,8 +158,8 @@ Future<void> _quitFromTray(AppLifecycle lifecycle, TrayController tray) async {
   }
 }
 
-/// 释放音频设备与系统媒体信息；任一步失败都继续往下
-Future<void> _shutdownAudio() async {
+/// 释放音频设备、系统媒体信息并关库；任一步失败都继续往下
+Future<void> _shutdownResources() async {
   try {
     // 独占模式下设备只由本进程持有：显式释放，别等系统回收
     await rust.playerShutdown().timeout(const Duration(seconds: 2));
@@ -170,6 +170,12 @@ Future<void> _shutdownAudio() async {
     await media.mediaClear().timeout(const Duration(seconds: 1));
   } catch (error) {
     debugPrint('清理系统媒体信息失败：$error');
+  }
+  try {
+    // 关库前会 optimize + 截断 WAL：不关的话曲目数据一直压在 -wal 里
+    await closeLibrary().timeout(const Duration(seconds: 2));
+  } catch (error) {
+    debugPrint('关闭曲库失败：$error');
   }
 }
 
@@ -307,7 +313,7 @@ class _AppWindowListener with WindowListener {
       debugPrint('关闭前保存窗口状态失败：$error');
     }
     await _lifecycle.runBeforeExit();
-    await _shutdownAudio();
+    await _shutdownResources();
     try {
       await windowManager.setPreventClose(false);
       // 用 close() 而不是 destroy()：后者只投一条 WM_QUIT，窗口不销毁，
