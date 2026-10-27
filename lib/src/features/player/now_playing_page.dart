@@ -11,10 +11,12 @@ import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../library/library_sort.dart' show trackArtist;
+import 'cover_palette.dart';
 import 'lyrics_view.dart';
 import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
+import 'widgets/cover_flow_background.dart';
 
 /// 正在播放页的实时快照。
 ///
@@ -107,6 +109,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
   bool _loading = false;
+
+  /// 当前封面的取色结果；为空时背景用主题色兜底。
+  List<Color>? _palette;
 
   /// 播放进度（秒）：歌词视图拿它做插值，拖动预览不碰它。
   final ValueNotifier<double> _position = ValueNotifier<double>(0);
@@ -286,15 +291,38 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
-  /// 切歌时重新读歌词；同一首不重复读
+  /// 切歌时重新读歌词与封面色；同一首不重复读
   void _syncTrack() {
-    final String? path = widget.data.value.track?.path;
-    if (path == null || path == _loadedPath) {
+    final Track? track = widget.data.value.track;
+    final String? path = track?.path;
+    if (path == null) {
+      if (_loadedPath != null || _palette != null) {
+        setState(() {
+          _loadedPath = null;
+          _lyrics = null;
+          _palette = null;
+        });
+      }
+      return;
+    }
+    if (path == _loadedPath) {
       return;
     }
     _loadedPath = path;
     _lyrics = null;
+    if (_palette != null) {
+      setState(() => _palette = null);
+    }
     unawaited(_loadLyrics(path));
+    unawaited(_loadPalette(track?.coverPath, path));
+  }
+
+  Future<void> _loadPalette(String? coverPath, String trackPath) async {
+    final List<Color>? colors = await CoverPaletteCache.load(coverPath);
+    if (!mounted || _loadedPath != trackPath) {
+      return;
+    }
+    setState(() => _palette = colors);
   }
 
   Future<void> _loadLyrics(String path) async {
@@ -335,17 +363,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               trackPointerNearTop(event.localPosition),
           child: Scaffold(
             backgroundColor: scheme.surfaceContainerLow,
-            body: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[
-                    scheme.surfaceContainerHighest,
-                    scheme.surfaceContainerLow,
-                  ],
-                ),
-              ),
+            body: CoverFlowBackground(
+              colors: _palette,
               child: SafeArea(
                 // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
                 // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
