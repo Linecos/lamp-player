@@ -528,6 +528,8 @@ extension _PlaybackSection on _LibraryPageState {
         unawaited(_revealInExplorer(track));
       case TrackContextAction.copyPath:
         unawaited(_copyPath(track));
+      case TrackContextAction.openWithMusicTag:
+        unawaited(_openWithMusicTag(track));
     }
   }
 
@@ -582,6 +584,78 @@ extension _PlaybackSection on _LibraryPageState {
       return;
     }
     _showMessage('已复制文件路径');
+  }
+
+  /// 用外部 MusicTag（音乐标签）编辑这首歌的标签。
+  ///
+  /// 自己实现标签编辑器成本高、也容易写坏文件，这里只做「交给专业工具」：
+  /// MusicTag 是绿色软件、装在哪不确定，第一次让用户指定 `MusicTag.exe` 并记住，
+  /// 之后右键直接打开。改完回来点提示里的「改完了，刷新」重扫该目录即可看到新标签。
+  Future<void> _openWithMusicTag(Track track) async {
+    MusicTagResult result = await _musicTag.open(<String>[track.path]);
+    if (result == MusicTagResult.unsupported) {
+      _showMessage('当前平台暂不支持外部标签编辑器');
+      return;
+    }
+    if (result == MusicTagResult.notConfigured && mounted) {
+      final bool? choose = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext dialogContext) => AlertDialog(
+          title: const Text('没有找到 MusicTag'),
+          content: const Text(
+            'MusicTag（音乐标签）是绿色软件，位置不固定，需要指定一次 MusicTag.exe。\n'
+            '选好之后会记住，下次直接从右键菜单打开。',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('选择 MusicTag.exe'),
+            ),
+          ],
+        ),
+      );
+      if (choose == true && mounted && await _musicTag.chooseExecutable()) {
+        if (!mounted) {
+          return;
+        }
+        result = await _musicTag.open(<String>[track.path]);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    if (result != MusicTagResult.launched) {
+      _showMessage('没有打开：还没指定 MusicTag.exe');
+      return;
+    }
+    _showMessage(
+      '已用 MusicTag 打开：${track.title}',
+      action: SnackBarAction(
+        label: '改完了，刷新',
+        onPressed: () => unawaited(_refreshTrackFolder(p.dirname(track.path))),
+      ),
+    );
+  }
+
+  /// 外部工具改过标签后重扫所在目录，刷新标题 / 专辑 / 封面
+  Future<void> _refreshTrackFolder(String folder) async {
+    try {
+      await _repository.scanFolder(folder);
+      await _loadTracks(silent: true);
+      if (!mounted) {
+        return;
+      }
+      _showMessage('已刷新曲库');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('刷新曲库失败：${ErrorRetry.describe(error)}');
+    }
   }
 
   /// 拖动进度时停掉轮询，否则下一次 tick 会把滑块拉回原位置。
@@ -859,12 +933,12 @@ extension _PlaybackSection on _LibraryPageState {
     _showMessage('播放引擎不可用（缺少 BASS DLL 或初始化失败）：现在可以浏览曲目，暂时不能出声。');
   }
 
-  void _showMessage(String message) {
+  void _showMessage(String message, {SnackBarAction? action}) {
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,
     );
     messenger
       ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(SnackBar(content: Text(message), action: action));
   }
 }

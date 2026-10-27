@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_repository.dart';
+import 'package:lamp_player/src/features/library/music_tag.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -586,5 +587,22 @@ class FakePlaybackService implements PlaybackService {
     eqCalls += 1;
     eqEnabled = enabled;
     eqGains = List<double>.of(gains);
+  }
+}
+
+/// 内存版 MusicTag 路径存储
+class FakeMusicTagStore implements MusicTagStore {
+  FakeMusicTagStore([this.path]);
+
+  String? path;
+  int saveCalls = 0;
+
+  @override
+  Future<String?> load() async => path;
+
+  @override
+  Future<void> save(String? value) async {
+    saveCalls += 1;
+    path = value;
   }
 }
