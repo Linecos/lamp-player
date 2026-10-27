@@ -9,6 +9,7 @@ import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
+import '../../rust/api/player.dart' as rust;
 import '../library/library_sort.dart' show trackArtist;
 import 'lyrics_view.dart';
 import 'playback_mode.dart';
@@ -60,6 +61,9 @@ class NowPlayingPage extends StatefulWidget {
     this.onShowQueue,
     this.onCyclePlayMode,
     this.lyricsLoader,
+    this.devices,
+    this.selectedDevice,
+    this.onSelectDevice,
   });
 
   final ValueListenable<NowPlayingData> data;
@@ -73,6 +77,13 @@ class NowPlayingPage extends StatefulWidget {
   final VoidCallback? onToggleMute;
   final VoidCallback? onShowQueue;
   final VoidCallback? onCyclePlayMode;
+
+  /// 输出设备列表与当前选择：由曲库页用通知器推过来（本页是独立路由）
+  final ValueListenable<List<rust.PlayerDevice>>? devices;
+  final ValueListenable<int>? selectedDevice;
+
+  /// 选中某块声卡；为空表示不可切换
+  final ValueChanged<int>? onSelectDevice;
 
   final LyricsLoader? lyricsLoader;
 
@@ -186,23 +197,29 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
   }
 
-  void _showToast(String message) {
+  void _showToast(
+    String message, {
+    LayerLink? link,
+    Alignment targetAnchor = Alignment.topCenter,
+    Alignment followerAnchor = Alignment.bottomCenter,
+    Offset offset = const Offset(0, -14),
+  }) {
     _removeToast();
     final OverlayState? overlay = Overlay.maybeOf(context);
     if (overlay == null) {
       return;
     }
     final OverlayEntry entry = OverlayEntry(
-      // 锚在播放键正上方：提示就弹在刚长按的位置旁边
+      // 锚在被点的按钮上：提示就弹在刚操作的位置旁边
       builder: (BuildContext context) => Positioned(
         left: 0,
         top: 0,
         child: CompositedTransformFollower(
-          link: _toggleLink,
+          link: link ?? _toggleLink,
           showWhenUnlinked: false,
-          targetAnchor: Alignment.topCenter,
-          followerAnchor: Alignment.bottomCenter,
-          offset: const Offset(0, -14),
+          targetAnchor: targetAnchor,
+          followerAnchor: followerAnchor,
+          offset: offset,
           child: _ImmersiveToast(message: message, onDone: _removeToast),
         ),
       ),
@@ -791,6 +808,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                 onPressed: ready ? widget.onShowQueue : null,
                                 icon: const Icon(Icons.queue_music, size: 24),
                               ),
+                              if (widget.onSelectDevice != null)
+                                _OutputDeviceButton(
+                                  devices: widget.devices,
+                                  selected: widget.selectedDevice,
+                                  onSelect: widget.onSelectDevice!,
+                                  // 按钮在右上角，提示挂在它下面
+                                  onToast: (String message, LayerLink link) =>
+                                      _showToast(
+                                        message,
+                                        link: link,
+                                        targetAnchor: Alignment.bottomCenter,
+                                        followerAnchor: Alignment.topCenter,
+                                        offset: const Offset(0, 12),
+                                      ),
+                                ),
                               PopupMenuButton<_SleepOption>(
                                 key: const ValueKey<String>(
                                   'now-playing-sleep',
@@ -835,6 +867,99 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 输出设备选择：菜单里列「系统默认 + 枚举到的设备」，当前项打勾。
+class _OutputDeviceButton extends StatefulWidget {
+  const _OutputDeviceButton({
+    required this.devices,
+    required this.selected,
+    required this.onSelect,
+    required this.onToast,
+  });
+
+  final ValueListenable<List<rust.PlayerDevice>>? devices;
+  final ValueListenable<int>? selected;
+
+  /// 选中某块声卡（-1 表示回到系统默认）
+  final ValueChanged<int> onSelect;
+
+  /// 弹提示：设备名在菜单里可能被截断，这里补全
+  final void Function(String message, LayerLink link) onToast;
+
+  @override
+  State<_OutputDeviceButton> createState() => _OutputDeviceButtonState();
+}
+
+class _OutputDeviceButtonState extends State<_OutputDeviceButton> {
+  /// 提示要挂在这个按钮下面
+  final LayerLink _link = LayerLink();
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ValueListenable<List<rust.PlayerDevice>>? list = widget.devices;
+    final ValueListenable<int>? current = widget.selected;
+    if (list == null || current == null) {
+      return const SizedBox.shrink();
+    }
+    return ValueListenableBuilder<int>(
+      valueListenable: current,
+      builder: (BuildContext context, int active, Widget? child) =>
+          ValueListenableBuilder<List<rust.PlayerDevice>>(
+            valueListenable: list,
+            builder:
+                (
+                  BuildContext context,
+                  List<rust.PlayerDevice> available,
+                  Widget? child,
+                ) {
+                  final bool hasDevices = available.isNotEmpty;
+                  return PopupMenuButton<int>(
+                    key: const ValueKey<String>('now-playing-output'),
+                    tooltip: '输出设备',
+                    padding: EdgeInsets.zero,
+                    enabled: hasDevices,
+                    onSelected: (int index) {
+                      String name = '系统默认';
+                      for (final rust.PlayerDevice device in available) {
+                        if (device.index == index) {
+                          name = device.name;
+                        }
+                      }
+                      widget.onSelect(index);
+                      widget.onToast('输出设备：$name', _link);
+                    },
+                    itemBuilder: (BuildContext context) =>
+                        <PopupMenuEntry<int>>[
+                          CheckedPopupMenuItem<int>(
+                            value: -1,
+                            checked: active < 0,
+                            child: const Text('系统默认'),
+                          ),
+                          for (final rust.PlayerDevice device in available)
+                            CheckedPopupMenuItem<int>(
+                              value: device.index,
+                              checked: device.index == active,
+                              child: Text(device.name),
+                            ),
+                        ],
+                    icon: CompositedTransformTarget(
+                      link: _link,
+                      child: Icon(
+                        Icons.speaker_outlined,
+                        size: 24,
+                        // 选中了具体设备时用主色提示「不是系统默认」
+                        color: active >= 0
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  );
+                },
+          ),
     );
   }
 }
