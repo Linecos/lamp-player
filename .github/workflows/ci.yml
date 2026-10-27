@@ -32,7 +32,8 @@ jobs:
       - name: 格式检查（dart format）
         run: dart format --output=none --set-exit-if-changed lib test integration_test
       - run: flutter analyze
-      - run: flutter test
+      # golden 只在本地跑：不同机器的字体回退会让像素有细微差别
+      - run: flutter test --exclude-tags golden
 
   rust:
     name: Rust 检查与测试
