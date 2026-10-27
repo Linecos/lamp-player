@@ -379,12 +379,22 @@ class _ChoiceRow<T> extends StatelessWidget {
     final bool known = choices.any(((T, String) item) => item.$1 == value);
     final T current = known ? value : choices.first.$1;
 
+    // 与 _SwitchRow / _InfoRow 保持同一套版式：40×40 圆形底 + 16 间距，
+    // 否则这一行的图标既不圆、左边缘也对不齐旁边的行。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 12),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -401,22 +411,35 @@ class _ChoiceRow<T> extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          DropdownButton<T>(
-            key: choiceKey,
-            value: current,
-            underline: const SizedBox.shrink(),
-            borderRadius: BorderRadius.circular(12),
-            onChanged: onChanged == null
-                ? null
-                : (T? next) {
-                    if (next != null) {
-                      onChanged!(next);
-                    }
-                  },
-            items: <DropdownMenuItem<T>>[
-              for (final (T value, String label) item in choices)
-                DropdownMenuItem<T>(value: item.$1, child: Text(item.$2)),
-            ],
+          // 设备名可能很长（"扬声器 (Realtek High Definition Audio)"）：
+          // 限宽 + isExpanded 让它在菜单里换行截断，而不是把这一行撑破
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: DropdownButton<T>(
+              key: choiceKey,
+              value: current,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(12),
+              onChanged: onChanged == null
+                  ? null
+                  : (T? next) {
+                      if (next != null) {
+                        onChanged!(next);
+                      }
+                    },
+              isExpanded: true,
+              items: <DropdownMenuItem<T>>[
+                for (final (T value, String label) item in choices)
+                  DropdownMenuItem<T>(
+                    value: item.$1,
+                    child: Text(
+                      item.$2,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

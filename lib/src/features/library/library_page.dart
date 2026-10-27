@@ -303,8 +303,17 @@ class _LibraryPageState extends State<LibraryPage>
   int _outputDevice = -1;
   List<rust.PlayerDevice> _devices = const <rust.PlayerDevice>[];
 
+  /// 设备列表与当前选择的通知器：正在播放页是独立路由，
+  /// 父页 setState 到不了它，只能靠通知器把变化推过去
+  final ValueNotifier<List<rust.PlayerDevice>> _devicesNotifier =
+      ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[]);
+  final ValueNotifier<int> _outputDeviceNotifier = ValueNotifier<int>(-1);
+
   /// 设置页打开时的设备轮询：热插拔系统不会主动通知
   Timer? _deviceTimer;
+
+  /// 正在播放页打开时的设备轮询：与设置页各用一支，互不取消
+  Timer? _nowPlayingDeviceTimer;
 
   /// 是否按标签里的 ReplayGain 统一响度
   bool _replayGain = false;
@@ -427,9 +436,12 @@ class _LibraryPageState extends State<LibraryPage>
     _sessionTimer?.cancel();
     _sectionRefreshTimer?.cancel();
     _deviceTimer?.cancel();
+    _nowPlayingDeviceTimer?.cancel();
     _sectionFade.dispose();
     _sectionNotifier.dispose();
     _railNotifier.dispose();
+    _devicesNotifier.dispose();
+    _outputDeviceNotifier.dispose();
     unawaited(_saveSession());
     unawaited(_flushPlayTime());
     widget.trayController?.unbindPlayback();
@@ -480,6 +492,7 @@ class _LibraryPageState extends State<LibraryPage>
       _eqEnabled = snapshot.eqEnabled;
       _eqGains = normalizeEqGains(snapshot.eqGains);
       _outputDevice = snapshot.outputDevice;
+      _outputDeviceNotifier.value = snapshot.outputDevice;
       _replayGain = snapshot.replayGain;
       _crossfadeSeconds = snapshot.crossfadeSeconds;
     });

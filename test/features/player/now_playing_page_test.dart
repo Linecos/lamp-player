@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,7 @@ import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/theme/app_theme.dart';
 
 import '../../support/fake_library.dart';
@@ -69,6 +71,9 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onToggleMute,
   VoidCallback? onShowQueue,
   VoidCallback? onCyclePlayMode,
+  ValueListenable<List<rust.PlayerDevice>>? devices,
+  ValueListenable<int>? selectedDevice,
+  ValueChanged<int>? onSelectDevice,
 }) async {
   tester.view.physicalSize = const Size(1280, 900);
   tester.view.devicePixelRatio = 1;
@@ -91,6 +96,9 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onToggleMute: onToggleMute,
         onShowQueue: onShowQueue,
         onCyclePlayMode: onCyclePlayMode,
+        devices: devices,
+        selectedDevice: selectedDevice,
+        onSelectDevice: onSelectDevice,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -476,5 +484,33 @@ void main() {
 
     await tester.pump(const Duration(minutes: 16));
     expect(toggles, 0, reason: '取消后不该再暂停');
+  });
+  testWidgets('播放页可切换输出设备', (WidgetTester tester) async {
+    final ValueNotifier<List<rust.PlayerDevice>> devices =
+        ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[
+          rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
+          rust.PlayerDevice(index: 2, name: '耳机', isDefault: false),
+        ]);
+    final ValueNotifier<int> selected = ValueNotifier<int>(-1);
+    final List<int> picks = <int>[];
+    addTearDown(devices.dispose);
+    addTearDown(selected.dispose);
+
+    await _pump(
+      tester,
+      data: _data(),
+      devices: devices,
+      selectedDevice: selected,
+      onSelectDevice: picks.add,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-output')));
+    await tester.pumpAndSettle();
+    expect(find.text('系统默认'), findsOneWidget);
+    await tester.tap(find.text('耳机'));
+    await tester.pumpAndSettle();
+
+    expect(picks, <int>[2], reason: '选中设备要回调给页面');
+    await _settleToast(tester);
   });
 }

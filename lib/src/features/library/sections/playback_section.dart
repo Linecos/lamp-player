@@ -183,21 +183,36 @@ extension _PlaybackSection on _LibraryPageState {
   /// 打开「正在播放」页（大封面 + 同步歌词）
   Future<void> _openNowPlaying() {
     _publishProgress();
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => NowPlayingPage(
-          data: _nowPlaying,
-          onTogglePlay: _togglePlayback,
-          onPrevious: _previous,
-          onNext: () => _next(),
-          onSeek: _onSeekEnd,
-          onVolumeChanged: _setVolume,
-          onToggleMute: _toggleMute,
-          onShowQueue: () => unawaited(_showQueue()),
-          onCyclePlayMode: _cyclePlayMode,
-        ),
-      ),
+    // 播放页也能切输出设备：打开期间轮询一次设备列表（热插拔），关掉就停
+    unawaited(_refreshDevices());
+    _nowPlayingDeviceTimer?.cancel();
+    _nowPlayingDeviceTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_refreshDevices()),
     );
+    return Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (BuildContext context) => NowPlayingPage(
+              data: _nowPlaying,
+              onTogglePlay: _togglePlayback,
+              onPrevious: _previous,
+              onNext: () => _next(),
+              onSeek: _onSeekEnd,
+              onVolumeChanged: _setVolume,
+              onToggleMute: _toggleMute,
+              onShowQueue: () => unawaited(_showQueue()),
+              onCyclePlayMode: _cyclePlayMode,
+              devices: _devicesNotifier,
+              selectedDevice: _outputDeviceNotifier,
+              onSelectDevice: (int index) => unawaited(_setOutputDevice(index)),
+            ),
+          ),
+        )
+        .whenComplete(() {
+          _nowPlayingDeviceTimer?.cancel();
+          _nowPlayingDeviceTimer = null;
+        });
   }
 
   Future<void> _playAll(List<Track> tracks) async {
@@ -756,6 +771,7 @@ extension _PlaybackSection on _LibraryPageState {
         return;
       }
       _update(() => _devices = devices);
+      _devicesNotifier.value = devices;
     } catch (_) {
       // 枚举失败（引擎忙 / DLL 缺失）保持旧列表，不影响其它操作
     }
@@ -770,6 +786,7 @@ extension _PlaybackSection on _LibraryPageState {
       _outputDevice = index;
       _switchingOutput = true;
     });
+    _outputDeviceNotifier.value = index;
     _saveSessionNow();
     try {
       await _playback.setDevice(index);
