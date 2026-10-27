@@ -3,6 +3,7 @@
 //! 只做参数校验与状态映射，BASS 相关实现见 [`crate::bass`]。
 //! 接口契约见 `docs/API_CONTRACT.md`，签名已冻结。
 use crate::bass;
+use crate::frb_generated::StreamSink;
 use anyhow::Result;
 
 /// 播放状态
@@ -125,6 +126,30 @@ pub fn player_now() -> Result<PlayerProgress> {
         duration_secs: progress.duration,
         state: player_state(),
     })
+}
+
+/// 一次取一帧频谱（24 段，0~1），给不想开流的调用方 / 测试用。
+pub fn player_spectrum() -> Result<Vec<f32>> {
+    bass::spectrum()
+}
+
+/// 频谱流：约 30fps 往 Dart 推一帧「各频段幅度」。
+///
+/// 取数要走引擎线程（BASS 是单线程串行访问的），所以在**独立线程**里循环，
+/// 本函数立刻返回。Dart 侧取消订阅后 `add` 失败，线程自己退出——不会留下
+/// 常驻线程空转。
+pub fn player_spectrum_stream(sink: StreamSink<Vec<f32>>) -> Result<()> {
+    std::thread::Builder::new()
+        .name("lamp-spectrum".to_string())
+        .spawn(move || loop {
+            // 引擎不可用（没声卡 / DLL 缺失）时推静默帧，界面不用区分错误态
+            let frame = bass::spectrum().unwrap_or_else(|_| vec![0.0; crate::bass::SPECTRUM_BANDS]);
+            if sink.add(frame).is_err() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(33));
+        })?;
+    Ok(())
 }
 
 /// 当前播放位置（秒）；未加载曲目时返回 `0.0`

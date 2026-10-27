@@ -137,6 +137,7 @@ extension _OutputSection on _LibraryPageState {
 
   /// 把当前进度写进 notifier，只刷新播放条。
   void _publishProgress() {
+    _syncSpectrum();
     _progress.value = _PlaybackProgress(
       position: _position,
       duration: _duration,

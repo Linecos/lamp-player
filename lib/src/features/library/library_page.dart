@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, LogicalKeyboardKey;
@@ -14,6 +15,7 @@ import '../../app/window_controls.dart';
 import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/text/pinyin_key.dart';
+import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
@@ -26,6 +28,7 @@ import '../player/equalizer.dart';
 import '../player/now_playing_page.dart';
 import '../player/queue_dialog.dart';
 import '../player/smtc_bridge.dart';
+import '../player/spectrum_controller.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'drop_import.dart';
@@ -72,6 +75,7 @@ class LibraryPage extends StatefulWidget {
     this.windowControls,
     this.trayController,
     this.lyricsLoader,
+    this.spectrum,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -100,6 +104,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 播放条左侧的歌词来源；不传则播放条不显示歌词（测试默认走这条）
   final TrackLyricsLoader? lyricsLoader;
+
+  /// 频谱数据源；不传则不画频谱，也不会去订阅引擎流（测试默认走这条）
+  final ValueListenable<List<double>>? spectrum;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -254,6 +261,12 @@ class _LibraryPageState extends State<LibraryPage>
   Object? _playlistsError;
   int? _selectedPlaylistId;
   List<Track> _playlistTracks = const <Track>[];
+
+  /// 正在把拖拽结果写回数据库：期间先摘掉把手，避免二次拖动打架
+  bool _playlistReordering = false;
+
+  /// 频谱流当前是否已订阅：只在放歌时开，暂停就关
+  bool _spectrumActive = false;
   bool _playlistTracksLoading = false;
   Object? _playlistTracksError;
 
@@ -442,6 +455,10 @@ class _LibraryPageState extends State<LibraryPage>
     _railNotifier.dispose();
     _devicesNotifier.dispose();
     _outputDeviceNotifier.dispose();
+    if (_spectrumActive) {
+      _spectrumActive = false;
+      SpectrumController.instance.detach();
+    }
     unawaited(_saveSession());
     unawaited(_flushPlayTime());
     widget.trayController?.unbindPlayback();
@@ -816,6 +833,20 @@ class _LibraryPageState extends State<LibraryPage>
     _saveSessionNow();
   }
 
+  /// 放歌时订阅频谱流，暂停 / 停止就退订：BASS 取 FFT 也是跨线程命令，
+  /// 静音时没必要每 33ms 打扰一次引擎。
+  void _syncSpectrum() {
+    if (widget.spectrum == null || _isPlaying == _spectrumActive) {
+      return;
+    }
+    _spectrumActive = _isPlaying;
+    if (_isPlaying) {
+      SpectrumController.instance.attach();
+    } else {
+      SpectrumController.instance.detach();
+    }
+  }
+
   void _focusSearch() {
     _searchFocus.requestFocus();
     _searchController.selection = TextSelection(
@@ -1067,6 +1098,7 @@ class _LibraryPageState extends State<LibraryPage>
   /// [volume] 走独立 notifier：拖动音量只重建这一个子树，不碰分区内容。
   Widget _buildPlayerBar(_PlaybackProgress progress, double volume) {
     return PlayerBar(
+      spectrum: widget.spectrum,
       track: _currentTrack,
       isPlaying: progress.playing,
       isAvailable: _isAvailable,

@@ -210,6 +210,38 @@ class PlaybackQueue {
   ///
   /// 移除当前曲目后下标保持原位（后一首顶上来）；若删的是最后一首，
   /// 下标回退到新的队尾。历史里的下标同步左移，避免「上一首」跳错。
+  /// 拖动重排：把第 [from] 首挪到第 [to] 位（`to` 为取走该行之后的插入位置）。
+  ///
+  /// 正在播放的那首跟着自己的下标走，不会因为前面的行被挪动而换歌；
+  /// 「上一首」的历史下标一并平移，随机顺序重建。
+  void move(int from, int to) {
+    if (from < 0 || from >= _tracks.length) {
+      return;
+    }
+    final int target = to.clamp(0, _tracks.length - 1);
+    if (target == from) {
+      return;
+    }
+    _tracks.insert(target, _tracks.removeAt(from));
+    int remap(int index) {
+      if (index == from) {
+        return target;
+      }
+      if (from < target) {
+        return index > from && index <= target ? index - 1 : index;
+      }
+      return index >= target && index < from ? index + 1 : index;
+    }
+
+    _index = remap(_index);
+    for (int i = 0; i < _history.length; i += 1) {
+      _history[i] = remap(_history[i]);
+    }
+    if (_shuffle) {
+      _rebuildShuffleOrder();
+    }
+  }
+
   bool removeAt(int index) {
     if (index < 0 || index >= _tracks.length) {
       return false;

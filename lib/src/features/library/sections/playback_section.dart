@@ -203,6 +203,7 @@ extension _PlaybackSection on _LibraryPageState {
               onToggleMute: _toggleMute,
               onShowQueue: () => unawaited(_showQueue()),
               onCyclePlayMode: _cyclePlayMode,
+              spectrum: widget.spectrum,
               devices: _devicesNotifier,
               selectedDevice: _outputDeviceNotifier,
               onSelectDevice: (int index) => unawaited(_setOutputDevice(index)),

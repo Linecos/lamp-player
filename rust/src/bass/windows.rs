@@ -146,6 +146,13 @@ const PLUGINS: [&str; 5] = [
 
 type Reply<T> = Sender<Result<T>>;
 
+use super::SPECTRUM_BANDS;
+
+/// BASS 的 FFT 请求码：`BASS_DATA_FFT1024`（0x80000000 + 2）拿 512 个幅度值，
+/// 叠加 `BASS_DATA_FFT_REMOVEDC` 去掉直流分量，否则整体会有一条偏置。
+const BASS_DATA_FFT1024: u32 = 0x8000_0002;
+const BASS_DATA_FFT_REMOVEDC: u32 = 0x40;
+
 enum Cmd {
     Play(String, f64, Reply<()>),
     Pause(Reply<()>),
@@ -154,6 +161,7 @@ enum Cmd {
     Seek(f64, Reply<()>),
     Volume(f32, Reply<()>),
     Snapshot(Reply<Progress>),
+    Spectrum(Reply<Vec<f32>>),
     Devices(Reply<Vec<Device>>),
     SetDevice(i32, Reply<()>),
     SetCrossfade(u32, Reply<()>),
@@ -979,6 +987,45 @@ impl Engine {
         })
     }
 
+    /// 当前输出的对数分频频谱（[`SPECTRUM_BANDS`] 段，0~1）。
+    ///
+    /// 通道要和 `wasapi_proc` 取数据时一致：独占模式下源流没经过混音器，
+    /// 直接对源流做 FFT 会和实际听到的声音不一致。
+    fn spectrum(&self) -> Vec<f32> {
+        let channel = if self.mixer != 0 {
+            self.mixer
+        } else {
+            self.stream
+        };
+        let mut bands = vec![0.0f32; SPECTRUM_BANDS];
+        if channel == 0 || self.slot_paused() {
+            return bands;
+        }
+        let mut fft = [0.0f32; 512];
+        let got = unsafe {
+            (self.api.channel_get_data)(
+                channel,
+                fft.as_mut_ptr().cast(),
+                BASS_DATA_FFT1024 | BASS_DATA_FFT_REMOVEDC,
+            )
+        };
+        if got == u32::MAX || got == 0 {
+            return bands;
+        }
+        let bins = (got as usize).min(fft.len());
+        for (index, band) in bands.iter_mut().enumerate() {
+            let low = spectrum_edge(index, bins);
+            let high = spectrum_edge(index + 1, bins).max(low + 1).min(bins);
+            let peak = fft[low..high]
+                .iter()
+                .fold(0.0f32, |acc, value| acc.max(*value));
+            // 高频能量天然偏低，做一点提升，否则右半边永远贴地平线
+            let lift = 0.75 + 1.5 * (index as f32 / SPECTRUM_BANDS as f32);
+            *band = (peak.sqrt() * lift).clamp(0.0, 1.0);
+        }
+        bands
+    }
+
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
         // 淡出结束的旧流在这里释放：播下一首时它还在出声，不能立刻拆
@@ -1406,6 +1453,9 @@ fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
         Cmd::Snapshot(reply) => {
             let _ = reply.send(engine.snapshot());
         }
+        Cmd::Spectrum(reply) => {
+            let _ = reply.send(Ok(engine.spectrum()));
+        }
         Cmd::Devices(reply) => {
             let _ = reply.send(engine.devices());
         }
@@ -1522,8 +1572,19 @@ pub fn set_volume(volume: f64) -> Result<()> {
     call(Class::Volume, |reply| Cmd::Volume(volume as f32, reply))
 }
 
+/// 第 [index] 条分频边界落在哪个 bin 上（对数分布：低频密、高频疏）
+fn spectrum_edge(index: usize, bins: usize) -> usize {
+    let ratio = index as f32 / SPECTRUM_BANDS as f32;
+    ((bins as f32).powf(ratio) as usize).clamp(1, bins - 1)
+}
+
 pub fn snapshot() -> Result<Progress> {
     call(Class::Passive, Cmd::Snapshot)
+}
+
+/// 频谱快照（[`SPECTRUM_BANDS`] 段，0~1）；没有在放歌时全是 0。
+pub fn spectrum() -> Result<Vec<f32>> {
+    call(Class::Passive, Cmd::Spectrum)
 }
 
 pub fn position() -> Result<f64> {

@@ -330,7 +330,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 5, "升级后应写入当前结构版本");
+    assert_eq!(version, 6, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -427,6 +427,78 @@ fn migrate_v2_resets_fingerprints_and_adds_cover_column() {
         (mtime, size),
         (0, 0),
         "应清零指纹，让下次扫描重新解析并补封面"
+    );
+}
+
+/// v6：老库的歌单条目要按「加入时间 → 插入顺序」回填一次 position。
+#[test]
+fn migrate_v6_backfills_playlist_positions() {
+    let (_lock, dir) = begin("migrate_v6");
+    let path = dir.db_path();
+
+    {
+        let conn = rusqlite::Connection::open(&path).expect("打开 v5 库");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE tracks (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                path          TEXT    NOT NULL UNIQUE,
+                title         TEXT    NOT NULL DEFAULT '',
+                artist        TEXT    NOT NULL DEFAULT '',
+                album         TEXT    NOT NULL DEFAULT '',
+                duration_secs REAL    NOT NULL DEFAULT 0,
+                track_num     INTEGER NOT NULL DEFAULT 0,
+                added_at      INTEGER NOT NULL DEFAULT 0,
+                file_mtime    INTEGER NOT NULL DEFAULT 0,
+                file_size     INTEGER NOT NULL DEFAULT 0,
+                cover_path    TEXT    NOT NULL DEFAULT '',
+                replay_gain   REAL    NOT NULL DEFAULT 0
+            );
+            CREATE TABLE playlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE playlist_items (
+                playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                track_path  TEXT    NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
+                added_at    INTEGER NOT NULL,
+                PRIMARY KEY (playlist_id, track_path)
+            );
+            INSERT INTO tracks (path, title) VALUES
+                ('/music/a.mp3', 'A'), ('/music/b.mp3', 'B'), ('/music/c.mp3', 'C');
+            INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'P', 1, 1);
+            -- 插入顺序与加入时间故意不一致：回填应按 added_at 排
+            INSERT INTO playlist_items (playlist_id, track_path, added_at) VALUES
+                (1, '/music/a.mp3', 30),
+                (1, '/music/b.mp3', 10),
+                (1, '/music/c.mp3', 20);
+            PRAGMA user_version = 5;
+            "#,
+        )
+        .expect("建 v5 库");
+    }
+
+    db::init_db(path.clone()).expect("升级 v5 库");
+
+    let conn = rusqlite::Connection::open(&path).expect("重新打开");
+    let mut stmt = conn
+        .prepare("SELECT track_path FROM playlist_items ORDER BY position")
+        .expect("查询条目");
+    let ordered: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .expect("遍历条目")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("读取条目");
+    assert_eq!(
+        ordered,
+        vec![
+            "/music/b.mp3".to_string(),
+            "/music/c.mp3".to_string(),
+            "/music/a.mp3".to_string()
+        ],
+        "应按加入时间回填 position"
     );
 }
 

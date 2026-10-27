@@ -69,6 +69,18 @@ Future<void> playerSetVolume({required double volume}) =>
 Future<PlayerProgress> playerNow() =>
     RustLib.instance.api.crateApiPlayerPlayerNow();
 
+/// 一次取一帧频谱（24 段，0~1），给不想开流的调用方 / 测试用。
+Future<Float32List> playerSpectrum() =>
+    RustLib.instance.api.crateApiPlayerPlayerSpectrum();
+
+/// 频谱流：约 30fps 往 Dart 推一帧「各频段幅度」。
+///
+/// 取数要走引擎线程（BASS 是单线程串行访问的），所以在**独立线程**里循环，
+/// 本函数立刻返回。Dart 侧取消订阅后 `add` 失败，线程自己退出——不会留下
+/// 常驻线程空转。
+Stream<Float32List> playerSpectrumStream() =>
+    RustLib.instance.api.crateApiPlayerPlayerSpectrumStream();
+
 /// 当前播放位置（秒）；未加载曲目时返回 `0.0`
 Future<double> playerPosition() =>
     RustLib.instance.api.crateApiPlayerPlayerPosition();

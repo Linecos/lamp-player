@@ -111,9 +111,17 @@ pub fn snapshot() -> Result<Progress> {
     imp::snapshot()
 }
 
+/// 频谱段数：Dart 侧按帧长度自适应，这里只作为引擎与测试的约定
+pub const SPECTRUM_BANDS: usize = 24;
+
 /// 当前位置（秒），未加载曲目时为 0.0
 pub fn position() -> Result<f64> {
     imp::position()
+}
+
+/// 当前输出的对数分频频谱（[`SPECTRUM_BANDS`] 段，0~1）；没在放歌时全 0
+pub fn spectrum() -> Result<Vec<f32>> {
+    imp::spectrum()
 }
 
 /// 总时长（秒），未加载曲目时为 0.0

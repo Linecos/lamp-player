@@ -12,6 +12,7 @@ import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../library/library_sort.dart' show trackArtist;
 import 'lyrics_view.dart';
+import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
 
@@ -64,7 +65,11 @@ class NowPlayingPage extends StatefulWidget {
     this.devices,
     this.selectedDevice,
     this.onSelectDevice,
+    this.spectrum,
   });
+
+  /// 频谱数据：传了才在控制键上方显示大频谱
+  final ValueListenable<List<double>>? spectrum;
 
   final ValueListenable<NowPlayingData> data;
   final Future<void> Function() onTogglePlay;
@@ -354,6 +359,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         ) => _body(context, track),
                       ),
                     ),
+                    if (widget.spectrum != null) _spectrum(context),
                     _controls(context),
                     const SizedBox(height: 12),
                   ],
@@ -642,6 +648,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   ///
   /// 只有这一块监听进度（每 500ms 一次）：滑块 + 时间 + 播放键都是小控件，
   /// 重建成本远低于整页。拖动预览走 [_dragPosition]，连这一层也不必重建。
+  /// 大频谱：贴在控制键上方，跟着窗口宽度拉长，不抢封面与歌词的高度
+  Widget _spectrum(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 0, 32, 4),
+      child: SpectrumBars(
+        key: const ValueKey<String>('now-playing-spectrum'),
+        bands: widget.spectrum!,
+        height: 72,
+        barWidth: 6,
+        gap: 5,
+        minBar: 2,
+        stretch: true,
+      ),
+    );
+  }
+
   Widget _controls(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;

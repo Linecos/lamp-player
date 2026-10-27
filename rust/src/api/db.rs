@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 struct Database {
     path: String,
@@ -231,7 +231,7 @@ END;
 /// 都通过 `track_path` 关联 `tracks(path)`（该列有 UNIQUE 索引，可作外键目标），
 /// `ON DELETE CASCADE` 保证曲目被清理时不留悬空引用。
 ///
-/// - 歌单顺序按加入时间，暂不支持手动排序；
+/// - 歌单顺序按加入时间，手动排序在 v6 用 `position` 列接管；
 /// - 歌单名忽略 ASCII 大小写唯一；
 /// - 历史按曲目去重，累计 `play_count` 并记录最近播放时间。
 const SCHEMA_V2: &str = r#"
@@ -340,7 +340,47 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         conn.pragma_update(None, "user_version", 5)?;
     }
 
+    if version < 6 {
+        // v6：歌单内手动排序。老库按原来的「加入时间 → rowid」回填一次 position，
+        // 之后读写都认 position；added_at 只作为冲突时的兜底。
+        //
+        // 表可能不存在（早期库只建了 tracks），这时跳过即可，别让升级卡住。
+        if table_exists(conn, "playlist_items")? {
+            if !column_exists(conn, "playlist_items", "position")? {
+                conn.execute_batch(
+                    r#"
+                    ALTER TABLE playlist_items
+                        ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+                    UPDATE playlist_items AS p
+                       SET position = (
+                           SELECT COUNT(*) - 1
+                             FROM playlist_items AS x
+                            WHERE x.playlist_id = p.playlist_id
+                              AND (x.added_at < p.added_at
+                                   OR (x.added_at = p.added_at AND x.rowid <= p.rowid))
+                       );
+                    "#,
+                )?;
+            }
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS playlist_items_pos
+                     ON playlist_items(playlist_id, position);",
+            )?;
+        }
+        conn.pragma_update(None, "user_version", 6)?;
+    }
+
     Ok(())
+}
+
+/// 表是否存在：早期库里可能缺整张表，迁移要能跳过而不是报错
+fn table_exists(conn: &Connection, table: &str) -> anyhow::Result<bool> {
+    let count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
 }
 
 fn column_exists(conn: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
@@ -850,8 +890,8 @@ fn merge_track_path(
     // 歌单：同一歌单里已经存在目标曲目时去重，否则把旧条目迁过去。
     tx.execute(
         r#"
-        INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at)
-        SELECT playlist_id, ?1, added_at FROM playlist_items WHERE track_path = ?2
+        INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at, position)
+        SELECT playlist_id, ?1, added_at, position FROM playlist_items WHERE track_path = ?2
         "#,
         params![target_path, old_path],
     )?;
@@ -989,6 +1029,7 @@ mod tests {
                 playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
                 track_path  TEXT NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
                 added_at    INTEGER NOT NULL,
+                position    INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (playlist_id, track_path)
             );
             CREATE TABLE favorites (
@@ -1020,7 +1061,8 @@ mod tests {
         )
         .expect("歌单");
         conn.execute(
-            "INSERT INTO playlist_items VALUES (1, '/music/Old.mp3', 10)",
+            "INSERT INTO playlist_items (playlist_id, track_path, added_at)
+             VALUES (1, '/music/Old.mp3', 10)",
             [],
         )
         .expect("歌单条目");
@@ -1084,7 +1126,7 @@ mod tests {
             INSERT INTO tracks (path, title, added_at)
             VALUES ('/music/Old.mp3', '旧', 1), ('/music/new.mp3', '新', 2);
             INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'P', 1, 1);
-            INSERT INTO playlist_items VALUES
+            INSERT INTO playlist_items (playlist_id, track_path, added_at) VALUES
                 (1, '/music/Old.mp3', 10), (1, '/music/new.mp3', 20);
             INSERT INTO favorites VALUES
                 ('/music/Old.mp3', 10), ('/music/new.mp3', 20);

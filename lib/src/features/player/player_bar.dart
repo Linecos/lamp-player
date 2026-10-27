@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart';
+import 'spectrum_bars.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'lyrics_view.dart';
@@ -45,7 +47,11 @@ class PlayerBar extends StatelessWidget {
     this.onCyclePlayMode,
     this.onOpenNowPlaying,
     this.lyricsLoader,
+    this.spectrum,
   });
+
+  /// 频谱数据：传了才在曲名右侧显示迷你条（测试不注入就不画）
+  final ValueListenable<List<double>>? spectrum;
 
   /// 当前曲目的歌词来源；不传时左段只显示曲名 / 艺术家
   final TrackLyricsLoader? lyricsLoader;
@@ -139,6 +145,7 @@ class PlayerBar extends StatelessWidget {
                     position: shown,
                     lyricsLoader: lyricsLoader,
                     onOpenNowPlaying: onOpenNowPlaying,
+                    spectrum: spectrum,
                   ),
                 ),
                 // 中段宽度固定、两侧 Expanded 等宽 → 三键落在整条中轴上
@@ -301,7 +308,11 @@ class _PlayerBarLeft extends StatefulWidget {
     required this.position,
     required this.lyricsLoader,
     required this.onOpenNowPlaying,
+    this.spectrum,
   });
+
+  /// 迷你频谱的数据源；为空时不占位
+  final ValueListenable<List<double>>? spectrum;
 
   final Track? track;
   final bool isPlaying;
@@ -483,6 +494,23 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
             if (showLyric) ...<Widget>[
               const SizedBox(width: 12),
               Expanded(child: _LyricPreview(text: _currentLyric())),
+            ],
+            // 迷你频谱：贴着左段右缘；宽度不够时不画，免得挤成一条竖线
+            if (widget.spectrum != null &&
+                constraints.maxWidth >= 280) ...<Widget>[
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 46,
+                child: SpectrumBars(
+                  key: const ValueKey<String>('player-bar-spectrum'),
+                  bands: widget.spectrum!,
+                  height: 22,
+                  barWidth: 3,
+                  gap: 2,
+                  barCount: 8,
+                  minBar: 1,
+                ),
+              ),
             ],
           ],
         );

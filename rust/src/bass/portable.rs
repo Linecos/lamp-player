@@ -59,6 +59,10 @@ pub fn snapshot() -> Result<Progress> {
     unsupported()
 }
 
+pub fn spectrum() -> Result<Vec<f32>> {
+    Ok(vec![0.0; super::SPECTRUM_BANDS])
+}
+
 pub fn position() -> Result<f64> {
     unsupported()
 }
