@@ -50,6 +50,7 @@ class TrackListView extends StatefulWidget {
     this.selectionMode = false,
     this.selectedPaths = const <String>{},
     this.onSelect,
+    this.onReorder,
   });
 
   final List<Track> tracks;
@@ -80,6 +81,11 @@ class TrackListView extends StatefulWidget {
   /// 选择回调；为空时多选模式只展示复选框。
   final TrackSelectCallback? onSelect;
 
+  /// 提供后每行末尾出现拖拽把手，列表可上下拖动改顺序（歌单手动排序）。
+  ///
+  /// `to` 是「取走该行之后」的插入位置，直接拿它落库即可。
+  final void Function(int from, int to)? onReorder;
+
   @override
   State<TrackListView> createState() => _TrackListViewState();
 }
@@ -102,6 +108,7 @@ class _TrackListViewState extends State<TrackListView> {
   bool get selectionMode => widget.selectionMode;
   Set<String> get selectedPaths => widget.selectedPaths;
   TrackSelectCallback? get onSelect => widget.onSelect;
+  void Function(int from, int to)? get onReorder => widget.onReorder;
 
   @override
   void didUpdateWidget(covariant TrackListView oldWidget) {
@@ -140,41 +147,70 @@ class _TrackListViewState extends State<TrackListView> {
           showMenu: onRemove != null,
           showFavorite: onToggleFavorite != null,
           showSelection: selectionMode,
+          showHandle: onReorder != null,
         ),
         Expanded(
-          child: ListView.builder(
-            key: storageKey,
-            itemCount: tracks.length,
-            itemExtent: 56,
-            // 底部留一点空：滚到底时最后一行不贴着播放岛，
-            // 悬停高亮的圆角也不会被盖住
-            padding: const EdgeInsets.only(bottom: 12),
-            itemBuilder: (BuildContext context, int index) {
-              final Track track = tracks[index];
-              return _TrackRow(
-                track: track,
-                index: index,
-                playing: track.path == playingPath,
-                showArtist: showArtist,
-                showAlbum: showAlbum,
-                selectionMode: selectionMode,
-                selected: selectedPaths.contains(track.path),
-                onSelect: onSelect,
-                onPlay: () => onPlay(track),
-                onRemove: onRemove == null ? null : () => onRemove!(track),
-                favored: favoritePaths.contains(track.path),
-                onToggleFavorite: onToggleFavorite == null
-                    ? null
-                    : () => onToggleFavorite!(track),
-                onContextAction: onContextAction == null
-                    ? null
-                    : (TrackContextAction action) =>
-                          onContextAction!(track, action),
-              );
-            },
-          ),
+          child: onReorder == null
+              ? ListView.builder(
+                  key: storageKey,
+                  itemCount: tracks.length,
+                  itemExtent: 56,
+                  // 底部留一点空：滚到底时最后一行不贴着播放岛，
+                  // 悬停高亮的圆角也不会被盖住
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemBuilder: (BuildContext context, int index) =>
+                      _rowAt(index, showArtist, showAlbum),
+                )
+              // 可拖拽排序：行自己带 key，拖拽把手只在行尾，点击仍然是播放
+              : ReorderableListView.builder(
+                  key: storageKey,
+                  itemCount: tracks.length,
+                  itemExtent: 56,
+                  buildDefaultDragHandles: false,
+                  padding: const EdgeInsets.only(bottom: 12),
+                  // onReorderItem 的 newIndex 已经扣掉被取走的那一行
+                  onReorderItem: onReorder!,
+                  proxyDecorator:
+                      (Widget child, int index, Animation<double> animation) =>
+                          Material(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(16),
+                            child: child,
+                          ),
+                  itemBuilder: (BuildContext context, int index) =>
+                      KeyedSubtree(
+                        key: ValueKey<String>(tracks[index].path),
+                        child: _rowAt(index, showArtist, showAlbum),
+                      ),
+                ),
         ),
       ],
+    );
+  }
+
+  Widget _rowAt(int index, bool showArtist, bool showAlbum) {
+    final Track track = tracks[index];
+    return _TrackRow(
+      track: track,
+      index: index,
+      playing: track.path == playingPath,
+      showArtist: showArtist,
+      showAlbum: showAlbum,
+      selectionMode: selectionMode,
+      selected: selectedPaths.contains(track.path),
+      onSelect: onSelect,
+      onPlay: () => onPlay(track),
+      onRemove: onRemove == null ? null : () => onRemove!(track),
+      favored: favoritePaths.contains(track.path),
+      onToggleFavorite: onToggleFavorite == null
+          ? null
+          : () => onToggleFavorite!(track),
+      onContextAction: onContextAction == null
+          ? null
+          : (TrackContextAction action) => onContextAction!(track, action),
+      dragIndex: onReorder == null ? null : index,
     );
   }
 }
@@ -186,6 +222,7 @@ class _TrackHeader extends StatelessWidget {
     required this.showMenu,
     required this.showFavorite,
     required this.showSelection,
+    this.showHandle = false,
   });
 
   final bool showArtist;
@@ -193,6 +230,7 @@ class _TrackHeader extends StatelessWidget {
   final bool showMenu;
   final bool showFavorite;
   final bool showSelection;
+  final bool showHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +273,7 @@ class _TrackHeader extends StatelessWidget {
           ),
           if (showFavorite) const SizedBox(width: 40),
           if (showMenu) const SizedBox(width: 40),
+          if (showHandle) const SizedBox(width: 36),
         ],
       ),
     );
@@ -256,6 +295,7 @@ class _TrackRow extends StatelessWidget {
     required this.favored,
     this.onToggleFavorite,
     this.onContextAction,
+    this.dragIndex,
   });
 
   final Track track;
@@ -271,6 +311,9 @@ class _TrackRow extends StatelessWidget {
   final bool favored;
   final VoidCallback? onToggleFavorite;
   final ValueChanged<TrackContextAction>? onContextAction;
+
+  /// 非空表示这一行可拖拽排序，值是该行在当前列表里的下标
+  final int? dragIndex;
 
   /// 多选模式下普通点击切换该行；Ctrl 切换、Shift 范围选择。
   ///
@@ -476,6 +519,22 @@ class _TrackRow extends StatelessWidget {
                         color: favored
                             ? scheme.primary
                             : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (dragIndex != null)
+                  SizedBox(
+                    width: 36,
+                    height: 40,
+                    child: ReorderableDragStartListener(
+                      index: dragIndex!,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.grab,
+                        child: Icon(
+                          Icons.drag_indicator,
+                          size: 20,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),

@@ -33,6 +33,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<Float32List> dco_decode_StreamSink_list_prim_f_32_strict_Sse(
+    dynamic raw,
+  );
+
+  @protected
   RustStreamSink<MediaCommand> dco_decode_StreamSink_media_command_Sse(
     dynamic raw,
   );
@@ -156,6 +161,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<Float32List> sse_decode_StreamSink_list_prim_f_32_strict_Sse(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RustStreamSink<MediaCommand> sse_decode_StreamSink_media_command_Sse(
@@ -288,6 +298,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_StreamSink_list_prim_f_32_strict_Sse(
+    RustStreamSink<Float32List> self,
     SseSerializer serializer,
   );
 

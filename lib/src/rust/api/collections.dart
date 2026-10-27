@@ -29,9 +29,23 @@ Future<void> renamePlaylist({
 Future<void> deletePlaylist({required PlatformInt64 id}) =>
     RustLib.instance.api.crateApiCollectionsDeletePlaylist(id: id);
 
-/// 歌单内曲目，按加入时间排序。
+/// 歌单内曲目，按用户排好的 `position` 排序。
 Future<List<Track>> playlistTracks({required PlatformInt64 id}) =>
     RustLib.instance.api.crateApiCollectionsPlaylistTracks(id: id);
+
+/// 把歌单里第 `from` 个曲目挪到第 `to` 个位置（下标按当前展示顺序）。
+///
+/// 重排后把 position 归一化成 `0..n-1`：反复拖拽不会留下空洞，也不用担心
+/// 并发（单连接串行）产生的重号。
+Future<void> movePlaylistTrack({
+  required PlatformInt64 id,
+  required int from,
+  required int to,
+}) => RustLib.instance.api.crateApiCollectionsMovePlaylistTrack(
+  id: id,
+  from: from,
+  to: to,
+);
 
 /// 往歌单加曲目；已在歌单内时返回 `false`。
 Future<bool> addTrackToPlaylist({

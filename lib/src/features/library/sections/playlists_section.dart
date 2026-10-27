@@ -674,6 +674,38 @@ extension _PlaylistsSection on _LibraryPageState {
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),
+      // 多选 / 拖拽互斥：选择模式下行尾让给复选框，不给把手
+      onReorder: _selectionMode || _playlistReordering
+          ? null
+          : (int from, int to) =>
+                unawaited(_movePlaylistTrack(playlist, from, to)),
     );
+  }
+
+  /// 拖拽排序：先本地挪（拖完马上看到结果），落库失败再回滚并提示。
+  Future<void> _movePlaylistTrack(Playlist playlist, int from, int to) async {
+    if (from == to || from < 0 || from >= _playlistTracks.length) {
+      return;
+    }
+    final List<Track> before = _playlistTracks;
+    final List<Track> next = List<Track>.of(before);
+    next.insert(to.clamp(0, next.length - 1), next.removeAt(from));
+    _update(() {
+      _playlistTracks = next;
+      _playlistReordering = true;
+    });
+    try {
+      await collections.movePlaylistTrack(id: playlist.id, from: from, to: to);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _update(() => _playlistTracks = before);
+      _showMessage('排序失败：${ErrorRetry.describe(error)}');
+    } finally {
+      if (mounted) {
+        _update(() => _playlistReordering = false);
+      }
+    }
   }
 }

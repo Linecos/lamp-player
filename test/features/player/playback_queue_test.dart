@@ -217,6 +217,42 @@ void main() {
     expect(queue.length, 2);
   });
 
+  test('拖动重排：正在播放的曲目跟着自己的下标走', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.jumpTo(1);
+    final String playing = queue.current!.title;
+
+    // 把第 1 首挪到队首：当前曲目原来是下标 1，现在应该变成 0
+    queue.move(1, 0);
+
+    expect(_titles(queue.tracks), <String>[playing, 'A', 'C']);
+    expect(queue.current?.title, playing, reason: '不该因为前面的行被挪动而换歌');
+    expect(queue.index, 0);
+  });
+
+  test('拖动重排：往右拖时中间曲目整体左移', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.jumpTo(1);
+
+    queue.move(0, 2);
+
+    expect(_titles(queue.tracks), <String>['B', 'C', 'A']);
+    expect(queue.index, 0, reason: '被移走的那首原本在当前曲目之前，当前下标要减一');
+    expect(queue.current?.title, 'B');
+  });
+
+  test('拖动重排：越界参数被夹住，空队列不炸', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    queue.move(0, 99);
+    expect(_titles(queue.tracks), <String>['B', 'C', 'A']);
+    queue.move(9, 0);
+    expect(queue.length, 3, reason: '越界的 from 直接忽略');
+
+    final PlaybackQueue empty = PlaybackQueue();
+    empty.move(0, 1);
+    expect(empty.isEmpty, isTrue);
+  });
+
   test('清空队列后回到空状态', () {
     final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
     queue.advance();

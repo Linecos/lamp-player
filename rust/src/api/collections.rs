@@ -5,7 +5,7 @@
 //!
 //! 语义要点：
 //! - 歌单名去掉首尾空白后不能为空，忽略 ASCII 大小写唯一；
-//! - 歌单内曲目按加入时间排序，暂不支持手动排序；
+//! - 歌单内曲目按 `position` 排序（schema v6），拖拽后整体归一化成 0..n-1；
 //! - 收藏 / 加歌单是幂等操作，重复调用不报错，返回值表示是否真的改变了数据；
 //! - 历史按曲目去重，重复播放只更新最近时间并累加 `play_count`。
 
@@ -157,7 +157,7 @@ pub fn delete_playlist(id: i64) -> anyhow::Result<()> {
     })
 }
 
-/// 歌单内曲目，按加入时间排序。
+/// 歌单内曲目，按用户排好的 `position` 排序。
 pub fn playlist_tracks(id: i64) -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         playlist_exists(conn, id)?;
@@ -167,11 +167,57 @@ pub fn playlist_tracks(id: i64) -> anyhow::Result<Vec<Track>> {
             FROM playlist_items i
             JOIN tracks t ON t.path = i.track_path
             WHERE i.playlist_id = ?1
-            ORDER BY i.added_at, i.rowid
+            ORDER BY i.position, i.added_at, i.rowid
             "#,
         )?;
         let rows = stmt.query_map([id], row_to_track)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+/// 把歌单里第 `from` 个曲目挪到第 `to` 个位置（下标按当前展示顺序）。
+///
+/// 重排后把 position 归一化成 `0..n-1`：反复拖拽不会留下空洞，也不用担心
+/// 并发（单连接串行）产生的重号。
+pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        playlist_exists(&tx, id)?;
+        let mut paths: Vec<String> = {
+            let mut stmt = tx.prepare_cached(
+                "SELECT track_path FROM playlist_items
+                 WHERE playlist_id = ?1
+                 ORDER BY position, added_at, rowid",
+            )?;
+            let rows = stmt.query_map([id], |row| row.get(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        let len = paths.len();
+        let from = from.max(0) as usize;
+        if from >= len {
+            bail!("下标越界: {from} / {len}");
+        }
+        let to = (to.max(0) as usize).min(len - 1);
+        if from == to {
+            return Ok(());
+        }
+        let moved = paths.remove(from);
+        paths.insert(to, moved);
+        {
+            let mut stmt = tx.prepare_cached(
+                "UPDATE playlist_items SET position = ?1
+                 WHERE playlist_id = ?2 AND track_path = ?3",
+            )?;
+            for (index, path) in paths.iter().enumerate() {
+                stmt.execute(params![index as i64, id, path])?;
+            }
+        }
+        tx.execute(
+            "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+            params![now_secs(), id],
+        )?;
+        tx.commit()?;
+        Ok(())
     })
 }
 
@@ -182,8 +228,12 @@ pub fn add_track_to_playlist(id: i64, path: String) -> anyhow::Result<bool> {
         playlist_exists(&tx, id)?;
         track_exists(&tx, &path)?;
         let changed = tx.execute(
-            "INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO playlist_items
+                 (playlist_id, track_path, added_at, position)
+             VALUES (?1, ?2, ?3, (
+                 SELECT COALESCE(MAX(position), -1) + 1
+                   FROM playlist_items WHERE playlist_id = ?1
+             ))",
             params![id, path, now_secs()],
         )?;
         if changed > 0 {
@@ -212,8 +262,12 @@ pub fn add_tracks_to_playlist(id: i64, paths: Vec<String>) -> anyhow::Result<i32
         let mut added = 0;
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT OR IGNORE INTO playlist_items (playlist_id, track_path, added_at)
-                 VALUES (?1, ?2, ?3)",
+                "INSERT OR IGNORE INTO playlist_items
+                     (playlist_id, track_path, added_at, position)
+                 VALUES (?1, ?2, ?3, (
+                     SELECT COALESCE(MAX(position), -1) + 1
+                       FROM playlist_items WHERE playlist_id = ?1
+                 ))",
             )?;
             for path in &paths {
                 track_exists(&tx, path)?;

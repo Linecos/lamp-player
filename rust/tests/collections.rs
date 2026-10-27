@@ -448,3 +448,47 @@ fn write_wav(path: &Path, seconds: f32) {
     }
     fs::write(path, bytes).expect("写入 wav");
 }
+
+/// 拖拽重排：位置按 `from → to` 移动，并把 position 归一化成 0..n-1。
+#[test]
+fn playlist_move_reorders_and_normalizes_positions() {
+    let (_lock, dir) = begin("pl_move");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+            ("/music/d.mp3", "D"),
+        ],
+    );
+    let playlist = collections::create_playlist("Order".to_string()).expect("新建歌单");
+    for path in ["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"] {
+        collections::add_track_to_playlist(playlist.id, path.to_string()).expect("加曲目");
+    }
+
+    let titles = || -> Vec<String> {
+        collections::playlist_tracks(playlist.id)
+            .expect("歌单曲目")
+            .into_iter()
+            .map(|track| track.title)
+            .collect()
+    };
+    assert_eq!(titles(), vec!["A", "B", "C"], "新加入的排在末尾");
+
+    collections::move_playlist_track(playlist.id, 2, 0).expect("挪到最前");
+    assert_eq!(titles(), vec!["C", "A", "B"]);
+
+    // 越界的 to 夹到末尾，不会报错也不会丢条目
+    collections::move_playlist_track(playlist.id, 0, 99).expect("挪到末尾");
+    assert_eq!(titles(), vec!["A", "B", "C"]);
+
+    assert!(
+        collections::move_playlist_track(playlist.id, 9, 0).is_err(),
+        "越界的 from 应报错"
+    );
+
+    // 重排后新加的曲目仍然追加在末尾
+    collections::add_track_to_playlist(playlist.id, "/music/d.mp3".to_string()).expect("加 D");
+    assert_eq!(titles(), vec!["A", "B", "C", "D"]);
+}
