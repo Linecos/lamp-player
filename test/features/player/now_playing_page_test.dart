@@ -74,8 +74,9 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueListenable<List<rust.PlayerDevice>>? devices,
   ValueListenable<int>? selectedDevice,
   ValueChanged<int>? onSelectDevice,
+  Size size = const Size(1280, 900),
 }) async {
-  tester.view.physicalSize = const Size(1280, 900);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -513,5 +514,22 @@ void main() {
 
     expect(picks, <int>[2], reason: '选中设备要回调给页面');
     await _settleToast(tester);
+  });
+
+  testWidgets('大窗口封面用满放大后的 336', (WidgetTester tester) async {
+    await _pump(tester, data: _data());
+
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(AlbumCover).first).width, 336);
+  });
+
+  testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {
+    // 900×560 是 main.dart 里 windowManager 允许的最小窗口
+    await _pump(tester, data: _data(), size: const Size(900, 560));
+
+    expect(tester.takeException(), isNull, reason: '最小窗口下不该溢出');
+    final double cover = tester.getSize(find.byType(AlbumCover).first).width;
+    expect(cover, lessThan(336), reason: '高度不够时封面要让位');
+    expect(cover, greaterThan(200), reason: '也不该缩到看不出封面');
   });
 }

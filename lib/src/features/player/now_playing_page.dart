@@ -92,6 +92,9 @@ class NowPlayingPage extends StatefulWidget {
 }
 
 class _NowPlayingPageState extends State<NowPlayingPage> {
+  /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
+  static const double _narrowLyricMinHeight = 132;
+
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
   bool _loading = false;
@@ -446,7 +449,15 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
           child: Column(
             children: <Widget>[
-              info,
+              // 窄屏封面和歌词上下排：封面最多占「高度 - 歌词最小高度」，
+              // 否则矮窗口下 Column 会顶出可视区
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: (constraints.maxHeight - _narrowLyricMinHeight)
+                      .clamp(0.0, double.infinity),
+                ),
+                child: info,
+              ),
               const SizedBox(height: 12),
               Expanded(child: lyric),
             ],
@@ -464,16 +475,28 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        ValueListenableBuilder<bool>(
-          valueListenable: _playing,
-          builder: (BuildContext context, bool playing, Widget? child) {
-            return AlbumCover(
-              path: track.coverPath,
-              size: coverSize,
-              radius: 20,
-              playing: playing,
-            );
-          },
+        // 左栏高度由窗口决定：封面拿分到的高度，放不下就自己缩，别把下面的
+        // 标题 / 歌手顶出可视区（900×560 这种最小窗口）。只缩封面不缩文字，
+        // 文字保持原生字号不发虚。
+        Flexible(
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double available = constraints.maxHeight;
+              return ValueListenableBuilder<bool>(
+                valueListenable: _playing,
+                builder: (BuildContext context, bool playing, Widget? child) {
+                  return AlbumCover(
+                    path: track.coverPath,
+                    size: available.isFinite && available < coverSize
+                        ? available
+                        : coverSize,
+                    radius: 20,
+                    playing: playing,
+                  );
+                },
+              );
+            },
+          ),
         ),
         const SizedBox(height: 20),
         Text(
