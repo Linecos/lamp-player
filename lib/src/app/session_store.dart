@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../common/audio/volume_curve.dart';
 import '../features/library/library_sort.dart';
+import '../features/player/equalizer.dart';
 import '../features/player/playback_queue.dart';
 
 /// 一次会话需要记住的东西：音量、上次播放、界面位置。
@@ -23,6 +26,8 @@ class SessionSnapshot {
     this.exclusiveOutput = false,
     this.eqEnabled = false,
     this.eqGains = const <double>[],
+    this.eqPresetName,
+    this.eqCustomPresets = const <EqualizerPreset>[],
     this.outputDevice = -1,
     this.replayGain = false,
     this.crossfadeSeconds = 0,
@@ -61,6 +66,12 @@ class SessionSnapshot {
   /// 均衡器各段增益（dB，31Hz→16kHz）；空表示还没设置过
   final List<double> eqGains;
 
+  /// 当前套用的预设名；null 表示手动调的自定义曲线
+  final String? eqPresetName;
+
+  /// 用户自存的预设（内置 5 套不在此列）
+  final List<EqualizerPreset> eqCustomPresets;
+
   /// 共享输出设备索引；`-1` 表示系统默认
   final int outputDevice;
 
@@ -92,6 +103,8 @@ class PrefsSessionStore implements SessionStore {
   static const String exclusiveKey = 'player_exclusive_output';
   static const String eqEnabledKey = 'player_eq_enabled';
   static const String eqGainsKey = 'player_eq_gains';
+  static const String eqPresetNameKey = 'player_eq_preset';
+  static const String eqCustomPresetsKey = 'player_eq_custom_presets';
   static const String outputDeviceKey = 'player_output_device';
   static const String replayGainKey = 'player_replay_gain';
   static const String crossfadeKey = 'player_crossfade_seconds';
@@ -138,6 +151,12 @@ class PrefsSessionStore implements SessionStore {
         eqGains: (prefs.getStringList(eqGainsKey) ?? const <String>[])
             .map((String value) => double.tryParse(value) ?? 0)
             .toList(growable: false),
+        eqPresetName: prefs.getString(eqPresetNameKey),
+        eqCustomPresets:
+            (prefs.getStringList(eqCustomPresetsKey) ?? const <String>[])
+                .map((String raw) => EqualizerPreset.fromJson(_tryDecode(raw)))
+                .whereType<EqualizerPreset>()
+                .toList(growable: false),
         outputDevice: prefs.getInt(outputDeviceKey) ?? -1,
         replayGain: prefs.getBool(replayGainKey) ?? false,
         crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
@@ -182,6 +201,18 @@ class PrefsSessionStore implements SessionStore {
             .map((double gain) => gain.toStringAsFixed(1))
             .toList(growable: false),
       );
+      final String? presetName = snapshot.eqPresetName;
+      if (presetName == null || presetName.isEmpty) {
+        await prefs.remove(eqPresetNameKey);
+      } else {
+        await prefs.setString(eqPresetNameKey, presetName);
+      }
+      await prefs.setStringList(
+        eqCustomPresetsKey,
+        snapshot.eqCustomPresets
+            .map((EqualizerPreset preset) => jsonEncode(preset.toJson()))
+            .toList(growable: false),
+      );
       await prefs.setInt(outputDeviceKey, snapshot.outputDevice);
       await prefs.setBool(replayGainKey, snapshot.replayGain);
       await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
@@ -211,5 +242,14 @@ class PrefsSessionStore implements SessionStore {
       }
     }
     return LibrarySort.library;
+  }
+
+  /// 单条预设是一个 JSON 字符串；解析失败就丢掉这一条，不影响其余预设
+  static Object? _tryDecode(String raw) {
+    try {
+      return jsonDecode(raw);
+    } catch (_) {
+      return null;
+    }
   }
 }
