@@ -13,11 +13,8 @@ extension _FilterSection on _LibraryPageState {
     LibrarySection.favorites => '搜索收藏',
     LibrarySection.artists => '搜索艺术家',
     LibrarySection.albums => '搜索专辑',
-    LibrarySection.settings => '设置页无需搜索',
+    LibrarySection.settings => '搜索设置项',
   };
-
-  /// 设置分区没有可过滤的内容，直接禁用输入
-  bool get _searchEnabled => _section != LibrarySection.settings;
 
   /// 只有音乐分区需要问数据库
   bool get _queriesDatabase => _section == LibrarySection.music;

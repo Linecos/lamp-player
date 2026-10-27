@@ -65,6 +65,9 @@ extension _SettingsSection on _LibraryPageState {
             onPruneMissing: _pruningMissing
                 ? null
                 : () => unawaited(_pruneMissing()),
+            query: _query,
+            matcher: _matchesText,
+            onClearSearch: _clearSearch,
           ),
         ),
       ],

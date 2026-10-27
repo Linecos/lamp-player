@@ -52,6 +52,9 @@ class SettingsView extends StatelessWidget {
     this.prunedMissingCount,
     this.pruneMissingError,
     this.onPruneMissing,
+    this.query = '',
+    this.matcher,
+    this.onClearSearch,
   });
 
   final int trackCount;
@@ -146,200 +149,255 @@ class SettingsView extends StatelessWidget {
   /// 触发清理；为空表示当前不可操作
   final VoidCallback? onPruneMissing;
 
+  /// 常驻搜索框的关键词：非空时只留命中的设置行
+  final String query;
+
+  /// 自定义匹配（曲库页传拼音匹配进来）；为空时按大小写无关的子串判断
+  final bool Function(String text, String query)? matcher;
+
+  /// 清空搜索；为空表示不提供「清除搜索」入口
+  final VoidCallback? onClearSearch;
+
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.only(top: 4, bottom: 16),
-      children: <Widget>[
-        _SectionLabel('音乐库'),
-        _SettingsCard(
-          children: <Widget>[
-            _InfoRow(
-              icon: Icons.library_music_outlined,
-              title: '曲目数量',
-              value: '$trackCount 首',
-            ),
-            _ActionRow(
-              icon: Icons.insights_outlined,
-              title: '听歌统计',
-              subtitle: '累计时长、播放次数排行与每日热力图',
-              onTap: () => _openStats(context),
-            ),
-            _ActionRow(
-              icon: Icons.create_new_folder_outlined,
-              title: '添加音乐目录',
-              subtitle: scanning ? '正在扫描并入库…' : '递归扫描子目录，按改动增量入库',
-              onTap: scanning ? null : onAddFolder,
-              trailing: scanning
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : null,
-            ),
-            _ActionRow(
-              icon: Icons.cleaning_services_outlined,
-              title: '清理缺失文件',
-              subtitle: pruningMissing
-                  ? '正在检查曲库记录…'
-                  : '移除磁盘上已不存在的曲目记录，不会删除音频文件',
-              onTap: pruningMissing ? null : onPruneMissing,
-              trailing: pruningMissing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : null,
-            ),
-          ],
-        ),
-        if (!pruningMissing &&
-            pruneMissingError != null &&
-            onPruneMissing != null)
+    final String query = this.query.trim();
+    final bool searching = query.isNotEmpty;
+    final List<Widget> children = <Widget>[];
+
+    // 一组设置 = 分区标题 + 卡片；整组都没命中就一起收起来
+    void section(String label, List<Widget> rows) {
+      final List<Widget> kept = _filterRows(rows, query);
+      if (kept.isEmpty) {
+        return;
+      }
+      children.add(_SectionLabel(label));
+      children.add(_SettingsCard(children: kept));
+    }
+
+    section('音乐库', <Widget>[
+      _InfoRow(
+        icon: Icons.library_music_outlined,
+        title: '曲目数量',
+        value: '$trackCount 首',
+      ),
+      _ActionRow(
+        icon: Icons.insights_outlined,
+        title: '听歌统计',
+        subtitle: '累计时长、播放次数排行与每日热力图',
+        onTap: () => _openStats(context),
+      ),
+      _ActionRow(
+        icon: Icons.create_new_folder_outlined,
+        title: '添加音乐目录',
+        subtitle: scanning ? '正在扫描并入库…' : '递归扫描子目录，按改动增量入库',
+        onTap: scanning ? null : onAddFolder,
+        trailing: scanning
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+      _ActionRow(
+        icon: Icons.cleaning_services_outlined,
+        title: '清理缺失文件',
+        subtitle: pruningMissing ? '正在检查曲库记录…' : '移除磁盘上已不存在的曲目记录，不会删除音频文件',
+        onTap: pruningMissing ? null : onPruneMissing,
+        trailing: pruningMissing
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+    ]);
+    // 扫描 / 清理的进度与结果属于临时状态，搜索时让路
+    if (!searching) {
+      if (!pruningMissing &&
+          pruneMissingError != null &&
+          onPruneMissing != null) {
+        children.add(
           ErrorRetry(
             title: '清理失败',
             error: pruneMissingError!,
             onRetry: onPruneMissing!,
           ),
-        if (!pruningMissing &&
-            pruneMissingError == null &&
-            prunedMissingCount != null)
-          _PruneSummary(count: prunedMissingCount!),
-        _SectionLabel('音乐目录'),
-        _SettingsCard(
-          children: <Widget>[
-            if (folders.isEmpty)
-              const _EmptyFolders()
-            else
-              for (final String folder in folders)
-                _FolderRow(
-                  folder: folder,
-                  scanning: scanning && folder == scanFolder,
-                  onRescan: onRescanFolder == null
-                      ? null
-                      : () => onRescanFolder!(folder),
-                  onRemove: onRemoveFolder == null
-                      ? null
-                      : () => onRemoveFolder!(folder),
-                ),
-          ],
-        ),
-        if (scanning && scanFolder != null) _ScanProgress(folder: scanFolder!),
-        if (!scanning && scanError != null && onRetry != null)
+        );
+      }
+      if (!pruningMissing &&
+          pruneMissingError == null &&
+          prunedMissingCount != null) {
+        children.add(_PruneSummary(count: prunedMissingCount!));
+      }
+    }
+    section('音乐目录', <Widget>[
+      if (folders.isEmpty)
+        const _EmptyFolders()
+      else
+        for (final String folder in folders)
+          _FolderRow(
+            folder: folder,
+            scanning: scanning && folder == scanFolder,
+            onRescan: onRescanFolder == null
+                ? null
+                : () => onRescanFolder!(folder),
+            onRemove: onRemoveFolder == null
+                ? null
+                : () => onRemoveFolder!(folder),
+          ),
+    ]);
+    if (!searching) {
+      if (scanning && scanFolder != null) {
+        children.add(_ScanProgress(folder: scanFolder!));
+      }
+      if (!scanning && scanError != null && onRetry != null) {
+        children.add(
           ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-        if (!scanning && scanError == null && scanReport != null)
+        );
+      }
+      if (!scanning && scanError == null && scanReport != null) {
+        children.add(
           _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
-        _SectionLabel('播放'),
-        _SettingsCard(
-          children: <Widget>[
-            _InfoRow(
-              icon: Icons.graphic_eq,
-              title: '播放引擎',
-              value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
-              valueColor: engineAvailable
-                  ? null
-                  : Theme.of(context).colorScheme.error,
-            ),
-            _SwitchRow(
-              icon: Icons.surround_sound,
-              title: '独占输出（WASAPI）',
-              switchKey: const ValueKey<String>('settings-exclusive-switch'),
-              subtitle: exclusive
-                  ? (exclusiveActive
-                        ? '设备由本应用独占，系统混音器不再参与'
-                        : '设备不支持或被占用，当前仍走共享输出')
-                  : '开启后绕过系统混音器；切换时会短暂中断播放',
-              value: exclusive,
-              busy: switchingOutput,
-              onChanged: onExclusiveChanged,
-            ),
-            if (outputInfo.isNotEmpty)
-              _OutputRow(
-                info: outputInfo,
-                active: exclusiveActive,
-                available: engineAvailable,
-              ),
-            _ChoiceRow<int>(
-              icon: Icons.speaker_outlined,
-              title: '输出设备',
-              subtitle: exclusiveActive
-                  ? '独占模式下固定用系统默认设备，关掉独占后生效'
-                  : '共享输出使用哪块声卡；切换时曲目会重新打开',
-              value: outputDevice,
-              choices: <(int, String)>[
-                (-1, '系统默认'),
-                for (final rust.PlayerDevice device in devices)
-                  (device.index, device.name),
-              ],
-              onChanged: onOutputDeviceChanged,
-              choiceKey: const ValueKey<String>('settings-output-device'),
-            ),
-            _SwitchRow(
-              icon: Icons.balance,
-              title: 'ReplayGain 响度归一',
-              switchKey: const ValueKey<String>('settings-replay-gain-switch'),
-              subtitle: replayGain
-                  ? '按标签里的增益调整每首歌的音量，专辑之间不再忽大忽小'
-                  : '关闭时按原始音量播放（切换后从下一首起生效）',
-              value: replayGain,
-              onChanged: onReplayGainChanged,
-            ),
-            _ChoiceRow<int>(
-              icon: Icons.compare_arrows,
-              title: '换曲淡入淡出',
-              subtitle: exclusiveActive
-                  ? '独占模式下只做新曲淡入（不重叠）'
-                  : '共享模式下新旧曲重叠交叉淡变，避免硬切',
-              value: crossfadeSeconds.round(),
-              choices: const <(int, String)>[
-                (0, '关闭'),
-                (1, '1 秒'),
-                (2, '2 秒'),
-                (4, '4 秒'),
-                (6, '6 秒'),
-                (8, '8 秒'),
-              ],
-              onChanged: onCrossfadeChanged == null
-                  ? null
-                  : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
-              choiceKey: const ValueKey<String>('settings-crossfade'),
-            ),
-            _SwitchRow(
-              icon: Icons.minimize,
-              title: '关闭窗口时留在托盘',
-              switchKey: const ValueKey<String>(
-                'settings-close-to-tray-switch',
-              ),
-              subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
-              value: closeToTray,
-              onChanged: onCloseToTrayChanged,
-            ),
-            _EqualizerPanel(
-              enabled: eqEnabled,
-              gains: eqGains,
-              onChanged: onEqualizerChanged,
-            ),
-          ],
+        );
+      }
+    }
+    section('播放', <Widget>[
+      _InfoRow(
+        icon: Icons.graphic_eq,
+        title: '播放引擎',
+        value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
+        valueColor: engineAvailable
+            ? null
+            : Theme.of(context).colorScheme.error,
+      ),
+      _SwitchRow(
+        icon: Icons.surround_sound,
+        title: '独占输出（WASAPI）',
+        switchKey: const ValueKey<String>('settings-exclusive-switch'),
+        subtitle: exclusive
+            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
+            : '开启后绕过系统混音器；切换时会短暂中断播放',
+        value: exclusive,
+        busy: switchingOutput,
+        onChanged: onExclusiveChanged,
+      ),
+      if (outputInfo.isNotEmpty)
+        _OutputRow(
+          info: outputInfo,
+          active: exclusiveActive,
+          available: engineAvailable,
         ),
-        _SectionLabel('外观'),
-        _SettingsCard(
-          children: <Widget>[const _ThemeRow(), const _AccentColorRow()],
-        ),
-        _SectionLabel('关于'),
-        _SettingsCard(
-          children: const <Widget>[
-            _InfoRow(
-              icon: Icons.info_outline,
-              title: 'Lamp Player',
-              subtitle: 'Flutter + Rust + BASS',
-              value: appVersion,
-            ),
-          ],
-        ),
-      ],
+      _ChoiceRow<int>(
+        icon: Icons.speaker_outlined,
+        title: '输出设备',
+        subtitle: exclusiveActive
+            ? '独占模式下固定用系统默认设备，关掉独占后生效'
+            : '共享输出使用哪块声卡；切换时曲目会重新打开',
+        value: outputDevice,
+        choices: <(int, String)>[
+          (-1, '系统默认'),
+          for (final rust.PlayerDevice device in devices)
+            (device.index, device.name),
+        ],
+        onChanged: onOutputDeviceChanged,
+        choiceKey: const ValueKey<String>('settings-output-device'),
+      ),
+      _SwitchRow(
+        icon: Icons.balance,
+        title: 'ReplayGain 响度归一',
+        switchKey: const ValueKey<String>('settings-replay-gain-switch'),
+        subtitle: replayGain
+            ? '按标签里的增益调整每首歌的音量，专辑之间不再忽大忽小'
+            : '关闭时按原始音量播放（切换后从下一首起生效）',
+        value: replayGain,
+        onChanged: onReplayGainChanged,
+      ),
+      _ChoiceRow<int>(
+        icon: Icons.compare_arrows,
+        title: '换曲淡入淡出',
+        subtitle: exclusiveActive ? '独占模式下只做新曲淡入（不重叠）' : '共享模式下新旧曲重叠交叉淡变，避免硬切',
+        value: crossfadeSeconds.round(),
+        choices: const <(int, String)>[
+          (0, '关闭'),
+          (1, '1 秒'),
+          (2, '2 秒'),
+          (4, '4 秒'),
+          (6, '6 秒'),
+          (8, '8 秒'),
+        ],
+        onChanged: onCrossfadeChanged == null
+            ? null
+            : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
+        choiceKey: const ValueKey<String>('settings-crossfade'),
+      ),
+      _SwitchRow(
+        icon: Icons.minimize,
+        title: '关闭窗口时留在托盘',
+        switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
+        subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
+        value: closeToTray,
+        onChanged: onCloseToTrayChanged,
+      ),
+      _EqualizerPanel(
+        enabled: eqEnabled,
+        gains: eqGains,
+        onChanged: onEqualizerChanged,
+      ),
+    ]);
+    section('外观', <Widget>[const _ThemeRow(), const _AccentColorRow()]);
+    section('关于', <Widget>[
+      _InfoRow(
+        icon: Icons.info_outline,
+        title: 'Lamp Player',
+        subtitle: 'Flutter + Rust + BASS',
+        value: appVersion,
+      ),
+    ]);
+
+    if (children.isEmpty) {
+      return EmptyState(
+        icon: Icons.search_off,
+        title: '没有匹配的设置项',
+        message: '试试「主题」「输出设备」「均衡器」这类词，或清除搜索看全部设置。',
+        action: onClearSearch == null
+            ? null
+            : TextButton(onPressed: onClearSearch, child: const Text('清除搜索')),
+      );
+    }
+
+    return ListView(
+      // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
+      padding: const EdgeInsets.only(top: 4, right: 12, bottom: 16),
+      children: children,
     );
+  }
+
+  /// 搜索时只留命中的行；没命中的行（含状态类小组件）一起收起来
+  List<Widget> _filterRows(List<Widget> rows, String query) {
+    if (query.isEmpty) {
+      return rows;
+    }
+    final List<Widget> kept = <Widget>[];
+    for (final Widget row in rows) {
+      if (row is! _Searchable) {
+        continue;
+      }
+      final _Searchable searchable = row as _Searchable;
+      if (_hit(searchable.searchText, query)) {
+        kept.add(row);
+      }
+    }
+    return kept;
+  }
+
+  bool _hit(String text, String query) {
+    final bool Function(String text, String query)? custom = matcher;
+    if (custom != null) {
+      return custom(text, query);
+    }
+    return text.toLowerCase().contains(query.toLowerCase());
   }
 
   void _openStats(BuildContext context) {
@@ -351,8 +409,15 @@ class SettingsView extends StatelessWidget {
   }
 }
 
+/// 设置行的搜索索引：常驻搜索框按 [searchText] 过滤本页的行。
+///
+/// 索引直接取行自己展示的标题 / 副标题，改文案时不会漏更新。
+abstract interface class _Searchable {
+  String get searchText;
+}
+
 /// 一行「标题 + 下拉选择」，用于输出设备、淡变时长这类多选一设置。
-class _ChoiceRow<T> extends StatelessWidget {
+class _ChoiceRow<T> extends StatefulWidget implements _Searchable {
   const _ChoiceRow({
     required this.icon,
     required this.title,
@@ -372,12 +437,31 @@ class _ChoiceRow<T> extends StatelessWidget {
   final Key? choiceKey;
 
   @override
+  String get searchText => '$title $subtitle';
+
+  @override
+  State<_ChoiceRow<T>> createState() => _ChoiceRowState<T>();
+}
+
+class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
+  /// 选完立刻收掉焦点：DropdownButton 会一直挂着高亮底色，看着像没生效
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     // 当前值可能已经不在列表里（设备被拔掉）：退到第一项，别让 Dropdown 断言失败
-    final bool known = choices.any(((T, String) item) => item.$1 == value);
-    final T current = known ? value : choices.first.$1;
+    final bool known = widget.choices.any(
+      ((T, String) item) => item.$1 == widget.value,
+    );
+    final T current = known ? widget.value : widget.choices.first.$1;
 
     // 与 _SwitchRow / _InfoRow 保持同一套版式：40×40 圆形底 + 16 间距，
     // 否则这一行的图标既不圆、左边缘也对不齐旁边的行。
@@ -392,17 +476,18 @@ class _ChoiceRow<T> extends StatelessWidget {
               color: scheme.surfaceContainerHigh,
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+            child: Icon(widget.icon, size: 20, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(title, style: theme.textTheme.bodyLarge),
+                Text(widget.title, style: theme.textTheme.bodyLarge),
                 const SizedBox(height: 2),
                 Text(
-                  subtitle,
+                  widget.subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -412,33 +497,55 @@ class _ChoiceRow<T> extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           // 设备名可能很长（"扬声器 (Realtek High Definition Audio)"）：
-          // 限宽 + isExpanded 让它在菜单里换行截断，而不是把这一行撑破
+          // 限宽 + isExpanded 让它在框里截断，而不是把这一行撑破
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 220),
-            child: DropdownButton<T>(
-              key: choiceKey,
-              value: current,
-              underline: const SizedBox.shrink(),
-              borderRadius: BorderRadius.circular(12),
-              onChanged: onChanged == null
-                  ? null
-                  : (T? next) {
-                      if (next != null) {
-                        onChanged!(next);
-                      }
-                    },
-              isExpanded: true,
-              items: <DropdownMenuItem<T>>[
-                for (final (T value, String label) item in choices)
-                  DropdownMenuItem<T>(
-                    value: item.$1,
-                    child: Text(
-                      item.$2,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+            child: DecoratedBox(
+              // 选择框自带一层底：与左侧图标同色，文字才不会看着浮在卡片上
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                // 上下各 6：让胶囊和左侧 40 的图标圈差不多高
+                padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                child: DropdownButton<T>(
+                  key: widget.choiceKey,
+                  focusNode: _focus,
+                  value: current,
+                  isDense: true,
+                  isExpanded: true,
+                  iconSize: 20,
+                  iconEnabledColor: scheme.onSurfaceVariant,
+                  // 选完不留高亮：焦点色透明，底色永远是上面那一层
+                  focusColor: Colors.transparent,
+                  underline: const SizedBox.shrink(),
+                  borderRadius: BorderRadius.circular(12),
+                  dropdownColor: scheme.surfaceContainerHighest,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
                   ),
-              ],
+                  onChanged: widget.onChanged == null
+                      ? null
+                      : (T? next) {
+                          _focus.unfocus();
+                          if (next != null) {
+                            widget.onChanged!(next);
+                          }
+                        },
+                  items: <DropdownMenuItem<T>>[
+                    for (final (T value, String label) item in widget.choices)
+                      DropdownMenuItem<T>(
+                        value: item.$1,
+                        child: Text(
+                          item.$2,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -507,7 +614,7 @@ class _SettingsCard extends StatelessWidget {
 
 /// 可点击的操作行，样式与只读信息行保持一致。
 /// 带开关的设置行
-class _SwitchRow extends StatelessWidget {
+class _SwitchRow extends StatelessWidget implements _Searchable {
   const _SwitchRow({
     required this.icon,
     required this.title,
@@ -527,6 +634,9 @@ class _SwitchRow extends StatelessWidget {
 
   /// 给 Switch 本身挂 key：设置页里不止一个开关，测试按 key 定位
   final Key? switchKey;
+
+  @override
+  String get searchText => '$title $subtitle';
 
   @override
   Widget build(BuildContext context) {
@@ -583,7 +693,7 @@ class _SwitchRow extends StatelessWidget {
 }
 
 /// 输出详情：引擎实际用的模式与格式
-class _OutputRow extends StatelessWidget {
+class _OutputRow extends StatelessWidget implements _Searchable {
   const _OutputRow({
     required this.info,
     required this.active,
@@ -593,6 +703,9 @@ class _OutputRow extends StatelessWidget {
   final String info;
   final bool active;
   final bool available;
+
+  @override
+  String get searchText => '输出格式 采样率 声道 $info';
 
   @override
   Widget build(BuildContext context) {
@@ -651,7 +764,7 @@ class _OutputRow extends StatelessWidget {
   }
 }
 
-class _ActionRow extends StatelessWidget {
+class _ActionRow extends StatelessWidget implements _Searchable {
   const _ActionRow({
     required this.icon,
     required this.title,
@@ -665,6 +778,9 @@ class _ActionRow extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  @override
+  String get searchText => '$title $subtitle';
 
   @override
   Widget build(BuildContext context) {
@@ -716,7 +832,7 @@ class _ActionRow extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
+class _InfoRow extends StatelessWidget implements _Searchable {
   const _InfoRow({
     required this.icon,
     required this.title,
@@ -730,6 +846,9 @@ class _InfoRow extends StatelessWidget {
   final String value;
   final String? subtitle;
   final Color? valueColor;
+
+  @override
+  String get searchText => '$title ${subtitle ?? ''} $value';
 
   @override
   Widget build(BuildContext context) {
@@ -781,8 +900,11 @@ class _InfoRow extends StatelessWidget {
 }
 
 /// 主题选择行：有 [ThemeScope] 时可点击切换，没有时退化为只读展示。
-class _ThemeRow extends StatelessWidget {
+class _ThemeRow extends StatelessWidget implements _Searchable {
   const _ThemeRow();
+
+  @override
+  String get searchText => '主题 浅色 深色 跟随系统 外观';
 
   @override
   Widget build(BuildContext context) {
@@ -897,8 +1019,11 @@ class _ThemeRow extends StatelessWidget {
 /// 强调色选择行：跟随系统强调色（动态取色）或预设色板。
 ///
 /// 没有 [ThemeScope] 时退化为只读展示（如部分测试环境）。
-class _AccentColorRow extends StatelessWidget {
+class _AccentColorRow extends StatelessWidget implements _Searchable {
   const _AccentColorRow();
+
+  @override
+  String get searchText => '强调色 配色 调色板 风格 高对比 外观';
 
   @override
   Widget build(BuildContext context) {
@@ -1374,8 +1499,11 @@ class _PruneSummary extends StatelessWidget {
 }
 
 /// 还没添加任何目录时的占位提示
-class _EmptyFolders extends StatelessWidget {
+class _EmptyFolders extends StatelessWidget implements _Searchable {
   const _EmptyFolders();
+
+  @override
+  String get searchText => '音乐目录 还没有添加目录';
 
   @override
   Widget build(BuildContext context) {
@@ -1405,7 +1533,7 @@ class _EmptyFolders extends StatelessWidget {
 }
 
 /// 单个目录：路径 + 重新扫描 / 移除
-class _FolderRow extends StatelessWidget {
+class _FolderRow extends StatelessWidget implements _Searchable {
   const _FolderRow({
     required this.folder,
     required this.scanning,
@@ -1417,6 +1545,9 @@ class _FolderRow extends StatelessWidget {
   final bool scanning;
   final VoidCallback? onRescan;
   final VoidCallback? onRemove;
+
+  @override
+  String get searchText => '音乐目录 $folder';
 
   @override
   Widget build(BuildContext context) {
@@ -1494,7 +1625,7 @@ class _FolderRow extends StatelessWidget {
 ///
 /// 推子拖动只改本地状态，松手（`onChangeEnd`）才下发——拖动每一帧都走一次
 /// FFI 会卡顿，而且引擎侧要重建 10 个滤波器。
-class _EqualizerPanel extends StatefulWidget {
+class _EqualizerPanel extends StatefulWidget implements _Searchable {
   const _EqualizerPanel({
     required this.enabled,
     required this.gains,
@@ -1504,6 +1635,9 @@ class _EqualizerPanel extends StatefulWidget {
   final bool enabled;
   final List<double> gains;
   final void Function(bool enabled, List<double> gains)? onChanged;
+
+  @override
+  String get searchText => '均衡器 预设 频段 EQ';
 
   @override
   State<_EqualizerPanel> createState() => _EqualizerPanelState();
