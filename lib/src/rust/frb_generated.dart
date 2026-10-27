@@ -10,6 +10,7 @@ import 'api/lyrics.dart';
 import 'api/media.dart';
 import 'api/model.dart';
 import 'api/player.dart';
+import 'api/replaygain.dart';
 import 'api/scan.dart';
 import 'api/simple.dart';
 
@@ -77,7 +78,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 88770848;
+  int get rustContentHash => 496341901;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -264,6 +265,11 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<int> crateApiDbUpsertTracks({required List<Track> tracks});
+
+  Future<void> crateApiReplaygainWriteReplayGain({
+    required String path,
+    required double gainDb,
+  });
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -2144,6 +2150,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiDbUpsertTracksConstMeta =>
       const TaskConstMeta(debugName: "upsert_tracks", argNames: ["tracks"]);
+
+  @override
+  Future<void> crateApiReplaygainWriteReplayGain({
+    required String path,
+    required double gainDb,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          sse_encode_f_64(gainDb, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 66,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiReplaygainWriteReplayGainConstMeta,
+        argValues: [path, gainDb],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiReplaygainWriteReplayGainConstMeta =>
+      const TaskConstMeta(
+        debugName: "write_replay_gain",
+        argNames: ["path", "gainDb"],
+      );
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {

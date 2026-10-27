@@ -225,6 +225,13 @@ extension _SelectionSection on _LibraryPageState {
                 icon: const Icon(Icons.playlist_add),
               ),
               IconButton(
+                tooltip: '计算 ReplayGain',
+                onPressed: enabled
+                    ? () => unawaited(_computeReplayGainForSelected())
+                    : null,
+                icon: const Icon(Icons.graphic_eq),
+              ),
+              IconButton(
                 tooltip: _selectionInPlaylist ? '从歌单移除' : '从曲库移除',
                 onPressed: enabled ? () => unawaited(_removeSelected()) : null,
                 icon: Icon(
@@ -272,6 +279,157 @@ extension _SelectionSection on _LibraryPageState {
       _saveSessionNow();
     }
     _showMessage(added > 0 ? '已加入 $added 首到队列' : '所选曲目都已在队列里');
+  }
+
+  /// 多选批量计算 ReplayGain：逐首分析整曲响度，写进文件标签，再重扫让曲库跟上。
+  ///
+  /// 写标签是**改用户文件**，所以先弹确认；取消只在两首之间生效（单首解码中
+  /// 断没有意义，中断反而会留下只算一半的结果）。
+  Future<void> _computeReplayGainForSelected() async {
+    final List<Track> tracks = _selectedTracks;
+    if (tracks.isEmpty) {
+      return;
+    }
+    if (_scanning) {
+      _showMessage('正在扫描曲库，请稍后再计算');
+      return;
+    }
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text('计算 ${tracks.length} 首曲目的 ReplayGain？'),
+        content: const Text(
+          '会逐首分析整曲响度（EBU R128），并把结果写进音频文件的 '
+          'REPLAYGAIN_TRACK_GAIN 标签：文件会被修改（只加这一个标签，'
+          '已有的同名标签会被覆盖），每首约需 1 秒。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('开始计算'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await _runReplayGain(tracks);
+  }
+
+  Future<void> _runReplayGain(List<Track> tracks) async {
+    final ValueNotifier<_ReplayGainProgress> progress =
+        ValueNotifier<_ReplayGainProgress>(
+          _ReplayGainProgress(0, tracks.length, ''),
+        );
+    bool cancelled = false;
+    bool dialogOpen = true;
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext dialogContext) => AlertDialog(
+          title: const Text('正在计算 ReplayGain'),
+          content: ValueListenableBuilder<_ReplayGainProgress>(
+            valueListenable: progress,
+            builder: (BuildContext context, _ReplayGainProgress value, _) {
+              final double ratio = value.total == 0
+                  ? 0
+                  : value.done / value.total;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  LinearProgressIndicator(value: ratio),
+                  const SizedBox(height: 12),
+                  Text(
+                    '${value.done}/${value.total}：${value.title}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                cancelled = true;
+                if (dialogOpen) {
+                  dialogOpen = false;
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    int written = 0;
+    int failed = 0;
+    double sum = 0;
+    final Set<String> folders = <String>{};
+    for (final Track track in tracks) {
+      if (cancelled) {
+        break;
+      }
+      progress.value = _ReplayGainProgress(
+        written + failed,
+        tracks.length,
+        track.title,
+      );
+      try {
+        final double gain = await _playback.analyzeReplayGain(track.path);
+        await _repository.writeReplayGain(track.path, gain);
+        _autoGains[track.path] = gain;
+        written += 1;
+        sum += gain;
+        folders.add(p.dirname(track.path));
+      } catch (_) {
+        failed += 1;
+      }
+    }
+    if (dialogOpen && mounted) {
+      dialogOpen = false;
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    progress.dispose();
+    if (!mounted) {
+      return;
+    }
+
+    // 标签改过之后曲库里的增益还是旧的：重扫受影响目录，增量只重解析改过的文件
+    for (final String folder in folders) {
+      try {
+        await _repository.scanFolder(folder);
+      } catch (_) {
+        // 重扫失败不影响标签已经写进文件，下次扫描会补上
+      }
+    }
+    if (folders.isNotEmpty) {
+      await _loadTracks(silent: true);
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final String average = written == 0
+        ? ''
+        : '，平均 ${(sum / written).toStringAsFixed(1)} dB';
+    _showMessage(
+      cancelled
+          ? '已取消：完成 $written 首$average，其余未处理'
+          : failed == 0
+          ? '已写入 $written 首的 ReplayGain$average'
+          : '已写入 $written 首$average，$failed 首失败（只读或格式不支持写标签）',
+    );
   }
 
   Future<void> _favoriteSelected() async {
@@ -476,4 +634,17 @@ extension _SelectionSection on _LibraryPageState {
       _selectedPaths = _selectedPaths.difference(removed);
     });
   }
+}
+
+/// 批量计算响度的进度快照
+@immutable
+class _ReplayGainProgress {
+  const _ReplayGainProgress(this.done, this.total, this.title);
+
+  /// 已完成（含失败）的首数
+  final int done;
+  final int total;
+
+  /// 正在处理 / 刚处理完的曲名
+  final String title;
 }

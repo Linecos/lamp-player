@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.6（2026-10-27）**
+> **当前版本：v0.7（2026-10-27）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.7 变更：新增 `api::replaygain`（`write_replay_gain`，把增益写进文件标签）。
+> 纯新增，不改现有语义。
 >
 > v0.6 变更：新增 `player_analyze_replay_gain`（整曲响度分析，返回 ReplayGain 建议增益）。
 > 纯新增，不改现有语义。
@@ -351,7 +354,27 @@ Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、�
 - 返回值为 `0xAARRGGBB`，Windows 上与「个性化 → 颜色 → 强调色」同源。
 - 只在启动时读一次：Windows 改强调色后重启应用生效（后续可加事件监听）。
 
-## 12. 生成代码规则
+## 12. ReplayGain 标签 `api::replaygain`
+
+多选「计算 ReplayGain」的落盘端。分析本身在 `api::player::player_analyze_replay_gain`
+（EBU R128，ReplayGain 2.0，目标 −18 LUFS），本模块只负责把结果写回文件标签，
+让增益跟着文件走——重新扫描、换播放器都还在。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `write_replay_gain(path: String, gain_db: f64) -> Result<()>` | `Future<void> writeReplayGain({required String path, required double gainDb})` | 否 | **已实现** |
+
+语义补充：
+
+- 写 `REPLAYGAIN_TRACK_GAIN`，文本形如 `-7.23 dB`，与扫描时 `parse_replay_gain` 的口径一致；
+  已有则覆盖，没有标签就新建主标签。
+- 增益夹在 ±24 dB；非有限值直接报错。只读文件、格式不支持写标签时返回错误，
+  lofty 先写临时文件再替换，不会留下半截文件。
+- **会修改用户文件**：调用方必须先明确告知并取得确认，不能当成无副作用的读操作。
+- 写完后要重扫该文件所在目录，曲库里的 `replay_gain` 才会更新。增量扫描按
+  mtime / size 判定，改过标签的文件必然重新解析。
+
+## 13. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。

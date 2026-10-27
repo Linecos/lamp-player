@@ -104,6 +104,21 @@ class FakeLibraryRepository implements LibraryRepository {
     );
   }
 
+  /// 写入过的 ReplayGain：路径 → dB，供测试断言
+  final Map<String, double> writtenGains = <String, double>{};
+
+  /// 非空时 `writeReplayGain()` 抛出该错误，模拟只读文件
+  Object? writeGainError;
+
+  @override
+  Future<void> writeReplayGain(String path, double gainDb) async {
+    final Object? error = writeGainError;
+    if (error != null) {
+      throw error;
+    }
+    writtenGains[path] = gainDb;
+  }
+
   // --- 歌单 / 收藏 / 历史：内存实现，行为与 Rust 侧契约保持一致 ---
 
   final Map<int, _FakePlaylist> _playlists = <int, _FakePlaylist>{};
