@@ -35,6 +35,7 @@ import '../settings/settings_view.dart';
 import 'drop_import.dart';
 import 'library_repository.dart';
 import 'library_sort.dart';
+import 'music_tag.dart';
 import 'playlist_io.dart';
 import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
@@ -77,6 +78,7 @@ class LibraryPage extends StatefulWidget {
     this.trayController,
     this.lyricsLoader,
     this.spectrum,
+    this.musicTagLauncher,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -90,6 +92,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 已添加目录的持久化；不传则用 shared_preferences。
   final MusicFolderStore? musicFolderStore;
+
+  /// 外部标签编辑器 MusicTag；不传则自动查找 / 让用户选 MusicTag.exe
+  final MusicTagLauncher? musicTagLauncher;
 
   /// 音量 / 上次播放 / 分区等会话状态；不传则用 shared_preferences。
   final SessionStore? sessionStore;
@@ -144,6 +149,8 @@ class _LibraryPageState extends State<LibraryPage>
       widget.musicFolderStore ?? const PrefsMusicFolderStore();
   late final SessionStore _sessionStore =
       widget.sessionStore ?? const PrefsSessionStore();
+  late final MusicTagLauncher _musicTag =
+      widget.musicTagLauncher ?? MusicTagLauncher();
 
   /// 系统媒体控制（媒体键 / 任务栏缩略图 / 音量浮层）
   late final SmtcBridge _media = SmtcBridge(
