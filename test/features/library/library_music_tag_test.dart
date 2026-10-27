@@ -20,8 +20,11 @@ MusicTagLauncher _launcher({
   required List<(String, List<String>)> launched,
   String? pick,
   List<String> candidates = const <String>[],
+  bool supported = true,
 }) {
   return MusicTagLauncher(
+    // 显式打开：CI 跑在 Linux 上，默认值会是 false
+    isSupported: supported,
     store: store,
     start: (String exe, List<String> args) async => launched.add((exe, args)),
     picker: () async => pick,
@@ -113,6 +116,27 @@ void main() {
 
     expect(launched, isEmpty);
     expect(find.text('没有打开：还没指定 MusicTag.exe'), findsOneWidget);
+  });
+
+  testWidgets('非 Windows 平台只提示不支持，不尝试启动', (WidgetTester tester) async {
+    final List<(String, List<String>)> launched = <(String, List<String>)>[];
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      musicTagLauncher: _launcher(
+        store: FakeMusicTagStore(_createExe()),
+        launched: launched,
+        supported: false,
+      ),
+    );
+
+    await _openMenu(tester, '夜航');
+    await tester.tap(find.text('用 MusicTag 打开'));
+    await tester.pumpAndSettle();
+
+    expect(launched, isEmpty);
+    expect(find.text('当前平台暂不支持外部标签编辑器'), findsOneWidget);
+    expect(find.text('没有找到 MusicTag'), findsNothing);
   });
 
   testWidgets('常见目录里能找到 MusicTag 时不用问用户', (WidgetTester tester) async {

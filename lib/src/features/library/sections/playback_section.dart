@@ -592,11 +592,11 @@ extension _PlaybackSection on _LibraryPageState {
   /// MusicTag 是绿色软件、装在哪不确定，第一次让用户指定 `MusicTag.exe` 并记住，
   /// 之后右键直接打开。改完回来点提示里的「改完了，刷新」重扫该目录即可看到新标签。
   Future<void> _openWithMusicTag(Track track) async {
-    if (!Platform.isWindows) {
+    MusicTagResult result = await _musicTag.open(<String>[track.path]);
+    if (result == MusicTagResult.unsupported) {
       _showMessage('当前平台暂不支持外部标签编辑器');
       return;
     }
-    MusicTagResult result = await _musicTag.open(<String>[track.path]);
     if (result == MusicTagResult.notConfigured && mounted) {
       final bool? choose = await showDialog<bool>(
         context: context,
