@@ -17,6 +17,9 @@ enum TrackContextAction {
   addToPlaylist,
   revealInExplorer,
   copyPath,
+
+  /// 用外部 MusicTag 编辑这首的标签
+  openWithMusicTag,
 }
 
 /// 列表行被选中：`toggle` 表示 Ctrl / 复选框（切换该行），`range` 表示 Shift。
@@ -364,6 +367,12 @@ class _TrackRow extends StatelessWidget {
           '在资源管理器中显示',
         ),
         _menuItem(TrackContextAction.copyPath, Icons.copy, '复制文件路径'),
+        const PopupMenuDivider(),
+        _menuItem(
+          TrackContextAction.openWithMusicTag,
+          Icons.sell_outlined,
+          '用 MusicTag 打开',
+        ),
       ],
     );
     if (selected != null) {
