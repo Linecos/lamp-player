@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/settings/listening_stats_page.dart';
 import 'package:lamp_player/src/features/settings/listening_stats_repository.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -102,6 +103,11 @@ void main() {
     expect(find.text('12 次'), findsOneWidget);
     expect(find.text('潮汐'), findsOneWidget);
     expect(find.text('7 次'), findsOneWidget);
+    expect(
+      find.byType(AlbumCover),
+      findsNWidgets(2),
+      reason: '每一行都带封面（没有封面时回退图标）',
+    );
     // 排名序号
     expect(find.text('1'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
