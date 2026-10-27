@@ -19,6 +19,7 @@ void main() {
     expect(snapshot.railExpanded, isTrue);
     expect(snapshot.sort, LibrarySort.library);
     expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
+    expect(snapshot.flowBackground, isTrue, reason: '默认开启流光背景');
   });
 
   test('保存后可以完整读回', () async {
@@ -93,6 +94,17 @@ void main() {
 
     final SessionSnapshot snapshot = await const PrefsSessionStore().load();
     expect(snapshot.sort, LibrarySort.library);
+  });
+
+  test('流光背景偏好可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    await store.save(const SessionSnapshot(flowBackground: false));
+    expect((await store.load()).flowBackground, isFalse);
+
+    await store.save(const SessionSnapshot(flowBackground: true));
+    expect((await store.load()).flowBackground, isTrue);
   });
 
   test('独占输出偏好可以存取', () async {

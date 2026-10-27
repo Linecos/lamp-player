@@ -28,6 +28,24 @@ void main() {
     expect(identical(first, second), isTrue, reason: '同一路径应命中缓存');
   });
 
+  test('纯色封面也能取色，不会退回主题色', () async {
+    final Directory dir = Directory.systemTemp.createTempSync('lamp-solid');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final File cover = File('${dir.path}/solid.png');
+    cover.writeAsBytesSync(
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAPElEQVR4nO3RQREAMAjE'
+        'wKNC+q5/FciqhPDhlxVwzITq+7LprK7HAwP+AJkImQiZCJkImQiZCJkImSjkA1k2AU5l'
+        'vhVGAAAAAElFTkSuQmCC',
+      ),
+    );
+
+    final List<Color>? colors = await CoverPaletteCache.load(cover.path);
+    expect(colors, isNotNull);
+    expect(colors, isNotEmpty);
+    expect(colors!.first.r, greaterThan(0.6), reason: '应取到封面的红色');
+  });
+
   test('没有封面或文件不存在时返回 null', () async {
     expect(await CoverPaletteCache.load(null), isNull);
     expect(await CoverPaletteCache.load(''), isNull);

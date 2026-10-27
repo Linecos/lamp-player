@@ -43,6 +43,8 @@ class SettingsView extends StatelessWidget {
     this.onReplayGainChanged,
     this.crossfadeSeconds = 0,
     this.onCrossfadeChanged,
+    this.flowBackground = true,
+    this.onFlowBackgroundChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -125,6 +127,10 @@ class SettingsView extends StatelessWidget {
 
   /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
+
+  /// 正在播放页是否启用封面流光背景
+  final bool flowBackground;
+  final ValueChanged<bool>? onFlowBackgroundChanged;
 
   final bool scanning;
 
@@ -365,7 +371,18 @@ class SettingsView extends StatelessWidget {
             : () => _openEqualizer(context),
       ),
     ]);
-    section('外观', <Widget>[const _ThemeRow(), const _AccentColorRow()]);
+    section('外观', <Widget>[
+      const _ThemeRow(),
+      const _AccentColorRow(),
+      _SwitchRow(
+        icon: Icons.auto_awesome,
+        title: '动态流光背景',
+        switchKey: const ValueKey<String>('settings-flow-background-switch'),
+        subtitle: flowBackground ? '正在播放页跟随封面颜色缓慢流动' : '已关闭流光，只保留静态封面取色背景',
+        value: flowBackground,
+        onChanged: onFlowBackgroundChanged,
+      ),
+    ]);
     section('关于', <Widget>[
       _InfoRow(
         icon: Icons.info_outline,

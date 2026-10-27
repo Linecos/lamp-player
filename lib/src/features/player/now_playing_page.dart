@@ -10,6 +10,7 @@ import '../../common/widgets/album_cover.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
+import '../../theme/app_theme.dart';
 import '../library/library_sort.dart' show trackArtist;
 import 'cover_palette.dart';
 import 'lyrics_view.dart';
@@ -69,6 +70,7 @@ class NowPlayingPage extends StatefulWidget {
     this.onSelectDevice,
     this.spectrum,
     this.onOpenEqualizer,
+    this.animateBackground = false,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -76,6 +78,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 频谱数据：传了才在控制键上方显示大频谱
   final ValueListenable<List<double>>? spectrum;
+
+  /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
+  final bool animateBackground;
 
   final ValueListenable<NowPlayingData> data;
   final Future<void> Function() onTogglePlay;
@@ -259,7 +264,16 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 本页背景固定为深色；浅色模式下窗口按钮需要改成浅色图标
+    forceLightWindowControls.value =
+        Theme.of(context).brightness == Brightness.light;
+  }
+
+  @override
   void dispose() {
+    forceLightWindowControls.value = false;
     widget.data.removeListener(_onData);
     _position.dispose();
     _track.dispose();
@@ -347,6 +361,18 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData base = Theme.of(context);
+    // 背景固定为深色高饱和，浅色模式也给本页套深色前景，避免深底深字。
+    if (base.brightness == Brightness.dark) {
+      return _buildPage(context);
+    }
+    return Theme(
+      data: AppTheme.dark(base.colorScheme.primary),
+      child: Builder(builder: _buildPage),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
@@ -365,6 +391,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             backgroundColor: scheme.surfaceContainerLow,
             body: CoverFlowBackground(
               colors: _palette,
+              animate: widget.animateBackground,
               child: SafeArea(
                 // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
                 // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
@@ -514,13 +541,28 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               return ValueListenableBuilder<bool>(
                 valueListenable: _playing,
                 builder: (BuildContext context, bool playing, Widget? child) {
-                  return AlbumCover(
-                    path: track.coverPath,
-                    size: available.isFinite && available < coverSize
-                        ? available
-                        : coverSize,
-                    radius: 20,
-                    playing: playing,
+                  final double size =
+                      available.isFinite && available < coverSize
+                      ? available
+                      : coverSize;
+                  return Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 28,
+                          spreadRadius: 2,
+                          offset: const Offset(10, 12),
+                        ),
+                      ],
+                    ),
+                    child: AlbumCover(
+                      path: track.coverPath,
+                      size: size,
+                      radius: 20,
+                      playing: playing,
+                    ),
                   );
                 },
               );

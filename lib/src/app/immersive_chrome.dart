@@ -21,3 +21,8 @@ void trackPointerNearTop(Offset localPosition) {
     pointerNearTop.value = near;
   }
 }
+
+/// 当前页面是否强制使用深色内容（例如正在播放页的固定封面背景）。
+///
+/// 窗口按钮画在页面之外，浅色模式下需要据此改用浅色图标。
+final ValueNotifier<bool> forceLightWindowControls = ValueNotifier<bool>(false);
