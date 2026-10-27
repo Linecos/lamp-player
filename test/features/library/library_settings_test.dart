@@ -234,12 +234,12 @@ void main() {
     );
     await openSettings(tester);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
-    );
+    // 均衡器改到独立页：先点入口，再在页面里打开开关
+    await tester.ensureVisible(find.text('均衡器'));
+    await tester.tap(find.text('均衡器'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('equalizer-enable')));
     await tester.pumpAndSettle();
 
     expect(playback.eqCalls, greaterThan(0));

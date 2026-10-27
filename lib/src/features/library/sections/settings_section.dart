@@ -31,7 +31,10 @@ extension _SettingsSection on _LibraryPageState {
                 : (bool value) => widget.appLifecycle!.closeToTray = value,
             eqEnabled: _eqEnabled,
             eqGains: _eqGains,
+            eqPresetName: _eqPresetName,
+            eqCustomPresets: _eqCustomPresets,
             onEqualizerChanged: _isAvailable ? _setEqualizer : null,
+            onEqPresetsChanged: _setEqCustomPresets,
             devices: _devices,
             outputDevice: _outputDevice,
             onOutputDeviceChanged: _isAvailable && !_switchingOutput

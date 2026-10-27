@@ -74,6 +74,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueListenable<List<rust.PlayerDevice>>? devices,
   ValueListenable<int>? selectedDevice,
   ValueChanged<int>? onSelectDevice,
+  VoidCallback? onOpenEqualizer,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -100,6 +101,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         devices: devices,
         selectedDevice: selectedDevice,
         onSelectDevice: onSelectDevice,
+        onOpenEqualizer: onOpenEqualizer,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -244,6 +246,21 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-toggle')));
     await tester.pump();
     expect(toggles, 1);
+  });
+
+  testWidgets('传了 onOpenEqualizer 才显示均衡器按钮', (WidgetTester tester) async {
+    int opens = 0;
+    await _pump(tester, data: _data(), onOpenEqualizer: () => opens += 1);
+
+    final Finder button = find.byKey(
+      const ValueKey<String>('now-playing-equalizer'),
+    );
+    expect(button, findsOneWidget);
+    expect(find.byTooltip('均衡器'), findsOneWidget);
+
+    await tester.tap(button);
+    await tester.pump();
+    expect(opens, 1);
   });
 
   testWidgets('没有曲目时展示空态且控制按钮禁用', (WidgetTester tester) async {

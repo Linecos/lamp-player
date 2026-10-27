@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
+import 'package:lamp_player/src/features/settings/equalizer_page.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -331,13 +332,12 @@ void main() {
     expect(toggle.onChanged, isNull);
   });
 
-  testWidgets('均衡器开关与推子回调', (WidgetTester tester) async {
+  testWidgets('均衡器入口打开独立页面', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final List<(bool, List<double>)> changes = <(bool, List<double>)>[];
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
@@ -347,36 +347,30 @@ void main() {
             engineAvailable: true,
             eqEnabled: true,
             eqGains: List<double>.filled(10, 0),
-            onEqualizerChanged: (bool enabled, List<double> gains) =>
-                changes.add((enabled, gains)),
+            eqPresetName: '摇滚',
+            onEqualizerChanged: (_, _, _) {},
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('均衡器'), findsOneWidget);
+    expect(find.text('已开启 · 摇滚'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('eq-band-0')),
+      findsNothing,
+      reason: '设置页不再内嵌推子',
+    );
+
+    await tester.tap(find.text('均衡器'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EqualizerPage), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-0')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-9')), findsOneWidget);
-
-    // 拖动第 6 段（1 kHz）：松手才下发
-    final Finder band = find.byKey(const ValueKey<String>('eq-band-5'));
-    await tester.ensureVisible(band);
-    final Rect rect = tester.getRect(band);
-    await tester.dragFrom(rect.center, const Offset(40, 0));
-    await tester.pumpAndSettle();
-
-    expect(changes, isNotEmpty, reason: 'onChangeEnd 应提交一次');
-    expect(changes.last.$1, isTrue);
-    expect(changes.last.$2[5], greaterThan(0), reason: '右拖应提升该频段');
-
-    // 归零
-    await tester.tap(find.text('全部归零'));
-    await tester.pumpAndSettle();
-    expect(changes.last.$2.every((double gain) => gain == 0), isTrue);
   });
 
-  testWidgets('均衡器未启用时不显示推子', (WidgetTester tester) async {
+  testWidgets('均衡器未启用时副标题给出说明', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -390,18 +384,15 @@ void main() {
             trackCount: 1,
             engineAvailable: true,
             eqEnabled: false,
-            onEqualizerChanged: (_, _) {},
+            onEqualizerChanged: (_, _, _) {},
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('10 段参数均衡，可存多套预设'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-0')), findsNothing);
-    final Switch toggle = tester.widget<Switch>(
-      find.byKey(const ValueKey<String>('settings-equalizer-switch')),
-    );
-    expect(toggle.value, isFalse);
   });
 
   testWidgets('配色弹窗可选预设色并写回控制器', (WidgetTester tester) async {
@@ -693,43 +684,5 @@ void main() {
     await tester.tap(find.text('4 秒').last);
     await tester.pumpAndSettle();
     expect(fades, <double>[4]);
-  });
-
-  testWidgets('均衡器预设一键应用整条曲线', (WidgetTester tester) async {
-    tester.view.physicalSize = canvas;
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final List<(bool, List<double>)> changes = <(bool, List<double>)>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(AppTheme.defaultSeed),
-        home: Scaffold(
-          body: SettingsView(
-            trackCount: 1,
-            engineAvailable: true,
-            eqEnabled: true,
-            eqGains: List<double>.filled(10, 0),
-            onEqualizerChanged: (bool enabled, List<double> gains) =>
-                changes.add((enabled, gains)),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final Finder preset = find.byKey(const ValueKey<String>('eq-preset'));
-    await tester.ensureVisible(preset);
-    await tester.tap(preset);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('重低音').last);
-    await tester.pumpAndSettle();
-
-    expect(changes, isNotEmpty);
-    final List<double> gains = changes.last.$2;
-    expect(changes.last.$1, isTrue);
-    expect(gains[0], closeTo(7, 0.01), reason: '重低音应抬高低频');
-    expect(gains[9], closeTo(0.5, 0.01));
   });
 }
