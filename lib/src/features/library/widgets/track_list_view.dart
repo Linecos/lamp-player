@@ -30,7 +30,13 @@ typedef TrackSelectCallback = void Function(
 ///
 /// 只负责展示与点击回调，数据与播放由页面决定，因此可以在 `test/` 下
 /// 用普通 `Track` 列表直接渲染，不依赖 Rust。
-class TrackListView extends StatelessWidget {
+///
+/// 宽高变化（侧栏展开 / 收起每帧都在变宽）会走 `LayoutBuilder`：如果每次都
+/// 重新 build 出新的 `ListView`，`SliverChildBuilderDelegate` 判定 builder 变了，
+/// 可见行会整批重建——实测展开动画每帧 60~90ms。这里按「列可见性」缓存整棵
+/// 子树：宽度变化但没跨过列阈值时返回**同一个 widget 实例**，Element 直接复用，
+/// 只剩布局与绘制。
+class TrackListView extends StatefulWidget {
   const TrackListView({
     super.key,
     required this.tracks,
@@ -75,58 +81,100 @@ class TrackListView extends StatelessWidget {
   final TrackSelectCallback? onSelect;
 
   @override
+  State<TrackListView> createState() => _TrackListViewState();
+}
+
+class _TrackListViewState extends State<TrackListView> {
+  /// 上一次按哪组列可见性构建的子树；仅用于跨「纯宽度变化」复用
+  Widget? _cached;
+  bool _cachedArtist = false;
+  bool _cachedAlbum = false;
+
+  List<Track> get tracks => widget.tracks;
+  ValueChanged<Track> get onPlay => widget.onPlay;
+  String? get playingPath => widget.playingPath;
+  Key? get storageKey => widget.storageKey;
+  ValueChanged<Track>? get onRemove => widget.onRemove;
+  Set<String> get favoritePaths => widget.favoritePaths;
+  ValueChanged<Track>? get onToggleFavorite => widget.onToggleFavorite;
+  void Function(Track, TrackContextAction)? get onContextAction =>
+      widget.onContextAction;
+  bool get selectionMode => widget.selectionMode;
+  Set<String> get selectedPaths => widget.selectedPaths;
+  TrackSelectCallback? get onSelect => widget.onSelect;
+
+  @override
+  void didUpdateWidget(covariant TrackListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 数据 / 选择 / 回调变了：缓存必须作废，否则会显示旧内容
+    _cached = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool showArtist = constraints.maxWidth >= 720;
         final bool showAlbum = constraints.maxWidth >= 900;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            _TrackHeader(
-              showArtist: showArtist,
-              showAlbum: showAlbum,
-              showMenu: onRemove != null,
-              showFavorite: onToggleFavorite != null,
-              showSelection: selectionMode,
-            ),
-            Expanded(
-              child: ListView.builder(
-                key: storageKey,
-                itemCount: tracks.length,
-                itemExtent: 56,
-                // 底部留一点空：滚到底时最后一行不贴着播放岛，
-                // 悬停高亮的圆角也不会被盖住
-                padding: const EdgeInsets.only(bottom: 12),
-                itemBuilder: (BuildContext context, int index) {
-                  final Track track = tracks[index];
-                  return _TrackRow(
-                    track: track,
-                    index: index,
-                    playing: track.path == playingPath,
-                    showArtist: showArtist,
-                    showAlbum: showAlbum,
-                    selectionMode: selectionMode,
-                    selected: selectedPaths.contains(track.path),
-                    onSelect: onSelect,
-                    onPlay: () => onPlay(track),
-                    onRemove: onRemove == null ? null : () => onRemove!(track),
-                    favored: favoritePaths.contains(track.path),
-                    onToggleFavorite: onToggleFavorite == null
-                        ? null
-                        : () => onToggleFavorite!(track),
-                    onContextAction: onContextAction == null
-                        ? null
-                        : (TrackContextAction action) =>
-                              onContextAction!(track, action),
-                  );
-                },
-              ),
-            ),
-          ],
-        );
+        final Widget? cached = _cached;
+        if (cached != null &&
+            showArtist == _cachedArtist &&
+            showAlbum == _cachedAlbum) {
+          return cached;
+        }
+        _cachedArtist = showArtist;
+        _cachedAlbum = showAlbum;
+        _cached = _build(context, showArtist, showAlbum);
+        return _cached!;
       },
+    );
+  }
+
+  Widget _build(BuildContext context, bool showArtist, bool showAlbum) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _TrackHeader(
+          showArtist: showArtist,
+          showAlbum: showAlbum,
+          showMenu: onRemove != null,
+          showFavorite: onToggleFavorite != null,
+          showSelection: selectionMode,
+        ),
+        Expanded(
+          child: ListView.builder(
+            key: storageKey,
+            itemCount: tracks.length,
+            itemExtent: 56,
+            // 底部留一点空：滚到底时最后一行不贴着播放岛，
+            // 悬停高亮的圆角也不会被盖住
+            padding: const EdgeInsets.only(bottom: 12),
+            itemBuilder: (BuildContext context, int index) {
+              final Track track = tracks[index];
+              return _TrackRow(
+                track: track,
+                index: index,
+                playing: track.path == playingPath,
+                showArtist: showArtist,
+                showAlbum: showAlbum,
+                selectionMode: selectionMode,
+                selected: selectedPaths.contains(track.path),
+                onSelect: onSelect,
+                onPlay: () => onPlay(track),
+                onRemove: onRemove == null ? null : () => onRemove!(track),
+                favored: favoritePaths.contains(track.path),
+                onToggleFavorite: onToggleFavorite == null
+                    ? null
+                    : () => onToggleFavorite!(track),
+                onContextAction: onContextAction == null
+                    ? null
+                    : (TrackContextAction action) =>
+                          onContextAction!(track, action),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -321,8 +369,11 @@ class _TrackRow extends StatelessWidget {
             ? scheme.primaryContainer.withValues(alpha: 0.35)
             : Colors.transparent,
         borderRadius: radius,
-        clipBehavior: Clip.antiAlias,
+        // 不裁剪：每行一个 ClipRRect 就是一层裁剪层，滚动 / 变宽时整行都要
+        // 重新裁剪；圆角高亮与墨迹交给 InkWell 的 borderRadius 约束。
+        clipBehavior: Clip.none,
         child: InkWell(
+          borderRadius: radius,
           onTap: _handleTap,
           onSecondaryTapDown: onContextAction == null
               ? null
