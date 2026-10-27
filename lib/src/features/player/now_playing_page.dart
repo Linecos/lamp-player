@@ -421,7 +421,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool wide = constraints.maxWidth >= 760;
-        final Widget info = _trackInfo(context, track, wide);
+        final double coverSize = wide ? 336 : 240;
+        final Widget info = _trackInfo(context, track, coverSize);
         final Widget lyric = _lyricsView(context);
         if (wide) {
           return Padding(
@@ -430,8 +431,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 SizedBox(
-                  width: 360,
-                  child: Center(child: SizedBox(width: 280, child: info)),
+                  width: 420,
+                  child: Center(
+                    child: SizedBox(width: coverSize, child: info),
+                  ),
                 ),
                 const SizedBox(width: 32),
                 Expanded(child: lyric),
@@ -453,10 +456,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
-  Widget _trackInfo(BuildContext context, Track track, bool wide) {
+  Widget _trackInfo(BuildContext context, Track track, double coverSize) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final double coverSize = wide ? 280 : 200;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
