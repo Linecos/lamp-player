@@ -278,6 +278,39 @@ void main() {
     expect(find.text('设备不支持或被占用，当前仍走共享输出'), findsOneWidget);
   });
 
+  testWidgets('流光背景开关默认开启并回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> changes = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            engineAvailable: true,
+            flowBackground: true,
+            onFlowBackgroundChanged: changes.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('settings-flow-background-switch'),
+    );
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(changes, <bool>[false]);
+    expect(find.text('动态流光背景'), findsOneWidget);
+  });
+
   testWidgets('关闭到托盘开关展示状态并回调', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
