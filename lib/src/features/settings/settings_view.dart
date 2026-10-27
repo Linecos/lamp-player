@@ -8,6 +8,7 @@ import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
+import 'equalizer_page.dart';
 import 'listening_stats_page.dart';
 import 'listening_stats_repository.dart';
 import 'theme_controller.dart';
@@ -31,7 +32,10 @@ class SettingsView extends StatelessWidget {
     this.onCloseToTrayChanged,
     this.eqEnabled = false,
     this.eqGains = const <double>[],
+    this.eqPresetName,
+    this.eqCustomPresets = const <EqualizerPreset>[],
     this.onEqualizerChanged,
+    this.onEqPresetsChanged,
     this.devices = const <rust.PlayerDevice>[],
     this.outputDevice = -1,
     this.onOutputDeviceChanged,
@@ -88,8 +92,18 @@ class SettingsView extends StatelessWidget {
   final bool eqEnabled;
   final List<double> eqGains;
 
-  /// 均衡器变化：`(enabled, gains)`；为空表示当前不可操作
-  final void Function(bool enabled, List<double> gains)? onEqualizerChanged;
+  /// 当前套用的预设名；null 表示手动调的自定义曲线
+  final String? eqPresetName;
+
+  /// 用户自存的预设（内置 5 套不在此列）
+  final List<EqualizerPreset> eqCustomPresets;
+
+  /// 均衡器变化：`(enabled, gains, presetName)`；为空表示当前不可操作
+  final void Function(bool enabled, List<double> gains, String? presetName)?
+  onEqualizerChanged;
+
+  /// 自存预设变化
+  final ValueChanged<List<EqualizerPreset>>? onEqPresetsChanged;
 
   /// 可选的输出设备；第一项由设置页自己补「系统默认」
   final List<rust.PlayerDevice> devices;
@@ -340,10 +354,15 @@ class SettingsView extends StatelessWidget {
         value: closeToTray,
         onChanged: onCloseToTrayChanged,
       ),
-      _EqualizerPanel(
-        enabled: eqEnabled,
-        gains: eqGains,
-        onChanged: onEqualizerChanged,
+      _ActionRow(
+        icon: Icons.equalizer,
+        title: '均衡器',
+        subtitle: eqEnabled
+            ? '已开启 · ${eqPresetName ?? '自定义曲线'}'
+            : '10 段参数均衡，可存多套预设',
+        onTap: onEqualizerChanged == null
+            ? null
+            : () => _openEqualizer(context),
       ),
     ]);
     section('外观', <Widget>[const _ThemeRow(), const _AccentColorRow()]);
@@ -404,6 +423,21 @@ class SettingsView extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ListeningStatsPage(repository: statsRepository),
+      ),
+    );
+  }
+
+  void _openEqualizer(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EqualizerPage(
+          enabled: eqEnabled,
+          gains: eqGains,
+          presetName: eqPresetName,
+          customPresets: eqCustomPresets,
+          onChanged: onEqualizerChanged,
+          onCustomPresetsChanged: onEqPresetsChanged,
+        ),
       ),
     );
   }
@@ -1617,178 +1651,6 @@ class _FolderRow extends StatelessWidget implements _Searchable {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// 10 段均衡器面板。
-///
-/// 推子拖动只改本地状态，松手（`onChangeEnd`）才下发——拖动每一帧都走一次
-/// FFI 会卡顿，而且引擎侧要重建 10 个滤波器。
-class _EqualizerPanel extends StatefulWidget implements _Searchable {
-  const _EqualizerPanel({
-    required this.enabled,
-    required this.gains,
-    this.onChanged,
-  });
-
-  final bool enabled;
-  final List<double> gains;
-  final void Function(bool enabled, List<double> gains)? onChanged;
-
-  @override
-  String get searchText => '均衡器 预设 频段 EQ';
-
-  @override
-  State<_EqualizerPanel> createState() => _EqualizerPanelState();
-}
-
-class _EqualizerPanelState extends State<_EqualizerPanel> {
-  late List<double> _gains = normalizeEqGains(widget.gains);
-
-  @override
-  void didUpdateWidget(_EqualizerPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.gains != widget.gains) {
-      _gains = normalizeEqGains(widget.gains);
-    }
-  }
-
-  void _commit() {
-    widget.onChanged?.call(widget.enabled, List<double>.of(_gains));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final bool enabled = widget.enabled;
-    // -1 表示自定义：Dropdown 的 value 必须能在 items 里找到，这里传 null 走 hint
-    final int presetIndex = matchedPresetIndex(_gains);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _SwitchRow(
-          icon: Icons.equalizer,
-          title: '均衡器',
-          switchKey: const ValueKey<String>('settings-equalizer-switch'),
-          subtitle: enabled ? '10 段参数均衡，0 dB 为不改动' : '开启后可按频段调整音量',
-          value: enabled,
-          onChanged: widget.onChanged == null
-              ? null
-              : (bool value) => widget.onChanged!(value, _gains),
-        ),
-        if (enabled)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-            child: Column(
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Text(
-                      '预设',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    DropdownButton<int>(
-                      key: const ValueKey<String>('eq-preset'),
-                      value: presetIndex < 0 ? null : presetIndex,
-                      underline: const SizedBox.shrink(),
-                      borderRadius: BorderRadius.circular(12),
-                      hint: const Text('自定义'),
-                      onChanged: (int? index) {
-                        if (index == null || index < 0) {
-                          return;
-                        }
-                        setState(
-                          () => _gains = normalizeEqGains(
-                            equalizerPresets[index].gains,
-                          ),
-                        );
-                        _commit();
-                      },
-                      items: <DropdownMenuItem<int>>[
-                        for (
-                          int index = 0;
-                          index < equalizerPresets.length;
-                          index += 1
-                        )
-                          DropdownMenuItem<int>(
-                            value: index,
-                            child: Text(equalizerPresets[index].name),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-                for (int index = 0; index < _gains.length; index += 1)
-                  _bandRow(context, index),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: isEqFlat(_gains)
-                        ? null
-                        : () {
-                            setState(
-                              () => _gains = normalizeEqGains(const <double>[]),
-                            );
-                            _commit();
-                          },
-                    icon: const Icon(Icons.restart_alt, size: 18),
-                    label: const Text('全部归零'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _bandRow(BuildContext context, int index) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final double gain = _gains[index];
-    final int rounded = gain.round();
-
-    return Row(
-      children: <Widget>[
-        SizedBox(
-          width: 48,
-          child: Text(
-            equalizerBandLabels[index],
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Slider(
-            key: ValueKey<String>('eq-band-$index'),
-            value: gain,
-            min: -equalizerMaxGain,
-            max: equalizerMaxGain,
-            divisions: (equalizerMaxGain * 2).round(),
-            onChanged: (double value) => setState(() => _gains[index] = value),
-            onChangeEnd: (_) => _commit(),
-          ),
-        ),
-        SizedBox(
-          width: 56,
-          child: Text(
-            rounded == 0
-                ? '0 dB'
-                : (rounded > 0 ? '+$rounded dB' : '$rounded dB'),
-            textAlign: TextAlign.right,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

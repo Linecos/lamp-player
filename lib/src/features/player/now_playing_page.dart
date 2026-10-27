@@ -66,7 +66,11 @@ class NowPlayingPage extends StatefulWidget {
     this.selectedDevice,
     this.onSelectDevice,
     this.spectrum,
+    this.onOpenEqualizer,
   });
+
+  /// 打开均衡器页；为空时不显示该按钮
+  final VoidCallback? onOpenEqualizer;
 
   /// 频谱数据：传了才在控制键上方显示大频谱
   final ValueListenable<List<double>>? spectrum;
@@ -897,6 +901,15 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                       : scheme.onSurfaceVariant,
                                 ),
                               ),
+                              if (widget.onOpenEqualizer != null)
+                                IconButton(
+                                  key: const ValueKey<String>(
+                                    'now-playing-equalizer',
+                                  ),
+                                  tooltip: '均衡器',
+                                  onPressed: widget.onOpenEqualizer,
+                                  icon: const Icon(Icons.equalizer, size: 24),
+                                ),
                             ],
                           ),
                         ),

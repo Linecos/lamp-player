@@ -210,6 +210,9 @@ extension _PlaybackSection on _LibraryPageState {
               devices: _devicesNotifier,
               selectedDevice: _outputDeviceNotifier,
               onSelectDevice: (int index) => unawaited(_setOutputDevice(index)),
+              onOpenEqualizer: _isAvailable
+                  ? () => unawaited(_openEqualizer())
+                  : null,
             ),
           ),
         )

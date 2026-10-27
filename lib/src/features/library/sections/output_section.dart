@@ -117,14 +117,37 @@ extension _OutputSection on _LibraryPageState {
     }
   }
 
-  /// 开关或推子变化：先落盘再下发，拖动过程中由 UI 侧节流
-  void _setEqualizer(bool enabled, List<double> gains) {
+  /// 开关 / 推子 / 选预设变化：先落盘再下发，拖动过程中由 UI 侧节流
+  void _setEqualizer(bool enabled, List<double> gains, String? presetName) {
     _update(() {
       _eqEnabled = enabled;
       _eqGains = normalizeEqGains(gains);
+      _eqPresetName = presetName;
     });
     _saveSessionNow();
     unawaited(_applyEqualizer());
+  }
+
+  /// 自存预设增删：不影响当前曲线，只落盘
+  void _setEqCustomPresets(List<EqualizerPreset> presets) {
+    _update(() => _eqCustomPresets = presets);
+    _saveSessionNow();
+  }
+
+  /// 均衡器页：设置页和正在播放页共用同一个入口
+  Future<void> _openEqualizer() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EqualizerPage(
+          enabled: _eqEnabled,
+          gains: _eqGains,
+          presetName: _eqPresetName,
+          customPresets: _eqCustomPresets,
+          onChanged: _isAvailable ? _setEqualizer : null,
+          onCustomPresetsChanged: _setEqCustomPresets,
+        ),
+      ),
+    );
   }
 
   bool _readAvailability() {
