@@ -182,6 +182,7 @@ void main() {
       ),
     );
     expect(second.style?.fontWeight, FontWeight.w600, reason: '6 秒时应高亮第二行');
+    expect(second.style?.fontSize, 23, reason: '歌词字号比旧版放大 10%');
 
     final Text first = tester.widget<Text>(
       find.descendant(
