@@ -308,7 +308,8 @@ class _LyricLineView extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
     final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: active ? 21 : 17,
+      // 比旧版整体放大约 10%
+      fontSize: active ? 23 : 19,
       height: 1.45,
       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
       letterSpacing: 0.2,
@@ -330,7 +331,7 @@ class _LyricLineView extends StatelessWidget {
         textAlign: TextAlign.center,
         style: style.copyWith(
           color: active ? scheme.primary : dim,
-          fontSize: active ? 18 : 15,
+          fontSize: active ? 20 : 16.5,
         ),
       );
     } else if (active && line.words.length >= 2) {
@@ -374,7 +375,7 @@ class _LyricLineView extends StatelessWidget {
                   extra,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: _hasCjk(extra) ? 13.5 : 12.5,
+                    fontSize: _hasCjk(extra) ? 15 : 14,
                     height: 1.4,
                     color: scheme.onSurfaceVariant.withValues(
                       alpha: active
