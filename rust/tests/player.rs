@@ -3,9 +3,9 @@
 //! 用 `LAMP_BASS_DEVICE=0`（无输出设备）初始化，因此不需要声卡，也不会真的出声。
 
 use rust_lib_lamp_player::api::player::{
-    player_duration, player_is_available, player_pause, player_play, player_position,
-    player_resume, player_seek, player_set_equalizer, player_set_volume, player_state, player_stop,
-    PlaybackState,
+    player_analyze_replay_gain, player_duration, player_is_available, player_pause, player_play,
+    player_position, player_resume, player_seek, player_set_equalizer, player_set_volume,
+    player_state, player_stop, PlaybackState,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -33,6 +33,34 @@ fn write_wav(path: &PathBuf, secs: u32) {
     buf.extend_from_slice(b"data");
     buf.extend_from_slice(&data_len.to_le_bytes());
     buf.resize(44 + data_len as usize, 0);
+
+    fs::write(path, buf).expect("写入测试音频失败");
+}
+
+/// 生成一个给定幅度的 1 kHz 正弦 WAV：满幅约 -3.7 LUFS
+fn write_sine_wav(path: &PathBuf, secs: u32, amplitude: f64) {
+    let sample_rate: u32 = 44100;
+    let bits: u16 = 16;
+    let channels: u16 = 1;
+    let data_len = sample_rate * secs * u32::from(bits / 8) * u32::from(channels);
+
+    let mut buf = Vec::with_capacity(44 + data_len as usize);
+    buf.extend_from_slice(b"RIFF");
+    buf.extend_from_slice(&(36 + data_len).to_le_bytes());
+    buf.extend_from_slice(b"WAVEfmt ");
+    buf.extend_from_slice(&16u32.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes());
+    buf.extend_from_slice(&channels.to_le_bytes());
+    buf.extend_from_slice(&sample_rate.to_le_bytes());
+    buf.extend_from_slice(&(sample_rate * u32::from(bits / 8) * u32::from(channels)).to_le_bytes());
+    buf.extend_from_slice(&(channels * bits / 8).to_le_bytes());
+    buf.extend_from_slice(&bits.to_le_bytes());
+    buf.extend_from_slice(b"data");
+    for n in 0..(sample_rate * secs) {
+        let t = f64::from(n) / f64::from(sample_rate);
+        let sample = amplitude * (2.0 * std::f64::consts::PI * 1000.0 * t).sin();
+        buf.extend_from_slice(&((sample * 32767.0) as i16).to_le_bytes());
+    }
 
     fs::write(path, buf).expect("写入测试音频失败");
 }
@@ -144,6 +172,60 @@ fn pause_without_track_fails() {
     assert!(player_resume().is_err(), "没有曲目时 resume 应报错");
     assert!(player_seek(1.0).is_err(), "没有曲目时 seek 应报错");
     assert_eq!(player_duration().expect("空载时长"), 0.0);
+}
+
+/// 响度分析：满幅正弦的增益应接近理论值 -14.3 dB（ReplayGain 2.0），
+/// 幅度差 20 dB 的两首曲子增益也应差 20 dB。分析不依赖引擎线程与声卡。
+#[test]
+fn analyze_gain_matches_sine_loudness() {
+    if !cfg!(windows) {
+        return;
+    }
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用（未下载 bass.dll？）");
+        return;
+    }
+
+    let temp = std::env::temp_dir();
+    let loud = temp.join("lamp_player_loud.wav");
+    let quiet = temp.join("lamp_player_quiet.wav");
+    write_sine_wav(&loud, 2, 0.99);
+    write_sine_wav(&quiet, 2, 0.099);
+
+    let loud_gain =
+        player_analyze_replay_gain(loud.to_string_lossy().to_string()).expect("分析满幅正弦");
+    let quiet_gain =
+        player_analyze_replay_gain(quiet.to_string_lossy().to_string()).expect("分析轻幅正弦");
+
+    assert!(
+        (-16.0..=-12.0).contains(&loud_gain),
+        "满幅正弦增益应约 -14.3 dB，实际 {loud_gain}"
+    );
+    assert!(
+        (quiet_gain - loud_gain - 20.0).abs() < 1.0,
+        "幅度差 20 dB 增益也应差 20 dB，实际 {loud_gain} vs {quiet_gain}"
+    );
+
+    let _ = fs::remove_file(loud);
+    let _ = fs::remove_file(quiet);
+}
+
+#[test]
+fn analyze_gain_rejects_bad_input() {
+    if !cfg!(windows) {
+        return;
+    }
+    if !player_is_available() {
+        return;
+    }
+    assert!(
+        player_analyze_replay_gain(String::new()).is_err(),
+        "空路径应报错"
+    );
+    assert!(
+        player_analyze_replay_gain("Z:/不存在的曲目.wav".to_string()).is_err(),
+        "不存在的文件应报错"
+    );
 }
 
 /// 自然播完要立刻释放流（否则文件句柄被占住，删 / 改名、移出曲库删文件都会失败），

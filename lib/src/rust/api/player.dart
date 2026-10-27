@@ -23,6 +23,14 @@ Future<void> playerPlay({required String path, required double replayGainDb}) =>
       replayGainDb: replayGainDb,
     );
 
+/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+///
+/// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算
+/// （EBU R128 积分响度，目标 -18 LUFS），结果夹取 ±24 dB，全静音返回 0。
+/// 全曲解码约需零点几秒到几秒，失败（文件损坏 / 格式不支持）直接报错。
+Future<double> playerAnalyzeReplayGain({required String path}) =>
+    RustLib.instance.api.crateApiPlayerPlayerAnalyzeReplayGain(path: path);
+
 /// 可用的输出设备；`-1`（系统默认）由界面自己补一条，不在这里返回
 Future<List<PlayerDevice>> playerDevices() =>
     RustLib.instance.api.crateApiPlayerPlayerDevices();

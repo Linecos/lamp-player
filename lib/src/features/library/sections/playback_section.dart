@@ -45,11 +45,14 @@ extension _PlaybackSection on _LibraryPageState {
       return false;
     }
     try {
-      // ReplayGain 只在开关打开时生效：标签缺省为 0 dB，等价于不调整
-      await _playback.play(
-        track.path,
-        replayGainDb: _replayGain ? track.replayGain : 0,
-      );
+      // ReplayGain 只在开关打开时生效：标签缺增益时现场分析（结果缓存复用）
+      double gain = 0;
+      if (_replayGain) {
+        gain = track.replayGain != 0
+            ? track.replayGain
+            : await _autoGain(track.path);
+      }
+      await _playback.play(track.path, replayGainDb: gain);
     } catch (error) {
       if (!mounted) {
         return false;
@@ -803,6 +806,23 @@ extension _PlaybackSection on _LibraryPageState {
       }
       unawaited(_refreshOutputInfo());
       unawaited(_refreshDevices());
+    }
+  }
+
+  /// 标签里没有增益时现场分析整曲（ReplayGain 2.0），结果缓存到会话结束。
+  ///
+  /// 分析失败静默回落 0（不调整）：为了一个坏文件弹提示不值得，
+  /// 播放本身马上还会给出真正的失败原因。
+  Future<double> _autoGain(String path) async {
+    final double? cached = _autoGains[path];
+    if (cached != null) {
+      return cached;
+    }
+    try {
+      final double gain = await _playback.analyzeReplayGain(path);
+      return _autoGains[path] = gain;
+    } catch (_) {
+      return 0;
     }
   }
 

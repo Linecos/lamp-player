@@ -1,0 +1,88 @@
+//! 整曲响度分析（ReplayGain 2.0）：BASS 解码流喂 EBU R128，算出建议增益。
+//!
+//! 独立于引擎线程：解码流不需要输出设备，也不用等引擎就绪，
+//! 分析期间暂停 / 跳转等播放命令不受影响。
+
+use super::{BASS_SAMPLE_FLOAT, BASS_STREAM_DECODE, BASS_STREAM_PRESCAN, BASS_UNICODE, PLUGINS};
+use crate::bass::api::{dll_dir, last_error, wide, Api, BassChannelInfo};
+use anyhow::{anyhow, bail, Result};
+use std::ffi::c_void;
+use std::path::Path;
+
+/// ReplayGain 2.0 的目标响度（LUFS）；增益 = 目标 − 实测积分响度
+const TARGET_LUFS: f64 = -18.0;
+
+/// 分析整曲，返回建议增益（dB），夹取 ±24 dB
+pub(super) fn analyze_gain(path: &str) -> Result<f64> {
+    if path.is_empty() {
+        bail!("音频路径为空");
+    }
+    let dir = dll_dir().ok_or_else(|| anyhow!("找不到 bass.dll"))?;
+    let api = unsafe { Api::load(&dir) }?;
+    load_plugins(&api);
+
+    let flags = BASS_UNICODE | BASS_SAMPLE_FLOAT | BASS_STREAM_PRESCAN | BASS_STREAM_DECODE;
+    let wide = wide(Path::new(path));
+    let handle =
+        unsafe { (api.stream_create_file)(0, wide.as_ptr() as *const c_void, 0, 0, flags) };
+    if handle == 0 {
+        bail!("无法打开音频文件: {}", last_error(&api));
+    }
+    let loudness = measure(&api, handle);
+    unsafe { (api.stream_free)(handle) };
+    let loudness = loudness?;
+
+    // 全静音时门限算法没有可用块，响度是 -inf：静音不需要归一
+    if !loudness.is_finite() {
+        return Ok(0.0);
+    }
+    Ok((TARGET_LUFS - loudness).clamp(-24.0, 24.0))
+}
+
+/// 插件注册是进程级的，与引擎重复加载无害；缺插件只是对应格式解不了
+fn load_plugins(api: &Api) {
+    for plugin in PLUGINS {
+        let wide = wide(Path::new(plugin));
+        unsafe { (api.plugin_load)(wide.as_ptr(), 0) };
+    }
+}
+
+/// `BASS_ERROR_ENDED`：解码流读完时 `GetData` 以 -1 + 该错误码收尾，属正常结束
+const BASS_ERROR_ENDED: i32 = 45;
+
+fn measure(api: &Api, handle: u32) -> Result<f64> {
+    let mut info = BassChannelInfo::default();
+    if unsafe { (api.channel_get_info)(handle, &mut info) } == 0 {
+        bail!("读取音频信息失败: {}", last_error(api));
+    }
+    let mut meter = ebur128::EbuR128::new(info.chans, info.freq, ebur128::Mode::I)
+        .map_err(|e| anyhow!("初始化响度表失败: {e:?}"))?;
+
+    // 一次喂约 100 ms 的样本
+    let mut buf = vec![0.0f32; info.freq as usize * info.chans as usize / 10];
+    loop {
+        let got = unsafe {
+            (api.channel_get_data)(
+                handle,
+                buf.as_mut_ptr() as *mut c_void,
+                (buf.len() * 4) as u32,
+            )
+        };
+        // 返回 -1：读完（错误码 45 = BASS_ERROR_ENDED）或真的出错
+        if got == u32::MAX {
+            if unsafe { (api.error_get_code)() } == BASS_ERROR_ENDED {
+                break;
+            }
+            bail!("解码失败: {}", last_error(api));
+        }
+        if got == 0 {
+            break;
+        }
+        meter
+            .add_frames_f32(&buf[..got as usize / 4])
+            .map_err(|e| anyhow!("响度统计失败: {e:?}"))?;
+    }
+    meter
+        .loudness_global()
+        .map_err(|e| anyhow!("响度计算失败: {e:?}"))
+}
