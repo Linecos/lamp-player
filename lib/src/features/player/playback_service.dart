@@ -11,7 +11,8 @@ abstract interface class PlaybackService {
   /// 当前播放状态（同步读取）。
   rust.PlaybackState get state;
 
-  Future<void> play(String path);
+  /// 播放 [path]；[replayGainDb] 为曲目标签里的 ReplayGain 增益（0 = 不归一）
+  Future<void> play(String path, {double replayGainDb = 0});
 
   Future<void> pause();
 
@@ -38,6 +39,18 @@ abstract interface class PlaybackService {
 
   /// 当前输出的可读描述（模式 / 采样率 / 声道 / 缓冲）。
   Future<String> outputInfo();
+
+  /// 可用的输出设备（共享模式）
+  Future<List<rust.PlayerDevice>> devices();
+
+  /// 切换输出设备（`-1` = 系统默认），保留当前曲目与进度。
+  Future<void> setDevice(int index);
+
+  /// 当前选中的设备索引（同步读取）。
+  int get currentDevice;
+
+  /// 换曲交叉淡变时长（秒）；0 关闭
+  Future<void> setCrossfade(double seconds);
 
   /// 设置 10 段均衡器；`gains` 为 31Hz→16kHz 各段增益（dB）
   Future<void> setEqualizer({
@@ -72,7 +85,8 @@ class RustPlaybackService implements PlaybackService {
   }
 
   @override
-  Future<void> play(String path) => rust.playerPlay(path: path);
+  Future<void> play(String path, {double replayGainDb = 0}) =>
+      rust.playerPlay(path: path, replayGainDb: replayGainDb);
 
   @override
   Future<void> pause() => rust.playerPause();
@@ -108,6 +122,25 @@ class RustPlaybackService implements PlaybackService {
 
   @override
   Future<String> outputInfo() => rust.playerOutputInfo();
+
+  @override
+  Future<List<rust.PlayerDevice>> devices() => rust.playerDevices();
+
+  @override
+  Future<void> setDevice(int index) => rust.playerSetDevice(index: index);
+
+  @override
+  int get currentDevice {
+    try {
+      return rust.playerCurrentDevice();
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  @override
+  Future<void> setCrossfade(double seconds) =>
+      rust.playerSetCrossfade(seconds: seconds);
 
   @override
   Future<void> setEqualizer({

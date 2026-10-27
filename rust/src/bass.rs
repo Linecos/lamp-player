@@ -31,6 +31,14 @@ pub struct Progress {
     pub duration: f64,
 }
 
+/// 一个可选的输出设备（索引与 `BASS_GetDeviceInfo` 一致，`-1` 表示系统默认）
+#[derive(Clone, Debug)]
+pub struct Device {
+    pub index: i32,
+    pub name: String,
+    pub is_default: bool,
+}
+
 /// BASS 是否可用（DLL 加载 + 初始化成功）
 ///
 /// 首次调用会触发初始化并等待引擎就绪（约几十毫秒），之后只读原子量。
@@ -44,8 +52,30 @@ pub fn state() -> State {
 }
 
 /// 加载并播放指定文件，会先停止当前曲目
-pub fn play(path: &str) -> Result<()> {
-    imp::play(path)
+///
+/// `replay_gain_db` 是曲目标签里的 ReplayGain 增益；0 表示不做响度归一。
+pub fn play(path: &str, replay_gain_db: f64) -> Result<()> {
+    imp::play(path, replay_gain_db)
+}
+
+/// 可用的输出设备（共享模式），系统默认设备排在最前
+pub fn devices() -> Result<Vec<Device>> {
+    imp::devices()
+}
+
+/// 切换共享输出设备；保留当前曲目、位置与播放状态
+pub fn set_device(index: i32) -> Result<()> {
+    imp::set_device(index)
+}
+
+/// 当前选中的设备索引；`-1` 表示系统默认
+pub fn current_device() -> i32 {
+    imp::current_device()
+}
+
+/// 换曲交叉淡变时长（毫秒）；0 关闭
+pub fn set_crossfade(millis: u32) -> Result<()> {
+    imp::set_crossfade(millis)
 }
 
 /// 暂停

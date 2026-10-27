@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_version.dart';
 import '../../common/common.dart';
+import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
@@ -31,6 +32,13 @@ class SettingsView extends StatelessWidget {
     this.eqEnabled = false,
     this.eqGains = const <double>[],
     this.onEqualizerChanged,
+    this.devices = const <rust.PlayerDevice>[],
+    this.outputDevice = -1,
+    this.onOutputDeviceChanged,
+    this.replayGain = false,
+    this.onReplayGainChanged,
+    this.crossfadeSeconds = 0,
+    this.onCrossfadeChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -79,6 +87,27 @@ class SettingsView extends StatelessWidget {
 
   /// 均衡器变化：`(enabled, gains)`；为空表示当前不可操作
   final void Function(bool enabled, List<double> gains)? onEqualizerChanged;
+
+  /// 可选的输出设备；第一项由设置页自己补「系统默认」
+  final List<rust.PlayerDevice> devices;
+
+  /// 当前选中的输出设备索引（`-1` = 系统默认）
+  final int outputDevice;
+
+  /// 切换输出设备；为空表示当前不可操作
+  final ValueChanged<int>? onOutputDeviceChanged;
+
+  /// 是否按标签的 ReplayGain 统一响度
+  final bool replayGain;
+
+  /// 切换 ReplayGain；为空表示当前不可操作
+  final ValueChanged<bool>? onReplayGainChanged;
+
+  /// 换曲交叉淡变时长（秒）；0 关闭
+  final double crossfadeSeconds;
+
+  /// 调整淡变时长；为空表示当前不可操作
+  final ValueChanged<double>? onCrossfadeChanged;
 
   final bool scanning;
 
@@ -232,6 +261,51 @@ class SettingsView extends StatelessWidget {
                 active: exclusiveActive,
                 available: engineAvailable,
               ),
+            _ChoiceRow<int>(
+              icon: Icons.speaker_outlined,
+              title: '输出设备',
+              subtitle: exclusiveActive
+                  ? '独占模式下固定用系统默认设备，关掉独占后生效'
+                  : '共享输出使用哪块声卡；切换时曲目会重新打开',
+              value: outputDevice,
+              choices: <(int, String)>[
+                (-1, '系统默认'),
+                for (final rust.PlayerDevice device in devices)
+                  (device.index, device.name),
+              ],
+              onChanged: onOutputDeviceChanged,
+              choiceKey: const ValueKey<String>('settings-output-device'),
+            ),
+            _SwitchRow(
+              icon: Icons.balance,
+              title: 'ReplayGain 响度归一',
+              switchKey: const ValueKey<String>('settings-replay-gain-switch'),
+              subtitle: replayGain
+                  ? '按标签里的增益调整每首歌的音量，专辑之间不再忽大忽小'
+                  : '关闭时按原始音量播放（切换后从下一首起生效）',
+              value: replayGain,
+              onChanged: onReplayGainChanged,
+            ),
+            _ChoiceRow<int>(
+              icon: Icons.compare_arrows,
+              title: '换曲淡入淡出',
+              subtitle: exclusiveActive
+                  ? '独占模式下只做新曲淡入（不重叠）'
+                  : '共享模式下新旧曲重叠交叉淡变，避免硬切',
+              value: crossfadeSeconds.round(),
+              choices: const <(int, String)>[
+                (0, '关闭'),
+                (1, '1 秒'),
+                (2, '2 秒'),
+                (4, '4 秒'),
+                (6, '6 秒'),
+                (8, '8 秒'),
+              ],
+              onChanged: onCrossfadeChanged == null
+                  ? null
+                  : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
+              choiceKey: const ValueKey<String>('settings-crossfade'),
+            ),
             _SwitchRow(
               icon: Icons.minimize,
               title: '关闭窗口时留在托盘',
@@ -272,6 +346,79 @@ class SettingsView extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ListeningStatsPage(repository: statsRepository),
+      ),
+    );
+  }
+}
+
+/// 一行「标题 + 下拉选择」，用于输出设备、淡变时长这类多选一设置。
+class _ChoiceRow<T> extends StatelessWidget {
+  const _ChoiceRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.choices,
+    required this.onChanged,
+    this.choiceKey,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final T value;
+  final List<(T, String)> choices;
+  final ValueChanged<T>? onChanged;
+  final Key? choiceKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    // 当前值可能已经不在列表里（设备被拔掉）：退到第一项，别让 Dropdown 断言失败
+    final bool known = choices.any(((T, String) item) => item.$1 == value);
+    final T current = known ? value : choices.first.$1;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: theme.textTheme.bodyLarge),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          DropdownButton<T>(
+            key: choiceKey,
+            value: current,
+            underline: const SizedBox.shrink(),
+            borderRadius: BorderRadius.circular(12),
+            onChanged: onChanged == null
+                ? null
+                : (T? next) {
+                    if (next != null) {
+                      onChanged!(next);
+                    }
+                  },
+            items: <DropdownMenuItem<T>>[
+              for (final (T value, String label) item in choices)
+                DropdownMenuItem<T>(value: item.$1, child: Text(item.$2)),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1356,7 +1503,11 @@ class _EqualizerPanelState extends State<_EqualizerPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
     final bool enabled = widget.enabled;
+    // -1 表示自定义：Dropdown 的 value 必须能在 items 里找到，这里传 null 走 hint
+    final int presetIndex = matchedPresetIndex(_gains);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1376,6 +1527,46 @@ class _EqualizerPanelState extends State<_EqualizerPanel> {
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: Column(
               children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Text(
+                      '预设',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    DropdownButton<int>(
+                      key: const ValueKey<String>('eq-preset'),
+                      value: presetIndex < 0 ? null : presetIndex,
+                      underline: const SizedBox.shrink(),
+                      borderRadius: BorderRadius.circular(12),
+                      hint: const Text('自定义'),
+                      onChanged: (int? index) {
+                        if (index == null || index < 0) {
+                          return;
+                        }
+                        setState(
+                          () => _gains = normalizeEqGains(
+                            equalizerPresets[index].gains,
+                          ),
+                        );
+                        _commit();
+                      },
+                      items: <DropdownMenuItem<int>>[
+                        for (
+                          int index = 0;
+                          index < equalizerPresets.length;
+                          index += 1
+                        )
+                          DropdownMenuItem<int>(
+                            value: index,
+                            child: Text(equalizerPresets[index].name),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
                 for (int index = 0; index < _gains.length; index += 1)
                   _bandRow(context, index),
                 Align(

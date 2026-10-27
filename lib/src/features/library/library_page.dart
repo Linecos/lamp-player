@@ -299,6 +299,19 @@ class _LibraryPageState extends State<LibraryPage>
   /// 专辑 / 艺术家 / 歌单名称的拼音键，供分区内过滤使用
   final Map<String, String> _namePinyinKeys = <String, String>{};
 
+  /// 共享输出设备索引（`-1` = 系统默认）与可用设备列表
+  int _outputDevice = -1;
+  List<rust.PlayerDevice> _devices = const <rust.PlayerDevice>[];
+
+  /// 设置页打开时的设备轮询：热插拔系统不会主动通知
+  Timer? _deviceTimer;
+
+  /// 是否按标签里的 ReplayGain 统一响度
+  bool _replayGain = false;
+
+  /// 换曲交叉淡变时长（秒）；0 关闭
+  double _crossfadeSeconds = 0;
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -360,6 +373,8 @@ class _LibraryPageState extends State<LibraryPage>
     // 先按偏好切输出，再刷新描述：启动时还没有曲目，切换几乎没有代价
     unawaited(_applyOutputPreference(exclusive));
     unawaited(_applyEqualizer());
+    unawaited(_applyOutputDevice());
+    unawaited(_applyCrossfade());
   }
 
   /// Windows 路径大小写与分隔符不敏感：回车恢复上次曲目、
@@ -411,6 +426,7 @@ class _LibraryPageState extends State<LibraryPage>
     _saveTimer?.cancel();
     _sessionTimer?.cancel();
     _sectionRefreshTimer?.cancel();
+    _deviceTimer?.cancel();
     _sectionFade.dispose();
     _sectionNotifier.dispose();
     _railNotifier.dispose();
@@ -463,6 +479,9 @@ class _LibraryPageState extends State<LibraryPage>
       _exclusive = snapshot.exclusiveOutput;
       _eqEnabled = snapshot.eqEnabled;
       _eqGains = normalizeEqGains(snapshot.eqGains);
+      _outputDevice = snapshot.outputDevice;
+      _replayGain = snapshot.replayGain;
+      _crossfadeSeconds = snapshot.crossfadeSeconds;
     });
 
     if (!mounted) {
@@ -567,6 +586,9 @@ class _LibraryPageState extends State<LibraryPage>
       exclusiveOutput: _exclusive,
       eqEnabled: _eqEnabled,
       eqGains: _eqGains,
+      outputDevice: _outputDevice,
+      replayGain: _replayGain,
+      crossfadeSeconds: _crossfadeSeconds,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段
     _saveChain = _saveChain.then((_) => _sessionStore.save(snapshot));
@@ -1003,6 +1025,16 @@ class _LibraryPageState extends State<LibraryPage>
       if (section == LibrarySection.settings) {
         // 空闲释放 / 回落共享都可能改变实际输出，进设置页时重新读一次
         unawaited(_refreshOutputInfo());
+        unawaited(_refreshDevices());
+        // 热插拔系统不会通知：设置页开着时低频轮询设备列表
+        _deviceTimer?.cancel();
+        _deviceTimer = Timer.periodic(
+          const Duration(seconds: 3),
+          (_) => unawaited(_refreshDevices()),
+        );
+      } else {
+        _deviceTimer?.cancel();
+        _deviceTimer = null;
       }
 
       _sectionFade.forward(from: 0);

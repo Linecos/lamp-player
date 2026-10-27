@@ -4,6 +4,7 @@ import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,7 +26,7 @@ Widget _harness({ThemeController? controller}) {
 }
 
 void main() {
-  const Size canvas = Size(900, 1000);
+  const Size canvas = Size(900, 1400);
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -629,5 +630,106 @@ void main() {
       find.ancestor(of: rowInk, matching: find.byType(Material)).first,
     );
     expect(card.clipBehavior, Clip.antiAlias);
+  });
+  testWidgets('输出设备、ReplayGain 与淡变设置回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<int> devicePicks = <int>[];
+    final List<bool> gainPicks = <bool>[];
+    final List<double> fades = <double>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            engineAvailable: true,
+            devices: const <rust.PlayerDevice>[
+              rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
+              rust.PlayerDevice(index: 2, name: '耳机', isDefault: false),
+            ],
+            outputDevice: -1,
+            onOutputDeviceChanged: devicePicks.add,
+            replayGain: false,
+            onReplayGainChanged: gainPicks.add,
+            crossfadeSeconds: 0,
+            onCrossfadeChanged: fades.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 输出设备：默认项之外还能选枚举到的设备
+    final Finder deviceRow = find.byKey(
+      const ValueKey<String>('settings-output-device'),
+    );
+    await tester.ensureVisible(deviceRow);
+    await tester.tap(deviceRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('耳机').last);
+    await tester.pumpAndSettle();
+    expect(devicePicks, <int>[2]);
+
+    // ReplayGain 开关
+    final Finder gainSwitch = find.byKey(
+      const ValueKey<String>('settings-replay-gain-switch'),
+    );
+    await tester.ensureVisible(gainSwitch);
+    await tester.tap(gainSwitch);
+    await tester.pumpAndSettle();
+    expect(gainPicks, <bool>[true]);
+
+    // 淡变时长
+    final Finder fadeRow = find.byKey(
+      const ValueKey<String>('settings-crossfade'),
+    );
+    await tester.ensureVisible(fadeRow);
+    await tester.tap(fadeRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4 秒').last);
+    await tester.pumpAndSettle();
+    expect(fades, <double>[4]);
+  });
+
+  testWidgets('均衡器预设一键应用整条曲线', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<(bool, List<double>)> changes = <(bool, List<double>)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            engineAvailable: true,
+            eqEnabled: true,
+            eqGains: List<double>.filled(10, 0),
+            onEqualizerChanged: (bool enabled, List<double> gains) =>
+                changes.add((enabled, gains)),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder preset = find.byKey(const ValueKey<String>('eq-preset'));
+    await tester.ensureVisible(preset);
+    await tester.tap(preset);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重低音').last);
+    await tester.pumpAndSettle();
+
+    expect(changes, isNotEmpty);
+    final List<double> gains = changes.last.$2;
+    expect(changes.last.$1, isTrue);
+    expect(gains[0], closeTo(7, 0.01), reason: '重低音应抬高低频');
+    expect(gains[9], closeTo(0.5, 0.01));
   });
 }

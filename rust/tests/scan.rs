@@ -265,6 +265,7 @@ fn scan_merges_legacy_separator_variants() {
         track_num: None,
         added_at: 1,
         cover_path: None,
+        replay_gain: 0.0,
     }])
     .expect("写入旧记录");
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);

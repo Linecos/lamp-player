@@ -76,6 +76,33 @@ extension _OutputSection on _LibraryPageState {
 
   /* ------------------------------------------------------------ 均衡器 */
 
+  /// 启动时把上次选中的输出设备装回去（设备已拔掉时引擎会退回系统默认）
+  Future<void> _applyOutputDevice() async {
+    if (!_isAvailable) {
+      return;
+    }
+    if (_outputDevice > 0) {
+      try {
+        await _playback.setDevice(_outputDevice);
+      } catch (error) {
+        debugPrint('恢复输出设备失败：$error');
+      }
+    }
+    unawaited(_refreshDevices());
+  }
+
+  /// 启动时把换曲淡变时长装回去
+  Future<void> _applyCrossfade() async {
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      await _playback.setCrossfade(_crossfadeSeconds);
+    } catch (error) {
+      debugPrint('恢复淡入淡出设置失败：$error');
+    }
+  }
+
   Future<void> _applyEqualizer() async {
     if (!_isAvailable) {
       return;

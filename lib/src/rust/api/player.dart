@@ -7,15 +7,39 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`
 
 /// BASS 是否可用；DLL 缺失或初始化失败时为 `false`
 bool playerIsAvailable() =>
     RustLib.instance.api.crateApiPlayerPlayerIsAvailable();
 
 /// 加载并播放指定文件；当前正在播放的曲目会被停止
-Future<void> playerPlay({required String path}) =>
-    RustLib.instance.api.crateApiPlayerPlayerPlay(path: path);
+///
+/// `replay_gain_db` 是该曲目标签里的 ReplayGain 增益（dB），`0.0` 表示不做响度归一；
+/// 由调用方按设置决定传标签值还是 0。
+Future<void> playerPlay({required String path, required double replayGainDb}) =>
+    RustLib.instance.api.crateApiPlayerPlayerPlay(
+      path: path,
+      replayGainDb: replayGainDb,
+    );
+
+/// 可用的输出设备；`-1`（系统默认）由界面自己补一条，不在这里返回
+Future<List<PlayerDevice>> playerDevices() =>
+    RustLib.instance.api.crateApiPlayerPlayerDevices();
+
+/// 切换输出设备（`-1` = 系统默认），保留当前曲目、位置与播放状态
+Future<void> playerSetDevice({required int index}) =>
+    RustLib.instance.api.crateApiPlayerPlayerSetDevice(index: index);
+
+/// 当前选中的设备索引；`-1` 表示系统默认
+int playerCurrentDevice() =>
+    RustLib.instance.api.crateApiPlayerPlayerCurrentDevice();
+
+/// 换曲交叉淡变时长（秒）；`0` 关闭
+///
+/// 共享模式是真正的重叠交叉淡变；独占模式只有新曲淡入。
+Future<void> playerSetCrossfade({required double seconds}) =>
+    RustLib.instance.api.crateApiPlayerPlayerSetCrossfade(seconds: seconds);
 
 /// 暂停当前曲目
 Future<void> playerPause() => RustLib.instance.api.crateApiPlayerPlayerPause();
@@ -104,6 +128,34 @@ enum PlaybackState {
 
   /// 已暂停（可 `player_resume` 续播）
   paused,
+}
+
+/// 可切换的输出设备
+class PlayerDevice {
+  /// `BASS_GetDeviceInfo` 的索引，切换时原样传回
+  final int index;
+  final String name;
+
+  /// 是否为当前选中的设备（默认设备也算）
+  final bool isDefault;
+
+  const PlayerDevice({
+    required this.index,
+    required this.name,
+    required this.isDefault,
+  });
+
+  @override
+  int get hashCode => index.hashCode ^ name.hashCode ^ isDefault.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlayerDevice &&
+          runtimeType == other.runtimeType &&
+          index == other.index &&
+          name == other.name &&
+          isDefault == other.isDefault;
 }
 
 /// 播放进度快照：位置、时长与状态一次取全

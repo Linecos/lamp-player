@@ -79,6 +79,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<LyricWord> dco_decode_list_lyric_word(dynamic raw);
 
   @protected
+  List<PlayerDevice> dco_decode_list_player_device(dynamic raw);
+
+  @protected
   List<Playlist> dco_decode_list_playlist(dynamic raw);
 
   @protected
@@ -122,6 +125,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlaybackState dco_decode_playback_state(dynamic raw);
+
+  @protected
+  PlayerDevice dco_decode_player_device(dynamic raw);
 
   @protected
   PlayerProgress dco_decode_player_progress(dynamic raw);
@@ -200,6 +206,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<LyricWord> sse_decode_list_lyric_word(SseDeserializer deserializer);
 
   @protected
+  List<PlayerDevice> sse_decode_list_player_device(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<Playlist> sse_decode_list_playlist(SseDeserializer deserializer);
 
   @protected
@@ -245,6 +256,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlaybackState sse_decode_playback_state(SseDeserializer deserializer);
+
+  @protected
+  PlayerDevice sse_decode_player_device(SseDeserializer deserializer);
 
   @protected
   PlayerProgress sse_decode_player_progress(SseDeserializer deserializer);
@@ -334,6 +348,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_player_device(
+    List<PlayerDevice> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_playlist(List<Playlist> self, SseSerializer serializer);
 
   @protected
@@ -392,6 +412,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_playback_state(PlaybackState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_player_device(PlayerDevice self, SseSerializer serializer);
 
   @protected
   void sse_encode_player_progress(

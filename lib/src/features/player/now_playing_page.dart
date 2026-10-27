@@ -111,6 +111,71 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 播放键的位置锚点：提示框跟着它弹在正上方
   final LayerLink _toggleLink = LayerLink();
 
+  /// Sleep timer：到点自动暂停。`null` 表示未开启。
+  Timer? _sleepTimer;
+
+  /// 到点时刻，用于在按钮上显示剩余时间
+  DateTime? _sleepUntil;
+
+  String? get _sleepTooltip {
+    final DateTime? until = _sleepUntil;
+    if (until == null) {
+      return '睡眠定时';
+    }
+    final Duration left = until.difference(DateTime.now());
+    if (left.inSeconds <= 0) {
+      return '睡眠定时：即将暂停';
+    }
+    final int minutes = (left.inSeconds / 60).ceil();
+    return '睡眠定时：还剩 $minutes 分钟';
+  }
+
+  void _onSleepSelected(_SleepOption option) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    switch (option) {
+      case _SleepOption.cancel:
+        setState(() => _sleepUntil = null);
+      case _SleepOption.endOfTrack:
+        final Track? track = widget.data.value.track;
+        final double duration = track?.durationSecs ?? 0;
+        final double left = duration - _position.value;
+        if (duration <= 0 || left <= 0.5) {
+          // 没有时长（还在解析）或已经到最后：当成「下一首播完」
+          _armSleep(const Duration(minutes: 1));
+          return;
+        }
+        _armSleep(Duration(milliseconds: (left * 1000).round()));
+      case _SleepOption.minutes15:
+        _armSleep(const Duration(minutes: 15));
+      case _SleepOption.minutes30:
+        _armSleep(const Duration(minutes: 30));
+      case _SleepOption.minutes45:
+        _armSleep(const Duration(minutes: 45));
+      case _SleepOption.minutes60:
+        _armSleep(const Duration(hours: 1));
+    }
+  }
+
+  void _armSleep(Duration delay) {
+    _sleepTimer?.cancel();
+    _sleepTimer = Timer(delay, _fireSleep);
+    setState(() => _sleepUntil = DateTime.now().add(delay));
+  }
+
+  /// 到点：正在播就暂停（不停止，醒来点一下就能接着听）
+  void _fireSleep() {
+    _sleepTimer = null;
+    if (!mounted) {
+      return;
+    }
+    setState(() => _sleepUntil = null);
+    if (widget.data.value.isPlaying) {
+      unawaited(widget.onTogglePlay());
+    }
+    _showToast('睡眠定时已到，已暂停播放');
+  }
+
   void _toggleImmersive() {
     final bool next = !_immersive;
     setState(() => _immersive = next);
@@ -166,6 +231,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
+    _sleepTimer?.cancel();
     // 离开页面必须复位：窗口按钮跟着这个开关隐，留着会让别的页面也看不到
     immersiveMode.value = false;
     _removeToast();
@@ -725,6 +791,33 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                 onPressed: ready ? widget.onShowQueue : null,
                                 icon: const Icon(Icons.queue_music, size: 24),
                               ),
+                              PopupMenuButton<_SleepOption>(
+                                key: const ValueKey<String>(
+                                  'now-playing-sleep',
+                                ),
+                                tooltip: _sleepTooltip,
+                                padding: EdgeInsets.zero,
+                                onSelected: _onSleepSelected,
+                                itemBuilder: (BuildContext context) =>
+                                    <PopupMenuEntry<_SleepOption>>[
+                                      for (final (
+                                            _SleepOption option,
+                                            String label,
+                                          )
+                                          in _SleepOption.labels)
+                                        PopupMenuItem<_SleepOption>(
+                                          value: option,
+                                          child: Text(label),
+                                        ),
+                                    ],
+                                icon: Icon(
+                                  Icons.bedtime_outlined,
+                                  size: 24,
+                                  color: _sleepUntil != null
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -744,6 +837,29 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       },
     );
   }
+}
+
+/// Sleep timer 的选项
+enum _SleepOption {
+  minutes15('15 分钟后暂停'),
+  minutes30('30 分钟后暂停'),
+  minutes45('45 分钟后暂停'),
+  minutes60('60 分钟后暂停'),
+  endOfTrack('播完当前曲目'),
+  cancel('取消定时');
+
+  const _SleepOption(this.label);
+
+  final String label;
+
+  static const List<(_SleepOption, String)> labels = <(_SleepOption, String)>[
+    (_SleepOption.minutes15, '15 分钟后暂停'),
+    (_SleepOption.minutes30, '30 分钟后暂停'),
+    (_SleepOption.minutes45, '45 分钟后暂停'),
+    (_SleepOption.minutes60, '60 分钟后暂停'),
+    (_SleepOption.endOfTrack, '播完当前曲目'),
+    (_SleepOption.cancel, '取消定时'),
+  ];
 }
 
 /// 进入沉浸模式时的轻提示：淡入 → 停留 → 淡出后自删。

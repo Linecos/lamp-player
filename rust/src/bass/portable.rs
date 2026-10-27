@@ -1,6 +1,6 @@
 //! 非 Windows 平台的空实现：保证 Linux CI 能编译、能跑测试。
 
-use super::{Progress, State};
+use super::{Device, Progress, State};
 use anyhow::{bail, Result};
 
 pub fn available() -> bool {
@@ -15,8 +15,24 @@ fn unsupported<T>() -> Result<T> {
     bail!("BASS 播放引擎仅支持 Windows")
 }
 
-pub fn play(_path: &str) -> Result<()> {
+pub fn play(_path: &str, _replay_gain_db: f64) -> Result<()> {
     unsupported()
+}
+
+pub fn devices() -> Result<Vec<Device>> {
+    Ok(Vec::new())
+}
+
+pub fn set_device(_index: i32) -> Result<()> {
+    unsupported()
+}
+
+pub fn current_device() -> i32 {
+    -1
+}
+
+pub fn set_crossfade(_millis: u32) -> Result<()> {
+    Ok(())
 }
 
 pub fn pause() -> Result<()> {

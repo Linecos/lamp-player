@@ -8,6 +8,24 @@ use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+/// `BASS_DEVICEINFO`（bass.h）：`name` / `driver` 是 ANSI 字符串
+#[repr(C)]
+pub(super) struct BassDeviceInfo {
+    pub(super) name: *const u8,
+    pub(super) driver: *const u8,
+    pub(super) flags: u32,
+}
+
+impl Default for BassDeviceInfo {
+    fn default() -> Self {
+        Self {
+            name: std::ptr::null(),
+            driver: std::ptr::null(),
+            flags: 0,
+        }
+    }
+}
+
 pub(super) struct Api {
     pub(super) _lib: Library,
     pub(super) init: unsafe extern "system" fn(i32, u32, u32, *mut c_void, *const c_void) -> i32,
@@ -24,6 +42,8 @@ pub(super) struct Api {
     pub(super) channel_get_position: unsafe extern "system" fn(u32, u32) -> u64,
     pub(super) channel_get_length: unsafe extern "system" fn(u32, u32) -> u64,
     pub(super) channel_set_attribute: unsafe extern "system" fn(u32, u32, f32) -> i32,
+    pub(super) channel_slide_attribute: unsafe extern "system" fn(u32, u32, f32, u32) -> i32,
+    pub(super) get_device_info: unsafe extern "system" fn(i32, *mut BassDeviceInfo) -> i32,
     pub(super) channel_get_data: unsafe extern "system" fn(u32, *mut c_void, u32) -> u32,
     pub(super) channel_set_fx: unsafe extern "system" fn(u32, u32, i32) -> u32,
     pub(super) channel_remove_fx: unsafe extern "system" fn(u32, u32) -> i32,
@@ -51,6 +71,8 @@ impl Api {
             channel_get_position: sym(&lib, "BASS_ChannelGetPosition")?,
             channel_get_length: sym(&lib, "BASS_ChannelGetLength")?,
             channel_set_attribute: sym(&lib, "BASS_ChannelSetAttribute")?,
+            channel_slide_attribute: sym(&lib, "BASS_ChannelSlideAttribute")?,
+            get_device_info: sym(&lib, "BASS_GetDeviceInfo")?,
             channel_get_data: sym(&lib, "BASS_ChannelGetData")?,
             channel_set_fx: sym(&lib, "BASS_ChannelSetFX")?,
             channel_remove_fx: sym(&lib, "BASS_ChannelRemoveFX")?,
@@ -118,4 +140,19 @@ pub(super) fn dll_dir() -> Option<PathBuf> {
 
 pub(super) fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
+/// 读 `BASS_DEVICEINFO` 里的 ANSI 字符串。
+///
+/// 中文系统上设备名是 GBK，直接按 UTF-8 解释会变成问号；先按 UTF-8 试，
+/// 不行再按 GBK 解——绝大多数情况一次就中。
+pub(super) fn ansi_text(ptr: *const u8) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let bytes = unsafe { std::ffi::CStr::from_ptr(ptr as *const std::ffi::c_char) }.to_bytes();
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.trim().to_string(),
+        Err(_) => encoding_rs::GBK.decode(bytes).0.trim().to_string(),
+    }
 }

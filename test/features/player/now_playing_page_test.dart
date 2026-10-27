@@ -438,4 +438,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(headerOpacity(), 0);
   });
+  testWidgets('睡眠定时到点自动暂停，退出不残留定时器', (WidgetTester tester) async {
+    int toggles = 0;
+    await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
+    await tester.pumpAndSettle();
+    expect(find.text('15 分钟后暂停'), findsOneWidget);
+    expect(find.text('播完当前曲目'), findsOneWidget);
+
+    await tester.tap(find.text('15 分钟后暂停'));
+    await tester.pumpAndSettle();
+    expect(toggles, 0, reason: '刚设定时不该立刻暂停');
+
+    await tester.pump(const Duration(minutes: 15));
+    // 到点会弹一次轻提示：先把它的淡入 / 停留 / 淡出走完，别留 pending timer
+    await tester.pump(const Duration(milliseconds: 1400));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(toggles, 1, reason: '到点应暂停播放');
+  });
+
+  testWidgets('睡眠定时可取消', (WidgetTester tester) async {
+    int toggles = 0;
+    await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15 分钟后暂停'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消定时'));
+    await tester.pumpAndSettle();
+
+    await tester.pump(const Duration(minutes: 16));
+    expect(toggles, 0, reason: '取消后不该再暂停');
+  });
 }

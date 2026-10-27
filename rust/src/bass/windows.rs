@@ -4,13 +4,13 @@
 //! 所有 BASS 调用都在同一条引擎线程上串行执行（命令队列 + 回执通道）。
 
 use super::wasapi;
-use super::{Progress, State};
+use super::{Device, Progress, State};
 use anyhow::{anyhow, bail, Result};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 
-use super::api::{dll_dir, last_error, wide, Api};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use super::api::{ansi_text, dll_dir, last_error, wide, Api, BassDeviceInfo};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -33,6 +33,9 @@ static STATE: AtomicU8 = AtomicU8::new(ST_STOPPED);
 
 /// 实际生效的输出是否为 WASAPI 独占（供 UI 同步读取）
 static EXCLUSIVE: AtomicBool = AtomicBool::new(false);
+
+/// 当前选中的共享输出设备（`-1` = 系统默认）
+static DEVICE: AtomicI32 = AtomicI32::new(-1);
 
 fn store_state(state: State) {
     let raw = match state {
@@ -59,6 +62,9 @@ const BASS_ATTRIB_VOL: u32 = 2;
 const BASS_ATTRIB_SRC: u32 = 8;
 const BASS_POS_BYTE: u32 = 0;
 const BASS_ERROR_BUSY: i32 = 46;
+/// `BASS_DEVICEINFO.flags`：设备可用 / 系统默认设备
+const BASS_DEVICE_ENABLED: u32 = 0x1;
+const BASS_DEVICE_DEFAULT: u32 = 0x4000_0000;
 
 /// BASS 内置的 DX8 参数均衡器（不需要 bass_fx 插件）
 const BASS_FX_DX8_PARAMEQ: u32 = 7;
@@ -141,13 +147,16 @@ const PLUGINS: [&str; 5] = [
 type Reply<T> = Sender<Result<T>>;
 
 enum Cmd {
-    Play(String, Reply<()>),
+    Play(String, f64, Reply<()>),
     Pause(Reply<()>),
     Resume(Reply<()>),
     Stop(Reply<()>),
     Seek(f64, Reply<()>),
     Volume(f32, Reply<()>),
     Snapshot(Reply<Progress>),
+    Devices(Reply<Vec<Device>>),
+    SetDevice(i32, Reply<()>),
+    SetCrossfade(u32, Reply<()>),
     SetEq(bool, Vec<f32>, Reply<()>),
     SetExclusive(bool, Reply<()>),
     OutputInfo(Reply<String>),
@@ -217,7 +226,7 @@ impl Cmd {
     /// 丢掉的命令都回一个成功：调用方要的是「这条不再影响状态」，不是错误
     fn reply_discarded(self) {
         let reply = match self {
-            Cmd::Play(_, reply)
+            Cmd::Play(_, _, reply)
             | Cmd::Pause(reply)
             | Cmd::Resume(reply)
             | Cmd::Stop(reply)
@@ -312,6 +321,14 @@ struct Engine {
     exclusive_note: String,
     /// 独占模式下进入 Stopped 的时刻，用于空闲后交还设备
     idle_since: Option<std::time::Instant>,
+    /// 共享输出设备索引（`-1` = 系统默认）
+    device: i32,
+    /// ReplayGain 曲目增益（dB，0 = 不调整），与音量相乘后下发
+    gain_db: f64,
+    /// 换曲交叉淡变时长（毫秒），0 = 直接切
+    crossfade_ms: u32,
+    /// 正在淡出的旧流与释放时刻
+    fading: Option<(u32, std::time::Instant)>,
     /// 均衡器开关与 10 段增益（dB）
     eq_enabled: bool,
     eq_gains: Vec<f32>,
@@ -357,6 +374,13 @@ impl Engine {
             volume: 1.0,
             exclusive_note: String::new(),
             idle_since: None,
+            device: std::env::var("LAMP_BASS_DEVICE")
+                .ok()
+                .and_then(|value| value.parse::<i32>().ok())
+                .unwrap_or(-1),
+            gain_db: 0.0,
+            crossfade_ms: 0,
+            fading: None,
             eq_enabled: false,
             eq_gains: vec![0.0; EQ_CENTERS.len()],
             eq_fx: Vec::new(),
@@ -390,18 +414,39 @@ impl Engine {
     fn init_shared(&mut self) -> Result<()> {
         self.free_bass();
         // -1 = 系统默认设备；0 = 无输出（CI/无声卡环境用 LAMP_BASS_DEVICE=0）
-        let device = std::env::var("LAMP_BASS_DEVICE")
-            .ok()
-            .and_then(|v| v.parse::<i32>().ok())
-            .unwrap_or(-1);
-        let ok =
-            unsafe { (self.api.init)(device, 44100, 0, std::ptr::null_mut(), std::ptr::null()) };
+        let ok = unsafe {
+            (self.api.init)(
+                self.device,
+                44100,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
         if ok == 0 {
-            bail!("BASS_Init 失败: {}", last_error(&self.api));
+            let reason = last_error(&self.api);
+            // 选中的设备被拔了：退回系统默认，别让整个引擎起不来
+            if self.device > 0 {
+                self.device = -1;
+                if unsafe { (self.api.init)(-1, 44100, 0, std::ptr::null_mut(), std::ptr::null()) }
+                    != 0
+                {
+                    self.bass_ready = true;
+                    self.load_plugins();
+                    self.output = Output::Shared;
+                    self.exclusive_note =
+                        format!("原输出设备不可用（{reason}），已改用系统默认设备");
+                    DEVICE.store(-1, Ordering::SeqCst);
+                    EXCLUSIVE.store(false, Ordering::SeqCst);
+                    return Ok(());
+                }
+            }
+            bail!("BASS_Init 失败: {reason}");
         }
         self.bass_ready = true;
         self.load_plugins();
         self.output = Output::Shared;
+        DEVICE.store(self.device, Ordering::SeqCst);
         EXCLUSIVE.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -631,11 +676,16 @@ impl Engine {
         Ok(handle)
     }
 
-    fn play(&mut self, path: &str) -> Result<()> {
+    fn play(&mut self, path: &str, replay_gain_db: f64) -> Result<()> {
         if path.is_empty() {
             bail!("音频路径为空");
         }
-        self.release_track();
+        // 增益属于曲目：换曲时一起更新，之后调音量仍然带着它
+        self.gain_db = if replay_gain_db.is_finite() {
+            replay_gain_db.clamp(-24.0, 12.0)
+        } else {
+            0.0
+        };
         // 新曲目开始：上一首的末态位置作废
         self.ended_position = 0.0;
         self.ended_duration = 0.0;
@@ -658,22 +708,46 @@ impl Engine {
             }
             Err(error) => return Err(error),
         };
+        // 交叉淡变只在共享模式做：独占模式的输出是一条混音流，
+        // 两条源流重叠要再加一条混音通道，收益不抵复杂度（那里只做淡入）。
+        let fade_ms = self.crossfade_ms;
+        let overlap = fade_ms > 0 && self.output == Output::Shared && self.stream != 0;
+        if overlap {
+            let old = self.stream;
+            self.stream = 0;
+            self.path = None;
+            self.eq_fx.clear();
+            self.fade_out(old, fade_ms);
+        } else {
+            self.release_track();
+        }
         self.stream = handle;
         self.path = Some(path.to_string());
+        let target = self.target_volume();
 
         if self.output == Output::Exclusive {
             // 音量与 SRC 都作用在混音流上：源流只是被拉取的数据源
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, 1.0) };
             if self.mixer != 0 {
-                unsafe {
-                    (self.api.channel_set_attribute)(self.mixer, BASS_ATTRIB_VOL, self.volume)
-                };
+                let start = if fade_ms > 0 { 0.0 } else { target };
+                unsafe { (self.api.channel_set_attribute)(self.mixer, BASS_ATTRIB_VOL, start) };
+                if fade_ms > 0 {
+                    unsafe {
+                        (self.api.channel_slide_attribute)(
+                            self.mixer,
+                            BASS_ATTRIB_VOL,
+                            target,
+                            fade_ms,
+                        )
+                    };
+                }
             }
             self.set_slot(handle, self.mixer, false);
             self.apply_eq();
         } else {
             // 音量是 per-channel 属性，换曲后必须重新应用
-            unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, self.volume) };
+            let start = if overlap { 0.0 } else { target };
+            unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, start) };
             // 采样率与设备不一致时才真正生效，一致时代价为零
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_SRC, SRC_QUALITY) };
             if unsafe { (self.api.channel_play)(handle, 1) } == 0 {
@@ -681,11 +755,49 @@ impl Engine {
                 self.release_track();
                 return Err(anyhow!("播放失败: {err}"));
             }
+            if overlap {
+                unsafe {
+                    (self.api.channel_slide_attribute)(handle, BASS_ATTRIB_VOL, target, fade_ms)
+                };
+            }
             // 新流没有旧 FX，重新挂一遍
             self.apply_eq();
         }
         store_state(State::Playing);
         Ok(())
+    }
+
+    /// 旧流淡出，到点由 [`Engine::refresh`] 释放
+    fn fade_out(&mut self, stream: u32, millis: u32) {
+        unsafe { (self.api.channel_slide_attribute)(stream, BASS_ATTRIB_VOL, 0.0, millis) };
+        self.fading = Some((
+            stream,
+            std::time::Instant::now() + std::time::Duration::from_millis(millis as u64),
+        ));
+    }
+
+    /// 用户音量 × ReplayGain，下发到输出目标的实际振幅
+    fn target_volume(&self) -> f32 {
+        let factor = if self.gain_db == 0.0 {
+            1.0
+        } else {
+            10f32.powf((self.gain_db / 20.0) as f32)
+        };
+        (self.volume * factor).clamp(0.0, 4.0)
+    }
+
+    /// 把音量写到当前输出目标上（共享 = 曲目流，独占 = 混音流）
+    fn apply_volume(&self) {
+        let target = if self.output == Output::Exclusive {
+            self.mixer
+        } else {
+            self.stream
+        };
+        if target != 0 {
+            unsafe {
+                (self.api.channel_set_attribute)(target, BASS_ATTRIB_VOL, self.target_volume())
+            };
+        }
     }
 
     fn pause(&mut self) -> Result<()> {
@@ -763,14 +875,7 @@ impl Engine {
             bail!("音量非法: {volume}");
         }
         self.volume = volume.clamp(0.0, 1.0);
-        let target = if self.output == Output::Exclusive {
-            self.mixer
-        } else {
-            self.stream
-        };
-        if target != 0 {
-            unsafe { (self.api.channel_set_attribute)(target, BASS_ATTRIB_VOL, self.volume) };
-        }
+        self.apply_volume();
         Ok(())
     }
 
@@ -876,6 +981,16 @@ impl Engine {
 
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
+        // 淡出结束的旧流在这里释放：播下一首时它还在出声，不能立刻拆
+        if let Some((stream, until)) = self.fading {
+            if std::time::Instant::now() >= until {
+                self.fading = None;
+                unsafe {
+                    (self.api.channel_stop)(stream);
+                    (self.api.stream_free)(stream);
+                }
+            }
+        }
         self.refresh_state();
         // 独占设备掉线：接口状态仍是 PLAYING，但位置不再前进
         self.check_output_stall();
@@ -933,7 +1048,7 @@ impl Engine {
         }
         self.exclusive_note = "输出设备已断开，已回落到共享输出".to_string();
         if let Some(path) = path {
-            if let Err(error) = self.play(&path) {
+            if let Err(error) = self.play(&path, self.gain_db) {
                 eprintln!("掉线后用共享输出重开曲目失败：{error}");
                 return;
             }
@@ -1023,6 +1138,12 @@ impl Engine {
     }
 
     fn release_track(&mut self) {
+        if let Some((stream, _)) = self.fading.take() {
+            unsafe {
+                (self.api.channel_stop)(stream);
+                (self.api.stream_free)(stream);
+            }
+        }
         if self.stream == 0 {
             store_state(State::Stopped);
             return;
@@ -1070,7 +1191,8 @@ impl Engine {
         self.init_output()?;
 
         if let Some(path) = path {
-            self.play(&path)?;
+            let gain = self.gain_db;
+            self.play(&path, gain)?;
             if resume_at > 0.05 {
                 self.seek(resume_at)?;
             }
@@ -1079,6 +1201,64 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// 枚举可用输出设备（共享模式）；索引从 1 开始，0 是「无输出」伪设备
+    fn devices(&self) -> Result<Vec<Device>> {
+        let mut list = Vec::new();
+        let mut info = BassDeviceInfo::default();
+        for index in 1..64 {
+            let ok = unsafe { (self.api.get_device_info)(index, &mut info) };
+            if ok == 0 {
+                break;
+            }
+            if info.flags & BASS_DEVICE_ENABLED == 0 {
+                continue;
+            }
+            let is_default =
+                index == self.device || (self.device < 0 && info.flags & BASS_DEVICE_DEFAULT != 0);
+            list.push(Device {
+                index,
+                name: ansi_text(info.name),
+                is_default,
+            });
+        }
+        Ok(list)
+    }
+
+    /// 切换共享输出设备：保留当前曲目、位置与播放状态
+    fn set_device(&mut self, index: i32) -> Result<()> {
+        let index = index.max(-1);
+        if index == self.device && self.bass_ready {
+            return Ok(());
+        }
+        let was_playing = state() == State::Playing;
+        let resume_at = self.position().unwrap_or(0.0);
+        let path = self.path.clone();
+        let gain = self.gain_db;
+
+        self.release_track();
+        self.teardown_session();
+        self.device = index;
+        // 换设备后独占可能换了张卡，旧的原因说明作废
+        self.exclusive_note.clear();
+        self.init_output()?;
+
+        if let Some(path) = path {
+            self.play(&path, gain)?;
+            if resume_at > 0.05 {
+                self.seek(resume_at)?;
+            }
+            if !was_playing {
+                self.pause()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 换曲交叉淡变时长（毫秒）；0 关闭
+    fn set_crossfade(&mut self, millis: u32) {
+        self.crossfade_ms = millis.min(20_000);
     }
 
     /// 设置页展示用：当前输出到底是怎么出声的
@@ -1205,8 +1385,8 @@ fn run(mut engine: Engine, rx: Receiver<Queued>) {
 /// 执行一条命令；返回 `true` 表示引擎线程该退出了
 fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
     match cmd {
-        Cmd::Play(path, reply) => {
-            let _ = reply.send(engine.play(&path));
+        Cmd::Play(path, gain_db, reply) => {
+            let _ = reply.send(engine.play(&path, gain_db));
         }
         Cmd::Pause(reply) => {
             let _ = reply.send(engine.pause());
@@ -1225,6 +1405,16 @@ fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
         }
         Cmd::Snapshot(reply) => {
             let _ = reply.send(engine.snapshot());
+        }
+        Cmd::Devices(reply) => {
+            let _ = reply.send(engine.devices());
+        }
+        Cmd::SetDevice(index, reply) => {
+            let _ = reply.send(engine.set_device(index));
+        }
+        Cmd::SetCrossfade(millis, reply) => {
+            engine.set_crossfade(millis);
+            let _ = reply.send(Ok(()));
         }
         Cmd::SetEq(enabled, gains, reply) => {
             let _ = reply.send(engine.set_eq(enabled, gains));
@@ -1290,8 +1480,26 @@ pub fn available() -> bool {
     sender().is_ok()
 }
 
-pub fn play(path: &str) -> Result<()> {
-    call(Class::Transport, |reply| Cmd::Play(path.to_string(), reply))
+pub fn play(path: &str, replay_gain_db: f64) -> Result<()> {
+    call(Class::Transport, |reply| {
+        Cmd::Play(path.to_string(), replay_gain_db, reply)
+    })
+}
+
+pub fn devices() -> Result<Vec<Device>> {
+    call(Class::Passive, Cmd::Devices)
+}
+
+pub fn set_device(index: i32) -> Result<()> {
+    call(Class::Config, |reply| Cmd::SetDevice(index, reply))
+}
+
+pub fn current_device() -> i32 {
+    DEVICE.load(Ordering::SeqCst)
+}
+
+pub fn set_crossfade(millis: u32) -> Result<()> {
+    call(Class::Config, |reply| Cmd::SetCrossfade(millis, reply))
 }
 
 pub fn pause() -> Result<()> {
