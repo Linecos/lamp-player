@@ -178,6 +178,62 @@ void main() {
     );
   });
 
+  testWidgets('切到歌单 / 历史时侧栏图标换成实心状态', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    final Finder rail = find.byType(LibraryRail);
+
+    // 初始停在「音乐」：歌单 / 历史都是线性图标
+    expect(
+      find.descendant(
+        of: rail,
+        matching: find.byIcon(Icons.playlist_play_outlined),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: rail, matching: find.byIcon(Icons.access_time)),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.descendant(of: rail, matching: find.text('歌单')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: rail, matching: find.byIcon(Icons.playlist_play)),
+      findsOneWidget,
+      reason: '选中歌单后应换成实心图标',
+    );
+    expect(
+      find.descendant(
+        of: rail,
+        matching: find.byIcon(Icons.playlist_play_outlined),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(find.descendant(of: rail, matching: find.text('历史')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: rail,
+        matching: find.byIcon(Icons.access_time_filled),
+      ),
+      findsOneWidget,
+      reason: '选中历史后应换成实心时钟',
+    );
+    expect(
+      find.descendant(of: rail, matching: find.byIcon(Icons.access_time)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: rail,
+        matching: find.byIcon(Icons.playlist_play_outlined),
+      ),
+      findsOneWidget,
+      reason: '离开歌单后应恢复线性图标',
+    );
+  });
+
   testWidgets('点击侧边栏切换分区只做淡入，旧内容立即移除', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     expect(find.text('2 首音乐'), findsOneWidget);

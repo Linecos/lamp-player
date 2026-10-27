@@ -165,23 +165,14 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
           const SizedBox(width: 10),
           const Expanded(child: Text('播放队列')),
           IconButton(
-            isSelected: shuffle,
-            tooltip: shuffle ? '关闭随机播放' : '随机播放',
-            onPressed: _toggleShuffle,
-            icon: const Icon(Icons.shuffle, size: 20),
+            tooltip: '清空队列',
+            onPressed: tracks.isEmpty ? null : () => unawaited(_clear()),
+            icon: const Icon(Icons.delete_sweep_outlined, size: 20),
           ),
           IconButton(
-            isSelected: repeat != LoopMode.off,
-            tooltip: switch (repeat) {
-              LoopMode.off => '循环播放：关',
-              LoopMode.all => '循环播放：列表',
-              LoopMode.one => '循环播放：单曲',
-            },
-            onPressed: _cycleRepeat,
-            icon: Icon(
-              repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-              size: 20,
-            ),
+            tooltip: '关闭',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close, size: 20),
           ),
         ],
       ),
@@ -341,14 +332,28 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                 ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 16, 10),
+      // 随机 / 循环是常用开关，挪到对话框底部；标题栏只留「清空 / 关闭」，
+      // 破坏性操作与状态开关不再挤在同一行
       actions: <Widget>[
-        TextButton(
-          onPressed: tracks.isEmpty ? null : () => unawaited(_clear()),
-          child: const Text('清空队列'),
+        IconButton(
+          isSelected: shuffle,
+          tooltip: shuffle ? '关闭随机播放' : '随机播放',
+          onPressed: _toggleShuffle,
+          icon: const Icon(Icons.shuffle, size: 20),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('关闭'),
+        IconButton(
+          isSelected: repeat != LoopMode.off,
+          tooltip: switch (repeat) {
+            LoopMode.off => '循环播放：关',
+            LoopMode.all => '循环播放：列表',
+            LoopMode.one => '循环播放：单曲',
+          },
+          onPressed: _cycleRepeat,
+          icon: Icon(
+            repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+            size: 20,
+          ),
         ),
       ],
     );
