@@ -11,6 +11,9 @@ enum MusicTagResult {
 
   /// 没找到 / 还没选过 MusicTag.exe，需要用户指定一次
   notConfigured,
+
+  /// 当前平台没有「启动外部 exe」这条路（非 Windows）
+  unsupported,
 }
 
 /// MusicTag 可执行文件路径的持久化
@@ -61,13 +64,18 @@ class MusicTagLauncher {
     Future<void> Function(String exe, List<String> args)? start,
     Future<String?> Function()? picker,
     Future<List<String>> Function()? candidates,
+    bool? isSupported,
   }) : _store = store ?? PrefsMusicTagStore(),
        _start = start ?? _startDetached,
        _picker = picker ?? _pickExecutable,
-       _candidates = candidates ?? _probe;
+       _candidates = candidates ?? _probe,
+       isSupported = isSupported ?? Platform.isWindows;
 
   /// MusicTag 的可执行文件名（大小写按官方发布包）
   static const String exeName = 'MusicTag.exe';
+
+  /// 当前平台能不能启动外部 exe；测试里可注入，不依赖跑测试的系统
+  final bool isSupported;
 
   final MusicTagStore _store;
   final Future<void> Function(String exe, List<String> args) _start;
@@ -76,6 +84,9 @@ class MusicTagLauncher {
 
   /// 打开 [paths]（通常是单曲）
   Future<MusicTagResult> open(List<String> paths) async {
+    if (!isSupported) {
+      return MusicTagResult.unsupported;
+    }
     final String? exe = await resolve();
     if (exe == null) {
       return MusicTagResult.notConfigured;
