@@ -73,9 +73,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # 托盘图标（与窗口图标同源）
+  # 应用图标（scripts/make_icon.py 生成）：托盘用 ico，侧栏品牌位用 png
   assets:
     - assets/tray_icon.ico
+    - assets/app_icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

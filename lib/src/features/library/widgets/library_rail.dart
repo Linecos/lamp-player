@@ -177,16 +177,15 @@ class _RailBrand extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
-    // 占位图标：正式应用图标设计好后替换这一块。
-    final Widget mark = Container(
+    // 应用图标本身：与 exe / 托盘同源（scripts/make_icon.py 生成）
+    final Widget mark = SizedBox(
       key: const ValueKey<String>('rail-brand-mark'),
       width: 28,
       height: 28,
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer,
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(9),
+        child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
       ),
-      child: Icon(Icons.lightbulb, size: 17, color: scheme.onPrimaryContainer),
     );
 
     final Widget brandRow = SizedBox(
