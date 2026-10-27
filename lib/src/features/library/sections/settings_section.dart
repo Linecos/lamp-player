@@ -46,6 +46,8 @@ extension _SettingsSection on _LibraryPageState {
             onCrossfadeChanged: _isAvailable
                 ? (double seconds) => unawaited(_setCrossfade(seconds))
                 : null,
+            flowBackground: _flowBackground,
+            onFlowBackgroundChanged: _setFlowBackground,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,

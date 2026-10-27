@@ -213,6 +213,7 @@ extension _PlaybackSection on _LibraryPageState {
               onOpenEqualizer: _isAvailable
                   ? () => unawaited(_openEqualizer())
                   : null,
+              animateBackground: _flowBackground,
             ),
           ),
         )

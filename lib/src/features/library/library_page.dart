@@ -346,6 +346,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
+  /// 正在播放页是否启用封面取色流光；关闭后只保留静态取色背景
+  bool _flowBackground = true;
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -532,6 +535,7 @@ class _LibraryPageState extends State<LibraryPage>
       _outputDeviceNotifier.value = snapshot.outputDevice;
       _replayGain = snapshot.replayGain;
       _crossfadeSeconds = snapshot.crossfadeSeconds;
+      _flowBackground = snapshot.flowBackground;
     });
 
     if (!mounted) {
@@ -641,6 +645,7 @@ class _LibraryPageState extends State<LibraryPage>
       outputDevice: _outputDevice,
       replayGain: _replayGain,
       crossfadeSeconds: _crossfadeSeconds,
+      flowBackground: _flowBackground,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段
     _saveChain = _saveChain.then((_) => _sessionStore.save(snapshot));
@@ -845,6 +850,11 @@ class _LibraryPageState extends State<LibraryPage>
         ),
       ),
     );
+  }
+
+  void _setFlowBackground(bool value) {
+    _update(() => _flowBackground = value);
+    _saveSessionNow();
   }
 
   void _toggleRail() {
