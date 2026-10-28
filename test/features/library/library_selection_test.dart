@@ -198,6 +198,23 @@ void main() {
     expect(find.text('已从歌单移除 2 首'), findsOneWidget);
   });
 
+  testWidgets('多选条嵌在标题行，不把列表向下挤', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    final double listHeaderTop = tester.getTopLeft(find.text('标题')).dy;
+
+    await _enterSelection(tester);
+
+    final Rect bar = tester.getRect(find.text('已选 0 首'));
+    final Rect playAll = tester.getRect(find.text('播放全部'));
+    expect(bar.center.dy, closeTo(playAll.center.dy, 18), reason: '应与标题按钮同一行');
+    expect(bar.right, lessThan(playAll.left), reason: '不能盖住右侧按钮');
+    expect(
+      tester.getTopLeft(find.text('标题')).dy,
+      closeTo(listHeaderTop, 0.5),
+      reason: '列表不应因多选条下移',
+    );
+  });
+
   testWidgets('切换分区会退出多选', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     await _enterSelection(tester);

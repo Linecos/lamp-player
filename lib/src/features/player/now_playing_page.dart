@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app/immersive_chrome.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
+import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
@@ -721,13 +722,15 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
             ),
-            child: Slider(
-              key: const ValueKey<String>('now-playing-volume'),
-              value: volume,
-              max: 1,
-              onChanged: ready && widget.onVolumeChanged != null
-                  ? widget.onVolumeChanged
-                  : null,
+            child: SliderSemanticsScope(
+              child: Slider(
+                key: const ValueKey<String>('now-playing-volume'),
+                value: volume,
+                max: 1,
+                onChanged: ready && widget.onVolumeChanged != null
+                    ? widget.onVolumeChanged
+                    : null,
+              ),
             ),
           ),
         ),
@@ -784,22 +787,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                             overlayRadius: 14,
                                           ),
                                     ),
-                                    child: Slider(
-                                      key: const ValueKey<String>(
-                                        'now-playing-progress',
+                                    child: SliderSemanticsScope(
+                                      child: Slider(
+                                        key: const ValueKey<String>(
+                                          'now-playing-progress',
+                                        ),
+                                        value: total > 0 ? shown : 0,
+                                        max: total > 0 ? total : 1,
+                                        onChanged: ready && total > 0
+                                            ? (double value) =>
+                                                  _dragPosition.value = value
+                                            : null,
+                                        onChangeEnd: ready && total > 0
+                                            ? (double value) {
+                                                _dragPosition.value = null;
+                                                unawaited(widget.onSeek(value));
+                                              }
+                                            : null,
                                       ),
-                                      value: total > 0 ? shown : 0,
-                                      max: total > 0 ? total : 1,
-                                      onChanged: ready && total > 0
-                                          ? (double value) =>
-                                                _dragPosition.value = value
-                                          : null,
-                                      onChangeEnd: ready && total > 0
-                                          ? (double value) {
-                                              _dragPosition.value = null;
-                                              unawaited(widget.onSeek(value));
-                                            }
-                                          : null,
                                     ),
                                   ),
                                   Padding(
