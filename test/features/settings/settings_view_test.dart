@@ -489,6 +489,60 @@ void main() {
     );
   });
 
+  testWidgets('自定义取色：拖滑杆改种子色，默认键回暖黄', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(
+          body: SettingsView(trackCount: 1, engineAvailable: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    final Finder hue = find.byKey(const ValueKey<String>('custom-seed-hue'));
+    expect(hue, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-saturation')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-value')),
+      findsOneWidget,
+    );
+
+    // 拖色相滑杆：种子色应立刻离开默认暖黄
+    await tester.ensureVisible(hue);
+    await tester.drag(hue, const Offset(-120, 0));
+    await tester.pumpAndSettle();
+
+    expect(controller.seedColor, isNotNull);
+    expect(controller.seedColor, isNot(AppTheme.defaultSeed));
+
+    // 点「默认」回到暖黄
+    await tester.tap(find.byKey(const ValueKey<String>('custom-seed-reset')));
+    await tester.pumpAndSettle();
+
+    expect(controller.seedColor, AppTheme.defaultSeed);
+  });
+
   testWidgets('配色可切回跟随系统', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
