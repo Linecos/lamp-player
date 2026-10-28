@@ -159,7 +159,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(32),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
@@ -211,7 +211,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(32),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(

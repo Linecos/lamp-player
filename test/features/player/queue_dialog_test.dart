@@ -143,4 +143,34 @@ void main() {
     );
     expect(dialogWidget.clipBehavior, Clip.antiAlias);
   });
+
+  testWidgets('选中高亮是圆角色块，列表左右各内缩 8', (WidgetTester tester) async {
+    await _openQueue(tester, current: 0);
+
+    final Finder highlightBox = find
+        .ancestor(
+          of: find.byKey(const ValueKey<String>('queue-item-0')),
+          matching: find.byType(DecoratedBox),
+        )
+        .first;
+    final BoxDecoration decoration =
+        tester.widget<DecoratedBox>(highlightBox).decoration as BoxDecoration;
+    expect(
+      decoration.borderRadius,
+      BorderRadius.circular(16),
+      reason: '通栏直角色块在 28 圆角的弹窗里很扎眼，也会被弹窗圆角切掉一角',
+    );
+
+    final Rect dialog = tester.getRect(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey<String>('queue-dialog')),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    final Rect row = tester.getRect(highlightBox);
+    expect(row.left - dialog.left, 8, reason: '色块不该顶到弹窗左侧');
+    expect(dialog.right - row.right, 8, reason: '右侧同理');
+  });
 }

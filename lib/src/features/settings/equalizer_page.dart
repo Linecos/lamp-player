@@ -435,7 +435,8 @@ class _Card extends StatelessWidget {
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
+        // 与设置页卡片同一档（28 留给弹窗）
+        borderRadius: BorderRadius.circular(32),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,

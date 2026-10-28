@@ -652,7 +652,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       : coverSize;
                   return Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
+                      // 与卡片同级：336px 的大封面用 20 显得几乎是直角
+                      borderRadius: BorderRadius.circular(28),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.35),
@@ -665,7 +666,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     child: AlbumCover(
                       path: track.coverPath,
                       size: size,
-                      radius: 20,
+                      // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                      radius: 28,
                       playing: playing,
                     ),
                   );
