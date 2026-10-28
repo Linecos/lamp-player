@@ -3,7 +3,7 @@
 //! 独立于引擎线程：解码流不需要输出设备，也不用等引擎就绪，
 //! 分析期间暂停 / 跳转等播放命令不受影响。
 
-use super::{BASS_SAMPLE_FLOAT, BASS_STREAM_DECODE, BASS_STREAM_PRESCAN, BASS_UNICODE, PLUGINS};
+use super::{BASS_SAMPLE_FLOAT, BASS_STREAM_DECODE, BASS_STREAM_PRESCAN, BASS_UNICODE};
 use crate::bass::api::{dll_dir, last_error, wide, Api, BassChannelInfo};
 use anyhow::{anyhow, bail, Result};
 use std::ffi::c_void;
@@ -17,9 +17,16 @@ pub(super) fn analyze_gain(path: &str) -> Result<f64> {
     if path.is_empty() {
         bail!("音频路径为空");
     }
+    // 解码前必须先 BASS_Init，而初始化和插件注册都由引擎负责——BASS 是进程级单例，
+    // 这里自己 Init 会和引擎抢同一个实例（引擎随后 Init 直接撞 BASS_ERROR_ALREADY，
+    // 整个播放不可用）。所以只确保引擎就绪，分析本身仍在本线程跑，不占引擎命令队列。
+    //
+    // 少了这一步时，凡是「首次播放之前」做的分析（如刚启动就批量补增益）都会
+    // 以错误 8「BASS_Init 尚未成功调用」失败，插件缺失则是叠加的第二重原因。
+    super::sender()?;
+
     let dir = dll_dir().ok_or_else(|| anyhow!("找不到 bass.dll"))?;
     let api = unsafe { Api::load(&dir) }?;
-    load_plugins(&api);
 
     let flags = BASS_UNICODE | BASS_SAMPLE_FLOAT | BASS_STREAM_PRESCAN | BASS_STREAM_DECODE;
     let wide = wide(Path::new(path));
@@ -37,14 +44,6 @@ pub(super) fn analyze_gain(path: &str) -> Result<f64> {
         return Ok(0.0);
     }
     Ok((TARGET_LUFS - loudness).clamp(-24.0, 24.0))
-}
-
-/// 插件注册是进程级的，与引擎重复加载无害；缺插件只是对应格式解不了
-fn load_plugins(api: &Api) {
-    for plugin in PLUGINS {
-        let wide = wide(Path::new(plugin));
-        unsafe { (api.plugin_load)(wide.as_ptr(), 0) };
-    }
 }
 
 /// `BASS_ERROR_ENDED`：解码流读完时 `GetData` 以 -1 + 该错误码收尾，属正常结束

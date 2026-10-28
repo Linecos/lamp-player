@@ -1,7 +1,7 @@
 //! ReplayGain 标签写入：写进去的增益要能被 lofty 回读、被扫描入库读回。
 
 use lofty::file::TaggedFileExt;
-use rust_lib_lamp_player::api::{db, replaygain, scan};
+use rust_lib_lamp_player::api::{db, player, replaygain, scan};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -138,4 +138,25 @@ fn rejects_bad_input() {
         "NaN 增益应被拒绝"
     );
     fs::remove_dir_all(&dir).ok();
+}
+
+/// 真实解码链路：进程里从未初始过 BASS 时也要能分析。
+///
+/// 需要本机音频样本与 BASS DLL，CI 上没有，所以默认跳过：
+///
+/// ```text
+/// LAMP_RG_SAMPLE="D:\music\a.flac" cargo test --test replaygain -- --ignored
+/// ```
+///
+/// 盯的是两条曾经同时踩中的路径：引擎没起来时 `BASS_StreamCreateFile` 直接报
+/// 错误 8「BASS_Init 尚未成功调用」；插件用裸文件名 + ANSI flags 注册则全部失败。
+/// 二者叠加时，FLAC / OPUS / AAC / APE / WMA 一个都解不开。
+#[test]
+#[ignore = "需要 LAMP_RG_SAMPLE 指向真实音频文件（含 BASS 环境）"]
+fn analyzes_real_file_without_engine() {
+    let sample = std::env::var("LAMP_RG_SAMPLE").expect("需要 LAMP_RG_SAMPLE 环境变量");
+    let gain = player::player_analyze_replay_gain(sample.clone())
+        .unwrap_or_else(|error| panic!("{sample} 应能分析：{error}"));
+    assert!(gain.abs() <= 24.0, "增益应夹在 ±24 dB 内，实际 {gain}");
+    assert!(gain != 0.0, "非静音文件不应算出 0 dB");
 }
