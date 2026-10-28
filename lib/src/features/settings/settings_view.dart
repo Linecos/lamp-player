@@ -1255,7 +1255,8 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                           key: const ValueKey<String>('seed-card-custom'),
                           selected: _isCustomSeed(current),
                           onTap: () => _pickCustomColor(dialogContext, current),
-                          cardIcon: Icons.brush_outlined,
+                          cardIcon: Icons.edit,
+                          iconSize: 30,
                         ),
                         for (final Color color in AppTheme.presetSeeds)
                           _SeedCard(
@@ -1346,6 +1347,7 @@ class _SeedCard extends StatelessWidget {
     required this.onTap,
     this.preview,
     this.cardIcon,
+    this.iconSize = 22,
   });
 
   final bool selected;
@@ -1354,6 +1356,9 @@ class _SeedCard extends StatelessWidget {
   /// 非 null 时按它画四象限预览；null 时画单个图标格（跟随系统 / 自定义）。
   final ColorScheme? preview;
   final IconData? cardIcon;
+
+  /// 图标格的图标大小；笔形比星形视觉更细，需要放大一点才不显小
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1400,7 +1405,7 @@ class _SeedCard extends StatelessWidget {
                           ),
                           child: Icon(
                             cardIcon ?? Icons.auto_awesome_outlined,
-                            size: 22,
+                            size: iconSize,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
