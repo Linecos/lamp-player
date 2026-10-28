@@ -200,14 +200,28 @@ Future<void> _setupWindow(WindowSnapshot state) async {
     // 等首帧就绪后再 show，避免先闪一下系统标题栏
     unawaited(
       windowManager.waitUntilReadyToShow(options, () async {
-        if (position != null) {
-          await windowManager.setPosition(position);
+        // 回调是 unawaited 的，抛出去就成了未处理异常；而且这几步互相独立，
+        // 位置 / 最大化失败都不该连累窗口显示不出来——那样程序看起来像没启动。
+        try {
+          if (position != null) {
+            await windowManager.setPosition(position);
+          }
+        } catch (error) {
+          debugPrint('恢复窗口位置失败：$error');
         }
-        if (state.maximized) {
-          await windowManager.maximize();
+        try {
+          if (state.maximized) {
+            await windowManager.maximize();
+          }
+        } catch (error) {
+          debugPrint('恢复最大化失败：$error');
         }
-        await windowManager.show();
-        await windowManager.focus();
+        try {
+          await windowManager.show();
+          await windowManager.focus();
+        } catch (error) {
+          debugPrint('显示窗口失败：$error');
+        }
       }),
     );
   } catch (error) {
