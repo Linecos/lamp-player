@@ -24,15 +24,21 @@ void main() {
   });
 
   group('排序', () {
-    test('默认顺序保持调用方给出的顺序', () {
+    test('默认顺序固定按最近添加倒序，与调用方顺序无关', () {
       final List<Track> tracks = <Track>[
-        sampleTrack(title: '乙', artist: 'B'),
-        sampleTrack(title: '甲', artist: 'A'),
+        sampleTrack(title: '乙', artist: 'B', addedAt: 100),
+        sampleTrack(title: '甲', artist: 'A', addedAt: 300),
       ];
 
       expect(
         sortTracks(tracks, LibrarySort.library).map((Track t) => t.title),
-        <String>['乙', '甲'],
+        <String>['甲', '乙'],
+      );
+      // 先按标题排过一遍再切回默认，结果仍是最近添加序——不再是「上次的排序」
+      final List<Track> byTitle = sortTracks(tracks, LibrarySort.title);
+      expect(
+        sortTracks(byTitle, LibrarySort.library).map((Track t) => t.title),
+        <String>['甲', '乙'],
       );
     });
 
@@ -69,16 +75,15 @@ void main() {
       ]);
     });
 
-    test('按最近添加倒序', () {
+    test('同一时刻添加的曲目按标题兜底，顺序稳定', () {
       final List<Track> tracks = <Track>[
-        sampleTrack(title: '旧', addedAt: 100),
-        sampleTrack(title: '新', addedAt: 300),
-        sampleTrack(title: '中', addedAt: 200),
+        sampleTrack(title: 'b', addedAt: 100),
+        sampleTrack(title: 'a', addedAt: 100),
       ];
 
       expect(
-        sortTracks(tracks, LibrarySort.added).map((Track track) => track.title),
-        <String>['新', '中', '旧'],
+        sortTracks(tracks, LibrarySort.library).map((Track t) => t.title),
+        <String>['a', 'b'],
       );
     });
 
