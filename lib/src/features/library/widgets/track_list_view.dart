@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import '../../../common/formatters/duration.dart';
 import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
+import '../../player/player_bar.dart';
 import '../library_sort.dart';
 
 /// 曲目右键菜单动作；具体行为由页面实现（测试里可只验证回调）。
@@ -158,9 +159,11 @@ class _TrackListViewState extends State<TrackListView> {
                   key: storageKey,
                   itemCount: tracks.length,
                   itemExtent: 56,
-                  // 底部留一点空：滚到底时最后一行不贴着播放岛，
-                  // 悬停高亮的圆角也不会被盖住
-                  padding: const EdgeInsets.only(bottom: 12),
+                  // 列表铺到窗口底，行可以从播放岛下面穿过；留白保证滚到底时
+                  // 最后一行停在岛上方，悬停高亮的圆角也不会被压住
+                  padding: const EdgeInsets.only(
+                    bottom: PlayerBar.occupiedHeight + 8,
+                  ),
                   itemBuilder: (BuildContext context, int index) =>
                       _rowAt(index, showArtist, showAlbum),
                 )
@@ -170,7 +173,9 @@ class _TrackListViewState extends State<TrackListView> {
                   itemCount: tracks.length,
                   itemExtent: 56,
                   buildDefaultDragHandles: false,
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.only(
+                    bottom: PlayerBar.occupiedHeight + 8,
+                  ),
                   // onReorderItem 的 newIndex 已经扣掉被取走的那一行
                   onReorderItem: onReorder!,
                   proxyDecorator:
