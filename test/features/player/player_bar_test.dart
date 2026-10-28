@@ -29,6 +29,16 @@ Finder _volumeIcon() => find.byWidgetPredicate(
 );
 
 /// 鼠标移到音量图标上，把竖条浮层唤出来
+
+/// 在 [target] 上滚动鼠标滚轮（dy < 0 表示向上滚）
+Future<void> _scrollAt(WidgetTester tester, Finder target, double dy) async {
+  final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+  final Offset center = tester.getCenter(target);
+  await tester.sendEventToBinding(pointer.hover(center));
+  await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
+  await tester.pump();
+}
+
 Future<TestGesture> _hoverVolume(WidgetTester tester) async {
   final TestGesture mouse = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -149,6 +159,36 @@ void main() {
 
     expect(find.text('01:40'), findsOneWidget);
     expect(find.text('00:00'), findsNothing);
+  });
+
+  testWidgets('音量滚轮向上滚加 10%', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
+
+    await _hoverVolume(tester);
+    await _scrollAt(tester, find.byKey(_volumeKey), -40);
+
+    expect(volumes.single, closeTo(0.6, 0.001));
+  });
+
+  testWidgets('音量滚轮向下滚减 10%', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
+
+    await _hoverVolume(tester);
+    await _scrollAt(tester, find.byKey(_volumeKey), 40);
+
+    expect(volumes.single, closeTo(0.4, 0.001));
+  });
+
+  testWidgets('音量滚轮到顶夹在 1.0', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+    await _pumpBar(tester, volume: 0.95, onVolumeChanged: volumes.add);
+
+    await _hoverVolume(tester);
+    await _scrollAt(tester, find.byKey(_volumeKey), -40);
+
+    expect(volumes.single, closeTo(1.0, 0.001), reason: '不越界，也不发 1.05');
   });
 
   testWidgets('音量滑块变化会回调 0~1 的值', (WidgetTester tester) async {

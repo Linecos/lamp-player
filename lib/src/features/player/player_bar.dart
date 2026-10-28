@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
+import '../../common/widgets/wheel_step.dart';
 import '../../rust/api/lyrics.dart';
 import 'spectrum_bars.dart';
 import '../../rust/api/model.dart';
@@ -708,6 +709,19 @@ class _VolumeControlState extends State<_VolumeControl> {
     );
   }
 
+  /// 滚轮步进：夹在 0..1，端点上不重复下发
+  void _nudge(double delta) {
+    final ValueChanged<double>? onChanged = widget.onChanged;
+    if (!widget.enabled || onChanged == null) {
+      return;
+    }
+    final double next = (widget.volume + delta).clamp(0.0, 1.0);
+    if ((next - widget.volume).abs() < 0.001) {
+      return;
+    }
+    onChanged(next);
+  }
+
   Widget _panel(double level) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final ThemeData theme = Theme.of(context);
@@ -718,10 +732,10 @@ class _VolumeControlState extends State<_VolumeControl> {
       child: CompositedTransformFollower(
         link: _link,
         showWhenUnlinked: false,
-        // 贴在按钮正上方，留 8px 空隙
-        targetAnchor: Alignment.topCenter,
-        followerAnchor: Alignment.bottomCenter,
-        offset: const Offset(0, -8),
+        // 贴图标右侧对齐：静音图标在最右边，居中对齐会让浮层超出窗口被裁
+        targetAnchor: Alignment.topRight,
+        followerAnchor: Alignment.bottomRight,
+        offset: const Offset(8, -8),
         child: MouseRegion(
           onEnter: (PointerEnterEvent _) {
             _overPanel = true;
@@ -753,15 +767,19 @@ class _VolumeControlState extends State<_VolumeControl> {
                   SizedBox(
                     width: 36,
                     height: 120,
-                    // 竖过来：上端 100%，下端 0%
-                    child: RotatedBox(
-                      quarterTurns: 3,
-                      child: _SlimSlider(
-                        key: const ValueKey<String>('player-volume'),
-                        value: level,
-                        max: 1,
-                        enabled: widget.enabled,
-                        onChanged: widget.onChanged,
+                    child: WheelStep(
+                      // 一格 10%：桌面播放器的常规粒度，拖拽仍是细调
+                      onStep: (int direction) => _nudge(direction * 0.1),
+                      // 竖过来：上端 100%，下端 0%
+                      child: RotatedBox(
+                        quarterTurns: 3,
+                        child: _SlimSlider(
+                          key: const ValueKey<String>('player-volume'),
+                          value: level,
+                          max: 1,
+                          enabled: widget.enabled,
+                          onChanged: widget.onChanged,
+                        ),
                       ),
                     ),
                   ),
