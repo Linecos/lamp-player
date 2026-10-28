@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/equalizer.dart';
@@ -13,8 +14,9 @@ Future<void> _pump(
   List<EqualizerPreset> customPresets = const <EqualizerPreset>[],
   void Function(bool, List<double>, String?)? onChanged,
   ValueChanged<List<EqualizerPreset>>? onPresetsChanged,
+  Size size = const Size(900, 1200),
 }) async {
-  tester.view.physicalSize = const Size(900, 1200);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -35,7 +37,151 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
+/// 在 [target] 上滚动鼠标滚轮（dy < 0 表示向上滚）
+Future<void> _scrollAt(WidgetTester tester, Finder target, double dy) =>
+    _scrollAtPoint(tester, tester.getCenter(target), dy);
+
+/// 在任意位置滚动滚轮（dy < 0 表示向上滚）
+Future<void> _scrollAtPoint(
+  WidgetTester tester,
+  Offset point,
+  double dy,
+) async {
+  final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+  await tester.sendEventToBinding(pointer.hover(point));
+  await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
+  await tester.pump();
+}
+
 void main() {
+  testWidgets('滚轮一格 = 1 dB，合并后下发', (WidgetTester tester) async {
+    final List<(bool, List<double>, String?)> changes =
+        <(bool, List<double>, String?)>[];
+    await _pump(
+      tester,
+      presetName: '摇滚',
+      onChanged: (bool enabled, List<double> gains, String? name) =>
+          changes.add((enabled, gains, name)),
+    );
+
+    await _scrollAt(
+      tester,
+      find.byKey(const ValueKey<String>('eq-band-0')),
+      -40,
+    );
+    // 连续滚三格，中间不该每格都下发
+    await _scrollAt(
+      tester,
+      find.byKey(const ValueKey<String>('eq-band-0')),
+      -40,
+    );
+    await _scrollAt(
+      tester,
+      find.byKey(const ValueKey<String>('eq-band-0')),
+      -40,
+    );
+    expect(changes, isEmpty, reason: '120ms 合并窗口内先不下发');
+
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(changes, hasLength(1));
+    expect(changes.single.$2.first, 3, reason: '三格共 +3 dB');
+    expect(changes.single.$3, isNull, reason: '手动调整后退化成自定义');
+  });
+
+  testWidgets('滚轮向下滚动减 1 dB', (WidgetTester tester) async {
+    final List<(bool, List<double>, String?)> changes =
+        <(bool, List<double>, String?)>[];
+    await _pump(
+      tester,
+      onChanged: (bool enabled, List<double> gains, String? name) =>
+          changes.add((enabled, gains, name)),
+    );
+
+    await _scrollAt(
+      tester,
+      find.byKey(const ValueKey<String>('eq-band-9')),
+      40,
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(changes.single.$2.last, -1);
+  });
+
+  testWidgets('滚轮到 ±15 dB 到顶不再变化', (WidgetTester tester) async {
+    final List<(bool, List<double>, String?)> changes =
+        <(bool, List<double>, String?)>[];
+    final List<double> gains = List<double>.filled(10, 0)
+      ..[0] = equalizerMaxGain;
+    await _pump(
+      tester,
+      gains: gains,
+      onChanged: (bool enabled, List<double> list, String? name) =>
+          changes.add((enabled, list, name)),
+    );
+
+    await _scrollAt(
+      tester,
+      find.byKey(const ValueKey<String>('eq-band-0')),
+      -40,
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(changes, isEmpty, reason: '已在 +15 dB，没有变化就不该下发');
+  });
+
+  testWidgets('滚轮只认推子中线，两侧空白不响应', (WidgetTester tester) async {
+    final List<(bool, List<double>, String?)> changes =
+        <(bool, List<double>, String?)>[];
+    await _pump(
+      tester,
+      onChanged: (bool enabled, List<double> gains, String? name) =>
+          changes.add((enabled, gains, name)),
+    );
+
+    final Offset center = tester.getCenter(
+      find.byKey(const ValueKey<String>('eq-band-0')),
+    );
+    // 列宽约 70，往旁边偏 30 就离开了中线那条感应带
+    await _scrollAtPoint(tester, center + const Offset(30, 0), -40);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(changes, isEmpty, reason: '没放在杆子上不该改增益');
+
+    await _scrollAtPoint(tester, center, -40);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(changes, hasLength(1), reason: '中线附近才响应');
+    expect(changes.single.$2.first, 1);
+  });
+
+  testWidgets('推子只占中线 28px，光标不会整列都是可拖动', (WidgetTester tester) async {
+    await _pump(tester);
+
+    // RotatedBox 会把本地尺寸转过来，用 getRect 看屏幕上的实际矩形
+    final Rect slider = tester.getRect(
+      find.byKey(const ValueKey<String>('eq-band-0')),
+    );
+    // Slider 自带 MouseCursor（手型）铺满自身矩形，收窄它才收窄光标范围
+    expect(slider.width, closeTo(28, 0.01));
+    expect(slider.height, greaterThan(100), reason: '纵向仍要占满，能拖到整个范围');
+  });
+
+  testWidgets('最小窗口也摆得下，页面不需要滚动', (WidgetTester tester) async {
+    // 900×560 是主窗口允许的最小尺寸
+    await _pump(tester, size: const Size(900, 560));
+
+    expect(tester.takeException(), isNull, reason: '不能溢出');
+    expect(
+      find.byType(Scrollable),
+      findsNothing,
+      reason: '推子页不该有滚动容器：滚轮要专给推子用',
+    );
+    expect(find.byKey(const ValueKey<String>('eq-reset')), findsOneWidget);
+
+    final Rect slider = tester.getRect(
+      find.byKey(const ValueKey<String>('eq-band-0')),
+    );
+    expect(slider.height, greaterThan(80), reason: '推子仍要有可拖的长度');
+  });
+
   testWidgets('拖动推子松手才提交，并把曲线标记为自定义', (WidgetTester tester) async {
     final List<(bool, List<double>, String?)> changes =
         <(bool, List<double>, String?)>[];
