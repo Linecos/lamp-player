@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -1246,9 +1247,16 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                           key: const ValueKey<String>('seed-card-system'),
                           selected: current.seedColor == null,
                           onTap: () => unawaited(current.setSeedColor(null)),
-                          systemIcon: current.systemAccent == null
+                          cardIcon: current.systemAccent == null
                               ? Icons.auto_awesome_motion_outlined
                               : Icons.auto_awesome_outlined,
+                        ),
+                        _SeedCard(
+                          key: const ValueKey<String>('seed-card-custom'),
+                          selected: _isCustomSeed(current),
+                          onTap: () => _pickCustomColor(dialogContext, current),
+                          cardIcon: Icons.edit,
+                          iconSize: 30,
                         ),
                         for (final Color color in AppTheme.presetSeeds)
                           _SeedCard(
@@ -1282,6 +1290,41 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
     );
   }
 
+  /// 当前种子色是否不属于任何预设色（= 用户自己用色轮调的）
+  static bool _isCustomSeed(ThemeController controller) {
+    final Color? seed = controller.seedColor;
+    return seed != null && !AppTheme.presetSeeds.contains(seed);
+  }
+
+  /// 自定义取色弹窗：色轮 + 明度条，改动即时生效。
+  static void _pickCustomColor(
+    BuildContext dialogContext,
+    ThemeController controller,
+  ) {
+    unawaited(
+      showDialog<void>(
+        context: dialogContext,
+        builder: (BuildContext inner) {
+          final ThemeController current = ThemeScope.of(inner);
+          return AlertDialog(
+            title: const Text('自定义颜色'),
+            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            content: SizedBox(
+              width: 320,
+              child: _CustomSeedPicker(controller: current),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(inner).pop(),
+                child: const Text('完成'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   static Widget _tipLabel(String text) {
     return Builder(
       builder: (BuildContext context) => Text(
@@ -1303,15 +1346,19 @@ class _SeedCard extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.preview,
-    this.systemIcon,
+    this.cardIcon,
+    this.iconSize = 22,
   });
 
   final bool selected;
   final VoidCallback onTap;
 
-  /// 非 null 时按它画四象限预览；null 时画系统强调色格（图标）。
+  /// 非 null 时按它画四象限预览；null 时画单个图标格（跟随系统 / 自定义）。
   final ColorScheme? preview;
-  final IconData? systemIcon;
+  final IconData? cardIcon;
+
+  /// 图标格的图标大小；笔形比星形视觉更细，需要放大一点才不显小
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1357,8 +1404,8 @@ class _SeedCard extends StatelessWidget {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            systemIcon ?? Icons.auto_awesome_outlined,
-                            size: 22,
+                            cardIcon ?? Icons.auto_awesome_outlined,
+                            size: iconSize,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
@@ -1685,4 +1732,234 @@ class _FolderRow extends StatelessWidget implements _Searchable {
       ),
     );
   }
+}
+
+/// 自定义种子色：色轮选色相 + 饱和度（角度 / 半径），下方一条明度滑杆。
+///
+/// 拖动即时生效（和预设色卡一致），不设「应用」按钮——弹窗里所有选择
+/// 都是所见即所得，多一步确认反而打断预览。
+class _CustomSeedPicker extends StatefulWidget {
+  const _CustomSeedPicker({required this.controller});
+
+  final ThemeController controller;
+
+  @override
+  State<_CustomSeedPicker> createState() => _CustomSeedPickerState();
+}
+
+class _CustomSeedPickerState extends State<_CustomSeedPicker> {
+  static const double _wheelSize = 176;
+
+  late HSVColor _hsv = HSVColor.fromColor(widget.controller.effectiveSeed);
+
+  /// 自己刚推给控制器的颜色；用来区分「外部改了种子色」
+  Color? _pushed;
+
+  @override
+  void didUpdateWidget(_CustomSeedPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final Color current = widget.controller.effectiveSeed;
+    if (_pushed != current) {
+      // 点了预设色卡或切回跟随系统：色轮光标跟着回到那个颜色
+      _hsv = HSVColor.fromColor(current);
+      _pushed = null;
+    }
+  }
+
+  void _apply(HSVColor hsv) {
+    setState(() {
+      _hsv = hsv;
+      _pushed = hsv.toColor();
+    });
+    unawaited(widget.controller.setSeedColor(_pushed!));
+  }
+
+  /// 色轮上的点 → 色相（角度）+ 饱和度（半径比例）
+  void _pickFromWheel(Offset local) {
+    const Offset center = Offset(_wheelSize / 2, _wheelSize / 2);
+    const double radius = _wheelSize / 2;
+    final Offset delta = local - center;
+    final double hue =
+        (math.atan2(delta.dy, delta.dx) * 180 / math.pi + 360) % 360;
+    final double saturation = (delta.distance / radius).clamp(0.0, 1.0);
+    _apply(
+      _hsv
+          .withHue(hue)
+          .withSaturation(saturation)
+          // 明度被拖到 0 时点色轮会「看不出变化」，顺手抬一点
+          .withValue(_hsv.value < 0.15 ? 0.9 : _hsv.value),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Color current = _hsv.toColor();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Center(
+          child: SizedBox(
+            width: _wheelSize,
+            height: _wheelSize,
+            child: GestureDetector(
+              key: const ValueKey<String>('custom-seed-wheel'),
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (TapDownDetails details) =>
+                  _pickFromWheel(details.localPosition),
+              onPanDown: (DragDownDetails details) =>
+                  _pickFromWheel(details.localPosition),
+              onPanUpdate: (DragUpdateDetails details) =>
+                  _pickFromWheel(details.localPosition),
+              child: CustomPaint(painter: _WheelPainter(hsv: _hsv)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: <Widget>[
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: current,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 32,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: <Widget>[
+                    Container(
+                      height: 10,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(5),
+                        gradient: LinearGradient(
+                          colors: <Color>[
+                            Colors.black,
+                            HSVColor.fromAHSV(
+                              1,
+                              _hsv.hue,
+                              _hsv.saturation,
+                              1,
+                            ).toColor(),
+                          ],
+                        ),
+                        border: Border.all(color: scheme.outlineVariant),
+                      ),
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 0,
+                        activeTrackColor: Colors.transparent,
+                        inactiveTrackColor: Colors.transparent,
+                        thumbColor: scheme.surface,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 8,
+                          elevation: 2,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14,
+                        ),
+                      ),
+                      child: Slider(
+                        key: const ValueKey<String>('custom-seed-value'),
+                        value: _hsv.value.clamp(0.05, 1.0),
+                        onChanged: (double value) =>
+                            _apply(_hsv.withValue(value)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              key: const ValueKey<String>('custom-seed-reset'),
+              onPressed: () => _apply(HSVColor.fromColor(AppTheme.defaultSeed)),
+              child: const Text('默认'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// 色轮：色相沿角度、饱和度沿半径，光标画在当前取值处。
+class _WheelPainter extends CustomPainter {
+  const _WheelPainter({required this.hsv});
+
+  final HSVColor hsv;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Rect rect = Offset.zero & size;
+    final Offset center = rect.center;
+    final double radius = size.shortestSide / 2;
+
+    // 色相：SweepGradient 从 3 点钟方向顺时针增长，与 atan2(dy, dx) 一致
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = const SweepGradient(
+          colors: <Color>[
+            Color(0xFFFF0000),
+            Color(0xFFFFFF00),
+            Color(0xFF00FF00),
+            Color(0xFF00FFFF),
+            Color(0xFF0000FF),
+            Color(0xFFFF00FF),
+            Color(0xFFFF0000),
+          ],
+          stops: <double>[0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1],
+        ).createShader(rect),
+    );
+
+    // 饱和度：中心白 → 边缘透明，叠一层就得到「越靠边越浓」
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[Colors.white, Colors.white.withValues(alpha: 0)],
+        ).createShader(rect),
+    );
+
+    // 光标：白圈 + 深色外圈，浅色 / 深色背景上都看得见
+    final double hueRad = hsv.hue * math.pi / 180;
+    final Offset dot =
+        center +
+        Offset(math.cos(hueRad), math.sin(hueRad)) *
+            (hsv.saturation.clamp(0.0, 1.0) * radius);
+    canvas.drawCircle(
+      dot,
+      8,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+    canvas.drawCircle(
+      dot,
+      8,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_WheelPainter oldDelegate) =>
+      oldDelegate.hsv.hue != hsv.hue ||
+      oldDelegate.hsv.saturation != hsv.saturation ||
+      oldDelegate.hsv.value != hsv.value;
 }
