@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import '../../../rust/api/model.dart';
+import '../../player/player_bar.dart';
 
 /// 歌单卡片上的操作。
 enum PlaylistAction { rename, delete }
@@ -25,7 +26,11 @@ class PlaylistGridView extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.builder(
       key: storageKey,
-      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      padding: const EdgeInsets.only(
+        top: 8,
+        // 同上：滚到底时最后一行停在播放岛上方
+        bottom: PlayerBar.occupiedHeight + 8,
+      ),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 340,
         mainAxisExtent: 92,
