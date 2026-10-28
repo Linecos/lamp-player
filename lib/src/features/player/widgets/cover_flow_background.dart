@@ -111,46 +111,60 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
   }
 }
 
-/// 以封面中「最鲜艳」的颜色为基准，并取一个色相距离较远的颜色做对比色。
+/// 按封面的面积占比排主色/副色，并保留色相差异较大的颜色。
 ///
-/// 输出顺序固定为：对比色亮 / 对比色暗 / 主色亮 / 主色暗，
-/// 画面上分别落在左侧和右侧，中间留出暗底，避免整屏均匀一片。
+/// 输入颜色已按桶面积从大到小排序。第一色作为主色，决定大面积背景；
+/// 后续只接受色相距离 > 32° 的颜色，避免同一色相堆满，也避免小面积高饱和色
+/// 把大面积主色挤掉（黄底 + 小面积绿衣、蓝衣 + 草地/天空等）。
 List<Color> harmonizeCoverColors(List<Color> source) {
-  final List<HSLColor> sorted = source.map(HSLColor.fromColor).toList()
-    ..sort((HSLColor a, HSLColor b) => _vibrancy(b).compareTo(_vibrancy(a)));
-  final HSLColor base = sorted.first;
+  if (source.isEmpty) {
+    return const <Color>[];
+  }
+  final List<HSLColor> usable = source
+      .map(HSLColor.fromColor)
+      .where(_usable)
+      .toList();
+  final List<HSLColor> pool = usable.isEmpty
+      ? source.map(HSLColor.fromColor).toList()
+      : usable;
 
-  HSLColor? accent;
-  for (final HSLColor candidate in sorted.skip(1)) {
-    final double distance = _hueDistance(candidate.hue, base.hue);
-    if (candidate.saturation > 0.4 &&
-        _vibrancy(candidate) > 0.2 &&
-        distance > 50) {
-      accent = candidate;
+  final List<HSLColor> selected = <HSLColor>[];
+  for (final HSLColor candidate in pool) {
+    if (selected.length >= 3) {
       break;
     }
+    if (selected.every(
+      (HSLColor existing) => _hueDistance(existing.hue, candidate.hue) > 32,
+    )) {
+      selected.add(candidate);
+    }
   }
-  final double accentHue = accent?.hue ?? (base.hue + 45) % 360;
-  final double accentSaturation =
-      accent?.saturation.clamp(0.55, 0.9).toDouble() ?? 0.72;
-  final double baseSaturation = base.saturation.clamp(0.6, 0.9).toDouble();
+  final HSLColor primary = selected.first;
+  while (selected.length < 4) {
+    final double delta = selected.length.isEven ? 0.12 : -0.1;
+    selected.add(
+      primary.withLightness(
+        (primary.lightness + delta).clamp(0.16, 0.72).toDouble(),
+      ),
+    );
+  }
 
-  final List<(double hue, double saturation, double lightness, double target)>
-  specs = <(double, double, double, double)>[
-    (accentHue - 12, accentSaturation, 0.38, 0.17),
-    (accentHue + 24, accentSaturation, 0.3, 0.14),
-    (base.hue, baseSaturation, 0.36, 0.18),
-    (base.hue + 20, baseSaturation, 0.28, 0.15),
-  ];
-
+  const List<double> targets = <double>[0.17, 0.15, 0.17, 0.14];
   return <Color>[
-    for (final (double hue, double saturation, double lightness, double target)
-        in specs)
+    for (int i = 0; i < 4; i += 1)
       _liftLuminance(
-        HSLColor.fromAHSL(1, hue % 360, saturation, lightness),
-        target,
+        selected[i].withSaturation(
+          selected[i].saturation.clamp(0.45, 0.95).toDouble(),
+        ),
+        targets[i],
       ).toColor(),
   ];
+}
+
+bool _usable(HSLColor color) {
+  return color.saturation > 0.1 &&
+      color.lightness > 0.06 &&
+      color.lightness < 0.94;
 }
 
 HSLColor _liftLuminance(HSLColor color, double target) {
@@ -165,12 +179,6 @@ HSLColor _liftLuminance(HSLColor color, double target) {
 double _hueDistance(double a, double b) {
   final double diff = (a - b).abs() % 360;
   return diff > 180 ? 360 - diff : diff;
-}
-
-double _vibrancy(HSLColor color) {
-  // 中间亮度、高饱和优先；纯黑/纯白几乎不会被选中
-  final double midWeight = 1 - (color.lightness - 0.5).abs() * 1.6;
-  return color.saturation * midWeight.clamp(0.0, 1.0);
 }
 
 class _AuraPainter extends CustomPainter {
@@ -216,28 +224,28 @@ class _AuraPainter extends CustomPainter {
     }
 
     spot(
-      drift(0.1, 0.12, 0, 0.15, 0.1),
-      size.width * 0.6 * (1 + 0.1 * math.sin(angle)),
+      drift(0.76, 0.3, 0, 0.13, 0.1),
+      size.width * 0.82 * (1 + 0.1 * math.sin(angle)),
       _flowColor(colors[0], 0, angle),
       0.9 + 0.06 * math.cos(angle),
     );
     spot(
-      drift(0.03, 0.9, 1.7, 0.12, 0.12),
-      size.width * 0.54 * (1 + 0.1 * math.cos(angle + 1.2)),
+      drift(0.08, 0.82, 1.7, 0.12, 0.12),
+      size.width * 0.58 * (1 + 0.1 * math.cos(angle + 1.2)),
       _flowColor(colors[1], 1.2, angle),
-      0.8 + 0.06 * math.sin(angle + 1.2),
+      0.64 + 0.06 * math.sin(angle + 1.2),
     );
     spot(
-      drift(0.9, 0.15, 3.1, 0.15, 0.1),
-      size.width * 0.6 * (1 + 0.1 * math.sin(angle + 2.4)),
+      drift(0.9, 0.9, 3.1, 0.1, 0.1),
+      size.width * 0.48 * (1 + 0.1 * math.sin(angle + 2.4)),
       _flowColor(colors[2], 2.4, angle),
-      0.9 + 0.06 * math.cos(angle + 2.4),
+      0.48 + 0.06 * math.cos(angle + 2.4),
     );
     spot(
-      drift(0.96, 0.8, 4.6, 0.12, 0.12),
-      size.width * 0.56 * (1 + 0.1 * math.cos(angle + 3.3)),
+      drift(0.12, 0.1, 4.6, 0.1, 0.1),
+      size.width * 0.42 * (1 + 0.1 * math.cos(angle + 3.3)),
       _flowColor(colors[3], 3.3, angle),
-      0.8 + 0.06 * math.sin(angle + 3.3),
+      0.36 + 0.06 * math.sin(angle + 3.3),
     );
   }
 
