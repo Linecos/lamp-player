@@ -83,6 +83,7 @@ class LibraryPage extends StatefulWidget {
     this.spectrum,
     this.musicTagLauncher,
     this.shortcuts = kDefaultShortcuts,
+    this.prefetchReplayGain = true,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -123,6 +124,12 @@ class LibraryPage extends StatefulWidget {
 
   /// 频谱数据源；不传则不画频谱，也不会去订阅引擎流（测试默认走这条）
   final ValueListenable<List<double>>? spectrum;
+
+  /// 启动后是否在后台补算曲库缺失的 ReplayGain。
+  ///
+  /// 关掉只影响「第一次播放前把增益准备好」，起播逻辑不受影响；测试关掉它，
+  /// 免得启动就把整库曲目分析一遍、打乱分析顺序相关的断言。
+  final bool prefetchReplayGain;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -359,6 +366,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 标签缺增益时现场分析的结果缓存（路径 → dB），本次会话内复用
   final Map<String, double> _autoGains = <String, double>{};
 
+  /// 正在分析的路径：后台补算与「起播后补算」撞上时共用一个任务
+  final Map<String, Future<double>> _autoGainPending =
+      <String, Future<double>>{};
+
+  /// 页面已销毁：后台补算的循环看到它就收手
+  bool _warmGainsCancelled = false;
+
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
@@ -434,6 +448,8 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_applyEqualizer());
     unawaited(_applyOutputDevice());
     unawaited(_applyCrossfade());
+    // 引擎已就绪：把曲库里缺的 ReplayGain 补算出来，别等第一首歌点了才开始算
+    unawaited(_warmAutoGains());
   }
 
   /// Windows 路径大小写与分隔符不敏感：回车恢复上次曲目、
@@ -479,6 +495,7 @@ class _LibraryPageState extends State<LibraryPage>
 
   @override
   void dispose() {
+    _warmGainsCancelled = true;
     _debounce?.cancel();
     _positionTimer?.cancel();
     _volumeTimer?.cancel();

@@ -60,9 +60,10 @@ extension _PlaybackSection on _LibraryPageState {
       return false;
     }
     try {
-      // ReplayGain 只在开关打开时生效。已知增益（标签 / 缓存）随 play 一起下发；
-      // 缺的起播后由 _applyAutoGain 后台补算再应用——现场分析要全曲解码，
-      // 等它算完才 play 的话，界面早已切歌、声音还停在上一首
+      // ReplayGain 只在开关打开时生效。已知增益（标签 / 上次分析后写进曲库的值 /
+      // 会话缓存）随 play 一起下发；还没有增益就先按 0 播——现场分析要全曲
+      // 解码 1~2 秒，等它算完再 play 界面早就切歌了，中途改音量又会先响一下。
+      // 算出的值写回曲库，下次起播直接带上。
       final double gain = !_replayGain
           ? 0
           : track.replayGain != 0
@@ -104,11 +105,12 @@ extension _PlaybackSection on _LibraryPageState {
     unawaited(_recordPlay(track.path));
     _saveSessionNow();
     _syncMediaSession();
-    // 无标签增益且没算过：起播已经完成，后台补算不挡任何人
+    // 无标签增益且没算过：后台补算，算完写回曲库，从下一次起播开始生效。
+    // 不在播放中途改音量——分析要 1~2 秒，那 1~2 秒会明显偏响再突然变小。
     if (_replayGain &&
         track.replayGain == 0 &&
         !_autoGains.containsKey(track.path)) {
-      unawaited(_applyAutoGain(track.path));
+      unawaited(_autoGain(track.path));
     }
     return true;
   }
@@ -943,15 +945,26 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 标签里没有增益时现场分析整曲（ReplayGain 2.0），结果缓存到会话结束。
+  /// 标签里没有增益时现场分析整曲（ReplayGain 2.0）。
   ///
+  /// 结果由引擎写回曲库（下次起播直接带上），这里另存一份会话缓存，
+  /// 让本次运行里再次播放同一首时不用重算。
+  /// 同一路径同时只跑一次：后台补算和「起播后补算」可能撞在一起。
   /// 分析失败静默回落 0（不调整）：为了一个坏文件弹提示不值得，
   /// 播放本身马上还会给出真正的失败原因。
-  Future<double> _autoGain(String path) async {
+  Future<double> _autoGain(String path) {
     final double? cached = _autoGains[path];
     if (cached != null) {
-      return cached;
+      return Future<double>.value(cached);
     }
+    return _autoGainPending[path] ??= _analyzeGain(path).whenComplete(() {
+      // 用块体：`whenComplete` 会把回调返回的 Future 一起等，
+      // 写成 `=> _autoGainPending.remove(path)` 就等于等自己，永远不完成
+      _autoGainPending.remove(path);
+    });
+  }
+
+  Future<double> _analyzeGain(String path) async {
     try {
       final double gain = await _playback.analyzeReplayGain(path);
       return _autoGains[path] = gain;
@@ -960,19 +973,24 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 起播后补算无标签曲目的增益并应用到当前输出。
+  /// 启动后在后台把还没有增益的曲目逐首算一遍，结果由引擎写进曲库。
   ///
-  /// 分析结束时用户可能已经切走：结果与当前曲目对不上就只进缓存，下次
-  /// 播放这首时随 play 直接带上，不把旧曲的增益套到新曲头上。
-  Future<void> _applyAutoGain(String path) async {
-    final double gain = await _autoGain(path);
-    if (gain == 0 || !_replayGain || _currentTrack?.path != path) {
+  /// 增益未知时起播不做归一（见 [_startCurrent]），所以要让「已知」尽快覆盖
+  /// 整个曲库：算过就落库，之后每次起播都直接带上，只跑这一次。曲库很大时
+  /// 一轮要几分钟，算完的部分下次启动不用再算。
+  Future<void> _warmAutoGains() async {
+    if (!widget.prefetchReplayGain || !_replayGain || !_isAvailable) {
       return;
     }
-    try {
-      await _playback.setReplayGain(gain);
-    } catch (_) {
-      // 应用失败只影响这一首的响度，不值得打扰
+    // 快照：分析期间曲库可能被重扫换掉
+    for (final Track track in List<Track>.of(_tracks)) {
+      if (_warmGainsCancelled || !_replayGain) {
+        return;
+      }
+      if (track.replayGain != 0 || _autoGains.containsKey(track.path)) {
+        continue;
+      }
+      await _autoGain(track.path);
     }
   }
 
@@ -983,6 +1001,10 @@ extension _PlaybackSection on _LibraryPageState {
     }
     _update(() => _replayGain = value);
     _saveSessionNow();
+    // 刚打开时曲库里还没有增益：立刻开始补算，否则每首都要「先响一遍」
+    if (value) {
+      unawaited(_warmAutoGains());
+    }
   }
 
   /// 换曲淡变时长（秒）；0 关闭

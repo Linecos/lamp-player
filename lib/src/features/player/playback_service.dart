@@ -16,12 +16,15 @@ abstract interface class PlaybackService {
 
   /// 分析 [path] 的整曲响度，返回 ReplayGain 建议增益（dB）。
   ///
-  /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需零点几秒）。
+  /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需 1~2 秒）；
+  /// 结果会顺带写回曲库，下次起播直接带上，不必再算。
   Future<double> analyzeReplayGain(String path);
 
-  /// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出。
+  /// 应用 ReplayGain 增益（dB），立即作用到当前输出。
   ///
-  /// 与 [play] 配套：起播不等分析（会卡住切歌），分析完成后再用这条补上。
+  /// 目前没有调用方：自动补算只写回曲库，从下一首起播开始生效，不在播放
+  /// 中途改音量（那正是「起播先响 1~2 秒、随后突然变小」的来源）。
+  /// 接口保留给需要即时应用的场景。
   Future<void> setReplayGain(double gainDb);
 
   Future<void> pause();

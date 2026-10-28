@@ -27,6 +27,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   WindowControls? windowControls,
   MusicTagLauncher? musicTagLauncher,
   Size viewSize = const Size(1280, 800),
+  bool prefetchReplayGain = true,
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
 }) async {
@@ -55,6 +56,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         appLifecycle: lifecycle,
         windowControls: windowControls,
         musicTagLauncher: musicTagLauncher,
+        prefetchReplayGain: prefetchReplayGain,
       ),
     ),
   );

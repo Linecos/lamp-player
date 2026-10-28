@@ -94,7 +94,7 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('无标签曲目先起播再补算增益，不把切歌卡在分析上', (WidgetTester tester) async {
+  testWidgets('增益未知时起播不中途改音量，算完写进缓存，下次起播带上', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
@@ -103,6 +103,8 @@ void main() {
       tester,
       tracks: twoTracks(),
       playback: playback,
+      // 关掉启动补算，模拟「还没算到这首就点了」
+      prefetchReplayGain: false,
       sessionStore: FakeSessionStore(
         snapshot: const SessionSnapshot(
           coverBackfillAttempted: true,
@@ -117,9 +119,15 @@ void main() {
     // play 带的是 0（当时还没有增益）而不是 -6.5：证明起播没等分析
     expect(playback.playedPaths, <String>['/music/夜航.mp3']);
     expect(playback.playedGains, <double>[0]);
-    // 起播完成后补算并应用到当前输出
+    // 起播完成后补算，但**不**改当前输出（那会先响 1~2 秒再突然变小）
     expect(playback.analyzedPaths, <String>['/music/夜航.mp3']);
-    expect(playback.setGainCalls, <double>[-6.5]);
+    expect(playback.setGainCalls, isEmpty);
+
+    // 再播同一首：增益已在缓存里，起播直接带上
+    await tester.tap(find.text('夜航').first);
+    await tester.pumpAndSettle();
+    expect(playback.playedGains.last, -6.5);
+    expect(playback.analyzedPaths, <String>['/music/夜航.mp3']);
   });
 
   testWidgets('补算完成前已切歌：旧曲增益只进缓存，不套到新曲上', (WidgetTester tester) async {
@@ -132,6 +140,7 @@ void main() {
       tester,
       tracks: twoTracks(),
       playback: playback,
+      prefetchReplayGain: false,
       sessionStore: FakeSessionStore(
         snapshot: const SessionSnapshot(
           coverBackfillAttempted: true,
@@ -151,7 +160,43 @@ void main() {
     gate.complete();
     await tester.pumpAndSettle();
 
-    // 夜航的结果被切歌守卫拦下；潮汐自己的补算正常应用，只有一条
-    expect(playback.setGainCalls.length, 1);
+    // 两条分析各自落进自己的缓存：再次起播时各带各的增益，互不串台
+    expect(playback.setGainCalls, isEmpty);
+    await tester.tap(find.text('夜航').first);
+    await tester.pumpAndSettle();
+    expect(playback.playedGains.last, -6.5);
+  });
+
+  testWidgets('启动后后台补算：点歌时增益已就绪，起播直接带上', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..analyzedGain = -7.5;
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+        ),
+      ),
+    );
+
+    // 没点任何歌，曲库里缺增益的曲目已经被逐首算完
+    // 补算不挂在帧上，多 pump 几次让它跑完
+    for (int i = 0; i < 50 && playback.analyzedPaths.length < 2; i += 1) {
+      await tester.pump();
+    }
+    expect(playback.analyzedPaths.toSet(), <String>{
+      '/music/夜航.mp3',
+      '/music/潮汐.mp3',
+    });
+    expect(playback.playedPaths, isEmpty);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
+    expect(playback.playedGains, <double>[-7.5]);
   });
 }
