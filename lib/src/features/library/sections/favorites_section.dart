@@ -47,7 +47,15 @@ extension _FavoritesSection on _LibraryPageState {
     }
   }
 
-  Future<void> _toggleFavorite(Track track) async {
+  /// 收藏 / 取消收藏（乐观更新，失败回滚）。
+  ///
+  /// 必须排队：快速双击会连着发出「加收藏」和「取消收藏」两个写库调用，
+  /// 它们互不等待，先发的后到就让数据库终态和界面相反——界面显示没收藏、
+  /// 重启后又变回收藏。排队后第二次点击会等第一次落库完再算 next，值才对。
+  Future<void> _toggleFavorite(Track track) =>
+      _favoriteChain.run(() => _toggleFavoriteNow(track), label: '收藏操作');
+
+  Future<void> _toggleFavoriteNow(Track track) async {
     final bool next = !_favoritePaths.contains(track.path);
     final Set<String> previousPaths = Set<String>.of(_favoritePaths);
     final List<Track> previousTracks = _favoriteTracks;

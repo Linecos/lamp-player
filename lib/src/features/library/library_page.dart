@@ -627,8 +627,11 @@ class _LibraryPageState extends State<LibraryPage>
 
   /// 播放命令串行链：键盘、媒体键、托盘、队列面板、自动播完都会发命令，
   /// 两个入口交错时会出现「队列被 advance 两次只播了一首」或旧曲目被重新播出。
-  /// 由 `_PlaybackSection._serial` 维护，这里只放状态。
-  Future<void> _playChain = Future<void>.value();
+  final _SerialChain _playChain = _SerialChain();
+
+  /// 收藏写库串行链：快速双击会把「加收藏」和「取消收藏」两个无序 FFI 写
+  /// 一起发出去，先发的后到就会让数据库终态与界面相反。
+  final _SerialChain _favoriteChain = _SerialChain();
 
   Future<void> _saveSession() {
     final SessionSnapshot snapshot = SessionSnapshot(
@@ -1375,5 +1378,29 @@ class _DropOverlay extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 串行执行链：同一时刻只跑一个任务，前一个失败不影响后一个。
+///
+/// 会话写盘、播放命令、收藏写库都需要「按顺序来」：交错会写出撕裂快照、
+/// 让队列被多推一次，或者让数据库终态与界面相反。失败只记日志——各调用点
+/// 自己负责给用户提示，这里再抛就成了未处理异常并毒化整条链。
+class _SerialChain {
+  Future<void> _tail = Future<void>.value();
+
+  Future<void> run(Future<void> Function() action, {required String label}) {
+    final Completer<void> done = Completer<void>();
+    _tail = _tail.then((_) async {
+      try {
+        await action();
+      } catch (error, stack) {
+        debugPrint('$label失败：$error\n$stack');
+      }
+      if (!done.isCompleted) {
+        done.complete();
+      }
+    });
+    return done.future;
   }
 }
