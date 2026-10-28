@@ -59,6 +59,10 @@ pub fn set_volume(_volume: f64) -> Result<()> {
     unsupported()
 }
 
+pub fn set_replay_gain(_gain_db: f64) -> Result<()> {
+    unsupported()
+}
+
 pub fn snapshot() -> Result<Progress> {
     unsupported()
 }
