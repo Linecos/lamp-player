@@ -29,7 +29,7 @@ extension _MusicSection on _LibraryPageState {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const Spacer(),
+            _buildSelectionHeaderSlot(context),
             FilledButton.tonalIcon(
               onPressed: visible.isEmpty || _searching
                   ? null

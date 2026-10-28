@@ -8,3 +8,4 @@ export 'widgets/album_cover.dart';
 export 'widgets/empty_state.dart';
 export 'widgets/error_retry.dart';
 export 'widgets/loading_state.dart';
+export 'widgets/slider_semantics_scope.dart';

@@ -786,8 +786,6 @@ class _LibraryPageState extends State<LibraryPage>
                               Column(
                                 children: <Widget>[
                                   _buildTitleRow(context),
-                                  if (_selectionMode)
-                                    _buildSelectionBar(context),
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.fromLTRB(
