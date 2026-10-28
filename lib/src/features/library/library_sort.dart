@@ -8,12 +8,16 @@ const String unknownAlbum = '未知专辑';
 
 /// 曲库列表的排序方式
 enum LibrarySort {
+  /// 默认顺序：最近添加的排在前面。
+  ///
+  /// 以前这里是「不排序、沿用调用方给的顺序」，而调用方拿到的列表就是上一次
+  /// 排序的结果 —— 于是「默认顺序」实际上等于「上次选的那一种」，按标题排完
+  /// 再切回来还是标题序。现在固定成按 `addedAt` 倒序，不再受上一次选择影响。
   library('默认顺序'),
   title('标题'),
   artist('艺术家'),
   album('专辑'),
-  duration('时长'),
-  added('最近添加');
+  duration('时长');
 
   const LibrarySort(this.label);
 
@@ -57,17 +61,13 @@ class _SortEntry {
 ///
 /// 排序规则全部是纯 Dart 逻辑，可在 `test/` 下覆盖，不依赖 Rust。
 List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
-  // 默认顺序完全沿用调用方（Rust 已按 artist/album/track_num 排好），
-  // 不调用 sort，避免不稳定排序打乱相等元素的相对位置。
-  if (mode == LibrarySort.library) {
-    return List<Track>.of(tracks);
-  }
   final List<_SortEntry> entries = <_SortEntry>[
     for (final Track track in tracks) _SortEntry(track),
   ];
   entries.sort((_SortEntry a, _SortEntry b) {
     final int primary = switch (mode) {
-      LibrarySort.library => 0,
+      // 默认顺序 = 最近添加：新导入的排在最前
+      LibrarySort.library => b.track.addedAt.compareTo(a.track.addedAt),
       LibrarySort.title => a.title.compareTo(b.title),
       LibrarySort.artist => _firstNonZero(<int>[
         a.artist.compareTo(b.artist),
@@ -82,7 +82,6 @@ List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
       LibrarySort.duration => b.track.durationSecs.compareTo(
         a.track.durationSecs,
       ),
-      LibrarySort.added => b.track.addedAt.compareTo(a.track.addedAt),
     };
     if (primary != 0) {
       return primary;
