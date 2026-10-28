@@ -51,6 +51,15 @@ struct Session {
 /// `None` 表示尚未初始化；初始化失败也会留在 `None`，下次调用重试
 static SESSION: OnceLock<Mutex<Option<Session>>> = OnceLock::new();
 
+/// 1×1 全透明 PNG：没有封面的曲目用它顶掉上一首的缩略图
+const BLANK_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+];
+
 fn session() -> &'static Mutex<Option<Session>> {
     SESSION.get_or_init(|| Mutex::new(None))
 }
@@ -131,10 +140,17 @@ pub fn set_track(title: &str, artist: &str, album: &str, cover: Option<&[u8]>) -
         .SetAlbumTitle(&HSTRING::from(album))
         .map_err(|error| anyhow!("设置专辑失败: {error}"))?;
 
-    if let Some(bytes) = cover {
-        if let Ok(reference) = stream_reference(bytes) {
-            let _ = updater.SetThumbnail(&reference);
-        }
+    // 没有封面时也要把缩略图顶掉：只更新标题 / 艺术家而不动图，
+    // Windows 浮层会继续显示上一首的封面，配着新标题看就像放错了歌。
+    // 用 1×1 透明 PNG 占位，比留着旧图或干脆不设都干净。
+    let reference = match cover {
+        Some(bytes) => stream_reference(bytes).ok(),
+        None => None,
+    }
+    .or_else(|| stream_reference(BLANK_PNG).ok());
+    if let Some(reference) = reference {
+        // 缩略图是装饰性的，失败不该让整次元数据提交失败
+        let _ = updater.SetThumbnail(&reference);
     }
     updater
         .Update()
