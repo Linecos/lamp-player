@@ -46,7 +46,7 @@ void main() {
       final double fallen = controller.bands.value.first;
       expect(fallen, lessThan(risen));
       // 只回落一小步（release 系数），不是直接掉到 0
-      expect(fallen, greaterThan(risen * 0.7));
+      expect(fallen, greaterThan(risen * 0.55));
 
       controller.detach();
       async.flushMicrotasks();

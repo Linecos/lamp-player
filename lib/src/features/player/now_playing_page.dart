@@ -17,7 +17,7 @@ import 'cover_palette.dart';
 import 'lyrics_view.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
-import 'spectrum_ribbon.dart';
+import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
 
 /// 正在播放页的实时快照。
@@ -404,23 +404,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: <Widget>[
-                          // 频谱光波压在内容下层：铺满整宽、半透明、不吃手势。
+                          // 柱形频谱压在内容下层：铺满整宽、半透明、不吃手势。
                           // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
-                          // 歌词照常滚动。固定 96 高、贴在控制区上方。
+                          // 歌词照常滚动。固定 72 高、贴在控制区上方。
                           if (widget.spectrum != null)
                             Positioned(
                               left: 0,
                               right: 0,
                               bottom: 6,
-                              height: 104,
-                              child: SpectrumRibbon(
+                              height: 72,
+                              child: SpectrumWave(
                                 key: const ValueKey<String>(
                                   'now-playing-spectrum',
                                 ),
                                 bands: widget.spectrum!,
                                 // 颜色默认由主题主色派生三段色相渐变
                                 color: scheme.primary,
-                                animate: widget.animateBackground,
                               ),
                             ),
                           ValueListenableBuilder<Track?>(
