@@ -60,13 +60,14 @@ extension _PlaybackSection on _LibraryPageState {
       return false;
     }
     try {
-      // ReplayGain 只在开关打开时生效：标签缺增益时现场分析（结果缓存复用）
-      double gain = 0;
-      if (_replayGain) {
-        gain = track.replayGain != 0
-            ? track.replayGain
-            : await _autoGain(track.path);
-      }
+      // ReplayGain 只在开关打开时生效。已知增益（标签 / 缓存）随 play 一起下发；
+      // 缺的起播后由 _applyAutoGain 后台补算再应用——现场分析要全曲解码，
+      // 等它算完才 play 的话，界面早已切歌、声音还停在上一首
+      final double gain = !_replayGain
+          ? 0
+          : track.replayGain != 0
+          ? track.replayGain
+          : (_autoGains[track.path] ?? 0);
       await _playback.play(track.path, replayGainDb: gain);
     } catch (error) {
       if (!mounted) {
@@ -103,6 +104,12 @@ extension _PlaybackSection on _LibraryPageState {
     unawaited(_recordPlay(track.path));
     _saveSessionNow();
     _syncMediaSession();
+    // 无标签增益且没算过：起播已经完成，后台补算不挡任何人
+    if (_replayGain &&
+        track.replayGain == 0 &&
+        !_autoGains.containsKey(track.path)) {
+      unawaited(_applyAutoGain(track.path));
+    }
     return true;
   }
 
@@ -949,6 +956,22 @@ extension _PlaybackSection on _LibraryPageState {
       return _autoGains[path] = gain;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// 起播后补算无标签曲目的增益并应用到当前输出。
+  ///
+  /// 分析结束时用户可能已经切走：结果与当前曲目对不上就只进缓存，下次
+  /// 播放这首时随 play 直接带上，不把旧曲的增益套到新曲头上。
+  Future<void> _applyAutoGain(String path) async {
+    final double gain = await _autoGain(path);
+    if (gain == 0 || !_replayGain || _currentTrack?.path != path) {
+      return;
+    }
+    try {
+      await _playback.setReplayGain(gain);
+    } catch (_) {
+      // 应用失败只影响这一首的响度，不值得打扰
     }
   }
 

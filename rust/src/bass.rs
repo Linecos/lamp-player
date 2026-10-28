@@ -111,6 +111,11 @@ pub fn set_volume(volume: f64) -> Result<()> {
     imp::set_volume(volume)
 }
 
+/// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出
+pub fn set_replay_gain(gain_db: f64) -> Result<()> {
+    imp::set_replay_gain(gain_db)
+}
+
 /// 当前位置与总时长（秒），未加载曲目时为 0.0。
 ///
 /// 轮询用这个而不是分别调 `position` / `duration`：一次线程往返拿全，

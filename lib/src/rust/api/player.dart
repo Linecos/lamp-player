@@ -23,6 +23,14 @@ Future<void> playerPlay({required String path, required double replayGainDb}) =>
       replayGainDb: replayGainDb,
     );
 
+/// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出。
+///
+/// 起播不能等增益：无标签曲目的现场分析要全曲解码，等它算完才 play，
+/// 界面早已切歌、声音还停在上一首。所以 play 先带上已知值（标签或缓存），
+/// 分析完成后再用这条把增益补进去。
+Future<void> playerSetReplayGain({required double gainDb}) =>
+    RustLib.instance.api.crateApiPlayerPlayerSetReplayGain(gainDb: gainDb);
+
 /// 分析整曲响度，返回 ReplayGain 建议增益（dB）
 ///
 /// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算

@@ -439,6 +439,12 @@ class FakePlaybackService implements PlaybackService {
 
   /// 非空时 `analyzeReplayGain()` 抛出该错误，用于测试无标签曲目回落 0
   Object? analyzeError;
+
+  /// 非空时 `analyzeReplayGain()` 挂起直到它完成，用于测试分析期间的切歌
+  Completer<void>? analyzeGate;
+
+  /// `analyzeReplayGain()` 收到的路径序列（与 `playedPaths` 对照验证先后）
+  final List<String> analyzedPaths = <String>[];
   final List<double> seekCalls = <double>[];
   final List<double> volumeCalls = <double>[];
   int pauseCalls = 0;
@@ -476,7 +482,20 @@ class FakePlaybackService implements PlaybackService {
     if (error != null) {
       throw error;
     }
+    final Completer<void>? gate = analyzeGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    analyzedPaths.add(path);
     return analyzedGain;
+  }
+
+  /// `setReplayGain()` 收到的增益序列（起播后补算应用）
+  final List<double> setGainCalls = <double>[];
+
+  @override
+  Future<void> setReplayGain(double gainDb) async {
+    setGainCalls.add(gainDb);
   }
 
   @override
