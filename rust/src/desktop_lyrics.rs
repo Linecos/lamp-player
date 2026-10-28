@@ -375,7 +375,7 @@ mod imp {
 
     pub(super) fn show(_hwnd: isize) {}
 
-    pub(super) fn hide(_hwnd: isize) {}
+    pub(super) fn hide(_hwnd: Option<isize>) {}
 
     pub(super) fn repaint(_hwnd: isize) {}
 }
