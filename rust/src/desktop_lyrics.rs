@@ -58,13 +58,19 @@ fn text_now() -> String {
 
 /// 打开桌面歌词窗口；已创建过就只显示
 pub fn show() -> anyhow::Result<()> {
-    let hwnd = match *slot().lock().unwrap_or_else(|p| p.into_inner()) {
+    let existing = *slot().lock().unwrap_or_else(|p| p.into_inner());
+    let hwnd = match existing {
         Some(hwnd) => hwnd,
-        None => {
-            let created = imp::create_window()?;
-            *slot().lock().unwrap_or_else(|p| p.into_inner()) = Some(created);
-            created
-        }
+        None => match imp::create_window() {
+            Ok(created) => {
+                *slot().lock().unwrap_or_else(|p| p.into_inner()) = Some(created);
+                created
+            }
+            Err(error) => {
+                trace(&format!("create failed: {error}"));
+                return Err(error);
+            }
+        },
     };
     imp::show(hwnd);
     imp::repaint(hwnd);
@@ -79,9 +85,7 @@ pub fn show() -> anyhow::Result<()> {
 pub fn hide() -> anyhow::Result<()> {
     let slot_value = *slot().lock().unwrap_or_else(|p| p.into_inner());
     trace(&format!("hide slot={slot_value:?}"));
-    if let Some(hwnd) = slot_value {
-        imp::hide(hwnd);
-    }
+    imp::hide(slot_value);
     if let Ok(mut guard) = state().lock() {
         guard.visible = false;
     }
@@ -123,12 +127,12 @@ mod imp {
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowW, GetClientRect, GetMessageW,
         GetSystemMetrics, RegisterClassW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
         TranslateMessage, CS_HREDRAW, CS_VREDRAW, HTCAPTION, HWND_TOPMOST, LWA_ALPHA, MSG,
         SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA, WM_APP, WM_CLOSE,
         WM_ERASEBKGND, WM_NCHITTEST, WM_PAINT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
     const WM_LYRIC: u32 = WM_APP + 1;
@@ -170,9 +174,20 @@ mod imp {
         }
     }
 
-    pub(super) fn hide(hwnd: isize) {
+    /// 隐藏窗口；句柄丢失时按类名兜底，避免半成品窗口关不掉
+    pub(super) fn hide(hwnd: Option<isize>) {
         unsafe {
-            let _ = ShowWindow(HWND(hwnd), SW_HIDE);
+            let target = match hwnd {
+                Some(raw) => HWND(raw),
+                None => {
+                    let class = wide(CLASS_NAME);
+                    FindWindowW(PCWSTR(class.as_ptr()), PCWSTR::null())
+                }
+            };
+            if target.0 != 0 {
+                let _ = ShowWindow(target, SW_HIDE);
+                super::trace(&format!("hide applied hwnd={}", target.0));
+            }
         }
     }
 
@@ -210,7 +225,7 @@ mod imp {
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 class_ptr,
                 PCWSTR(title.as_ptr()),
-                WS_POPUP | WS_VISIBLE,
+                WS_POPUP,
                 0,
                 0,
                 WIDTH_96,
@@ -225,9 +240,9 @@ mod imp {
                 return;
             }
 
+            // 透明度失败不致命：窗口仍然能用，只是不透明
             if let Err(error) = SetLayeredWindowAttributes(hwnd, COLORREF(0), ALPHA, LWA_ALPHA) {
-                let _ = ready.send(Err(format!("设置窗口透明度失败: {error}")));
-                return;
+                super::trace(&format!("set alpha failed: {error}"));
             }
 
             // 首次落在屏幕下方居中偏上；之后用户拖到哪算哪
