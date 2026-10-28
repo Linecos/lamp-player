@@ -489,6 +489,74 @@ void main() {
     );
   });
 
+  testWidgets('自定义取色：点色轮改种子色，默认键回暖黄', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(
+          body: SettingsView(trackCount: 1, engineAvailable: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    // 自定义取色是网格里的一个格子，点开才进取色界面
+    final Finder customCard = find.byKey(
+      const ValueKey<String>('seed-card-custom'),
+    );
+    expect(customCard, findsOneWidget, reason: '笔形色卡在系统格之后');
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-wheel')),
+      findsNothing,
+      reason: '未点开前不展示色轮',
+    );
+
+    await tester.tap(customCard);
+    await tester.pumpAndSettle();
+
+    final Finder wheel = find.byKey(
+      const ValueKey<String>('custom-seed-wheel'),
+    );
+    expect(wheel, findsOneWidget, reason: '色轮在独立弹窗里');
+    expect(find.text('自定义颜色'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-value')),
+      findsOneWidget,
+      reason: '明度单独一条滑杆',
+    );
+
+    // 点色轮右侧（红/橙区靠外圈）：种子色应立刻离开默认暖黄
+    final Offset center = tester.getCenter(wheel);
+    await tester.tapAt(center + const Offset(60, 0));
+    await tester.pumpAndSettle();
+
+    expect(controller.seedColor, isNotNull);
+    expect(controller.seedColor, isNot(AppTheme.defaultSeed));
+
+    // 点「默认」回到暖黄
+    await tester.tap(find.byKey(const ValueKey<String>('custom-seed-reset')));
+    await tester.pumpAndSettle();
+
+    expect(controller.seedColor, AppTheme.defaultSeed);
+  });
+
   testWidgets('配色可切回跟随系统', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
