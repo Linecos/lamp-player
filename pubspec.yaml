@@ -61,6 +61,8 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   integration_test:
     sdk: flutter
+  # 频谱控制器的重连 / 退避逻辑要用虚拟时钟，不然测试得真等几秒
+  fake_async: ^1.3.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
