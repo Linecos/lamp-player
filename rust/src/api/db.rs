@@ -547,7 +547,12 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                     duration_secs = excluded.duration_secs,
                     track_num     = excluded.track_num,
                     cover_path    = COALESCE(?8, tracks.cover_path),
-                    replay_gain   = excluded.replay_gain
+                    -- 0 表示「文件里没有标签」：此时保留库里已有的增益，
+                    -- 那可能是上次现场分析算出来的，重扫不该把它抹掉
+                    replay_gain   = CASE
+                        WHEN excluded.replay_gain <> 0 THEN excluded.replay_gain
+                        ELSE tracks.replay_gain
+                    END
                 "#,
             )?;
             for t in &tracks {
@@ -600,7 +605,11 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                         WHEN excluded.cover_path <> '' THEN excluded.cover_path
                         ELSE tracks.cover_path
                     END,
-                    replay_gain   = excluded.replay_gain
+                    -- 同上：文件没有标签时保留库里的增益（可能是现场分析算出的）
+                    replay_gain   = CASE
+                        WHEN excluded.replay_gain <> 0 THEN excluded.replay_gain
+                        ELSE tracks.replay_gain
+                    END
                 "#,
             )?;
             for item in items {
@@ -622,6 +631,24 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
         }
         tx.commit()?;
         Ok(items.len() as i32)
+    })
+}
+
+/// 把现场分析出的 ReplayGain 写回曲库，下次起播直接带上，不必再等分析。
+///
+/// 与标签共用 `replay_gain` 一列：标签是文件的权威值，扫描时会覆盖；
+/// 文件没有标签时，这里算出的值就是该曲目的增益。写不进去（库没打开、
+/// 曲目还没入库）只影响「下次还要再算一遍」，调用方按尽力而为处理。
+pub(crate) fn store_replay_gain(path: &str, gain_db: f64) -> anyhow::Result<()> {
+    if !gain_db.is_finite() {
+        return Ok(());
+    }
+    with_conn(|conn| {
+        conn.execute(
+            "UPDATE tracks SET replay_gain = ?2 WHERE path = ?1",
+            params![path, gain_db],
+        )?;
+        Ok(())
     })
 }
 
@@ -1320,6 +1347,49 @@ mod tests {
         assert_eq!(version, 3, "备份应是升级前的结构版本");
         assert_eq!(count, 1, "备份里应含升级前的数据");
         drop(conn);
+
+        close_db().expect("关闭曲库");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// 现场算出的增益写进曲库后，重扫（文件仍没有标签）不能把它抹掉；
+    /// 文件带标签时以标签为准。
+    #[test]
+    fn auto_gain_survives_rescan_without_tag() {
+        use super::{all_tracks, close_db, init_db, store_replay_gain, upsert_tracks};
+        use crate::api::model::Track;
+
+        let _guard = db_guard();
+        let path = temp_path("auto_gain");
+        init_db(path.to_string_lossy().into_owned()).expect("初始化曲库");
+
+        let track = |gain: f64| Track {
+            path: "/music/a.mp3".to_string(),
+            title: "夜航".to_string(),
+            artist: None,
+            album: None,
+            duration_secs: 180.0,
+            track_num: None,
+            added_at: 0,
+            cover_path: None,
+            replay_gain: gain,
+        };
+
+        upsert_tracks(vec![track(0.0)]).expect("首次入库");
+        store_replay_gain("/music/a.mp3", -7.25).expect("写回增益");
+        assert_eq!(all_tracks().expect("读曲库")[0].replay_gain, -7.25);
+
+        // 重扫时文件仍然没有标签（增益 0）：库里算出来的值要留着
+        upsert_tracks(vec![track(0.0)]).expect("重扫");
+        assert_eq!(
+            all_tracks().expect("读曲库")[0].replay_gain,
+            -7.25,
+            "没有标签的重扫不该清掉已算出的增益"
+        );
+
+        // 文件写了标签：标签是权威值
+        upsert_tracks(vec![track(-3.0)]).expect("重扫带标签");
+        assert_eq!(all_tracks().expect("读曲库")[0].replay_gain, -3.0);
 
         close_db().expect("关闭曲库");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 
 /// 正在播放页的封面取色背景。
 ///
-/// 用封面色板画三层柔和的径向渐变，再盖一层与主题同色的半透明 scrim。
-/// 第二版开始缓慢漂移：动画只让 [CustomPainter] 重绘，不重建歌词与控件；
+/// 用封面色板画几层柔和的径向渐变，再盖一层与主题同色的半透明 scrim。
+/// 每个色块沿固定方向匀速穿过画面（[sweep]），看起来是「光在流」而不是
+/// 「色块在原地呼吸」；动画只让 [CustomPainter] 重绘，不重建歌词与控件；
 /// 测试 / golden 可通过 [animate] 关闭。
 class CoverFlowBackground extends StatefulWidget {
   const CoverFlowBackground({
@@ -27,6 +28,11 @@ class CoverFlowBackground extends StatefulWidget {
 
 class _CoverFlowBackgroundState extends State<CoverFlowBackground>
     with SingleTickerProviderStateMixin {
+  /// 一个完整循环的时长。
+  ///
+  /// 只走单向、不 `reverse`：反向播放会让光斑原路退回，看起来是
+  /// 「一呼一吸」而不是「流动」。12 秒扫过一整屏约 160 px/s，
+  /// 9 秒时偏快、20 秒以上大屏上几乎看不出位移。
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 12),
@@ -52,7 +58,7 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
     final bool shouldAnimate = widget.animate && !_reduceMotion;
     if (shouldAnimate) {
       if (!_controller.isAnimating) {
-        _controller.repeat(reverse: true);
+        _controller.repeat();
       }
     } else {
       _controller
@@ -181,6 +187,12 @@ double _hueDistance(double a, double b) {
   return diff > 180 ? 360 - diff : diff;
 }
 
+/// 0 → 1 的平滑过渡（首尾导数为 0）。
+double _smoothstep(double edge0, double edge1, double x) {
+  final double v = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+  return v * v * (3 - 2 * v);
+}
+
 class _AuraPainter extends CustomPainter {
   _AuraPainter({required this.colors, required this.surface, this.animation})
     : super(repaint: animation);
@@ -199,59 +211,140 @@ class _AuraPainter extends CustomPainter {
     final double t = animation?.value ?? 0;
     final double angle = t * math.pi * 2;
 
-    Offset drift(
-      double x,
-      double y,
-      double phase,
-      double amplitudeX,
-      double amplitudeY,
-    ) {
-      return Offset(
-        size.width * x + math.sin(angle + phase) * size.width * amplitudeX,
-        size.height * y + math.cos(angle + phase) * size.height * amplitudeY,
-      );
-    }
-
     void spot(Offset center, double radius, Color color, double alpha) {
       final Paint paint = Paint()
         ..shader = RadialGradient(
           colors: <Color>[
-            color.withValues(alpha: alpha),
+            color.withValues(alpha: alpha.clamp(0.0, 1.0)),
             color.withValues(alpha: 0),
           ],
         ).createShader(Rect.fromCircle(center: center, radius: radius));
       canvas.drawRect(rect, paint);
     }
 
+    /// 静态底：不随动画变。
+    ///
+    /// 既决定整页的色调（关闭流光时也靠它），也保证某块流动光刚好淡出时
+    /// 背景不会塌成一片近黑。
     spot(
-      drift(0.76, 0.3, 0, 0.13, 0.1),
-      size.width * 0.82 * (1 + 0.1 * math.sin(angle)),
-      _flowColor(colors[0], 0, angle),
-      0.9 + 0.06 * math.cos(angle),
+      Offset(size.width * 0.7, size.height * 0.25),
+      size.width * 0.95,
+      colors[0],
+      0.72,
     );
     spot(
-      drift(0.08, 0.82, 1.7, 0.12, 0.12),
-      size.width * 0.58 * (1 + 0.1 * math.cos(angle + 1.2)),
-      _flowColor(colors[1], 1.2, angle),
-      0.64 + 0.06 * math.sin(angle + 1.2),
+      Offset(size.width * 0.12, size.height * 0.85),
+      size.width * 0.75,
+      colors[1],
+      0.5,
     );
     spot(
-      drift(0.9, 0.9, 3.1, 0.1, 0.1),
-      size.width * 0.48 * (1 + 0.1 * math.sin(angle + 2.4)),
-      _flowColor(colors[2], 2.4, angle),
-      0.48 + 0.06 * math.cos(angle + 2.4),
+      Offset(size.width * 0.9, size.height * 0.9),
+      size.width * 0.55,
+      colors[2],
+      0.36,
     );
-    spot(
-      drift(0.12, 0.1, 4.6, 0.1, 0.1),
-      size.width * 0.42 * (1 + 0.1 * math.cos(angle + 3.3)),
-      _flowColor(colors[3], 3.3, angle),
-      0.36 + 0.06 * math.sin(angle + 3.3),
+
+    /// 一块光沿一条直线匀速穿过画面，到头从另一侧再来。
+    ///
+    /// 之前是正弦往返：光斑走到底再原路退回，四个斑再怎么错开相位，整体
+    /// 观感都是「一起胀缩 / 呼吸」。改成单向匀速穿屏后运动有了方向，才读得
+    /// 出「流光」。
+    ///
+    /// [laps] 是每个循环穿几次（整数，保证循环首尾对齐）；两端用
+    /// smoothstep 淡入淡出，换边时不会突然冒出一块光。
+    void sweep({
+      required double fromX,
+      required double fromY,
+      required double toX,
+      required double toY,
+      required double phase,
+      required int laps,
+      required double radius,
+      required double alpha,
+      required Color color,
+      required double wobble,
+    }) {
+      final double p = (t * laps + phase) % 1.0;
+      final double fade =
+          _smoothstep(0, 0.12, p) * (1 - _smoothstep(0.88, 1, p));
+      if (fade <= 0.002) {
+        return;
+      }
+      final double x = fromX + (toX - fromX) * p;
+      final double y = fromY + (toY - fromY) * p;
+      // 垂直于行进方向的一点摆动，避免看起来像一块平移的贴图
+      final double sway = math.sin(angle * laps + phase * math.pi * 2) * wobble;
+      spot(
+        Offset(size.width * x, size.height * (y + sway)),
+        size.width * radius * (1 + 0.08 * math.sin(angle * 2 + phase * 6)),
+        _flowColor(color, phase * math.pi * 2, angle, 14, laps),
+        alpha * fade,
+      );
+    }
+
+    sweep(
+      fromX: -0.15,
+      fromY: 0.12,
+      toX: 1.15,
+      toY: 0.78,
+      phase: 0.5,
+      laps: 1,
+      radius: 0.72,
+      alpha: 0.8,
+      color: colors[0],
+      wobble: 0.03,
+    );
+    sweep(
+      fromX: 1.15,
+      fromY: 0.88,
+      toX: -0.15,
+      toY: 0.22,
+      phase: 0.72,
+      laps: 1,
+      radius: 0.52,
+      alpha: 0.6,
+      color: colors[1],
+      wobble: 0.035,
+    );
+    sweep(
+      fromX: -0.2,
+      fromY: 0.92,
+      toX: 1.2,
+      toY: 0.18,
+      phase: 0.06,
+      laps: 2,
+      radius: 0.42,
+      alpha: 0.45,
+      color: colors[2],
+      wobble: 0.03,
+    );
+    sweep(
+      fromX: 1.2,
+      fromY: 0.05,
+      toX: -0.2,
+      toY: 0.82,
+      phase: 0.28,
+      laps: 2,
+      radius: 0.36,
+      alpha: 0.38,
+      color: colors[3],
+      wobble: 0.035,
     );
   }
 
-  Color _flowColor(Color color, double phase, double angle) {
+  /// 色相也按各自节奏摆动：四个斑同频变色同样会显得「整块一起呼吸」。
+  Color _flowColor(
+    Color color,
+    double phase,
+    double angle,
+    double hueAmp,
+    int rate,
+  ) {
     final HSLColor hsl = HSLColor.fromColor(color);
-    return hsl.withHue((hsl.hue + 7 * math.sin(angle + phase)) % 360).toColor();
+    return hsl
+        .withHue((hsl.hue + hueAmp * math.sin(angle * rate + phase)) % 360)
+        .toColor();
   }
 
   @override

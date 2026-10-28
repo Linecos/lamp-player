@@ -490,7 +490,10 @@ class FakePlaybackService implements PlaybackService {
     return analyzedGain;
   }
 
-  /// `setReplayGain()` 收到的增益序列（起播后补算应用）
+  /// `setReplayGain()` 收到的增益序列。
+  ///
+  /// 自动补算已经改成「只算并落库、下次起播生效」，正常流程不会调用它；
+  /// 保留是为了断言「不在播放中途改音量」。
   final List<double> setGainCalls = <double>[];
 
   @override

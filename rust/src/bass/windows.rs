@@ -1770,8 +1770,18 @@ mod tests {
         }
     }
 
+    /// 下面几个用例改的是进程级 `LATEST`：并行跑会互相覆盖（曾经偶发红），必须串行
+    static SEQ_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn seq_guard() -> std::sync::MutexGuard<'static, ()> {
+        SEQ_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn newer_transport_command_supersedes_older_queued_one() {
+        let _guard = seq_guard();
         let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
         LATEST[0].store(seq, Ordering::SeqCst);
         assert!(
@@ -1786,6 +1796,7 @@ mod tests {
 
     #[test]
     fn passive_commands_are_never_discarded() {
+        let _guard = seq_guard();
         let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
         LATEST[0].store(seq + 5, Ordering::SeqCst);
         assert!(
@@ -1796,6 +1807,7 @@ mod tests {
 
     #[test]
     fn command_that_waited_past_the_timeout_is_dropped() {
+        let _guard = seq_guard();
         let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
         // Seek 类：序号是最新的，只按「等太久」判定
         LATEST[1].store(seq, Ordering::SeqCst);
