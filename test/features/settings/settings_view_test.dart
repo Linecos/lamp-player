@@ -489,7 +489,7 @@ void main() {
     );
   });
 
-  testWidgets('自定义取色：拖滑杆改种子色，默认键回暖黄', (WidgetTester tester) async {
+  testWidgets('自定义取色：点色轮改种子色，默认键回暖黄', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -517,20 +517,19 @@ void main() {
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
-    final Finder hue = find.byKey(const ValueKey<String>('custom-seed-hue'));
-    expect(hue, findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('custom-seed-saturation')),
-      findsOneWidget,
+    final Finder wheel = find.byKey(
+      const ValueKey<String>('custom-seed-wheel'),
     );
+    expect(wheel, findsOneWidget, reason: '色轮是自定义取色的主体');
     expect(
       find.byKey(const ValueKey<String>('custom-seed-value')),
       findsOneWidget,
+      reason: '明度单独一条滑杆',
     );
 
-    // 拖色相滑杆：种子色应立刻离开默认暖黄
-    await tester.ensureVisible(hue);
-    await tester.drag(hue, const Offset(-120, 0));
+    // 点色轮右侧（红/橙区靠外圈）：种子色应立刻离开默认暖黄
+    final Offset center = tester.getCenter(wheel);
+    await tester.tapAt(center + const Offset(60, 0));
     await tester.pumpAndSettle();
 
     expect(controller.seedColor, isNotNull);
