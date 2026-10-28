@@ -18,6 +18,7 @@ import 'lyrics_view.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
 import 'shortcuts.dart';
+import 'sleep_timer_dialog.dart';
 import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
 
@@ -156,6 +157,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 到点时刻，用于在按钮上显示剩余时间
   DateTime? _sleepUntil;
 
+  /// 本轮定时是否已经为「听完当前曲目」顺延过一次
+  bool _sleepExtended = false;
+
+  /// 到点时若本曲没播完，是否顺延到播完（浮窗里的开关，默认开）
+  bool _sleepExtendToTrackEnd = true;
+
   String? get _sleepTooltip {
     final DateTime? until = _sleepUntil;
     if (until == null) {
@@ -166,34 +173,35 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       return '睡眠定时：即将暂停';
     }
     final int minutes = (left.inSeconds / 60).ceil();
-    return '睡眠定时：还剩 $minutes 分钟';
+    return _sleepExtended ? '睡眠定时：播完当前曲目后暂停' : '睡眠定时：还剩 $minutes 分钟';
   }
 
-  void _onSleepSelected(_SleepOption option) {
+  /// 打开睡眠定时浮窗：时钟轮盘选 0~60 分钟
+  Future<void> _openSleepTimer() async {
+    final DateTime? until = _sleepUntil;
+    final int? remaining = until == null
+        ? null
+        : (until.difference(DateTime.now()).inSeconds / 60).ceil().clamp(1, 60);
+    final SleepTimerResult? choice = await showSleepTimerDialog(
+      context,
+      initialMinutes: remaining ?? 30,
+      hasTimer: until != null,
+      extendToTrackEnd: _sleepExtendToTrackEnd,
+    );
+    if (choice == null || !mounted) {
+      return;
+    }
+    final int minutes = choice.minutes;
+    _sleepExtendToTrackEnd = choice.extendToTrackEnd;
     _sleepTimer?.cancel();
     _sleepTimer = null;
-    switch (option) {
-      case _SleepOption.cancel:
-        setState(() => _sleepUntil = null);
-      case _SleepOption.endOfTrack:
-        final Track? track = widget.data.value.track;
-        final double duration = track?.durationSecs ?? 0;
-        final double left = duration - _position.value;
-        if (duration <= 0 || left <= 0.5) {
-          // 没有时长（还在解析）或已经到最后：当成「下一首播完」
-          _armSleep(const Duration(minutes: 1));
-          return;
-        }
-        _armSleep(Duration(milliseconds: (left * 1000).round()));
-      case _SleepOption.minutes15:
-        _armSleep(const Duration(minutes: 15));
-      case _SleepOption.minutes30:
-        _armSleep(const Duration(minutes: 30));
-      case _SleepOption.minutes45:
-        _armSleep(const Duration(minutes: 45));
-      case _SleepOption.minutes60:
-        _armSleep(const Duration(hours: 1));
+    // 重新设定后允许再顺延一次
+    _sleepExtended = false;
+    if (minutes <= 0) {
+      setState(() => _sleepUntil = null);
+      return;
     }
+    _armSleep(Duration(minutes: minutes));
   }
 
   void _armSleep(Duration delay) {
@@ -202,12 +210,31 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     setState(() => _sleepUntil = DateTime.now().add(delay));
   }
 
-  /// 到点：正在播就暂停（不停止，醒来点一下就能接着听）
+  /// 到点：正在播就暂停（不停止，醒来点一下就能接着听）。
+  ///
+  /// 当前曲目还没播完就不掐：先把这首听完再暂停，只顺延一次——顺延到点后
+  /// 哪怕用户又拖回前段也直接暂停，免得变成永远不睡。
   void _fireSleep() {
     _sleepTimer = null;
     if (!mounted) {
       return;
     }
+    // 时长取播放器上报的值（data.duration），不是标签里的 durationSecs：
+    // 后者可能还没解析出来，会让顺延判断失效
+    final double duration = widget.data.value.duration;
+    final double left = duration - _position.value;
+    if (_sleepExtendToTrackEnd &&
+        !_sleepExtended &&
+        widget.data.value.isPlaying &&
+        duration > 0 &&
+        left > 1) {
+      _sleepExtended = true;
+      final Duration rest = Duration(milliseconds: (left * 1000).round() + 200);
+      _sleepTimer = Timer(rest, _fireSleep);
+      setState(() => _sleepUntil = DateTime.now().add(rest));
+      return;
+    }
+    _sleepExtended = false;
     setState(() => _sleepUntil = null);
     if (widget.data.value.isPlaying) {
       unawaited(widget.onTogglePlay());
@@ -1001,27 +1028,16 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                         offset: const Offset(0, 12),
                                       ),
                                 ),
-                              PopupMenuButton<_SleepOption>(
+                              IconButton(
                                 key: const ValueKey<String>(
                                   'now-playing-sleep',
                                 ),
                                 tooltip: _sleepTooltip,
                                 padding: EdgeInsets.zero,
-                                onSelected: _onSleepSelected,
-                                itemBuilder: (BuildContext context) =>
-                                    <PopupMenuEntry<_SleepOption>>[
-                                      for (final (
-                                            _SleepOption option,
-                                            String label,
-                                          )
-                                          in _SleepOption.labels)
-                                        PopupMenuItem<_SleepOption>(
-                                          value: option,
-                                          child: Text(label),
-                                        ),
-                                    ],
+                                // 秒表比月亮更能表达「倒计时到点暂停」
+                                onPressed: () => unawaited(_openSleepTimer()),
                                 icon: Icon(
-                                  Icons.bedtime_outlined,
+                                  Icons.timer_outlined,
                                   size: 24,
                                   color: _sleepUntil != null
                                       ? scheme.primary
@@ -1152,27 +1168,6 @@ class _OutputDeviceButtonState extends State<_OutputDeviceButton> {
 }
 
 /// Sleep timer 的选项
-enum _SleepOption {
-  minutes15('15 分钟后暂停'),
-  minutes30('30 分钟后暂停'),
-  minutes45('45 分钟后暂停'),
-  minutes60('60 分钟后暂停'),
-  endOfTrack('播完当前曲目'),
-  cancel('取消定时');
-
-  const _SleepOption(this.label);
-
-  final String label;
-
-  static const List<(_SleepOption, String)> labels = <(_SleepOption, String)>[
-    (_SleepOption.minutes15, '15 分钟后暂停'),
-    (_SleepOption.minutes30, '30 分钟后暂停'),
-    (_SleepOption.minutes45, '45 分钟后暂停'),
-    (_SleepOption.minutes60, '60 分钟后暂停'),
-    (_SleepOption.endOfTrack, '播完当前曲目'),
-    (_SleepOption.cancel, '取消定时'),
-  ];
-}
 
 /// 进入沉浸模式时的轻提示：淡入 → 停留 → 淡出后自删。
 class _ImmersiveToast extends StatefulWidget {
