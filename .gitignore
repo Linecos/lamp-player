@@ -49,6 +49,9 @@ app.*.map.json
 # Rust / flutter_rust_bridge
 /rust/target/
 
+# 本地工具与工作状态（探针脚本、图标候选、记忆日志等，不属于仓库内容）
+.workbuddy/
+
 # BASS 第三方二进制（闭源库，不入库，用 scripts/setup-bass.ps1 下载）
 /third_party/bass/
 
