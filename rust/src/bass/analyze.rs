@@ -49,10 +49,26 @@ pub(super) fn analyze_gain(path: &str) -> Result<f64> {
 /// `BASS_ERROR_ENDED`：解码流读完时 `GetData` 以 -1 + 该错误码收尾，属正常结束
 const BASS_ERROR_ENDED: i32 = 45;
 
+/// 分析时接受的采样率上限（384 kHz，消费级 DXD 的上限）
+const MAX_FREQ: u32 = 384_000;
+
+/// 分析时接受的声道数上限（7.1）
+const MAX_CHANS: u32 = 8;
+
 fn measure(api: &Api, handle: u32) -> Result<f64> {
     let mut info = BassChannelInfo::default();
     if unsafe { (api.channel_get_info)(handle, &mut info) } == 0 {
         bail!("读取音频信息失败: {}", last_error(api));
+    }
+    // 损坏 / 伪造的文件头能让 GetInfo 回吐出离谱的采样率与声道数，
+    // 直接拿来做缓冲分配会瞬间要几个 GB。夹在正常音频范围内：
+    // 384 kHz 已是消费级 DXD 的上限，8 声道覆盖 7.1。
+    if info.freq == 0 || info.freq > MAX_FREQ || info.chans == 0 || info.chans > MAX_CHANS {
+        bail!(
+            "音频参数异常（{} Hz / {} 声道），跳过分析",
+            info.freq,
+            info.chans
+        );
     }
     let mut meter = ebur128::EbuR128::new(info.chans, info.freq, ebur128::Mode::I)
         .map_err(|e| anyhow!("初始化响度表失败: {e:?}"))?;
