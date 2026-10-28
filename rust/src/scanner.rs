@@ -103,12 +103,26 @@ pub fn collect_tracks_incremental(
             continue;
         }
 
-        // 取不到 metadata 就无法判断是否变化，计入遍历错误并跳过
-        let meta = match entry.metadata() {
-            Ok(meta) => meta,
-            Err(_) => {
-                collected.walk_errors += 1;
-                continue;
+        // 取不到 metadata 就无法判断是否变化，计入遍历错误并跳过。
+        //
+        // 符号链接必须跟随目标取指纹：`entry.metadata()` 给的是链接自身，
+        // 目标文件更新后链接的 mtime / size 都不变，增量扫描会一直判成
+        // 「没变化」，这个文件从此再也不会被重新解析。
+        let meta = if entry.file_type().is_symlink() {
+            match fs::metadata(path) {
+                Ok(meta) => meta,
+                Err(_) => {
+                    collected.walk_errors += 1;
+                    continue;
+                }
+            }
+        } else {
+            match entry.metadata() {
+                Ok(meta) => meta,
+                Err(_) => {
+                    collected.walk_errors += 1;
+                    continue;
+                }
             }
         };
         let (mtime_ns, size) = signature(&meta);
