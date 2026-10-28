@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.8（2026-10-28）**
+> **当前版本：v0.9（2026-10-28）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.9 变更：`player_analyze_replay_gain` 现在会把算出的增益写回曲库
+> （`tracks.replay_gain`），重扫时文件仍无标签也不会覆盖；`player_set_replay_gain`
+> 保留但不再有调用方（自动补算不在播放中途改音量）。签名不变。
 >
 > v0.8 变更：新增 `player_set_replay_gain`（把起播后补算出的 ReplayGain 增益
 > 应用到当前输出）。纯新增，不改现有语义。
@@ -60,7 +64,7 @@
 | `album` | `album` | `String?` | 可空 |
 | `duration_secs` | `durationSecs` | `double` | 时长（秒），未知为 `0` |
 | `track_num` | `trackNum` | `int?` | 专辑内曲目号，未知为空或 `0` |
-| `replay_gain` | `replayGain` | `double` | ReplayGain 曲目增益（dB）；标签里没有时为 `0` |
+| `replay_gain` | `replayGain` | `double` | ReplayGain 曲目增益（dB）；标签里没有时为 `0`（现场分析出的值也写回这一列） |
 | `added_at` | `addedAt` | `PlatformInt64` | 入库时间戳（Unix 秒；native 上就是 `int`，web 上是 `BigInt`） |
 | `cover_path` | `coverPath` | `String?` | 内嵌封面的缓存文件绝对路径；无封面或提取失败为空 |
 
@@ -231,7 +235,7 @@
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
 | `player_seek(position_secs: f64) -> Result<()>` | `Future<void> playerSeek({required double positionSecs})` | 否 | **已实现** |
 | `player_set_volume(volume: f64) -> Result<()>` | `Future<void> playerSetVolume({required double volume})` | 否 | **已实现** |
-| `player_set_replay_gain(gain_db: f64) -> Result<()>` | `Future<void> playerSetReplayGain({required double gainDb})` | 否 | **已实现** |
+| `player_set_replay_gain(gain_db: f64) -> Result<()>` | `Future<void> playerSetReplayGain({required double gainDb})` | 否 | **已实现**（当前无调用方，见语义补充） |
 | `player_now() -> Result<PlayerProgress>` | `Future<PlayerProgress> playerNow()` | 否 | **已实现** |
 | `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **已实现** |
 | `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **已实现** |
@@ -259,8 +263,12 @@
   （夹在 −24…+12 dB，避免离谱标签削波）。
 - `player_analyze_replay_gain` 整曲解码并按 ReplayGain 2.0 计算建议增益
   （EBU R128 积分响度，目标 −18 LUFS，夹在 ±24 dB，全静音返回 0）。解码走独立
-  线程、不需要输出设备，也不占用引擎线程；全曲分析约零点几秒到几秒，Dart 侧
-  自行缓存结果（标签有增益的曲目不要调它）。
+  线程、不需要输出设备，也不占用引擎线程；全曲分析约 1~2 秒。**算出的值会写回
+  曲库**（`tracks.replay_gain`，重扫时文件仍无标签也不覆盖），所以 Dart 侧不必
+  长期缓存；标签已有增益的曲目不要调它。
+- `player_set_replay_gain` 立即把增益作用到当前输出。自动补算**不再调用**它：
+  起播时增益未知就先按不归一播（整首响度一致），算出的值从下一次起播开始生效，
+  避免「先响 1~2 秒、随后突然变小」。接口保留给需要即时应用的场景。
 - `player_set_device` 只影响共享输出；`index = -1` 表示系统默认。切换会保留当前曲目、
   位置与播放状态重开会话。设备已拔掉时引擎回退系统默认并在 `player_output_info` 里说明。
 - `player_devices` 只返回可用设备（索引与 `BASS_GetDeviceInfo` 一致，从 1 开始）；
