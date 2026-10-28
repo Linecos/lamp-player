@@ -15,20 +15,8 @@ extension _PlaybackSection on _LibraryPageState {
   ///
   /// 串行后连点三次下一首会依次前进三首，符合直觉。失败只记日志：各入口内部
   /// 已经给了用户提示，这里再抛只会变成未处理异常并毒化整条链。
-  Future<void> _serial(Future<void> Function() action) {
-    final Completer<void> done = Completer<void>();
-    _playChain = _playChain.then((_) async {
-      try {
-        await action();
-      } catch (error, stack) {
-        debugPrint('播放命令失败：$error\n$stack');
-      }
-      if (!done.isCompleted) {
-        done.complete();
-      }
-    });
-    return done.future;
-  }
+  Future<void> _serial(Future<void> Function() action) =>
+      _playChain.run(action, label: '播放命令');
 
   /// 从 [tracks] 这份列表里播放 [track]，整份列表成为播放队列。
   Future<void> _playFrom(List<Track> tracks, Track track) =>
