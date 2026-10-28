@@ -32,6 +32,12 @@ const EXCLUSIVE_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// 状态轮询间隔，用于发现曲目自然播完
 const TICK: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// 同时等待淡出释放的旧流上限
+///
+/// 正常听歌永远到不了：8 秒淡变 + 每 200ms 切一次才会堆到 40 个。
+/// 超过就强制释放最老的，宁可听感上硬切，也不让解码器与文件句柄无界累积。
+const MAX_FADING: usize = 16;
+
 static AVAILABLE: AtomicBool = AtomicBool::new(false);
 static STATE: AtomicU8 = AtomicU8::new(ST_STOPPED);
 
@@ -340,7 +346,10 @@ struct Engine {
     /// 换曲交叉淡变时长（毫秒），0 = 直接切
     crossfade_ms: u32,
     /// 正在淡出的旧流与释放时刻
-    fading: Option<(u32, std::time::Instant)>,
+    ///
+    /// 用列表而不是单个槽：连切 A→B→C 时 B 的记录不能把 A 的挤掉，
+    /// 否则 A 的流句柄与解码资源要挂到 `BASS_Free` 才释放。
+    fading: Vec<(u32, std::time::Instant)>,
     /// 均衡器开关与 10 段增益（dB）
     eq_enabled: bool,
     eq_gains: Vec<f32>,
@@ -392,7 +401,7 @@ impl Engine {
                 .unwrap_or(-1),
             gain_db: 0.0,
             crossfade_ms: 0,
-            fading: None,
+            fading: Vec::new(),
             eq_enabled: false,
             eq_gains: vec![0.0; EQ_CENTERS.len()],
             eq_fx: Vec::new(),
@@ -779,10 +788,10 @@ impl Engine {
         Ok(())
     }
 
-    /// 旧流淡出，到点由 [`Engine::refresh`] 释放
+    /// 旧流淡出，到点由 [`Engine::reap_fading`] 释放
     fn fade_out(&mut self, stream: u32, millis: u32) {
         unsafe { (self.api.channel_slide_attribute)(stream, BASS_ATTRIB_VOL, 0.0, millis) };
-        self.fading = Some((
+        self.fading.push((
             stream,
             std::time::Instant::now() + std::time::Duration::from_millis(millis as u64),
         ));
@@ -1030,18 +1039,41 @@ impl Engine {
         bands
     }
 
-    /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
-    fn refresh(&mut self) {
-        // 淡出结束的旧流在这里释放：播下一首时它还在出声，不能立刻拆
-        if let Some((stream, until)) = self.fading {
-            if std::time::Instant::now() >= until {
-                self.fading = None;
-                unsafe {
-                    (self.api.channel_stop)(stream);
-                    (self.api.stream_free)(stream);
-                }
+    /// 释放淡出已结束的旧流：播下一首时它还在出声，不能立刻拆
+    ///
+    /// 每 tick 调一次。连切时列表里可能同时挂着多个（8 秒淡变极端情况下几十个），
+    /// 超过 [`MAX_FADING`] 就先释放最老的，不让解码资源无界累积。
+    fn reap_fading(&mut self) {
+        if self.fading.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let pending = std::mem::take(&mut self.fading);
+        let mut expired: Vec<u32> = Vec::new();
+        let mut keep: Vec<(u32, std::time::Instant)> = Vec::with_capacity(pending.len());
+        for entry in pending {
+            if now >= entry.1 {
+                expired.push(entry.0);
+            } else {
+                keep.push(entry);
             }
         }
+        // 保持 push 顺序，越靠前越早入队
+        while keep.len() > MAX_FADING {
+            expired.push(keep.remove(0).0);
+        }
+        self.fading = keep;
+        for stream in expired {
+            unsafe {
+                (self.api.channel_stop)(stream);
+                (self.api.stream_free)(stream);
+            }
+        }
+    }
+
+    /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
+    fn refresh(&mut self) {
+        self.reap_fading();
         self.refresh_state();
         // 独占设备掉线：接口状态仍是 PLAYING，但位置不再前进
         self.check_output_stall();
@@ -1189,7 +1221,7 @@ impl Engine {
     }
 
     fn release_track(&mut self) {
-        if let Some((stream, _)) = self.fading.take() {
+        for (stream, _) in std::mem::take(&mut self.fading) {
             unsafe {
                 (self.api.channel_stop)(stream);
                 (self.api.stream_free)(stream);
