@@ -33,6 +33,7 @@ class SessionSnapshot {
     this.crossfadeSeconds = 0,
     this.flowBackground = true,
     this.shortcutsJson = '',
+    this.desktopLyrics = false,
   });
 
   final double volume;
@@ -83,6 +84,9 @@ class SessionSnapshot {
   /// 换曲交叉淡变时长（秒）；0 表示关闭
   final double crossfadeSeconds;
 
+  /// 桌面歌词窗口是否打开
+  final bool desktopLyrics;
+
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
 
@@ -119,6 +123,7 @@ class PrefsSessionStore implements SessionStore {
   static const String outputDeviceKey = 'player_output_device';
   static const String replayGainKey = 'player_replay_gain';
   static const String crossfadeKey = 'player_crossfade_seconds';
+  static const String desktopLyricsKey = 'ui_desktop_lyrics';
   static const String sortKey = 'ui_sort';
   static const String flowBackgroundKey = 'ui_flow_background';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
@@ -173,6 +178,7 @@ class PrefsSessionStore implements SessionStore {
         outputDevice: prefs.getInt(outputDeviceKey) ?? -1,
         replayGain: prefs.getBool(replayGainKey) ?? false,
         crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
+        desktopLyrics: prefs.getBool(desktopLyricsKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
@@ -232,6 +238,7 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setInt(outputDeviceKey, snapshot.outputDevice);
       await prefs.setBool(replayGainKey, snapshot.replayGain);
       await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
+      await prefs.setBool(desktopLyricsKey, snapshot.desktopLyrics);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,

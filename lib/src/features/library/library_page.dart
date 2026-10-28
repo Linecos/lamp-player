@@ -17,6 +17,8 @@ import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/text/pinyin_key.dart';
 import '../../rust/api/collections.dart' as collections;
+import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
+import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
@@ -358,6 +360,14 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
+  /// 桌面歌词窗口是否打开
+  bool _desktopLyrics = false;
+
+  /// 当前曲目的歌词；换曲才重新读，进度轮询里只做线性查找
+  lyrics_api.TrackLyrics? _lyrics;
+  String? _lyricsPath;
+  String _desktopLine = '';
+
   /// 正在播放页是否启用封面取色流光；关闭后只保留静态取色背景
   bool _flowBackground = true;
 
@@ -550,6 +560,7 @@ class _LibraryPageState extends State<LibraryPage>
         _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
       }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
+      _desktopLyrics = snapshot.desktopLyrics;
       _flowBackground = snapshot.flowBackground;
     });
 
@@ -557,6 +568,7 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _restoreLastTrack(snapshot);
+    unawaited(_restoreDesktopLyrics());
 
     unawaited(_refreshFavoritePaths());
     unawaited(_loadFoldersAndMaybeBackfill());
@@ -669,6 +681,7 @@ class _LibraryPageState extends State<LibraryPage>
       replayGain: _replayGain,
       shortcutsJson: encodeShortcuts(_shortcuts),
       crossfadeSeconds: _crossfadeSeconds,
+      desktopLyrics: _desktopLyrics,
       flowBackground: _flowBackground,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。

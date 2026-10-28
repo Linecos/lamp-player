@@ -78,6 +78,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueListenable<int>? selectedDevice,
   ValueChanged<int>? onSelectDevice,
   VoidCallback? onOpenEqualizer,
+  VoidCallback? onToggleDesktopLyrics,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -105,6 +106,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         selectedDevice: selectedDevice,
         onSelectDevice: onSelectDevice,
         onOpenEqualizer: onOpenEqualizer,
+        onToggleDesktopLyrics: onToggleDesktopLyrics,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -265,6 +267,21 @@ void main() {
     await tester.tap(button);
     await tester.pump();
     expect(opens, 1);
+  });
+
+  testWidgets('桌面歌词按钮按状态显隐并可切换', (WidgetTester tester) async {
+    int taps = 0;
+    await _pump(tester, data: _data(), onToggleDesktopLyrics: () => taps += 1);
+
+    final Finder button = find.byKey(
+      const ValueKey<String>('now-playing-desktop-lyrics'),
+    );
+    expect(button, findsOneWidget);
+    expect(find.byTooltip('桌面歌词'), findsOneWidget);
+
+    await tester.tap(button);
+    await tester.pump();
+    expect(taps, 1);
   });
 
   testWidgets('没有曲目时展示空态且控制按钮禁用', (WidgetTester tester) async {
