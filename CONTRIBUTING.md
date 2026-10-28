@@ -110,6 +110,20 @@ docs(贡献): 补充 Rust 环境变量说明
 `lib/src/rust/**` 与 `rust/src/frb_generated.rs` 由 `flutter_rust_bridge_codegen generate` 生成。
 改了 Rust API 就重跑一次并把生成结果一起提交，否则 CI 的 `frb 生成代码一致性` 会红。
 
+## 快捷键怎么改、怎么扩
+
+键位表只有一处：`lib/src/features/player/shortcuts.dart`（`ShortcutAction` + `kDefaultShortcuts`）。
+曲库页与正在播放页都从它生成 `CallbackShortcuts`，页面里没有任何写死的键位。
+
+- **加一个新动作**：在 `ShortcutAction` 里加枚举值 + 在 `kDefaultShortcuts` 补默认键，
+  然后在两个页面的 handlers 表里映射到具体行为。`test/features/player/shortcuts_test.dart`
+  会检查动作覆盖度与组合键唯一性，漏了会红。
+- **用户自定义**：设置页「快捷键」→ `ShortcutsPage` 录制组合键 → 写进
+  `SessionSnapshot.shortcutsJson`。校验（冲突 / 裸键 / Tab / Esc）都在该页里。
+- **换存储**：实现 `ShortcutStore`，读出来的表过一遍 `normalizeShortcuts` 兜底。
+- **坑**：`SingleActivator` 没有值相等语义（`==` 比对象身份），判断「是不是同一个
+  组合键」一律用 `shortcutId()`，别用 `Set<SingleActivator>`。
+
 ## 测试要求
 
 | 改动类型 | 最低要求 |

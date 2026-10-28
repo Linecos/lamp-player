@@ -8,6 +8,7 @@ import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
+import '../player/shortcuts.dart';
 import 'equalizer_page.dart';
 import 'listening_stats_page.dart';
 import 'listening_stats_repository.dart';
@@ -43,6 +44,8 @@ class SettingsView extends StatelessWidget {
     this.onReplayGainChanged,
     this.crossfadeSeconds = 0,
     this.onCrossfadeChanged,
+    this.onShowShortcuts,
+    this.shortcuts = kDefaultShortcuts,
     this.flowBackground = true,
     this.onFlowBackgroundChanged,
     this.scanning = false,
@@ -127,6 +130,12 @@ class SettingsView extends StatelessWidget {
 
   /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
+
+  /// 打开「快捷键一览」；不传时这一行禁用（测试 / 精简场景）
+  final VoidCallback? onShowShortcuts;
+
+  /// 当前键位表：仅用于一览展示，实际绑定由 `LibraryPage.shortcuts` 决定
+  final List<ShortcutBinding> shortcuts;
 
   /// 正在播放页是否启用封面流光背景
   final bool flowBackground;
@@ -351,6 +360,12 @@ class SettingsView extends StatelessWidget {
             ? null
             : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
         choiceKey: const ValueKey<String>('settings-crossfade'),
+      ),
+      _ActionRow(
+        icon: Icons.keyboard_outlined,
+        title: '快捷键',
+        subtitle: '点一行再按组合键即可改键，也可以恢复默认',
+        onTap: onShowShortcuts,
       ),
       _SwitchRow(
         icon: Icons.minimize,

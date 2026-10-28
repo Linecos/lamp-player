@@ -17,6 +17,7 @@ import 'cover_palette.dart';
 import 'lyrics_view.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
+import 'shortcuts.dart';
 import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
 
@@ -72,6 +73,7 @@ class NowPlayingPage extends StatefulWidget {
     this.spectrum,
     this.onOpenEqualizer,
     this.animateBackground = false,
+    this.shortcuts = kDefaultShortcuts,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -82,6 +84,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
+
+  /// 键位表；由曲库页透传，保证两页键位一致（见 `shortcuts.dart`）
+  final List<ShortcutBinding> shortcuts;
 
   final ValueListenable<NowPlayingData> data;
   final Future<void> Function() onTogglePlay;
@@ -306,6 +311,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
+  /// 音量步进（快捷键用）；夹在 0..1，与音量滑条同一约束
+  double _volumeStep(double delta) =>
+      (widget.data.value.volume + delta).clamp(0.0, 1.0);
+
   /// 方向键快进 / 快退：与拖动进度条走同一条下发路径（[NowPlayingPage.onSeek]）
   ///
   /// 位置取本地 `_position`（由曲库页每 500ms 推来），比 `widget.data.value`
@@ -393,55 +402,36 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
+    // 与曲库页共用 shortcuts.dart 里那张表：本页是独立路由，拿不到曲库页的
+    // 绑定，必须自己再挂一份，否则进来之后空格、方向键全无响应。
+    // 没有对应处理器的动作不会绑定（这页没有搜索框，所以 Ctrl+F 不生效）。
+    final Map<ShortcutAction, VoidCallback> handlers =
+        <ShortcutAction, VoidCallback>{
+          ShortcutAction.togglePlay: () => unawaited(widget.onTogglePlay()),
+          ShortcutAction.next: () => unawaited(widget.onNext()),
+          ShortcutAction.previous: () => unawaited(widget.onPrevious()),
+          ShortcutAction.seekForward: () => unawaited(_seekBy(5)),
+          ShortcutAction.seekBackward: () => unawaited(_seekBy(-5)),
+          ShortcutAction.mediaTogglePlay: () =>
+              unawaited(widget.onTogglePlay()),
+          ShortcutAction.mediaNext: () => unawaited(widget.onNext()),
+          ShortcutAction.mediaPrevious: () => unawaited(widget.onPrevious()),
+        };
+    // 音量 / 静音是可选回调：没接就不绑定，避免按了没反应
+    final ValueChanged<double>? onVolume = widget.onVolumeChanged;
+    if (onVolume != null) {
+      handlers[ShortcutAction.volumeUp] = () => onVolume(_volumeStep(0.05));
+      handlers[ShortcutAction.volumeDown] = () => onVolume(_volumeStep(-0.05));
+    }
+    final VoidCallback? onMute = widget.onToggleMute;
+    if (onMute != null) {
+      handlers[ShortcutAction.toggleMute] = onMute;
+    }
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
+        ...shortcutBindings(handlers, bindings: widget.shortcuts),
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             Navigator.of(context).maybePop(),
-        // 播放控制与曲库页保持一致。本页是 push 出来的独立路由，处于焦点树顶端，
-        // 拿不到曲库页那套 CallbackShortcuts：不在这里补一份，进了这页之后
-        // 空格、方向键就全都不响应，看起来像快捷键失效
-        const SingleActivator(
-          LogicalKeyboardKey.space,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onTogglePlay()),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          includeRepeats: false,
-        ): () =>
-            unawaited(_seekBy(5)),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          includeRepeats: false,
-        ): () =>
-            unawaited(_seekBy(-5)),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onNext()),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onPrevious()),
-        const SingleActivator(
-          LogicalKeyboardKey.mediaPlayPause,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onTogglePlay()),
-        const SingleActivator(
-          LogicalKeyboardKey.mediaTrackNext,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onNext()),
-        const SingleActivator(
-          LogicalKeyboardKey.mediaTrackPrevious,
-          includeRepeats: false,
-        ): () =>
-            unawaited(widget.onPrevious()),
       },
       child: Focus(
         autofocus: true,
