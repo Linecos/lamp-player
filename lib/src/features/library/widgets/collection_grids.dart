@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../common/widgets/album_cover.dart';
+import '../../player/player_bar.dart';
 import '../library_sort.dart';
 
 /// 取展示用首字：中文取第一个字，英文取首字母。
@@ -29,7 +30,12 @@ class ArtistGridView extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.builder(
       key: storageKey,
-      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      padding: const EdgeInsets.only(
+        top: 8,
+        // 网格铺到窗口底，卡片可以从播放岛下面穿过；留白保证滚到底时
+        // 最后一行停在岛上方
+        bottom: PlayerBar.occupiedHeight + 8,
+      ),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 208,
         mainAxisSpacing: 16,
@@ -127,7 +133,12 @@ class AlbumGridView extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.builder(
       key: storageKey,
-      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      padding: const EdgeInsets.only(
+        top: 8,
+        // 网格铺到窗口底，卡片可以从播放岛下面穿过；留白保证滚到底时
+        // 最后一行停在岛上方
+        bottom: PlayerBar.occupiedHeight + 8,
+      ),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 220,
         mainAxisSpacing: 16,

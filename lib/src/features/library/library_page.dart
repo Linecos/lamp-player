@@ -85,6 +85,7 @@ class LibraryPage extends StatefulWidget {
     this.spectrum,
     this.musicTagLauncher,
     this.shortcuts = kDefaultShortcuts,
+    this.prefetchReplayGain = true,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -126,6 +127,12 @@ class LibraryPage extends StatefulWidget {
   /// 频谱数据源；不传则不画频谱，也不会去订阅引擎流（测试默认走这条）
   final ValueListenable<List<double>>? spectrum;
 
+  /// 启动后是否在后台补算曲库缺失的 ReplayGain。
+  ///
+  /// 关掉只影响「第一次播放前把增益准备好」，起播逻辑不受影响；测试关掉它，
+  /// 免得启动就把整库曲目分析一遍、打乱分析顺序相关的断言。
+  final bool prefetchReplayGain;
+
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
@@ -138,9 +145,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 听歌时长攒够这么多秒再写库：每拍写一次会把 SQLite 打满。
   static const double _playTimeFlushSeconds = 15;
 
-  /// 悬浮播放岛给内容预留的高度：岛高 88 + 上方 8 间距。
-  /// 内容区底部留这么多，滚到底时最后一行正好停在岛上方。
-  static const double _playerBarReservedHeight = 96;
+  /// 播放岛最大宽度：超过就居中收窄。
+  ///
+  /// 全宽岛会把滚动中的列表行整条横切，看起来像被一块板子压住；收窄到
+  /// 900 后同一行在左右两侧仍然露出来，读起来是「悬浮在上面」。900 是
+  /// 三段式布局的下限（左段歌词 + 右段时间都能完整显示），再窄就要开始
+  /// 逐级收起右段控件了。
+  static const double _playerBarMaxWidth = 900;
 
   /// 音量滑块的合并窗口：拖动时最多每 80ms 发一次 FFI。
   static const Duration _volumeThrottle = Duration(milliseconds: 80);
@@ -357,6 +368,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 标签缺增益时现场分析的结果缓存（路径 → dB），本次会话内复用
   final Map<String, double> _autoGains = <String, double>{};
 
+  /// 正在分析的路径：后台补算与「起播后补算」撞上时共用一个任务
+  final Map<String, Future<double>> _autoGainPending =
+      <String, Future<double>>{};
+
+  /// 页面已销毁：后台补算的循环看到它就收手
+  bool _warmGainsCancelled = false;
+
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
@@ -440,6 +458,8 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_applyEqualizer());
     unawaited(_applyOutputDevice());
     unawaited(_applyCrossfade());
+    // 引擎已就绪：把曲库里缺的 ReplayGain 补算出来，别等第一首歌点了才开始算
+    unawaited(_warmAutoGains());
   }
 
   /// Windows 路径大小写与分隔符不敏感：回车恢复上次曲目、
@@ -485,6 +505,7 @@ class _LibraryPageState extends State<LibraryPage>
 
   @override
   void dispose() {
+    _warmGainsCancelled = true;
     _debounce?.cancel();
     _positionTimer?.cancel();
     _volumeTimer?.cancel();
@@ -787,8 +808,10 @@ class _LibraryPageState extends State<LibraryPage>
                       child: RepaintBoundary(
                         child: Padding(
                           padding: EdgeInsets.zero,
-                          // 播放岛悬浮在内容之上：列表可以滚到岛下面（悬浮观感），
-                          // 但底部留出岛的高度，滚到底时最后一行不会被压住
+                          // 播放岛悬浮在内容之上：列表一直铺到窗口底，滚动中的行
+                          // 从岛下面穿过去（窄岛只在中间挡住一段，左右仍看得见）。
+                          // 「滚到底最后一行不被压住」靠列表自己的底部留白，
+                          // 见 `TrackListView` 与各网格的 padding
                           child: Stack(
                             fit: StackFit.expand,
                             children: <Widget>[
@@ -801,7 +824,7 @@ class _LibraryPageState extends State<LibraryPage>
                                         16,
                                         12,
                                         16,
-                                        _playerBarReservedHeight,
+                                        0,
                                       ),
                                       child: FadeTransition(
                                         // 只做淡入：交叉淡变会让两份全屏列表
@@ -814,34 +837,15 @@ class _LibraryPageState extends State<LibraryPage>
                                   ),
                                 ],
                               ),
-                              // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表
+                              // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表。
+                              // 宽度封顶并居中：全宽岛会把列表行整条横切，
+                              // 窄一点时同一行在左右两侧仍然看得见，读起来是
+                              // 「悬浮在上面」而不是「被一块板子盖住」。
                               Positioned(
                                 left: 0,
                                 right: 0,
                                 bottom: 0,
-                                child:
-                                    ValueListenableBuilder<_PlaybackProgress>(
-                                      valueListenable: _progress,
-                                      builder:
-                                          (
-                                            BuildContext context,
-                                            _PlaybackProgress progress,
-                                            Widget? child,
-                                          ) => ValueListenableBuilder<double>(
-                                            // 音量单独一层：拖滑块只重建播放条，
-                                            // 不推进状态版本、不连累当前分区
-                                            valueListenable: _volumeNotifier,
-                                            builder:
-                                                (
-                                                  BuildContext context,
-                                                  double volume,
-                                                  Widget? child,
-                                                ) => _buildPlayerBar(
-                                                  progress,
-                                                  volume,
-                                                ),
-                                          ),
-                                    ),
+                                child: _buildPlayerIsland(),
                               ),
                             ],
                           ),
@@ -1133,6 +1137,34 @@ class _LibraryPageState extends State<LibraryPage>
         }
       });
     });
+  }
+
+  /// 底部播放岛：宽度封顶并居中。
+  ///
+  /// 两层 `ValueListenableBuilder` 各管一件事——进度每 500ms 推一次，
+  /// 音量只在拖动时变——分开后拖滑块不会连带重算进度那一层。
+  Widget _buildPlayerIsland() {
+    return Center(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _playerBarMaxWidth),
+        child: ValueListenableBuilder<_PlaybackProgress>(
+          valueListenable: _progress,
+          builder:
+              (
+                BuildContext context,
+                _PlaybackProgress progress,
+                Widget? child,
+              ) => ValueListenableBuilder<double>(
+                // 音量单独一层：拖滑块只重建播放条，
+                // 不推进状态版本、不连累当前分区
+                valueListenable: _volumeNotifier,
+                builder: (BuildContext context, double volume, Widget? child) =>
+                    _buildPlayerBar(progress, volume),
+              ),
+        ),
+      ),
+    );
   }
 
   /// 底部播放岛。

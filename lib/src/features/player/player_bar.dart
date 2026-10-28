@@ -27,6 +27,22 @@ typedef TrackLyricsLoader = Future<TrackLyrics> Function(String path);
 ///
 /// 右段宽度不够时逐级收：模式按钮 → 音量滑块 → 总时长，宽度永远先给进度条。
 class PlayerBar extends StatelessWidget {
+  /// 岛卡片高度，不含外边距。
+  static const double cardHeight = 88;
+
+  /// 卡片上方留的一点呼吸空间。
+  static const double cardTopPadding = 8;
+
+  /// 卡片底部外边距：岛贴窗口底，留一点呼吸空间。
+  static const double cardBottomMargin = 12;
+
+  /// 岛在窗口底部占用的总高度。
+  ///
+  /// 曲库页的列表把底部留白设成它 + 8：列表可以一直滚到岛下面（悬浮感），
+  /// 但滚到底时最后一行停在岛上方，不会被压住。
+  static const double occupiedHeight =
+      cardTopPadding + cardHeight + cardBottomMargin;
+
   const PlayerBar({
     super.key,
     required this.isPlaying,
@@ -116,9 +132,14 @@ class PlayerBar extends StatelessWidget {
     return Padding(
       // margin 必须放在外层：直接给 Container.margin 时，Column 的 loose
       // 约束会让 Row 先按整宽布局、再加 margin 外扩，右侧会被裁掉 16px
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(
+        16,
+        cardTopPadding,
+        16,
+        cardBottomMargin,
+      ),
       child: SizedBox(
-        height: 88,
+        height: cardHeight,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
