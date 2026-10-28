@@ -967,125 +967,62 @@ class _InfoRow extends StatelessWidget implements _Searchable {
 }
 
 /// 主题选择行：有 [ThemeScope] 时可点击切换，没有时退化为只读展示。
+///
+/// 不带小标题：卡片里只有这一行是「整组选择」，加个「主题」反而多一层缩进；
+/// 搜索仍能通过 [searchText] 命中「主题」。
+///
+/// 用 MD3 原生 `SegmentedButton`。之前手拼过一版（Container 描边 + 每段
+/// ColoredBox），问题是选中底色画在描边之上，会把选中段自己的外框和分隔线
+/// 盖掉，看起来像浮在控件上的一块灰块；原生组件由 ButtonStyle 统一处理
+/// 描边、分隔线与选中填充的层叠，也自带 MD3 的勾选图标与状态色。
 class _ThemeRow extends StatelessWidget implements _Searchable {
   const _ThemeRow();
 
+  /// 三段顺序固定：跟随系统 / 浅色 / 深色
+  static const List<ButtonSegment<ThemeMode>> _segments =
+      <ButtonSegment<ThemeMode>>[
+        ButtonSegment<ThemeMode>(value: ThemeMode.system, label: Text('跟随系统')),
+        ButtonSegment<ThemeMode>(value: ThemeMode.light, label: Text('浅色')),
+        ButtonSegment<ThemeMode>(value: ThemeMode.dark, label: Text('深色')),
+      ];
+
   @override
-  String get searchText => '主题 浅色 深色 跟随系统 外观';
+  String get searchText => '主题 浅色 深色 跟随系统 外观 深色模式';
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
     final ThemeController? controller = ThemeScope.maybeOf(context);
     final ThemeMode mode = controller?.mode ?? ThemeMode.system;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: controller == null ? null : () => _pick(context, controller),
-      hoverColor: scheme.surfaceContainerHigh,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.light_mode_outlined,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('主题', style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    _hint(mode),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _label(mode),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            if (controller != null)
-              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
-          ],
+    return Padding(
+      // 横向与行的图标列对齐（卡片内边距 8 + 这里 8 = 32，和图标左边缘同一条线）；
+      // 纵向上下各 10，取掉小标题后条带不会贴到卡片顶部的圆弧上
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+      child: SegmentedButton<ThemeMode>(
+        key: const ValueKey<String>('theme-segments'),
+        segments: _segments,
+        selected: <ThemeMode>{mode},
+        // 没有控制器时整组禁用（MD3 会自动降成禁用态配色）
+        onSelectionChanged: controller == null
+            ? null
+            : (Set<ThemeMode> picked) =>
+                  unawaited(controller.setMode(picked.first)),
+        // 非 null 时按可用宽度展开：三段自动等分，默认是挤在内容宽度里
+        expandedInsets: EdgeInsets.zero,
+        style: SegmentedButton.styleFrom(
+          // 默认最小高度 40，比这一列其它行矮一截
+          minimumSize: const Size(0, 48),
+          // 圆角取高度的一半：MD3 的分段按钮本来就是胶囊形，用 16 的方角
+          // 塞在圆角 32 的卡片里会显得像被切过
+          shape: const StadiumBorder(),
+          textStyle: theme.textTheme.bodyMedium,
         ),
       ),
     );
-  }
-
-  static void _pick(BuildContext context, ThemeController controller) {
-    unawaited(
-      showDialog<void>(
-        context: context,
-        builder: (BuildContext dialogContext) => AlertDialog(
-          title: const Text('主题'),
-          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              for (final ThemeMode mode in ThemeMode.values)
-                ListTile(
-                  title: Text(_label(mode)),
-                  trailing: mode == controller.mode
-                      ? const Icon(Icons.check)
-                      : null,
-                  onTap: () {
-                    unawaited(controller.setMode(mode));
-                    Navigator.of(dialogContext).pop();
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _label(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.system:
-        return '跟随系统';
-      case ThemeMode.light:
-        return '浅色';
-      case ThemeMode.dark:
-        return '深色';
-    }
-  }
-
-  static String _hint(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.system:
-        return '深浅色由系统决定';
-      case ThemeMode.light:
-        return '始终使用浅色';
-      case ThemeMode.dark:
-        return '始终使用深色';
-    }
   }
 }
 
-/// 强调色选择行：跟随系统强调色（动态取色）或预设色板。
-///
-/// 没有 [ThemeScope] 时退化为只读展示（如部分测试环境）。
 class _AccentColorRow extends StatelessWidget implements _Searchable {
   const _AccentColorRow();
 
