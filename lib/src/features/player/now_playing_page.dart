@@ -407,19 +407,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                           // 柱形频谱压在内容下层：铺满整宽、半透明、不吃手势。
                           // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
                           // 歌词照常滚动。固定 72 高、贴在控制区上方。
+                          // 纯净（沉浸）模式下跟其它控件一起淡出：那一屏只剩封面
+                          // 和歌词，频谱留着会抢戏。
                           if (widget.spectrum != null)
                             Positioned(
                               left: 0,
                               right: 0,
                               bottom: 6,
                               height: 72,
-                              child: SpectrumWave(
-                                key: const ValueKey<String>(
+                              child: _fadeWhenImmersive(
+                                chromeKey: const ValueKey<String>(
                                   'now-playing-spectrum',
                                 ),
-                                bands: widget.spectrum!,
-                                // 颜色默认由主题主色派生三段色相渐变
-                                color: scheme.primary,
+                                child: SpectrumWave(
+                                  bands: widget.spectrum!,
+                                  // 颜色默认由主题主色派生三段色相渐变
+                                  color: scheme.primary,
+                                ),
                               ),
                             ),
                           ValueListenableBuilder<Track?>(

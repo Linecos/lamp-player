@@ -1008,7 +1008,9 @@ impl Engine {
         // 只在第一次异常时打一行日志：频谱全零最难查，得知道是「取不到」
         // 还是「取到了但真是 0」——前者多半是独占模式或通道已释放
         let mut bands = vec![0.0f32; SPECTRUM_BANDS];
-        if channel == 0 || self.slot_paused() {
+        // 用真实播放状态判断，而不是 slot.paused：后者只在独占模式维护，
+        // 独占里暂停过再切回共享输出时它会一直是 true，频谱就永远全零
+        if channel == 0 || state() != State::Playing {
             return bands;
         }
         let mut fft = [0.0f32; 512];
