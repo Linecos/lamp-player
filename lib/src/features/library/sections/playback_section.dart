@@ -651,6 +651,10 @@ extension _PlaybackSection on _LibraryPageState {
   /// 之后右键直接打开。改完回来点提示里的「改完了，刷新」重扫该目录即可看到新标签。
   Future<void> _openWithMusicTag(Track track) async {
     MusicTagResult result = await _musicTag.open(<String>[track.path]);
+    // await 回来页面可能已经退出：下面几条分支都会碰 context
+    if (!mounted) {
+      return;
+    }
     if (result == MusicTagResult.unsupported) {
       _showMessage('当前平台暂不支持外部标签编辑器');
       return;
