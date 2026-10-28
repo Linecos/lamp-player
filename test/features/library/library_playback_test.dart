@@ -287,6 +287,33 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('播放到一半点上一首直接切上一首，不再回本曲开头', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      positionSecs: 60,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('潮汐'));
+    await tester.pump();
+    // 等一次位置轮询，让进度落在 60 秒（旧逻辑会因此只做 seek(0)）
+    await tester.pump(const Duration(milliseconds: 600));
+
+    await tester.tap(find.byTooltip('上一首 (Ctrl+←)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths, <String>[
+      '/music/潮汐.mp3',
+      '/music/夜航.mp3',
+    ], reason: '播放到一半点上一首，应直接切到上一首');
+    expect(playback.seekCalls, isEmpty, reason: '不该只是回到本曲开头');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('Ctrl+上下调音量时弹出音量浮层，过一会儿自动收起', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
