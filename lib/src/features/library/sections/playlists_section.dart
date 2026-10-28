@@ -587,6 +587,14 @@ extension _PlaylistsSection on _LibraryPageState {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    if (_selectionMode)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _buildSelectionBar(context),
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 8,
