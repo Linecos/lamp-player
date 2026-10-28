@@ -36,6 +36,8 @@ fn slot() -> &'static Mutex<Option<isize>> {
     HWND_SLOT.get_or_init(|| Mutex::new(None))
 }
 
+/// 只在 Windows 绘制时取文本；其它平台不编译，免得被判死代码
+#[cfg(windows)]
 fn text_now() -> String {
     state()
         .lock()
