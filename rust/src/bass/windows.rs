@@ -158,6 +158,10 @@ type Reply<T> = Sender<Result<T>>;
 
 use super::SPECTRUM_BANDS;
 
+/// 频谱异常只提示一次，避免每 33ms 刷屏
+static SPECTRUM_FETCH_WARNED: AtomicBool = AtomicBool::new(false);
+static SPECTRUM_SILENT_WARNED: AtomicBool = AtomicBool::new(false);
+
 /// BASS 的 FFT 请求码：`BASS_DATA_FFT1024`（0x80000000 + 2）拿 512 个幅度值，
 /// 叠加 `BASS_DATA_FFT_REMOVEDC` 去掉直流分量，否则整体会有一条偏置。
 const BASS_DATA_FFT1024: u32 = 0x8000_0002;
@@ -1010,8 +1014,12 @@ impl Engine {
         } else {
             self.stream
         };
+        // 只在第一次异常时打一行日志：频谱全零最难查，得知道是「取不到」
+        // 还是「取到了但真是 0」——前者多半是独占模式或通道已释放
         let mut bands = vec![0.0f32; SPECTRUM_BANDS];
-        if channel == 0 || self.slot_paused() {
+        // 用真实播放状态判断，而不是 slot.paused：后者只在独占模式维护，
+        // 独占里暂停过再切回共享输出时它会一直是 true，频谱就永远全零
+        if channel == 0 || state() != State::Playing {
             return bands;
         }
         let mut fft = [0.0f32; 512];
@@ -1023,6 +1031,16 @@ impl Engine {
             )
         };
         if got == u32::MAX || got == 0 {
+            if !SPECTRUM_FETCH_WARNED.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "[频谱] BASS_ChannelGetData 取数失败：got={got} channel={channel} \
+                     mixer={} stream={} paused={} err={}",
+                    self.mixer,
+                    self.stream,
+                    self.slot_paused(),
+                    last_error(&self.api),
+                );
+            }
             return bands;
         }
         let bins = (got as usize).min(fft.len());
@@ -1035,6 +1053,16 @@ impl Engine {
             // 高频能量天然偏低，做一点提升，否则右半边永远贴地平线
             let lift = 0.75 + 1.5 * (index as f32 / SPECTRUM_BANDS as f32);
             *band = (peak.sqrt() * lift).clamp(0.0, 1.0);
+        }
+        if bands.iter().all(|value| *value < 0.001)
+            && !SPECTRUM_SILENT_WARNED.swap(true, Ordering::Relaxed)
+        {
+            eprintln!(
+                "[频谱] 一帧全零：channel={channel} mixer={} 独占={} bin(首段)={:.6}",
+                self.mixer,
+                self.mixer != 0,
+                fft[1],
+            );
         }
         bands
     }
