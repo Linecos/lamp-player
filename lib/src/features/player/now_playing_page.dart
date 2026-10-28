@@ -36,6 +36,7 @@ class NowPlayingData {
     this.volume = 1,
     this.repeat = LoopMode.off,
     this.shuffle = false,
+    this.desktopLyrics = false,
   });
 
   final Track? track;
@@ -46,6 +47,9 @@ class NowPlayingData {
   final double volume;
   final LoopMode repeat;
   final bool shuffle;
+
+  /// 桌面歌词是否打开
+  final bool desktopLyrics;
 }
 
 /// 歌词加载函数；测试可注入，避免落盘 / 依赖 Rust。
@@ -75,10 +79,14 @@ class NowPlayingPage extends StatefulWidget {
     this.onOpenEqualizer,
     this.animateBackground = false,
     this.shortcuts = kDefaultShortcuts,
+    this.onToggleDesktopLyrics,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
+
+  /// 开关桌面歌词；为空时不显示该按钮
+  final VoidCallback? onToggleDesktopLyrics;
 
   /// 频谱数据：传了才在歌词下层铺一条全宽音频丝带
   final ValueListenable<List<double>>? spectrum;
@@ -1054,6 +1062,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   tooltip: '均衡器',
                                   onPressed: widget.onOpenEqualizer,
                                   icon: const Icon(Icons.equalizer, size: 24),
+                                ),
+                              if (widget.onToggleDesktopLyrics != null)
+                                IconButton(
+                                  key: const ValueKey<String>(
+                                    'now-playing-desktop-lyrics',
+                                  ),
+                                  tooltip: data.desktopLyrics
+                                      ? '关闭桌面歌词'
+                                      : '桌面歌词',
+                                  onPressed: widget.onToggleDesktopLyrics,
+                                  icon: Icon(
+                                    data.desktopLyrics
+                                        ? Icons.subtitles
+                                        : Icons.subtitles_outlined,
+                                    size: 24,
+                                    color: data.desktopLyrics
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
+                                  ),
                                 ),
                             ],
                           ),

@@ -28,6 +28,10 @@ Future<void> playerPlay({required String path, required double replayGainDb}) =>
 /// 起播不能等增益：无标签曲目的现场分析要全曲解码，等它算完才 play，
 /// 界面早已切歌、声音还停在上一首。所以 play 先带上已知值（标签或缓存），
 /// 分析完成后再用这条把增益补进去。
+///
+/// **当前没有调用方**：自动补算改成「只算并落库、下次起播生效」，不再在
+/// 播放中途改音量（那正是「起播 1~2 秒偏响」的来源）。接口保留在冻结的
+/// 契约里，留给需要即时应用增益的场景。
 Future<void> playerSetReplayGain({required double gainDb}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetReplayGain(gainDb: gainDb);
 
@@ -36,6 +40,9 @@ Future<void> playerSetReplayGain({required double gainDb}) =>
 /// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算
 /// （EBU R128 积分响度，目标 -18 LUFS），结果夹取 ±24 dB，全静音返回 0。
 /// 全曲解码约需零点几秒到几秒，失败（文件损坏 / 格式不支持）直接报错。
+///
+/// 算出的值顺带写回曲库（`tracks.replay_gain`）：下次起播就能直接带上，
+/// 不必再「先按不归一响 1~2 秒、算完才压下去」。落库失败不影响返回值。
 Future<double> playerAnalyzeReplayGain({required String path}) =>
     RustLib.instance.api.crateApiPlayerPlayerAnalyzeReplayGain(path: path);
 

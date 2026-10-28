@@ -6,6 +6,7 @@
 //! - [`lyrics`]：歌词读取与 LRC 解析（内部模块，供 `api::lyrics` 调用）
 //! - `bass`：BASS 动态加载封装（内部模块，仅被 `api::player` 调用）
 //! - `smtc` / `single_instance`：Windows 系统集成（内部模块，仅被 `api::media` 调用）
+//! - `desktop_lyrics`：桌面歌词窗口（Win32 分层窗口，仅被 `api::desktop_lyrics` 调用）
 //! - `frb_generated`：flutter_rust_bridge 生成代码，**禁止手改**
 //!
 //! 约定：对外函数返回 `anyhow::Result<T>`，库代码不 panic；
@@ -14,6 +15,7 @@
 pub mod api;
 pub mod appearance;
 pub mod bass;
+mod desktop_lyrics;
 mod frb_generated;
 pub mod lyrics;
 pub mod media_platform;

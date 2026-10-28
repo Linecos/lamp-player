@@ -175,7 +175,107 @@ extension _OutputSection on _LibraryPageState {
       volume: _volume,
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,
+      desktopLyrics: _desktopLyrics,
     );
+    _pushDesktopLyric();
+  }
+
+  /* ------------------------------------------------------- 桌面歌词 */
+
+  Future<void> _loadLyrics(String path) async {
+    if (_lyricsPath == path) {
+      return;
+    }
+    _lyricsPath = path;
+    _lyrics = null;
+    _desktopLine = '';
+    try {
+      final lyrics_api.TrackLyrics loaded = await lyrics_api.lyricsLoad(
+        path: path,
+      );
+      if (!mounted || _lyricsPath != path) {
+        return;
+      }
+      _lyrics = loaded;
+      _pushDesktopLyric();
+    } catch (error) {
+      // 没有歌词文件是常态，不该打扰用户
+      debugPrint('读取歌词失败：$error');
+    }
+  }
+
+  /// 当前时间点对应的那行歌词；没歌词返回空串
+  String _currentLyricLine() {
+    final lyrics_api.TrackLyrics? lyrics = _lyrics;
+    if (lyrics == null || lyrics.lines.isEmpty) {
+      return '';
+    }
+    final int positionMs = (_position * 1000).round();
+    String line = '';
+    for (final lyrics_api.LyricLine item in lyrics.lines) {
+      if (item.timeMs > positionMs) {
+        break;
+      }
+      line = item.text;
+    }
+    return line;
+  }
+
+  /// 把当前行推给桌面歌词窗口；窗口没开就什么都不做
+  void _pushDesktopLyric() {
+    if (!_desktopLyrics) {
+      return;
+    }
+    String line = _currentLyricLine();
+    if (line.isEmpty) {
+      // 没歌词（或还没读到）时别留一条空白黑框：显示曲名撑住信息
+      final Track? track = _currentTrack;
+      line = track == null ? '♪' : '♪ ${track.title}';
+    }
+    if (line == _desktopLine) {
+      return;
+    }
+    _desktopLine = line;
+    unawaited(
+      desktop_lyrics
+          .desktopLyricsSetLine(line: line)
+          .catchError((Object error) => debugPrint('更新桌面歌词失败：$error')),
+    );
+  }
+
+  /// 开关桌面歌词：窗口常驻，只切显示 / 隐藏
+  Future<void> _setDesktopLyrics(bool enabled) async {
+    _update(() => _desktopLyrics = enabled);
+    _saveSessionNow();
+    _publishProgress();
+    try {
+      if (enabled) {
+        await desktop_lyrics.desktopLyricsShow();
+        _desktopLine = '';
+        _pushDesktopLyric();
+      } else {
+        await desktop_lyrics.desktopLyricsHide();
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('切换桌面歌词失败：${ErrorRetry.describe(error)}');
+    }
+  }
+
+  /// 启动时按上次状态恢复窗口；失败只记日志，不影响播放
+  Future<void> _restoreDesktopLyrics() async {
+    if (!_desktopLyrics) {
+      return;
+    }
+    try {
+      await desktop_lyrics.desktopLyricsShow();
+      _desktopLine = '';
+      _pushDesktopLyric();
+    } catch (error) {
+      debugPrint('恢复桌面歌词失败：$error');
+    }
   }
 
   /// 艺术家 / 专辑聚合结果按 `_tracks` 的对象身份缓存，避免每次 rebuild

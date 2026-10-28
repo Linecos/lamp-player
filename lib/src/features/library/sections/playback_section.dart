@@ -70,6 +70,8 @@ extension _PlaybackSection on _LibraryPageState {
           ? track.replayGain
           : (_autoGains[track.path] ?? 0);
       await _playback.play(track.path, replayGainDb: gain);
+      // 桌面歌词要实时跟上，歌词跟着曲目一起换
+      unawaited(_loadLyrics(track.path));
     } catch (error) {
       if (!mounted) {
         return false;
@@ -239,6 +241,8 @@ extension _PlaybackSection on _LibraryPageState {
               onOpenEqualizer: _isAvailable
                   ? () => unawaited(_openEqualizer())
                   : null,
+              onToggleDesktopLyrics: () =>
+                  unawaited(_setDesktopLyrics(!_desktopLyrics)),
               animateBackground: _flowBackground,
               shortcuts: _shortcuts,
             ),
