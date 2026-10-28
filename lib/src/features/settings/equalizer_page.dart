@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../player/equalizer.dart';
+import 'equalizer_curve.dart';
 
 /// 均衡器独立页：开关 + 预设切换 + 10 段推子 + 自存预设。
 ///
@@ -117,6 +118,11 @@ class _EqualizerPageState extends State<EqualizerPage> {
               for (final EqualizerPreset preset in widget.customPresets)
                 _presetChip(preset, deletable: true),
             ],
+          ),
+          const SizedBox(height: 16),
+          _Card(
+            padding: const EdgeInsets.fromLTRB(12, 16, 12, 10),
+            child: EqualizerCurveChart(gains: _gains),
           ),
           const SizedBox(height: 20),
           _SectionTitle(
