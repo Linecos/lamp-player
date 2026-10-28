@@ -33,7 +33,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  testWidgets('没有 ThemeScope 时降级为只读，点击不弹窗', (WidgetTester tester) async {
+  testWidgets('没有 ThemeScope 时主题分段控件为只读', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -43,11 +43,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('跟随系统'), findsOneWidget);
+    expect(find.text('浅色'), findsOneWidget);
+    expect(find.text('深色'), findsOneWidget);
 
-    await tester.tap(find.text('主题'));
+    final SegmentedButton<ThemeMode> bar = tester
+        .widget<SegmentedButton<ThemeMode>>(
+          find.byType(SegmentedButton<ThemeMode>),
+        );
+    expect(bar.onSelectionChanged, isNull, reason: '没有控制器时整组禁用');
+
+    await tester.tap(find.text('深色'));
     await tester.pumpAndSettle();
 
+    // 禁用态点了也不该有任何反应（更不会弹对话框）
     expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      tester
+          .widget<SegmentedButton<ThemeMode>>(
+            find.byType(SegmentedButton<ThemeMode>),
+          )
+          .selected,
+      <ThemeMode>{ThemeMode.system},
+    );
   });
 
   testWidgets('设置页可触发添加音乐目录', (WidgetTester tester) async {
@@ -116,16 +133,38 @@ void main() {
 
     expect(find.text('跟随系统'), findsOneWidget);
 
-    await tester.tap(find.text('主题'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-
     await tester.tap(find.text('深色'));
     await tester.pumpAndSettle();
 
     expect(controller.mode, ThemeMode.dark);
-    expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('深色'), findsOneWidget);
+    // MD3 原生分段控件只在选中段画勾
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('theme-segments')),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsOneWidget,
+    );
+
+    // 三段等分铺满：每段的中心必须落在自己那三分之一里
+    final Rect bar = tester.getRect(
+      find.byKey(const ValueKey<String>('theme-segments')),
+    );
+    expect(bar.width, greaterThan(600), reason: 'expandedInsets 应铺满可用宽度');
+    final double third = bar.width / 3;
+    const List<String> labels = <String>['跟随系统', '浅色', '深色'];
+    for (int index = 0; index < labels.length; index += 1) {
+      final double center = tester.getCenter(find.text(labels[index])).dx;
+      expect(
+        center,
+        inInclusiveRange(
+          bar.left + third * index,
+          bar.left + third * (index + 1),
+        ),
+        reason: '第 ${index + 1} 段应落在自己那三分之一里',
+      );
+    }
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(ThemeController.prefsKey), 'dark');
@@ -701,7 +740,6 @@ void main() {
       '添加音乐目录',
       '独占输出（WASAPI）',
       '关闭窗口时留在托盘',
-      '主题',
       '强调色',
     ]) {
       final Finder row = find
