@@ -75,6 +75,36 @@ void main() {
     expect(distinct, isTrue);
   });
 
+  test('面积最大的颜色做主色，同时保留小面积对比色', () {
+    final List<Color> colors = harmonizeCoverColors(<Color>[
+      const Color(0xFFF2C230), // 大面积黄
+      const Color(0xFF3F9B45), // 小面积绿
+    ]);
+    final List<HSLColor> hsls = colors.map(HSLColor.fromColor).toList();
+
+    expect(hsls.first.hue, inInclusiveRange(40, 60), reason: '黄色应做主色');
+    expect(
+      hsls.any((HSLColor color) => color.hue >= 90 && color.hue <= 160),
+      isTrue,
+      reason: '绿色不能被大面积黄色挤掉',
+    );
+  });
+
+  test('蓝衣、绿草、蓝天封面保留三种色相', () {
+    final List<Color> colors = harmonizeCoverColors(<Color>[
+      const Color(0xFF3A66C8), // 蓝衣 / 蓝天
+      const Color(0xFF4E9B48), // 草地
+      const Color(0xFFE8C34A), // 暖色高光
+    ]);
+    final List<double> hues = colors
+        .map((Color color) => HSLColor.fromColor(color).hue)
+        .toList();
+
+    expect(hues.any((double h) => h >= 190 && h <= 260), isTrue);
+    expect(hues.any((double h) => h >= 80 && h <= 160), isTrue);
+    expect(hues.any((double h) => h >= 35 && h <= 70), isTrue);
+  });
+
   testWidgets('没有封面色时用主题色兜底', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
