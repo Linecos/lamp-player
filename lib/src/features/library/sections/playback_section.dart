@@ -113,6 +113,8 @@ extension _PlaybackSection on _LibraryPageState {
   /// 只在状态真的变化时调用（起播 / 暂停 / 停止），**不要放进 500ms 轮询**：
   /// 每次都会走一遍 WinRT 调用。
   void _syncMediaSession({bool stopped = false}) {
+    // 频谱流的开关注释挂在同一批状态切换点上：放歌开始订阅、暂停 / 停止退订
+    _syncSpectrum();
     final Track? track = _currentTrack;
     // 托盘菜单同步：无曲目时播放项禁用，播放中显示「暂停」
     unawaited(
