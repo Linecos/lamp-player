@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
@@ -67,6 +68,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   TrackLyrics? lyrics,
   ValueChanged<double>? onSeek,
   VoidCallback? onTogglePlay,
+  VoidCallback? onPrevious,
+  VoidCallback? onNext,
   ValueChanged<double>? onVolumeChanged,
   VoidCallback? onToggleMute,
   VoidCallback? onShowQueue,
@@ -91,8 +94,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
       home: NowPlayingPage(
         data: notifier,
         onTogglePlay: () async => onTogglePlay?.call(),
-        onPrevious: () async {},
-        onNext: () async {},
+        onPrevious: () async => onPrevious?.call(),
+        onNext: () async => onNext?.call(),
         onSeek: (double seconds) async => onSeek?.call(seconds),
         onVolumeChanged: onVolumeChanged,
         onToggleMute: onToggleMute,
@@ -548,5 +551,74 @@ void main() {
     final double cover = tester.getSize(find.byType(AlbumCover).first).width;
     expect(cover, lessThan(336), reason: '高度不够时封面要让位');
     expect(cover, greaterThan(200), reason: '也不该缩到看不出封面');
+  });
+
+  testWidgets('空格 / 方向键 / 媒体键在本页生效', (WidgetTester tester) async {
+    int toggles = 0;
+    int previous = 0;
+    int next = 0;
+    final List<double> seeks = <double>[];
+    await _pump(
+      tester,
+      data: _data(position: 30, duration: 200),
+      onTogglePlay: () => toggles += 1,
+      onPrevious: () => previous += 1,
+      onNext: () => next += 1,
+      onSeek: seeks.add,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(toggles, 1, reason: '空格播放 / 暂停');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(seeks.last, 35, reason: '→ 快进 5 秒');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(seeks.last, 30, reason: '← 快退 5 秒');
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(next, 1, reason: 'Ctrl+→ 下一首');
+    expect(previous, 1, reason: 'Ctrl+← 上一首');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.mediaPlayPause);
+    await tester.pump();
+    expect(toggles, 2, reason: '媒体键与空格同一条路径');
+  });
+
+  testWidgets('方向键快退到头夹在 0，不发出负位置', (WidgetTester tester) async {
+    final List<double> seeks = <double>[];
+    await _pump(
+      tester,
+      data: _data(position: 2, duration: 200),
+      onSeek: seeks.add,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+
+    expect(seeks.single, 0);
+  });
+
+  testWidgets('没有曲目时长时方向键不 seek', (WidgetTester tester) async {
+    final List<double> seeks = <double>[];
+    await _pump(
+      tester,
+      data: _data(position: 0, duration: 0),
+      onSeek: seeks.add,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(seeks, isEmpty, reason: '时长未知时不该盲跳');
   });
 }
