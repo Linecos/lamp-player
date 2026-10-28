@@ -48,13 +48,23 @@ class SpectrumController {
     try {
       _subscription = rust.playerSpectrumStream().listen(
         _onFrame,
-        onError: (Object _) => _stop(),
+        onError: (Object _) => _giveUp(),
         cancelOnError: true,
       );
     } catch (_) {
       // 引擎不可用（非 Windows / DLL 缺失）：不显示频谱，别影响播放
-      _stop();
+      _giveUp();
     }
+  }
+
+  /// 流出错后的收尾：必须把引用计数一起归零。
+  ///
+  /// 只 `_stop()` 的话 `_refs` 还停在非 0，下一个 `attach()` 会加到 2、
+  /// 命中不了 `_refs == 1` 那条启动条件，频谱就永久空着——引擎重启或
+  /// DLL 换过之后就会碰上。归零后下次进正在播放页自然重新拉起。
+  void _giveUp() {
+    _refs = 0;
+    _stop();
   }
 
   void _stop() {
