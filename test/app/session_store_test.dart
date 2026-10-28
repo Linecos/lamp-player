@@ -96,6 +96,15 @@ void main() {
     expect(snapshot.sort, LibrarySort.library);
   });
 
+  test('「最近添加」仍能被存档解析', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'flutter.${PrefsSessionStore.sortKey}': 'added',
+    });
+
+    final SessionSnapshot snapshot = await const PrefsSessionStore().load();
+    expect(snapshot.sort, LibrarySort.added);
+  });
+
   test('流光背景偏好可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();

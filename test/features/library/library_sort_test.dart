@@ -75,6 +75,26 @@ void main() {
       ]);
     });
 
+    test('「最近添加」作为显式选项，与默认顺序结果一致', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: '旧', addedAt: 100),
+        sampleTrack(title: '新', addedAt: 300),
+        sampleTrack(title: '中', addedAt: 200),
+      ];
+
+      final List<String> byDefault = sortTracks(
+        tracks,
+        LibrarySort.library,
+      ).map((Track track) => track.title).toList();
+      final List<String> byAdded = sortTracks(
+        tracks,
+        LibrarySort.added,
+      ).map((Track track) => track.title).toList();
+
+      expect(byAdded, <String>['新', '中', '旧']);
+      expect(byAdded, byDefault);
+    });
+
     test('同一时刻添加的曲目按标题兜底，顺序稳定', () {
       final List<Track> tracks = <Track>[
         sampleTrack(title: 'b', addedAt: 100),

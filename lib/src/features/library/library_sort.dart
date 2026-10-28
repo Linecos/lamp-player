@@ -17,7 +17,10 @@ enum LibrarySort {
   title('标题'),
   artist('艺术家'),
   album('专辑'),
-  duration('时长');
+  duration('时长'),
+
+  /// 与默认顺序同义：保留成显式选项，习惯点这一项的人照旧能找到
+  added('最近添加');
 
   const LibrarySort(this.label);
 
@@ -66,8 +69,9 @@ List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
   ];
   entries.sort((_SortEntry a, _SortEntry b) {
     final int primary = switch (mode) {
-      // 默认顺序 = 最近添加：新导入的排在最前
-      LibrarySort.library => b.track.addedAt.compareTo(a.track.addedAt),
+      // 默认顺序与「最近添加」同义：新导入的排在最前
+      LibrarySort.library ||
+      LibrarySort.added => b.track.addedAt.compareTo(a.track.addedAt),
       LibrarySort.title => a.title.compareTo(b.title),
       LibrarySort.artist => _firstNonZero(<int>[
         a.artist.compareTo(b.artist),
