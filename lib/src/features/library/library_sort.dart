@@ -36,46 +36,64 @@ String trackAlbum(Track track) {
 String albumGroupKey(Track track) =>
     '${trackArtist(track)}\u0000${trackAlbum(track)}';
 
+/// 排序用的一次性键：小写串只算一遍。
+///
+/// 比较函数里直接 `toLowerCase()` 在万级曲库上是几十万次临时字符串分配
+/// （一次排序约 n log n 次比较、每次两份），排序反而成了次要开销。
+/// 这里每首曲目只算 3 次，之后比较全是 `compareTo`。
+class _SortEntry {
+  _SortEntry(this.track)
+    : title = track.title.toLowerCase(),
+      artist = trackArtist(track).toLowerCase(),
+      album = trackAlbum(track).toLowerCase();
+
+  final Track track;
+  final String title;
+  final String artist;
+  final String album;
+}
+
 /// 按指定方式排序，返回新列表（不改动入参）。
 ///
 /// 排序规则全部是纯 Dart 逻辑，可在 `test/` 下覆盖，不依赖 Rust。
 List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
-  final List<Track> sorted = List<Track>.of(tracks);
   // 默认顺序完全沿用调用方（Rust 已按 artist/album/track_num 排好），
   // 不调用 sort，避免不稳定排序打乱相等元素的相对位置。
   if (mode == LibrarySort.library) {
-    return sorted;
+    return List<Track>.of(tracks);
   }
-  sorted.sort((Track a, Track b) {
+  final List<_SortEntry> entries = <_SortEntry>[
+    for (final Track track in tracks) _SortEntry(track),
+  ];
+  entries.sort((_SortEntry a, _SortEntry b) {
     final int primary = switch (mode) {
       LibrarySort.library => 0,
-      LibrarySort.title => _compareText(a.title, b.title),
+      LibrarySort.title => a.title.compareTo(b.title),
       LibrarySort.artist => _firstNonZero(<int>[
-        _compareText(trackArtist(a), trackArtist(b)),
-        _compareText(trackAlbum(a), trackAlbum(b)),
-        _compareNumber(a.trackNum, b.trackNum),
+        a.artist.compareTo(b.artist),
+        a.album.compareTo(b.album),
+        _compareNumber(a.track.trackNum, b.track.trackNum),
       ]),
       LibrarySort.album => _firstNonZero(<int>[
-        _compareText(trackAlbum(a), trackAlbum(b)),
-        _compareText(trackArtist(a), trackArtist(b)),
-        _compareNumber(a.trackNum, b.trackNum),
+        a.album.compareTo(b.album),
+        a.artist.compareTo(b.artist),
+        _compareNumber(a.track.trackNum, b.track.trackNum),
       ]),
-      LibrarySort.duration => b.durationSecs.compareTo(a.durationSecs),
-      LibrarySort.added => b.addedAt.compareTo(a.addedAt),
+      LibrarySort.duration => b.track.durationSecs.compareTo(
+        a.track.durationSecs,
+      ),
+      LibrarySort.added => b.track.addedAt.compareTo(a.track.addedAt),
     };
     if (primary != 0) {
       return primary;
     }
-    if (mode == LibrarySort.library) {
-      return 0;
-    }
     // 同值时用标题、路径兜底，保证顺序稳定、可预期
     return _firstNonZero(<int>[
-      _compareText(a.title, b.title),
-      a.path.compareTo(b.path),
+      a.title.compareTo(b.title),
+      a.track.path.compareTo(b.track.path),
     ]);
   });
-  return sorted;
+  return <Track>[for (final _SortEntry entry in entries) entry.track];
 }
 
 /// 按艺术家聚合（只读展示用）
