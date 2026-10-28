@@ -165,6 +165,21 @@ extension _SelectionSection on _LibraryPageState {
     );
   }
 
+  /// 页面标题行中间的占位：未多选时等价于 Spacer，多选时显示操作条。
+  Widget _buildSelectionHeaderSlot(BuildContext context) {
+    return Expanded(
+      child: !_selectionMode
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Align(
+                alignment: Alignment.center,
+                child: _buildSelectionBar(context),
+              ),
+            ),
+    );
+  }
+
   Widget _buildSelectionBar(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
@@ -176,15 +191,16 @@ extension _SelectionSection on _LibraryPageState {
     final bool enabled = count > 0;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Material(
         color: scheme.secondaryContainer,
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Text(
                 '已选 $count 首',

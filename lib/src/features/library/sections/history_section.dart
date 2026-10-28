@@ -91,7 +91,7 @@ extension _HistorySection on _LibraryPageState {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const Spacer(),
+            _buildSelectionHeaderSlot(context),
             FilledButton.tonalIcon(
               onPressed: visible.isEmpty
                   ? null
