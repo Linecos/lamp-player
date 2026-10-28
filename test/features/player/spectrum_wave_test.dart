@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lamp_player/src/features/player/spectrum_ribbon.dart';
+import 'package:lamp_player/src/features/player/spectrum_wave.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
-/// 一帧假频谱：中间高、两头低，跟真实音乐的形状接近
+/// 一帧假频谱：低频整体更强、高频更弱，每段各自起伏
 List<double> _bands() => <double>[
-  for (int i = 0; i < 24; i += 1) 0.2 + 0.7 * ((i % 7) / 7),
+  for (int i = 0; i < 24; i += 1)
+    (0.95 - i * 0.02) * (0.45 + 0.55 * ((i * 61) % 17) / 16),
 ];
 
 Widget _host(Widget child) {
@@ -18,7 +19,7 @@ Widget _host(Widget child) {
 }
 
 void main() {
-  testWidgets('有数据时画在整宽上', (WidgetTester tester) async {
+  testWidgets('有数据时铺满整宽', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -30,20 +31,13 @@ void main() {
     addTearDown(bands.dispose);
 
     await tester.pumpWidget(
-      _host(
-        SpectrumRibbon(
-          key: const ValueKey<String>('ribbon'),
-          bands: bands,
-          animate: false,
-        ),
-      ),
+      _host(SpectrumWave(key: const ValueKey<String>('wave'), bands: bands)),
     );
     await tester.pump();
 
-    final Finder ribbon = find.byKey(const ValueKey<String>('ribbon'));
-    expect(ribbon, findsOneWidget);
-    // 铺满整宽（StackFit.expand 下与屏幕同宽），不再是左侧一小截
-    expect(tester.getSize(ribbon).width, 1200);
+    final Finder wave = find.byKey(const ValueKey<String>('wave'));
+    expect(wave, findsOneWidget);
+    expect(tester.getSize(wave).width, 1200);
     expect(
       tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
       1,
@@ -56,9 +50,7 @@ void main() {
     );
     addTearDown(bands.dispose);
 
-    await tester.pumpWidget(
-      _host(SpectrumRibbon(bands: bands, animate: false)),
-    );
+    await tester.pumpWidget(_host(SpectrumWave(bands: bands)));
     await tester.pump();
     expect(
       tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
@@ -71,6 +63,18 @@ void main() {
       tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
       0,
     );
+  });
+
+  testWidgets('只有数据驱动，没有额外动画', (WidgetTester tester) async {
+    final ValueNotifier<List<double>> bands = ValueNotifier<List<double>>(
+      _bands(),
+    );
+    addTearDown(bands.dispose);
+
+    await tester.pumpWidget(_host(SpectrumWave(bands: bands)));
+    // 有无限循环动画时这一步会超时，跑得完就说明「不会自己动」
+    await tester.pumpAndSettle();
+    expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
   testWidgets('压在可滚动内容上，拖动照常滚动', (WidgetTester tester) async {
@@ -94,7 +98,7 @@ void main() {
                 itemBuilder: (BuildContext context, int index) =>
                     SizedBox(height: 56, child: Text('第 $index 行歌词')),
               ),
-              SpectrumRibbon(bands: bands, animate: false),
+              SpectrumWave(bands: bands),
             ],
           ),
         ),

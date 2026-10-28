@@ -44,10 +44,11 @@ class SpectrumController {
   );
 
   /// 起音系数：鼓点一敲就得升上去
-  static const double _attack = 0.65;
+  static const double _attack = 0.75;
 
-  /// 回落系数：每帧只回 16%，30fps 下约 0.4 秒落到一半
-  static const double _release = 0.16;
+  /// 回落系数：每帧回 30%，30fps 下约 0.15 秒落到一半。
+  /// 柱子要靠这个「掉下来」才有跳动感，太慢会像在飘
+  static const double _release = 0.30;
 
   /// 多久没收到帧就认为流僵死（正常 33ms 一帧）。
   ///
@@ -318,6 +319,13 @@ class SpectrumController {
         return;
       }
       _silentFrames += 1;
+      if (_silentFrames == 60) {
+        // 两秒全是 0：数据到了，但引擎没在出声（独占被抢 / 静音 / 设备不对）
+        assert(() {
+          debugPrint('频谱连续 2 秒全是 0：引擎可能没有输出（检查独占模式、静音、输出设备）');
+          return true;
+        }());
+      }
       if (_silentFrames == _silentFramesBeforeRestart) {
         // 只重启一次：真的没声音时不至于每 5 秒拉一条新流
         _restart(resetSilence: false);
