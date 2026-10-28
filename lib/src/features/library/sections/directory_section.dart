@@ -137,7 +137,7 @@ extension _DirectorySection on _LibraryPageState {
       files.map((DropItem file) => file.path),
     );
     if (folders.isEmpty) {
-      _showMessage('没有识别到可导入的文件夹');
+      _showMessage('没有可导入的音频文件或文件夹');
       return;
     }
     if (_section == LibrarySection.settings) {
