@@ -30,6 +30,13 @@ Future<void> _hoverVolume(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// 按住 Ctrl 按一下某个键（曲库页的方向键组合都走 Ctrl）
+Future<void> _pressWithCtrl(WidgetTester tester, LogicalKeyboardKey key) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  await tester.sendKeyEvent(key);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+}
+
 void main() {
   testWidgets('播放引擎不可用时禁用播放按钮并给出提示', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
@@ -230,6 +237,56 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('方向键快进快退，Ctrl+左右切歌，Ctrl+上下调音量', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(playback.seekCalls, <double>[5.0], reason: '→ 应快进 5 秒');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(playback.seekCalls.last, 0.0, reason: '← 应退回开头（进度不足 5 秒）');
+
+    await _pressWithCtrl(tester, LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths, <String>[
+      '/music/夜航.mp3',
+      '/music/潮汐.mp3',
+    ], reason: 'Ctrl+→ 应切到下一首');
+
+    await _pressWithCtrl(tester, LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(playback.playedPaths.last, '/music/夜航.mp3', reason: 'Ctrl+← 应回到上一首');
+
+    await _pressWithCtrl(tester, LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(playback.volumeCalls.last, lessThan(1), reason: 'Ctrl+↓ 应调低音量');
+
+    await _pressWithCtrl(tester, LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      playback.volumeCalls.last,
+      closeTo(1.0, 0.001),
+      reason: 'Ctrl+↑ 应调回满音量',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('搜索框内按空格不会切换播放', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
@@ -247,6 +304,10 @@ void main() {
     await tester.pump();
 
     expect(playback.pauseCalls, 0, reason: '输入空格不应触发暂停');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(playback.seekCalls, isEmpty, reason: '输入框里的方向键应留给光标移动');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
