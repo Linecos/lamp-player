@@ -81,19 +81,26 @@ class _CoverImage extends StatefulWidget {
 class _CoverImageState extends State<_CoverImage> {
   /// 最近确认存在的封面路径：同一张封面在列表里出现几十次时只做一次磁盘检查，
   /// 网络盘上每行一次同步 IO 会直接掉帧
+  ///
+  /// 上限内按「最久没用」淘汰，不是整体清空：清空等于让缓存里的每一张封面
+  /// 都重新做一次 `existsSync`，在机械盘 / 网络盘上正好卡在滚动时掉帧。
+  /// `Set` 是 `LinkedHashSet`，插入有序，命中后移到末尾即为 LRU。
   static final Set<String> _knownExisting = <String>{};
+
+  static const int _maxKnownExisting = 512;
 
   late bool _exists;
 
   bool _resolveExists() {
     final String path = widget.file.path;
-    if (_knownExisting.contains(path)) {
+    if (_knownExisting.remove(path)) {
+      _knownExisting.add(path);
       return true;
     }
     final bool exists = widget.file.existsSync();
     if (exists) {
-      if (_knownExisting.length > 512) {
-        _knownExisting.clear();
+      if (_knownExisting.length >= _maxKnownExisting) {
+        _knownExisting.remove(_knownExisting.first);
       }
       _knownExisting.add(path);
     }
