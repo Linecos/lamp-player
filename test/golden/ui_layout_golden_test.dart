@@ -31,9 +31,14 @@ NowPlayingData _data() => NowPlayingData(
   shuffle: false,
 );
 
-/// 固定的一帧频谱：golden 不能依赖真实音频
+/// 固定的一帧频谱：golden 不能依赖真实音频。
+///
+/// 形状按真实音乐走——低频整体更强、高频更弱，但每一段各自起伏，
+/// 不是单调下滑的斜坡；用等幅锯齿又会变成一串重复的小丘，
+/// 两种都对不上真实观感。
 List<double> _bands() => <double>[
-  for (int i = 0; i < 24; i += 1) 0.15 + 0.8 * ((i * 37) % 100) / 100,
+  for (int i = 0; i < 24; i += 1)
+    (0.95 - i * 0.02) * (0.45 + 0.55 * ((i * 61) % 17) / 16),
 ];
 
 const TrackLyrics _lyrics = TrackLyrics(
