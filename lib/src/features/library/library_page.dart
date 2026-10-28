@@ -913,13 +913,14 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   /// 焦点在搜索框时，空格 / 方向键留给文本编辑，不触发播放控制。
-  VoidCallback _unlessTyping(VoidCallback action) {
-    return () {
-      if (_searchFocus.hasFocus) {
-        return;
-      }
-      action();
-    };
+  ///
+  /// 直接执行而不是返回闭包：`() => _unlessTyping(cb)` 一旦返回闭包就等于
+  /// 什么都不做，方向键 / 音量键会集体失灵（空格走的是另一条路径，看不出问题）。
+  void _unlessTyping(VoidCallback action) {
+    if (_searchFocus.hasFocus) {
+      return;
+    }
+    action();
   }
 
   void _handleSpace() {
