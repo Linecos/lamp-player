@@ -427,15 +427,14 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 上一首：播放超过 3 秒先回到本曲开头，符合桌面播放器习惯。
+  /// 上一首：直接切上一首；已经在队首（或没有上一首历史）时回到本曲开头。
+  ///
+  /// 早先照搬「播放超过 3 秒先回本曲开头」的桌面播放器习惯，实际用起来是
+  /// 「点了没反应，得再点一次才切歌」，用户明确否掉了。
   Future<void> _previous() => _serial(_previousNow);
 
   Future<void> _previousNow() async {
     if (_currentTrack == null) {
-      return;
-    }
-    if (!_isStopped && _position > 3) {
-      await _seekTo(0);
       return;
     }
     final int? index = _queue.retreat();
