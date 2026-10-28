@@ -824,4 +824,119 @@ void main() {
     await tester.pumpAndSettle();
     expect(fades, <double>[4]);
   });
+
+  testWidgets('自定义取色：弹窗按内容收紧，拖动中不重算主题', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(
+          body: SettingsView(trackCount: 1, engineAvailable: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
+    await tester.pumpAndSettle();
+
+    // AlertDialog 的 content 是有界高度：Column 一旦用 max 就会把弹窗撑满，
+    // 中间留一大片空白。这里卡住「滑杆到底部按钮」的间距
+    final Rect slider = tester.getRect(
+      find.byKey(const ValueKey<String>('custom-seed-value')),
+    );
+    final Rect done = tester.getRect(find.text('完成').last);
+    expect(done.top - slider.bottom, lessThan(90), reason: '滑杆与底部按钮之间不该有大片空白');
+
+    // 拖动中不推主题：每次 setSeedColor 都会触发 200ms 主题过渡动画，
+    // 连续推等于让动画永不结束、整棵树每帧插值重建
+    int notifies = 0;
+    controller.addListener(() => notifies += 1);
+
+    final Offset center = tester.getCenter(
+      find.byKey(const ValueKey<String>('custom-seed-wheel')),
+    );
+    final TestGesture drag = await tester.startGesture(
+      center + const Offset(40, 0),
+    );
+    for (int step = 0; step < 8; step += 1) {
+      await drag.moveBy(const Offset(4, -4));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(notifies, 0, reason: '拖动过程中一次都不该重算主题');
+
+    // 松手才提交，整段拖动只产生一次主题重建
+    await drag.up();
+    await tester.pumpAndSettle();
+    expect(notifies, 1, reason: '松手提交一次');
+    expect(controller.seedColor, isNotNull);
+  });
+
+  testWidgets('自定义取色：十六进制输入可应用，非法码只染红边框', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(
+          body: SettingsView(trackCount: 1, engineAvailable: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
+    await tester.pumpAndSettle();
+
+    final Finder hex = find.byKey(const ValueKey<String>('custom-seed-hex'));
+
+    // 不带 # 也认
+    await tester.enterText(hex, '1E88E5');
+    await tester.pumpAndSettle();
+    expect(controller.seedColor, const Color(0xFF1E88E5));
+
+    // 三位简写展开
+    await tester.enterText(hex, '#f00');
+    await tester.pumpAndSettle();
+    expect(controller.seedColor, const Color(0xFFFF0000));
+
+    // 输全了输入框会回显完整值（未聚焦时才回写，这里先移开焦点）
+    await tester.enterText(hex, '0A0B0C');
+    await tester.pumpAndSettle();
+    expect(controller.seedColor, const Color(0xFF0A0B0C));
+
+    // 非法：不改变种子色，也不该崩
+    await tester.enterText(hex, '12345');
+    await tester.pumpAndSettle();
+    expect(controller.seedColor, const Color(0xFF0A0B0C));
+  });
 }
