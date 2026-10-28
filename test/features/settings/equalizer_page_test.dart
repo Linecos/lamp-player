@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/equalizer.dart';
+import 'package:lamp_player/src/features/settings/equalizer_curve.dart';
 import 'package:lamp_player/src/features/settings/equalizer_page.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
@@ -57,6 +58,26 @@ void main() {
     expect(changes.last.$2[5], greaterThan(0));
     expect(changes.last.$3, isNull, reason: '手动调过就不再算某个预设');
     expect(find.text('自定义曲线'), findsOneWidget);
+  });
+
+  testWidgets('顶部曲线图按当前增益显示读数', (WidgetTester tester) async {
+    await _pump(tester, gains: equalizerPresets.last.gains);
+
+    final Finder chart = find.byType(EqualizerCurveChart);
+    expect(chart, findsOneWidget);
+    expect(
+      tester.getRect(chart).top,
+      lessThan(
+        tester.getRect(find.byKey(const ValueKey<String>('eq-band-0'))).top,
+      ),
+      reason: '曲线图在推子上面',
+    );
+    // 重低音首段 +7
+    expect(
+      find.descendant(of: chart, matching: find.text('+7')),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: chart, matching: find.text('0')), findsWidgets);
   });
 
   testWidgets('点预设可整条曲线切换', (WidgetTester tester) async {
