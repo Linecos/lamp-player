@@ -36,4 +36,31 @@ void main() {
 
     expect(folders, isEmpty);
   });
+
+  test('非音频文件不把它所在目录拖进曲库', () {
+    // 误拖一个文档就把它所在的桌面 / 下载目录整个加进来并全盘扫描，
+    // 代价太大：文件必须带音频扩展名才认
+    final List<String> folders = foldersFromDropPaths(
+      <String>[
+        r'C:\Users\me\Desktop\季度报告.docx',
+        r'C:\Users\me\Desktop\cover.jpg',
+        r'C:\Users\me\Desktop\无扩展名',
+        r'D:\Music\夜航.MP3',
+      ],
+      isDirectory: (String _) => false,
+      parentOf: parentOf,
+    );
+
+    expect(folders, <String>[r'D:\Music'], reason: '扩展名大小写不敏感');
+  });
+
+  test('目录名里的点不算扩展名', () {
+    final List<String> folders = foldersFromDropPaths(
+      <String>[r'D:\Music\Best.of.2020\夜航.mp3'],
+      isDirectory: (String _) => false,
+      parentOf: parentOf,
+    );
+
+    expect(folders, <String>[r'D:\Music\Best.of.2020']);
+  });
 }
