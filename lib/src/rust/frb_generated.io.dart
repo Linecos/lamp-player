@@ -6,6 +6,7 @@
 import 'api/appearance.dart';
 import 'api/collections.dart';
 import 'api/db.dart';
+import 'api/desktop_lyrics.dart';
 import 'api/lyrics.dart';
 import 'api/media.dart';
 import 'api/model.dart';
