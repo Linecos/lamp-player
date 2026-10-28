@@ -36,19 +36,6 @@ fn slot() -> &'static Mutex<Option<isize>> {
     HWND_SLOT.get_or_init(|| Mutex::new(None))
 }
 
-/// 诊断日志（临时）：`%TEMP%\lamp-desktop-lyric.log`
-pub fn trace(message: &str) {
-    use std::io::Write;
-    let path = std::env::temp_dir().join("lamp-desktop-lyric.log");
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let _ = writeln!(file, "{message}");
-    }
-}
-
 fn text_now() -> String {
     state()
         .lock()
@@ -67,7 +54,6 @@ pub fn show() -> anyhow::Result<()> {
                 created
             }
             Err(error) => {
-                trace(&format!("create failed: {error}"));
                 return Err(error);
             }
         },
@@ -77,14 +63,12 @@ pub fn show() -> anyhow::Result<()> {
     if let Ok(mut guard) = state().lock() {
         guard.visible = true;
     }
-    trace(&format!("show hwnd={hwnd}"));
     Ok(())
 }
 
 /// 隐藏窗口；窗口与线程保留，下次打开不用重建
 pub fn hide() -> anyhow::Result<()> {
     let slot_value = *slot().lock().unwrap_or_else(|p| p.into_inner());
-    trace(&format!("hide slot={slot_value:?}"));
     imp::hide(slot_value);
     if let Ok(mut guard) = state().lock() {
         guard.visible = false;
@@ -103,7 +87,6 @@ pub fn set_line(line: &str) -> anyhow::Result<()> {
             true
         }
     };
-    trace(&format!("set_line changed={changed} line={line:?}"));
     if changed {
         if let Some(hwnd) = *slot().lock().unwrap_or_else(|p| p.into_inner()) {
             imp::repaint(hwnd);
@@ -186,7 +169,6 @@ mod imp {
             };
             if target.0 != 0 {
                 let _ = ShowWindow(target, SW_HIDE);
-                super::trace(&format!("hide applied hwnd={}", target.0));
             }
         }
     }
@@ -241,9 +223,8 @@ mod imp {
             }
 
             // 透明度失败不致命：窗口仍然能用，只是不透明
-            if let Err(error) = SetLayeredWindowAttributes(hwnd, COLORREF(0), ALPHA, LWA_ALPHA) {
-                super::trace(&format!("set alpha failed: {error}"));
-            }
+            // 透明度失败不致命：窗口仍然能用，只是不透明
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), ALPHA, LWA_ALPHA);
 
             // 首次落在屏幕下方居中偏上；之后用户拖到哪算哪
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
