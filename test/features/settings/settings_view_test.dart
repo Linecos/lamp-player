@@ -517,10 +517,25 @@ void main() {
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
+    // 自定义取色是网格里的一个格子，点开才进取色界面
+    final Finder customCard = find.byKey(
+      const ValueKey<String>('seed-card-custom'),
+    );
+    expect(customCard, findsOneWidget, reason: '笔形色卡在系统格之后');
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-wheel')),
+      findsNothing,
+      reason: '未点开前不展示色轮',
+    );
+
+    await tester.tap(customCard);
+    await tester.pumpAndSettle();
+
     final Finder wheel = find.byKey(
       const ValueKey<String>('custom-seed-wheel'),
     );
-    expect(wheel, findsOneWidget, reason: '色轮是自定义取色的主体');
+    expect(wheel, findsOneWidget, reason: '色轮在独立弹窗里');
+    expect(find.text('自定义颜色'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('custom-seed-value')),
       findsOneWidget,

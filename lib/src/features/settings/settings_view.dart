@@ -1247,9 +1247,15 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                           key: const ValueKey<String>('seed-card-system'),
                           selected: current.seedColor == null,
                           onTap: () => unawaited(current.setSeedColor(null)),
-                          systemIcon: current.systemAccent == null
+                          cardIcon: current.systemAccent == null
                               ? Icons.auto_awesome_motion_outlined
                               : Icons.auto_awesome_outlined,
+                        ),
+                        _SeedCard(
+                          key: const ValueKey<String>('seed-card-custom'),
+                          selected: _isCustomSeed(current),
+                          onTap: () => _pickCustomColor(dialogContext, current),
+                          cardIcon: Icons.brush_outlined,
                         ),
                         for (final Color color in AppTheme.presetSeeds)
                           _SeedCard(
@@ -1267,10 +1273,6 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _tipLabel('自定义'),
-                    const SizedBox(height: 8),
-                    _CustomSeedPicker(controller: current),
-                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -1278,6 +1280,41 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
             actions: <Widget>[
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('完成'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 当前种子色是否不属于任何预设色（= 用户自己用色轮调的）
+  static bool _isCustomSeed(ThemeController controller) {
+    final Color? seed = controller.seedColor;
+    return seed != null && !AppTheme.presetSeeds.contains(seed);
+  }
+
+  /// 自定义取色弹窗：色轮 + 明度条，改动即时生效。
+  static void _pickCustomColor(
+    BuildContext dialogContext,
+    ThemeController controller,
+  ) {
+    unawaited(
+      showDialog<void>(
+        context: dialogContext,
+        builder: (BuildContext inner) {
+          final ThemeController current = ThemeScope.of(inner);
+          return AlertDialog(
+            title: const Text('自定义颜色'),
+            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            content: SizedBox(
+              width: 320,
+              child: _CustomSeedPicker(controller: current),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(inner).pop(),
                 child: const Text('完成'),
               ),
             ],
@@ -1308,15 +1345,15 @@ class _SeedCard extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.preview,
-    this.systemIcon,
+    this.cardIcon,
   });
 
   final bool selected;
   final VoidCallback onTap;
 
-  /// 非 null 时按它画四象限预览；null 时画系统强调色格（图标）。
+  /// 非 null 时按它画四象限预览；null 时画单个图标格（跟随系统 / 自定义）。
   final ColorScheme? preview;
-  final IconData? systemIcon;
+  final IconData? cardIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -1362,7 +1399,7 @@ class _SeedCard extends StatelessWidget {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            systemIcon ?? Icons.auto_awesome_outlined,
+                            cardIcon ?? Icons.auto_awesome_outlined,
                             size: 22,
                             color: scheme.onSurfaceVariant,
                           ),
