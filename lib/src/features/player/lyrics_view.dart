@@ -205,7 +205,6 @@ class _LyricsViewState extends State<LyricsView>
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
@@ -241,7 +240,6 @@ class _LyricsViewState extends State<LyricsView>
                         active: i == _active,
                         distance: _active < 0 ? i : (i - _active).abs(),
                         position: _smooth,
-                        scheme: scheme,
                         textTheme: theme.textTheme,
                         onSeek: widget.onSeek,
                       ),
@@ -287,7 +285,6 @@ class _LyricLineView extends StatelessWidget {
     required this.active,
     required this.distance,
     required this.position,
-    required this.scheme,
     required this.textTheme,
     required this.onSeek,
   });
@@ -300,7 +297,6 @@ class _LyricLineView extends StatelessWidget {
   /// 与当前行的距离：用来做由近及远的透明度衰减
   final int distance;
   final ValueListenable<double> position;
-  final ColorScheme scheme;
   final TextTheme textTheme;
   final Future<void> Function(double seconds) onSeek;
 
@@ -308,19 +304,20 @@ class _LyricLineView extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
     final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      // 比旧版整体放大约 10%
-      fontSize: active ? 23 : 19,
+      fontSize: active ? 30 : 24,
       height: 1.45,
       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
       letterSpacing: 0.2,
     );
 
-    final Color dim = scheme.onSurfaceVariant.withValues(
+    // 歌词固定使用白色系，不跟随主题色；当前行最实，上下按距离淡出。
+    final Color white = Colors.white;
+    final Color activeColor = white.withValues(alpha: 0.96);
+    final Color dim = white.withValues(
       alpha: switch (distance) {
-        0 => 0.62,
-        1 => 0.48,
-        2 => 0.3,
-        _ => 0.18,
+        1 => 0.42,
+        2 => 0.28,
+        _ => 0.16,
       },
     );
 
@@ -330,8 +327,8 @@ class _LyricLineView extends StatelessWidget {
         '♪',
         textAlign: TextAlign.center,
         style: style.copyWith(
-          color: active ? scheme.primary : dim,
-          fontSize: active ? 20 : 16.5,
+          color: active ? activeColor : dim,
+          fontSize: active ? 26 : 20,
         ),
       );
     } else if (active && line.words.length >= 2) {
@@ -341,14 +338,14 @@ class _LyricLineView extends StatelessWidget {
         lineEndMs: line.endMs.toInt(),
         position: position,
         style: style,
-        baseColor: dim,
-        highlightColor: scheme.primary,
+        baseColor: white.withValues(alpha: 0.42),
+        highlightColor: white,
       );
     } else {
       main = Text(
         line.text,
         textAlign: TextAlign.center,
-        style: style.copyWith(color: active ? scheme.primary : dim),
+        style: style.copyWith(color: active ? activeColor : dim),
       );
     }
 
@@ -375,12 +372,15 @@ class _LyricLineView extends StatelessWidget {
                   extra,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: _hasCjk(extra) ? 15 : 14,
+                    // 译文只比正文略小，避免层级断层
+                    fontSize: active
+                        ? (_hasCjk(extra) ? 25 : 23)
+                        : (_hasCjk(extra) ? 20 : 19),
                     height: 1.4,
-                    color: scheme.onSurfaceVariant.withValues(
+                    color: Colors.white.withValues(
                       alpha: active
-                          ? (_hasCjk(extra) ? 0.82 : 0.6)
-                          : (_hasCjk(extra) ? 0.42 : 0.3),
+                          ? (_hasCjk(extra) ? 0.72 : 0.58)
+                          : (_hasCjk(extra) ? 0.34 : 0.24),
                     ),
                   ),
                 ),
