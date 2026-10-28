@@ -36,7 +36,7 @@ void main() {
         shuffle: true,
         section: 'favorites',
         railExpanded: false,
-        sort: LibrarySort.added,
+        sort: LibrarySort.title,
         coverBackfillAttempted: true,
       ),
     );
@@ -50,7 +50,7 @@ void main() {
     expect(snapshot.shuffle, isTrue);
     expect(snapshot.section, 'favorites');
     expect(snapshot.railExpanded, isFalse);
-    expect(snapshot.sort, LibrarySort.added);
+    expect(snapshot.sort, LibrarySort.title);
     expect(snapshot.coverBackfillAttempted, isTrue);
   });
 
