@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerEnterEvent, PointerExitEvent;
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
@@ -202,8 +203,8 @@ class PlayerBar extends StatelessWidget {
   /// 右段：时间 + 进度 + 随机 / 循环 / 队列 + 音量
   ///
   /// 三段式把右段压到最小窗口约 215px、默认窗口约 546px，全塞进去会挤爆，
-  /// 所以按可用宽度分档：先收模式按钮，再收音量滑块，最后只留当前时间。
-  /// 收掉的顺序与 Spotify 一致——进度是主操作，宁可先牺牲音量滑块。
+  /// 所以按可用宽度分档：先收总时长，再收当前时间。音量条改成悬停浮层后
+  /// 不占常驻宽度，模式与队列两个按钮始终保留（合并成菜单要点两下才能切模式）。
   Widget _right(
     BuildContext context, {
     required bool canControl,
@@ -221,17 +222,14 @@ class PlayerBar extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double width = constraints.maxWidth;
-        // 380 以上放得下「播放模式 + 队列」两个按钮；再窄收进溢出菜单
-        final bool showModeButtons = width >= 380;
-        // 250 以下连总时长都放不下，只留当前时间
-        final bool showTotal = width >= 250;
+        // 300 以下先收总时长：模式与队列各占一个按钮后右侧更挤，
+        // 进度条是主操作，总时长还能从进度条末端推出来
+        final bool showTotal = width >= 300;
         // 再窄连时间标签也去掉（窗口下限 900 时不会触发，纯兜底）
         final bool showTime = width >= 160;
-        // 音量滑块：宽窗口 120，中等 64 / 48，300 以下只留静音按钮（Spotify 的做法）
-        final double volumeWidth = width >= 500
-            ? 120
-            : (width >= 380 ? 64 : (width >= 300 ? 48 : 0));
-        final double buttonSize = showModeButtons ? 36 : 32;
+        // 音量条改成悬停浮层后不再占常驻宽度：进度条吃掉这块宽度，
+        // 右侧图标自然靠到岛的内边距上，和左段对称
+        const double buttonSize = 32;
 
         return Row(
           children: <Widget>[
@@ -258,35 +256,26 @@ class PlayerBar extends StatelessWidget {
               const SizedBox(width: 8),
               Text(formatDuration(total), style: timeStyle),
             ],
-            const SizedBox(width: 8),
-            if (showModeButtons) ...<Widget>[
-              _BarIconButton(
-                icon: playbackModeIcon(repeat, shuffle),
-                tooltip: '播放模式：${playbackModeLabel(repeat, shuffle)}',
-                size: buttonSize,
-                selected: playbackModeActive(repeat, shuffle),
-                onPressed: onCyclePlayMode,
-              ),
-              _BarIconButton(
-                icon: Icons.queue_music,
-                tooltip: '播放队列',
-                size: buttonSize,
-                onPressed: onShowQueue,
-              ),
-            ] else
-              _ModesMenu(
-                size: buttonSize,
-                repeat: repeat,
-                shuffle: shuffle,
-                onCyclePlayMode: onCyclePlayMode,
-                onShowQueue: onShowQueue,
-              ),
+            const SizedBox(width: 4),
+            // 播放模式与队列始终各占一个按钮：合并成菜单后要点两下才能切模式
+            _BarIconButton(
+              icon: playbackModeIcon(repeat, shuffle),
+              tooltip: '播放模式：${playbackModeLabel(repeat, shuffle)}',
+              size: buttonSize,
+              selected: playbackModeActive(repeat, shuffle),
+              onPressed: onCyclePlayMode,
+            ),
+            _BarIconButton(
+              icon: Icons.queue_music,
+              tooltip: '播放队列',
+              size: buttonSize,
+              onPressed: onShowQueue,
+            ),
             const SizedBox(width: 4),
             _VolumeControl(
               volume: volume,
               enabled: isAvailable,
               size: buttonSize,
-              sliderWidth: volumeWidth,
               onChanged: onVolumeChanged,
               onToggleMute: onToggleMute,
             ),
@@ -609,70 +598,15 @@ class _BarIconButton extends StatelessWidget {
   }
 }
 
-/// 窄窗口下把播放模式 / 队列收进溢出菜单。
-class _ModesMenu extends StatelessWidget {
-  const _ModesMenu({
-    required this.size,
-    required this.repeat,
-    required this.shuffle,
-    this.onCyclePlayMode,
-    this.onShowQueue,
-  });
-
-  final double size;
-  final LoopMode repeat;
-  final bool shuffle;
-  final VoidCallback? onCyclePlayMode;
-  final VoidCallback? onShowQueue;
-
-  Future<void> _show(BuildContext context) async {
-    final RenderBox button = context.findRenderObject()! as RenderBox;
-    final RenderBox overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final Rect rect = Rect.fromPoints(
-      button.localToGlobal(Offset.zero, ancestor: overlay),
-      button.localToGlobal(
-        button.size.bottomRight(Offset.zero),
-        ancestor: overlay,
-      ),
-    );
-    final String? picked = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
-      items: <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(
-          value: 'mode',
-          child: Text('播放模式：${playbackModeLabel(repeat, shuffle)}'),
-        ),
-        const PopupMenuItem<String>(value: 'queue', child: Text('播放队列')),
-      ],
-    );
-    switch (picked) {
-      case 'mode':
-        onCyclePlayMode?.call();
-      case 'queue':
-        onShowQueue?.call();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _BarIconButton(
-      icon: Icons.tune,
-      tooltip: '播放选项',
-      size: size,
-      selected: playbackModeActive(repeat, shuffle),
-      onPressed: () => unawaited(_show(context)),
-    );
-  }
-}
-
-class _VolumeControl extends StatelessWidget {
+/// 音量：图标常驻，悬停弹出竖条滑块；点击图标仍是静音切换。
+///
+/// 竖条放浮层而不是常驻：播放条右侧宽度紧张（最小窗口只剩两百多像素），
+/// 常驻滑块会把进度条挤到几乎没法拖。
+class _VolumeControl extends StatefulWidget {
   const _VolumeControl({
     required this.volume,
     required this.enabled,
     this.size = 40,
-    this.sliderWidth = 88,
     this.onChanged,
     this.onToggleMute,
   });
@@ -683,49 +617,160 @@ class _VolumeControl extends StatelessWidget {
   /// 静音按钮边长，与其他按钮保持一致
   final double size;
 
-  /// 滑块宽度：由右段剩余空间决定（上限 120），0 表示只留静音按钮
-  final double sliderWidth;
-
   final ValueChanged<double>? onChanged;
   final VoidCallback? onToggleMute;
 
   @override
+  State<_VolumeControl> createState() => _VolumeControlState();
+}
+
+class _VolumeControlState extends State<_VolumeControl> {
+  final OverlayPortalController _portal = OverlayPortalController();
+  final LayerLink _link = LayerLink();
+
+  /// 指针是否停在按钮 / 浮层上；两者都不在时才收起
+  bool _overButton = false;
+  bool _overPanel = false;
+
+  /// 收起延迟：从按钮移向浮层时会先经过一小段空隙，立刻收就没法用
+  Timer? _hideTimer;
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _syncVisibility() {
+    _hideTimer?.cancel();
+    if (_overButton || _overPanel) {
+      if (!_portal.isShowing) {
+        _portal.show();
+      }
+      return;
+    }
+    _hideTimer = Timer(const Duration(milliseconds: 140), () {
+      if (!mounted || _overButton || _overPanel) {
+        return;
+      }
+      if (_portal.isShowing) {
+        _portal.hide();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final double level = volume.clamp(0.0, 1.0);
+    final double level = widget.volume.clamp(0.0, 1.0);
+    final bool showPanel = widget.enabled && widget.onChanged != null;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        IconButton(
-          onPressed: enabled ? onToggleMute : null,
-          tooltip: level > 0 ? '静音' : '取消静音',
-          iconSize: 20,
-          // 与其他播放条按钮同尺寸，否则图标间距会忽大忽小
-          style: IconButton.styleFrom(
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return OverlayPortal(
+      controller: _portal,
+      overlayChildBuilder: (BuildContext context) => _panel(level),
+      child: CompositedTransformTarget(
+        link: _link,
+        child: MouseRegion(
+          onEnter: showPanel
+              ? (PointerEnterEvent _) {
+                  _overButton = true;
+                  _syncVisibility();
+                }
+              : null,
+          onExit: showPanel
+              ? (PointerExitEvent _) {
+                  _overButton = false;
+                  _syncVisibility();
+                }
+              : null,
+          child: IconButton(
+            onPressed: widget.enabled ? widget.onToggleMute : null,
+            tooltip: level > 0 ? '静音' : '取消静音',
+            iconSize: 20,
+            // 与其他播放条按钮同尺寸，否则图标间距会忽大忽小
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            constraints: BoxConstraints.tightFor(
+              width: widget.size,
+              height: widget.size,
+            ),
+            padding: EdgeInsets.zero,
+            color: scheme.onSurfaceVariant,
+            icon: Icon(switch (level) {
+              <= 0 => Icons.volume_off,
+              < 0.5 => Icons.volume_down,
+              _ => Icons.volume_up,
+            }),
           ),
-          constraints: BoxConstraints.tightFor(width: size, height: size),
-          padding: EdgeInsets.zero,
-          color: scheme.onSurfaceVariant,
-          icon: Icon(switch (level) {
-            <= 0 => Icons.volume_off,
-            < 0.5 => Icons.volume_down,
-            _ => Icons.volume_up,
-          }),
         ),
-        if (sliderWidth > 0)
-          SizedBox(
-            width: sliderWidth,
-            child: _SlimSlider(
-              key: const ValueKey<String>('player-volume'),
-              value: level,
-              max: 1,
-              enabled: enabled,
-              onChanged: onChanged,
+      ),
+    );
+  }
+
+  Widget _panel(double level) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ThemeData theme = Theme.of(context);
+
+    return Positioned(
+      // 不给宽度的话 Material 会吃满 overlay 的约束，变成一整块蒙版
+      width: 56,
+      child: CompositedTransformFollower(
+        link: _link,
+        showWhenUnlinked: false,
+        // 贴在按钮正上方，留 8px 空隙
+        targetAnchor: Alignment.topCenter,
+        followerAnchor: Alignment.bottomCenter,
+        offset: const Offset(0, -8),
+        child: MouseRegion(
+          onEnter: (PointerEnterEvent _) {
+            _overPanel = true;
+            _syncVisibility();
+          },
+          onExit: (PointerExitEvent _) {
+            _overPanel = false;
+            _syncVisibility();
+          },
+          child: Material(
+            elevation: 8,
+            color: scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    '${(level * 100).round()}%',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 36,
+                    height: 120,
+                    // 竖过来：上端 100%，下端 0%
+                    child: RotatedBox(
+                      quarterTurns: 3,
+                      child: _SlimSlider(
+                        key: const ValueKey<String>('player-volume'),
+                        value: level,
+                        max: 1,
+                        enabled: widget.enabled,
+                        onChanged: widget.onChanged,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }

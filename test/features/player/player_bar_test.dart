@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
@@ -16,6 +17,27 @@ Slider _sliderOf(WidgetTester tester, Key key) {
   return tester.widget<Slider>(
     find.descendant(of: find.byKey(key), matching: find.byType(Slider)),
   );
+}
+
+/// 音量图标（静音 / 取消静音都可能，按图标找更稳）
+Finder _volumeIcon() => find.byWidgetPredicate(
+  (Widget widget) =>
+      widget is Icon &&
+      (widget.icon == Icons.volume_up ||
+          widget.icon == Icons.volume_down ||
+          widget.icon == Icons.volume_off),
+);
+
+/// 鼠标移到音量图标上，把竖条浮层唤出来
+Future<TestGesture> _hoverVolume(WidgetTester tester) async {
+  final TestGesture mouse = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  await mouse.addPointer();
+  addTearDown(mouse.removePointer);
+  await mouse.moveTo(tester.getCenter(_volumeIcon()));
+  await tester.pumpAndSettle();
+  return mouse;
 }
 
 Future<void> _pumpBar(
@@ -134,7 +156,9 @@ void main() {
 
     await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
 
-    await tester.drag(find.byKey(_volumeKey), const Offset(30, 0));
+    await _hoverVolume(tester);
+    // 竖条：往上拖是调大（RotatedBox 把横条转成 90°，右端在上）
+    await tester.drag(find.byKey(_volumeKey), const Offset(0, -30));
     await tester.pump();
 
     expect(volumes, isNotEmpty);
@@ -151,14 +175,21 @@ void main() {
       onVolumeChanged: (_) {},
     );
 
+    // 引擎不可用时音量浮层根本不弹，且图标禁用
+    await _hoverVolume(tester);
+    expect(find.byKey(_volumeKey), findsNothing);
+    final IconButton icon = tester.widget<IconButton>(
+      find.ancestor(of: _volumeIcon(), matching: find.byType(IconButton)).first,
+    );
+    expect(icon.onPressed, isNull, reason: '引擎不可用时静音按钮也要禁用');
     expect(_sliderOf(tester, _progressKey).onChanged, isNull);
-    expect(_sliderOf(tester, _volumeKey).onChanged, isNull);
   });
 
   testWidgets('没有当前曲目时进度滑块禁用但音量可调', (WidgetTester tester) async {
     await _pumpBar(tester, onVolumeChanged: (_) {});
 
     expect(_sliderOf(tester, _progressKey).onChanged, isNull);
+    await _hoverVolume(tester);
     expect(_sliderOf(tester, _volumeKey).onChanged, isNotNull);
   });
 
@@ -315,64 +346,55 @@ void main() {
     }
   });
 
-  testWidgets('窄窗口不挤爆：模式与队列收进菜单、音量只留静音', (WidgetTester tester) async {
+  testWidgets('窄窗口不挤爆：模式与队列仍各占一个按钮，音量不占位', (WidgetTester tester) async {
     // 900 宽窗口 + 侧栏展开时，播放条可用宽度就是 618
     await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 618);
 
     expect(tester.takeException(), isNull, reason: '窄窗口不允许溢出');
-    expect(find.byTooltip('播放选项'), findsOneWidget);
-    expect(find.byTooltip('播放模式：顺序播放'), findsNothing, reason: '播放模式已收进菜单');
-    expect(find.byTooltip('播放队列'), findsNothing, reason: '队列也收进菜单');
+    expect(find.byTooltip('播放模式：顺序播放'), findsOneWidget);
+    expect(find.byTooltip('播放队列'), findsOneWidget);
     expect(find.byTooltip('静音'), findsOneWidget);
-    expect(find.byKey(_volumeKey), findsNothing, reason: '窄窗口音量只留静音按钮');
-    // 测试字体每个字符都按字号宽度渲染，时间标签比真实字体宽近一倍，所以只卡
-    // 下限；真实窗口（900 + 侧栏展开）下进度条约 97px。
+    expect(find.byKey(_volumeKey), findsNothing, reason: '音量条悬停才出现');
+    // 测试字体每个字符都按字号宽度渲染，时间标签比真实字体宽近一倍；这里
+    // 47.5 对应真实字体约 95px，够拖。切回两个按钮后右侧更挤，下限相应放宽。
     expect(
       tester.getSize(find.byKey(_progressKey)).width,
-      greaterThan(60),
+      greaterThan(40),
       reason: '进度条在窄窗口也要有可用宽度',
     );
   });
 
-  testWidgets('中等宽度：模式收进菜单但仍保留音量滑块', (WidgetTester tester) async {
-    await _pumpBar(tester, track: sampleTrack(title: '夜航'), width: 800);
-
-    expect(tester.takeException(), isNull);
-    expect(find.byTooltip('播放选项'), findsOneWidget);
-    expect(find.byKey(_volumeKey), findsOneWidget);
-  });
-
-  testWidgets('窄窗口下从溢出菜单里仍能切模式与打开队列', (WidgetTester tester) async {
-    int modes = 0;
-    int queues = 0;
+  testWidgets('中等宽度：两个按钮都在，悬停静音图标才弹出竖条', (WidgetTester tester) async {
     await _pumpBar(
       tester,
       track: sampleTrack(title: '夜航'),
-      width: 618,
-      onCyclePlayMode: () => modes += 1,
-      onShowQueue: () => queues += 1,
+      width: 800,
+      onVolumeChanged: (_) {},
     );
 
-    await tester.tap(find.byTooltip('播放选项'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('播放模式：顺序播放'));
-    await tester.pumpAndSettle();
-    expect(modes, 1);
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('播放模式：顺序播放'), findsOneWidget);
+    expect(find.byTooltip('播放队列'), findsOneWidget);
+    expect(find.byKey(_volumeKey), findsNothing);
 
-    await tester.tap(find.byTooltip('播放选项'));
+    final TestGesture mouse = await _hoverVolume(tester);
+
+    expect(find.byKey(_volumeKey), findsOneWidget, reason: '悬停后弹出竖条');
+    final Rect slider = tester.getRect(find.byKey(_volumeKey));
+    expect(slider.height, greaterThan(slider.width), reason: '竖着的才是竖条');
+
+    // 移开指针后收起
+    await mouse.moveTo(const Offset(5, 5));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('播放队列'));
-    await tester.pumpAndSettle();
-    expect(queues, 1);
+    expect(find.byKey(_volumeKey), findsNothing);
   });
 
   testWidgets('宽窗口下模式与队列按钮显示', (WidgetTester tester) async {
     await _pumpBar(tester, track: sampleTrack(title: '夜航'));
 
-    expect(find.byTooltip('播放选项'), findsNothing);
     expect(find.byTooltip('播放模式：顺序播放'), findsOneWidget);
     expect(find.byTooltip('播放队列'), findsOneWidget);
-    expect(tester.getSize(find.byKey(_volumeKey)).width, 120);
+    expect(find.byKey(_volumeKey), findsNothing, reason: '音量条常驻已去掉');
     expect(
       tester.getSize(find.byKey(_progressKey)).width,
       greaterThan(120),

@@ -12,6 +12,24 @@ import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
+/// 鼠标移到音量图标上，唤出竖条浮层（播放条的音量条改成悬停后才出现）
+Future<void> _hoverVolume(WidgetTester tester) async {
+  final Finder icon = find.byWidgetPredicate(
+    (Widget widget) =>
+        widget is Icon &&
+        (widget.icon == Icons.volume_up ||
+            widget.icon == Icons.volume_down ||
+            widget.icon == Icons.volume_off),
+  );
+  final TestGesture mouse = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  await mouse.addPointer();
+  addTearDown(mouse.removePointer);
+  await mouse.moveTo(tester.getCenter(icon));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('播放引擎不可用时禁用播放按钮并给出提示', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
@@ -488,6 +506,7 @@ void main() {
     final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
+    await _hoverVolume(tester);
     final Rect slider = tester.getRect(
       find.byKey(const ValueKey<String>('player-volume')),
     );
@@ -523,6 +542,7 @@ void main() {
     final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
+    await _hoverVolume(tester);
     final Slider slider = tester.widget<Slider>(
       find.descendant(
         of: find.byKey(const ValueKey<String>('player-volume')),
