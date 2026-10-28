@@ -64,11 +64,12 @@ abstract final class CoverPaletteCache {
       final List<Color> colors = <Color>[];
       for (final _Bucket bucket in sorted) {
         final Color color = bucket.color;
-        if (colors.any((Color item) => _distance(item, color) < 48)) {
+        if (colors.any((Color item) => _similar(item, color))) {
           continue;
         }
         colors.add(color);
-        if (colors.length >= 4) {
+        // 保留更多候选，供背景层按面积/色相挑选，避免小面积鲜艳色挤掉大面积主色
+        if (colors.length >= 6) {
           break;
         }
       }
@@ -88,6 +89,17 @@ abstract final class CoverPaletteCache {
       image?.dispose();
       codec?.dispose();
     }
+  }
+
+  static bool _similar(Color a, Color b) {
+    if (_distance(a, b) < 40) {
+      return true;
+    }
+    final HSLColor ha = HSLColor.fromColor(a);
+    final HSLColor hb = HSLColor.fromColor(b);
+    final double diff = (ha.hue - hb.hue).abs() % 360;
+    final double hue = diff > 180 ? 360 - diff : diff;
+    return hue < 14 && (ha.lightness - hb.lightness).abs() < 0.16;
   }
 
   static double _distance(Color a, Color b) {
