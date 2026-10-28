@@ -226,7 +226,12 @@ extension _OutputSection on _LibraryPageState {
     if (!_desktopLyrics) {
       return;
     }
-    final String line = _currentLyricLine();
+    String line = _currentLyricLine();
+    if (line.isEmpty) {
+      // 没歌词（或还没读到）时别留一条空白黑框：显示曲名撑住信息
+      final Track? track = _currentTrack;
+      line = track == null ? '♪' : '♪ ${track.title}';
+    }
     if (line == _desktopLine) {
       return;
     }

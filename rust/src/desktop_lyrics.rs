@@ -36,6 +36,19 @@ fn slot() -> &'static Mutex<Option<isize>> {
     HWND_SLOT.get_or_init(|| Mutex::new(None))
 }
 
+/// 诊断日志（临时）：`%TEMP%\lamp-desktop-lyric.log`
+pub fn trace(message: &str) {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("lamp-desktop-lyric.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 fn text_now() -> String {
     state()
         .lock()
@@ -58,12 +71,15 @@ pub fn show() -> anyhow::Result<()> {
     if let Ok(mut guard) = state().lock() {
         guard.visible = true;
     }
+    trace(&format!("show hwnd={hwnd}"));
     Ok(())
 }
 
 /// 隐藏窗口；窗口与线程保留，下次打开不用重建
 pub fn hide() -> anyhow::Result<()> {
-    if let Some(hwnd) = *slot().lock().unwrap_or_else(|p| p.into_inner()) {
+    let slot_value = *slot().lock().unwrap_or_else(|p| p.into_inner());
+    trace(&format!("hide slot={slot_value:?}"));
+    if let Some(hwnd) = slot_value {
         imp::hide(hwnd);
     }
     if let Ok(mut guard) = state().lock() {
@@ -83,6 +99,7 @@ pub fn set_line(line: &str) -> anyhow::Result<()> {
             true
         }
     };
+    trace(&format!("set_line changed={changed} line={line:?}"));
     if changed {
         if let Some(hwnd) = *slot().lock().unwrap_or_else(|p| p.into_inner()) {
             imp::repaint(hwnd);
