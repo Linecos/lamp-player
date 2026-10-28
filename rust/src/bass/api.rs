@@ -147,7 +147,12 @@ pub(super) fn dll_dir() -> Option<PathBuf> {
             candidates.push(parent.to_path_buf());
         }
     }
-    // 开发/测试期：构建产物目录里没有 DLL 时回落到仓库内的 third_party
+    // 开发/测试期：构建产物目录里没有 DLL 时回落到仓库内的 third_party。
+    //
+    // 只在 debug 构建里加这条：`env!` 展开的是编译那台机器的绝对路径，
+    // 打进 release 二进制既是无效回退（用户机器上没这个目录），也白白
+    // 把自己的目录结构写进产物。
+    #[cfg(debug_assertions)]
     candidates
         .push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../third_party/bass/windows/x64"));
     candidates
