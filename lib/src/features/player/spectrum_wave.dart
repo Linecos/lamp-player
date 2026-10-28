@@ -144,9 +144,11 @@ class _BarsPainter extends CustomPainter {
     for (int i = 0; i < count; i += 1) {
       final double t = count == 1 ? 0 : i / (count - 1);
       final double value = _sample(last * t).clamp(0.0, 1.0);
+      // 中部权重：两端收到 30%，变化集中在屏幕中间，看起来更聚拢
+      final double weight = 0.30 + 0.70 * math.sin(math.pi * t);
       final double height = math.max(
         _minBar,
-        maxHeight * math.pow(value, 1.1).toDouble(),
+        maxHeight * math.pow(value, 1.1).toDouble() * weight,
       );
       final double x = i * (bar + _gap);
       final Color base = _tint(t);
