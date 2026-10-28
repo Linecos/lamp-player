@@ -18,6 +18,7 @@
 pub mod appearance;
 pub mod collections;
 pub mod db;
+pub mod desktop_lyrics;
 pub mod lyrics;
 pub mod media;
 pub mod model;
