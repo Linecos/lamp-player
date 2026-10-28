@@ -6,8 +6,35 @@ part of '../library_page.dart';
 extension _PlaybackSection on _LibraryPageState {
   /* ---------------------------------------------------------------- 播放 */
 
+  /// 播放命令排队执行，同一时刻只跑一个。
+  ///
+  /// 键盘、媒体键、托盘、播放条按钮、队列面板、自动播完这六个来源此前都是独立
+  /// 发起的，交错起来的实测后果：连点两次下一首，两个 `advance` 各推进一次队列，
+  /// 两个 `_startCurrent` 又在 `play()` 上交错，最后只播了后一首、中间那首被吞掉；
+  /// 队列面板在 `await stop()` 期间改队列时，恢复出来的可能是一首已经删掉的歌。
+  ///
+  /// 串行后连点三次下一首会依次前进三首，符合直觉。失败只记日志：各入口内部
+  /// 已经给了用户提示，这里再抛只会变成未处理异常并毒化整条链。
+  Future<void> _serial(Future<void> Function() action) {
+    final Completer<void> done = Completer<void>();
+    _playChain = _playChain.then((_) async {
+      try {
+        await action();
+      } catch (error, stack) {
+        debugPrint('播放命令失败：$error\n$stack');
+      }
+      if (!done.isCompleted) {
+        done.complete();
+      }
+    });
+    return done.future;
+  }
+
   /// 从 [tracks] 这份列表里播放 [track]，整份列表成为播放队列。
-  Future<void> _playFrom(List<Track> tracks, Track track) async {
+  Future<void> _playFrom(List<Track> tracks, Track track) =>
+      _serial(() => _playFromNow(tracks, track));
+
+  Future<void> _playFromNow(List<Track> tracks, Track track) async {
     if (tracks.isEmpty) {
       return;
     }
@@ -280,7 +307,9 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  Future<void> _togglePlayback() async {
+  Future<void> _togglePlayback() => _serial(_togglePlaybackNow);
+
+  Future<void> _togglePlaybackNow() async {
     if (!_isAvailable) {
       _showEngineNotice();
       return;
@@ -331,7 +360,10 @@ extension _PlaybackSection on _LibraryPageState {
   /// 自然播完且下一首打不开（文件损坏 / 被删除）时自动继续跳，最多
   /// [_LibraryPageState._maxAutoSkips] 首，避免整库损坏时无限空转。
   /// 手动点播失败仍停在该曲并提示。
-  Future<void> _next({bool auto = false}) async {
+  Future<void> _next({bool auto = false}) =>
+      _serial(() => _nextNow(auto: auto));
+
+  Future<void> _nextNow({bool auto = false}) async {
     if (_queue.isEmpty) {
       return;
     }
@@ -392,7 +424,9 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 上一首：播放超过 3 秒先回到本曲开头，符合桌面播放器习惯。
-  Future<void> _previous() async {
+  Future<void> _previous() => _serial(_previousNow);
+
+  Future<void> _previousNow() async {
     if (_currentTrack == null) {
       return;
     }
@@ -441,7 +475,9 @@ extension _PlaybackSection on _LibraryPageState {
   ///
   /// 删除当前曲目时切到顶上来的那首；队列清空时停下并清掉播放条。
   /// 原本暂停就保持暂停，不因为删了一首突然出声。
-  Future<void> _onQueueChanged() async {
+  Future<void> _onQueueChanged() => _serial(_onQueueChangedNow);
+
+  Future<void> _onQueueChangedNow() async {
     _publishProgress();
     if (!mounted) {
       return;
@@ -496,9 +532,27 @@ extension _PlaybackSection on _LibraryPageState {
       }
     }
 
-    final double duration = target.durationSecs;
+    // `stop()` 是异步的，这期间队列面板还能继续删 / 拖：重新取一次当前曲目。
+    // 串行化只挡住了「其它播放入口」，挡不住面板自身的编辑，照旧值恢复
+    // 就会把一首已经删掉的歌播出来。
+    final Track? latest = _queue.current;
+    if (latest == null) {
+      _update(() {
+        _currentTrack = null;
+        _isPlaying = false;
+        _position = 0;
+        _duration = 0;
+        _pendingResumePosition = null;
+      });
+      _publishProgress();
+      _saveSessionNow();
+      _syncMediaSession(stopped: true);
+      return;
+    }
+
+    final double duration = latest.durationSecs;
     _update(() {
-      _currentTrack = target;
+      _currentTrack = latest;
       _duration = duration;
       _position = 0;
       _pendingResumePosition = null;

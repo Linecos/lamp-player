@@ -625,6 +625,11 @@ class _LibraryPageState extends State<LibraryPage>
   /// 可能落出「曲目是新的、位置是旧的」这种撕裂快照，重启就恢复到错的位置。
   Future<void> _saveChain = Future<void>.value();
 
+  /// 播放命令串行链：键盘、媒体键、托盘、队列面板、自动播完都会发命令，
+  /// 两个入口交错时会出现「队列被 advance 两次只播了一首」或旧曲目被重新播出。
+  /// 由 `_PlaybackSection._serial` 维护，这里只放状态。
+  Future<void> _playChain = Future<void>.value();
+
   Future<void> _saveSession() {
     final SessionSnapshot snapshot = SessionSnapshot(
       volume: _volume,
@@ -647,8 +652,18 @@ class _LibraryPageState extends State<LibraryPage>
       crossfadeSeconds: _crossfadeSeconds,
       flowBackground: _flowBackground,
     );
-    // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段
-    _saveChain = _saveChain.then((_) => _sessionStore.save(snapshot));
+    // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
+    //
+    // 单次写盘失败不能毒化整条链：链一旦变成 error future，后续 `.then` 全部跳过，
+    // 之后每次会话变化都被静默丢弃，异常还会逃逸成未处理错误。所以在这里吞掉，
+    // 只记日志——退出前那次保存失败也不该阻断退出。
+    _saveChain = _saveChain.then((_) async {
+      try {
+        await _sessionStore.save(snapshot);
+      } catch (error) {
+        debugPrint('保存会话失败：$error');
+      }
+    });
     return _saveChain;
   }
 
