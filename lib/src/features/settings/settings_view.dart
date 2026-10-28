@@ -1266,6 +1266,10 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    _tipLabel('自定义'),
+                    const SizedBox(height: 8),
+                    _CustomSeedPicker(controller: current),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -1683,6 +1687,193 @@ class _FolderRow extends StatelessWidget implements _Searchable {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 自定义种子色：三条 HSV 渐变滑杆 + 预览 + 一键回到默认色。
+///
+/// 拖动即时生效（和预设色卡一致），不设「应用」按钮——弹窗里所有选择
+/// 都是所见即所得，多一步确认反而打断预览。
+class _CustomSeedPicker extends StatefulWidget {
+  const _CustomSeedPicker({required this.controller});
+
+  final ThemeController controller;
+
+  @override
+  State<_CustomSeedPicker> createState() => _CustomSeedPickerState();
+}
+
+class _CustomSeedPickerState extends State<_CustomSeedPicker> {
+  late HSVColor _hsv = HSVColor.fromColor(widget.controller.effectiveSeed);
+
+  /// 自己刚推给控制器的颜色；用来区分「外部改了种子色」
+  Color? _pushed;
+
+  @override
+  void didUpdateWidget(_CustomSeedPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final Color current = widget.controller.effectiveSeed;
+    if (_pushed != current) {
+      // 点了预设色卡或切回跟随系统：滑杆跟着回到那个颜色
+      _hsv = HSVColor.fromColor(current);
+      _pushed = null;
+    }
+  }
+
+  void _apply(HSVColor hsv) {
+    setState(() {
+      _hsv = hsv;
+      _pushed = hsv.toColor();
+    });
+    unawaited(widget.controller.setSeedColor(_pushed!));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final double hue = _hsv.hue;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: _hsv.toColor(),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _HsvSlider(
+                label: '色相',
+                sliderKey: const ValueKey<String>('custom-seed-hue'),
+                value: hue / 360,
+                colors: <Color>[
+                  for (int step = 0; step <= 6; step += 1)
+                    HSVColor.fromAHSV(1, (step * 60) % 360, 1, 1).toColor(),
+                ],
+                onChanged: (double value) => _apply(
+                  _hsv
+                      .withHue(value * 360)
+                      .withSaturation(
+                        _hsv.saturation == 0 ? 0.75 : _hsv.saturation,
+                      )
+                      .withValue(_hsv.value == 0 ? 0.9 : _hsv.value),
+                ),
+              ),
+              _HsvSlider(
+                label: '饱和',
+                sliderKey: const ValueKey<String>('custom-seed-saturation'),
+                value: _hsv.saturation,
+                colors: <Color>[
+                  HSVColor.fromAHSV(1, hue, 0, _hsv.value).toColor(),
+                  HSVColor.fromAHSV(1, hue, 1, _hsv.value).toColor(),
+                ],
+                onChanged: (double value) => _apply(_hsv.withSaturation(value)),
+              ),
+              _HsvSlider(
+                label: '明度',
+                sliderKey: const ValueKey<String>('custom-seed-value'),
+                value: _hsv.value,
+                colors: <Color>[
+                  Colors.black,
+                  HSVColor.fromAHSV(1, hue, _hsv.saturation, 1).toColor(),
+                ],
+                onChanged: (double value) => _apply(_hsv.withValue(value)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          key: const ValueKey<String>('custom-seed-reset'),
+          onPressed: () => _apply(HSVColor.fromColor(AppTheme.defaultSeed)),
+          child: const Text('默认'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 带渐变底的一条滑杆：轨道透明，渐变画在底下，拇指压在上面。
+class _HsvSlider extends StatelessWidget {
+  const _HsvSlider({
+    required this.label,
+    required this.sliderKey,
+    required this.value,
+    required this.colors,
+    required this.onChanged,
+  });
+
+  final String label;
+  final Key sliderKey;
+  final double value;
+  final List<Color> colors;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 36,
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SizedBox(
+            height: 32,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                Container(
+                  height: 10,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(5),
+                    gradient: LinearGradient(colors: colors),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 0,
+                    activeTrackColor: Colors.transparent,
+                    inactiveTrackColor: Colors.transparent,
+                    thumbColor: scheme.surface,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 8,
+                      elevation: 2,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 14,
+                    ),
+                  ),
+                  child: Slider(
+                    key: sliderKey,
+                    value: value.clamp(0.0, 1.0),
+                    onChanged: onChanged,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
