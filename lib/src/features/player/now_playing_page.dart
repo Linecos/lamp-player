@@ -15,9 +15,9 @@ import '../../theme/app_theme.dart';
 import '../library/library_sort.dart' show trackArtist;
 import 'cover_palette.dart';
 import 'lyrics_view.dart';
-import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
+import 'spectrum_ribbon.dart';
 import 'widgets/cover_flow_background.dart';
 
 /// 正在播放页的实时快照。
@@ -77,7 +77,7 @@ class NowPlayingPage extends StatefulWidget {
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
 
-  /// 频谱数据：传了才在控制键上方显示大频谱
+  /// 频谱数据：传了才在歌词下层铺一条全宽音频丝带
   final ValueListenable<List<double>>? spectrum;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
@@ -401,16 +401,42 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     _header(context),
                     // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
                     Expanded(
-                      child: ValueListenableBuilder<Track?>(
-                        valueListenable: _track,
-                        builder: (
-                          BuildContext context,
-                          Track? track,
-                          Widget? child,
-                        ) => _body(context, track),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          // 频谱丝带压在内容下层：铺满整宽、半透明、不吃手势。
+                          // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
+                          // 歌词照常滚动。封面不透明，左半边自然被盖住。
+                          if (widget.spectrum != null)
+                            Positioned.fill(
+                              // 离控制区留一点缝，波形不贴着进度条
+                              bottom: 10,
+                              child: SpectrumRibbon(
+                                key: const ValueKey<String>(
+                                  'now-playing-spectrum',
+                                ),
+                                bands: widget.spectrum!,
+                                color: scheme.primary,
+                                // 右端偏一层 tertiary：全宽铺开时有点色相变化，
+                                // 不然像一条画上去的折线
+                                colorEnd: Color.lerp(
+                                  scheme.primary,
+                                  scheme.tertiary,
+                                  0.45,
+                                ),
+                              ),
+                            ),
+                          ValueListenableBuilder<Track?>(
+                            valueListenable: _track,
+                            builder: (
+                              BuildContext context,
+                              Track? track,
+                              Widget? child,
+                            ) => _body(context, track),
+                          ),
+                        ],
                       ),
                     ),
-                    if (widget.spectrum != null) _spectrum(context),
                     _controls(context),
                     const SizedBox(height: 12),
                   ],
@@ -716,22 +742,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   ///
   /// 只有这一块监听进度（每 500ms 一次）：滑块 + 时间 + 播放键都是小控件，
   /// 重建成本远低于整页。拖动预览走 [_dragPosition]，连这一层也不必重建。
-  /// 大频谱：贴在控制键上方，跟着窗口宽度拉长，不抢封面与歌词的高度
-  Widget _spectrum(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 0, 32, 4),
-      child: SpectrumBars(
-        key: const ValueKey<String>('now-playing-spectrum'),
-        bands: widget.spectrum!,
-        height: 72,
-        barWidth: 6,
-        gap: 5,
-        minBar: 2,
-        stretch: true,
-      ),
-    );
-  }
-
   Widget _controls(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
