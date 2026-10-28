@@ -883,6 +883,8 @@ class _LibraryPageState extends State<LibraryPage>
 
   /// 放歌时订阅频谱流，暂停 / 停止就退订：BASS 取 FFT 也是跨线程命令，
   /// 静音时没必要每 33ms 打扰一次引擎。
+  ///
+  /// 由 [_syncMediaSession] 在起播 / 暂停 / 停止时调用（见 playback_section）。
   void _syncSpectrum() {
     if (widget.spectrum == null || _isPlaying == _spectrumActive) {
       return;
