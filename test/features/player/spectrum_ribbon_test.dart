@@ -31,7 +31,11 @@ void main() {
 
     await tester.pumpWidget(
       _host(
-        SpectrumRibbon(key: const ValueKey<String>('ribbon'), bands: bands),
+        SpectrumRibbon(
+          key: const ValueKey<String>('ribbon'),
+          bands: bands,
+          animate: false,
+        ),
       ),
     );
     await tester.pump();
@@ -52,7 +56,9 @@ void main() {
     );
     addTearDown(bands.dispose);
 
-    await tester.pumpWidget(_host(SpectrumRibbon(bands: bands)));
+    await tester.pumpWidget(
+      _host(SpectrumRibbon(bands: bands, animate: false)),
+    );
     await tester.pump();
     expect(
       tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
@@ -88,7 +94,7 @@ void main() {
                 itemBuilder: (BuildContext context, int index) =>
                     SizedBox(height: 56, child: Text('第 $index 行歌词')),
               ),
-              SpectrumRibbon(bands: bands),
+              SpectrumRibbon(bands: bands, animate: false),
             ],
           ),
         ),

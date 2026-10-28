@@ -404,26 +404,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: <Widget>[
-                          // 频谱丝带压在内容下层：铺满整宽、半透明、不吃手势。
+                          // 频谱光波压在内容下层：铺满整宽、半透明、不吃手势。
                           // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
-                          // 歌词照常滚动。封面不透明，左半边自然被盖住。
+                          // 歌词照常滚动。固定 96 高、贴在控制区上方。
                           if (widget.spectrum != null)
-                            Positioned.fill(
-                              // 离控制区留一点缝，波形不贴着进度条
-                              bottom: 10,
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 6,
+                              height: 104,
                               child: SpectrumRibbon(
                                 key: const ValueKey<String>(
                                   'now-playing-spectrum',
                                 ),
                                 bands: widget.spectrum!,
+                                // 颜色默认由主题主色派生三段色相渐变
                                 color: scheme.primary,
-                                // 右端偏一层 tertiary：全宽铺开时有点色相变化，
-                                // 不然像一条画上去的折线
-                                colorEnd: Color.lerp(
-                                  scheme.primary,
-                                  scheme.tertiary,
-                                  0.45,
-                                ),
+                                animate: widget.animateBackground,
                               ),
                             ),
                           ValueListenableBuilder<Track?>(
