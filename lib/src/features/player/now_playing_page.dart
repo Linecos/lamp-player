@@ -306,6 +306,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
+  /// 方向键快进 / 快退：与拖动进度条走同一条下发路径（[NowPlayingPage.onSeek]）
+  ///
+  /// 位置取本地 `_position`（由曲库页每 500ms 推来），比 `widget.data.value`
+  /// 更贴近用户按下那一刻；两端夹紧，退到 0 / 到头都不会发出越界 seek。
+  Future<void> _seekBy(double delta) async {
+    final double duration = widget.data.value.duration;
+    if (duration <= 0) {
+      return;
+    }
+    final double target = (_position.value + delta).clamp(0.0, duration);
+    // 本地先跟上：曲库页每 500ms 才推一次快照，不更新的话连按三次 → 每次都从
+    // 同一个旧位置算，实际只前进了 5 秒。真值随后由快照覆盖。
+    _position.value = target;
+    await widget.onSeek(target);
+  }
+
   /// 切歌时重新读歌词与封面色；同一首不重复读
   void _syncTrack() {
     final Track? track = widget.data.value.track;
@@ -381,6 +397,51 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             Navigator.of(context).maybePop(),
+        // 播放控制与曲库页保持一致。本页是 push 出来的独立路由，处于焦点树顶端，
+        // 拿不到曲库页那套 CallbackShortcuts：不在这里补一份，进了这页之后
+        // 空格、方向键就全都不响应，看起来像快捷键失效
+        const SingleActivator(
+          LogicalKeyboardKey.space,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onTogglePlay()),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowRight,
+          includeRepeats: false,
+        ): () =>
+            unawaited(_seekBy(5)),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          includeRepeats: false,
+        ): () =>
+            unawaited(_seekBy(-5)),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowRight,
+          control: true,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onNext()),
+        const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          control: true,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onPrevious()),
+        const SingleActivator(
+          LogicalKeyboardKey.mediaPlayPause,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onTogglePlay()),
+        const SingleActivator(
+          LogicalKeyboardKey.mediaTrackNext,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onNext()),
+        const SingleActivator(
+          LogicalKeyboardKey.mediaTrackPrevious,
+          includeRepeats: false,
+        ): () =>
+            unawaited(widget.onPrevious()),
       },
       child: Focus(
         autofocus: true,
