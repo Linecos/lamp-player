@@ -170,6 +170,8 @@ enum Cmd {
     Stop(Reply<()>),
     Seek(f64, Reply<()>),
     Volume(f32, Reply<()>),
+    /// 起播后补算出的 ReplayGain：更新 gain_db 并立即应用到当前输出
+    SetGain(f64, Reply<()>),
     Snapshot(Reply<Progress>),
     Spectrum(Reply<Vec<f32>>),
     Devices(Reply<Vec<Device>>),
@@ -900,6 +902,19 @@ impl Engine {
         Ok(())
     }
 
+    /// 起播后补算出的 ReplayGain：更新增益并立即作用到正在出的声上。
+    ///
+    /// gain_db 会在下一次 [`Engine::play`] 被入参覆盖，所以这里只管「现在这首」；
+    /// 过期值（用户已切歌）由 Dart 侧过滤，这里不校验曲目身份。
+    fn set_gain(&mut self, gain_db: f64) -> Result<()> {
+        if !gain_db.is_finite() {
+            bail!("增益非法: {gain_db}");
+        }
+        self.gain_db = gain_db.clamp(-24.0, 12.0);
+        self.apply_volume();
+        Ok(())
+    }
+
     /* ------------------------------------------------------------ 均衡器 */
 
     /// 把 10 段均衡器挂到当前输出目标上（共享 = 曲目流，独占 = 混音流）
@@ -1486,6 +1501,9 @@ fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
         Cmd::Volume(volume, reply) => {
             let _ = reply.send(engine.set_volume(volume));
         }
+        Cmd::SetGain(gain_db, reply) => {
+            let _ = reply.send(engine.set_gain(gain_db));
+        }
         Cmd::Snapshot(reply) => {
             let _ = reply.send(engine.snapshot());
         }
@@ -1610,6 +1628,13 @@ pub fn seek(position_secs: f64) -> Result<()> {
 
 pub fn set_volume(volume: f64) -> Result<()> {
     call(Class::Volume, |reply| Cmd::Volume(volume as f32, reply))
+}
+
+/// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出。
+///
+/// 走 Volume 类：连发几条时只认最新，与音量滑条同一套作废逻辑。
+pub fn set_replay_gain(gain_db: f64) -> Result<()> {
+    call(Class::Volume, |reply| Cmd::SetGain(gain_db, reply))
 }
 
 /// 第 [index] 条分频边界落在哪个 bin 上（对数分布：低频密、高频疏）

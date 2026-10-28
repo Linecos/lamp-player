@@ -19,6 +19,11 @@ abstract interface class PlaybackService {
   /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需零点几秒）。
   Future<double> analyzeReplayGain(String path);
 
+  /// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出。
+  ///
+  /// 与 [play] 配套：起播不等分析（会卡住切歌），分析完成后再用这条补上。
+  Future<void> setReplayGain(double gainDb);
+
   Future<void> pause();
 
   Future<void> resume();
@@ -96,6 +101,10 @@ class RustPlaybackService implements PlaybackService {
   @override
   Future<double> analyzeReplayGain(String path) =>
       rust.playerAnalyzeReplayGain(path: path);
+
+  @override
+  Future<void> setReplayGain(double gainDb) =>
+      rust.playerSetReplayGain(gainDb: gainDb);
 
   @override
   Future<void> pause() => rust.playerPause();

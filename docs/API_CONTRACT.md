@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.7（2026-10-27）**
+> **当前版本：v0.8（2026-10-28）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.8 变更：新增 `player_set_replay_gain`（把起播后补算出的 ReplayGain 增益
+> 应用到当前输出）。纯新增，不改现有语义。
 >
 > v0.7 变更：新增 `api::replaygain`（`write_replay_gain`，把增益写进文件标签）。
 > 纯新增，不改现有语义。
@@ -228,6 +231,7 @@
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
 | `player_seek(position_secs: f64) -> Result<()>` | `Future<void> playerSeek({required double positionSecs})` | 否 | **已实现** |
 | `player_set_volume(volume: f64) -> Result<()>` | `Future<void> playerSetVolume({required double volume})` | 否 | **已实现** |
+| `player_set_replay_gain(gain_db: f64) -> Result<()>` | `Future<void> playerSetReplayGain({required double gainDb})` | 否 | **已实现** |
 | `player_now() -> Result<PlayerProgress>` | `Future<PlayerProgress> playerNow()` | 否 | **已实现** |
 | `player_position() -> Result<f64>` | `Future<double> playerPosition()` | 否 | **已实现** |
 | `player_duration() -> Result<f64>` | `Future<double> playerDuration()` | 否 | **已实现** |

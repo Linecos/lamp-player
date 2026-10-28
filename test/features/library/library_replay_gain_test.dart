@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/session_store.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
@@ -89,5 +92,66 @@ void main() {
       find.widgetWithIcon(IconButton, Icons.graphic_eq),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('无标签曲目先起播再补算增益，不把切歌卡在分析上', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..analyzedGain = -6.5;
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
+
+    // play 带的是 0（当时还没有增益）而不是 -6.5：证明起播没等分析
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.playedGains, <double>[0]);
+    // 起播完成后补算并应用到当前输出
+    expect(playback.analyzedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.setGainCalls, <double>[-6.5]);
+  });
+
+  testWidgets('补算完成前已切歌：旧曲增益只进缓存，不套到新曲上', (WidgetTester tester) async {
+    final Completer<void> gate = Completer<void>();
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..analyzedGain = -6.5;
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+        ),
+      ),
+    );
+    playback.analyzeGate = gate;
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.tap(find.text('潮汐'));
+    // 不 settle：夜航的分析还挂在 gate 上
+    await tester.pump();
+    expect(playback.playedPaths, <String>['/music/夜航.mp3', '/music/潮汐.mp3']);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    // 夜航的结果被切歌守卫拦下；潮汐自己的补算正常应用，只有一条
+    expect(playback.setGainCalls.length, 1);
   });
 }
