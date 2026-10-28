@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
@@ -206,7 +207,8 @@ void main() {
       playback: FakePlaybackService(isAvailable: true),
       lifecycle: lifecycle,
       // 设置页比默认视口高：调高视口，避免最后一行被播放条压住
-      viewSize: const Size(1280, 1100),
+      // （新增「快捷键」一行后又要再高一点）
+      viewSize: const Size(1280, 1240),
     );
     await openSettings(tester);
 
@@ -318,6 +320,74 @@ void main() {
 
     expect(session.snapshot.lastTrackPath, '/music/夜航.mp3');
     expect(session.snapshot.section, 'music');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('设置页「快捷键」打开编辑页，列出当前键位', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('快捷键'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('快捷键'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('播放 / 暂停'), findsOneWidget);
+    expect(find.text('空格'), findsOneWidget);
+    expect(find.text('Ctrl + ←'), findsOneWidget, reason: '上一首');
+    expect(find.text('Ctrl + →'), findsOneWidget, reason: '下一首');
+    expect(find.text('恢复默认'), findsOneWidget);
+    expect(find.textContaining('点击任意一行'), findsOneWidget);
+  });
+
+  testWidgets('改键后立即生效并写回会话', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+    );
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
+    expect(playback.pauseCalls, 0);
+
+    await openSettings(tester);
+    await tester.ensureVisible(find.text('快捷键'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('快捷键'));
+    await tester.pumpAndSettle();
+
+    // 点「播放 / 暂停」那一行，再按 Ctrl+P
+    await tester.tap(find.text('播放 / 暂停'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正在录制'), findsOneWidget);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ctrl + P'), findsOneWidget, reason: '键帽要跟着更新');
+    expect(session.snapshot.shortcutsJson, isNotEmpty, reason: '要写回会话');
+
+    // 返回曲库页，Ctrl+P 应当能暂停
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(playback.pauseCalls, 1, reason: '改过的键位要真的生效');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

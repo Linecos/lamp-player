@@ -46,6 +46,8 @@ extension _SettingsSection on _LibraryPageState {
             onCrossfadeChanged: _isAvailable
                 ? (double seconds) => unawaited(_setCrossfade(seconds))
                 : null,
+            shortcuts: _shortcuts,
+            onShowShortcuts: () => unawaited(_openShortcuts()),
             flowBackground: _flowBackground,
             onFlowBackgroundChanged: _setFlowBackground,
             onExclusiveChanged: _isAvailable && !_switchingOutput
@@ -125,5 +127,21 @@ extension _SettingsSection on _LibraryPageState {
       });
       _showMessage('清理失败：${ErrorRetry.describe(error)}');
     }
+  }
+
+  /// 打开快捷键设置页：录制式改键，点一行再按组合键
+  Future<void> _openShortcuts() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) =>
+            ShortcutsPage(bindings: _shortcuts, onChanged: _setShortcuts),
+      ),
+    );
+  }
+
+  /// 改键后立刻重绑（`CallbackShortcuts` 跟着 build 更新）并写回会话
+  void _setShortcuts(List<ShortcutBinding> bindings) {
+    _update(() => _shortcuts = bindings);
+    _saveSessionNow();
   }
 }

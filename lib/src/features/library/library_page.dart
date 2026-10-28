@@ -28,6 +28,8 @@ import '../../app/app_lifecycle.dart';
 import '../player/equalizer.dart';
 import '../player/now_playing_page.dart';
 import '../player/queue_dialog.dart';
+import '../player/shortcuts.dart';
+import '../settings/shortcuts_page.dart';
 import '../player/smtc_bridge.dart';
 import '../player/spectrum_controller.dart';
 import '../settings/equalizer_page.dart';
@@ -80,6 +82,7 @@ class LibraryPage extends StatefulWidget {
     this.lyricsLoader,
     this.spectrum,
     this.musicTagLauncher,
+    this.shortcuts = kDefaultShortcuts,
   });
 
   /// 曲库数据源；不传则走 Rust。
@@ -96,6 +99,12 @@ class LibraryPage extends StatefulWidget {
 
   /// 外部标签编辑器 MusicTag；不传则自动查找 / 让用户选 MusicTag.exe
   final MusicTagLauncher? musicTagLauncher;
+
+  /// 播放 / 界面快捷键表；默认 [kDefaultShortcuts]。
+  ///
+  /// 这是给「自定义键位」留的入口：实现 `ShortcutStore` 读出用户配置后，
+  /// 在这里传进来即可——曲库页与正在播放页都从这里取绑定，不用改页面代码。
+  final List<ShortcutBinding> shortcuts;
 
   /// 音量 / 上次播放 / 分区等会话状态；不传则用 shared_preferences。
   final SessionStore? sessionStore;
@@ -340,6 +349,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 是否按标签里的 ReplayGain 统一响度
   bool _replayGain = false;
 
+  /// 当前生效的键位表；会话里有自定义配置时覆盖 [LibraryPage.shortcuts]
+  late List<ShortcutBinding> _shortcuts = widget.shortcuts;
+
   /// 标签缺增益时现场分析的结果缓存（路径 → dB），本次会话内复用
   final Map<String, double> _autoGains = <String, double>{};
 
@@ -534,6 +546,9 @@ class _LibraryPageState extends State<LibraryPage>
       _outputDevice = snapshot.outputDevice;
       _outputDeviceNotifier.value = snapshot.outputDevice;
       _replayGain = snapshot.replayGain;
+      if (snapshot.shortcutsJson.isNotEmpty) {
+        _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
+      }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
       _flowBackground = snapshot.flowBackground;
     });
@@ -652,6 +667,7 @@ class _LibraryPageState extends State<LibraryPage>
       eqCustomPresets: _eqCustomPresets,
       outputDevice: _outputDevice,
       replayGain: _replayGain,
+      shortcutsJson: encodeShortcuts(_shortcuts),
       crossfadeSeconds: _crossfadeSeconds,
       flowBackground: _flowBackground,
     );
@@ -678,71 +694,33 @@ class _LibraryPageState extends State<LibraryPage>
 
     // 放在页面根部：文本框聚焦时由 EditableText 自己消费空格与方向键，
     // 其余情况下才落到播放控制上。
+    // 绑定表来自 shortcuts.dart：曲库页与正在播放页共用一份，改键只改那里。
+    // 页面只负责把「动作」映射到自己能做的事上；不提供的动作不会绑定。
+    final Map<ShortcutAction, VoidCallback> handlers =
+        <ShortcutAction, VoidCallback>{
+          ShortcutAction.togglePlay: _handleSpace,
+          ShortcutAction.seekForward: () =>
+              _unlessTyping(() => unawaited(_seekBy(5))),
+          ShortcutAction.seekBackward: () =>
+              _unlessTyping(() => unawaited(_seekBy(-5))),
+          ShortcutAction.next: () => _unlessTyping(() => unawaited(_next())),
+          ShortcutAction.previous: () =>
+              _unlessTyping(() => unawaited(_previous())),
+          ShortcutAction.volumeUp: () =>
+              _unlessTyping(() => _setVolume(_volume + 0.05)),
+          ShortcutAction.volumeDown: () =>
+              _unlessTyping(() => _setVolume(_volume - 0.05)),
+          ShortcutAction.toggleMute: _toggleMute,
+          ShortcutAction.focusSearch: _focusSearch,
+          ShortcutAction.mediaTogglePlay: () => unawaited(_togglePlayback()),
+          ShortcutAction.mediaNext: () => unawaited(_next()),
+          ShortcutAction.mediaPrevious: () => unawaited(_previous()),
+        };
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
-            _handleSpace,
-        const SingleActivator(
-          LogicalKeyboardKey.keyF,
-          control: true,
-          includeRepeats: false,
-        ): _focusSearch,
+        ...shortcutBindings(handlers, bindings: _shortcuts),
         const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
             _handleEscape,
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => unawaited(_seekBy(5))),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => unawaited(_seekBy(-5))),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => unawaited(_next())),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => unawaited(_previous())),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowUp,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => _setVolume(_volume + 0.05)),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowDown,
-          control: true,
-          includeRepeats: false,
-        ): () =>
-            _unlessTyping(() => _setVolume(_volume - 0.05)),
-        const SingleActivator(
-          LogicalKeyboardKey.keyM,
-          control: true,
-          includeRepeats: false,
-        ): _toggleMute,
-        const SingleActivator(
-          LogicalKeyboardKey.mediaPlayPause,
-          includeRepeats: false,
-        ): () =>
-            unawaited(_togglePlayback()),
-        const SingleActivator(
-          LogicalKeyboardKey.mediaTrackNext,
-          includeRepeats: false,
-        ): () =>
-            unawaited(_next()),
-        const SingleActivator(
-          LogicalKeyboardKey.mediaTrackPrevious,
-          includeRepeats: false,
-        ): () =>
-            unawaited(_previous()),
       },
       child: Focus(
         autofocus: true,

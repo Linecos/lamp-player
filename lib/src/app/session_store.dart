@@ -32,6 +32,7 @@ class SessionSnapshot {
     this.replayGain = false,
     this.crossfadeSeconds = 0,
     this.flowBackground = true,
+    this.shortcutsJson = '',
   });
 
   final double volume;
@@ -84,6 +85,12 @@ class SessionSnapshot {
 
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
+
+  /// 自定义键位的 JSON（`[encodeShortcut]` 的数组）；空串表示全用默认键位。
+  ///
+  /// 存原始字符串而不是 `List<ShortcutBinding>`：解析失败时调用方可以整体
+  /// 回落默认值，不必让会话层认识快捷键模型。
+  final String shortcutsJson;
 }
 
 abstract interface class SessionStore {
@@ -115,6 +122,7 @@ class PrefsSessionStore implements SessionStore {
   static const String sortKey = 'ui_sort';
   static const String flowBackgroundKey = 'ui_flow_background';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
+  static const String shortcutsKey = 'player_shortcuts';
   static const String volumeCurveVersionKey = 'volume_curve_version';
 
   /// 当前音量曲线版本。
@@ -169,6 +177,7 @@ class PrefsSessionStore implements SessionStore {
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
         flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
+        shortcutsJson: prefs.getString(shortcutsKey) ?? '',
       );
     } catch (_) {
       return const SessionSnapshot();
@@ -228,6 +237,11 @@ class PrefsSessionStore implements SessionStore {
         coverBackfillAttemptedKey,
         snapshot.coverBackfillAttempted,
       );
+      if (snapshot.shortcutsJson.isEmpty) {
+        await prefs.remove(shortcutsKey);
+      } else {
+        await prefs.setString(shortcutsKey, snapshot.shortcutsJson);
+      }
     } catch (_) {
       // 保存失败不影响当前会话
     }

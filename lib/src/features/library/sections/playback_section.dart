@@ -238,6 +238,7 @@ extension _PlaybackSection on _LibraryPageState {
                   ? () => unawaited(_openEqualizer())
                   : null,
               animateBackground: _flowBackground,
+              shortcuts: _shortcuts,
             ),
           ),
         )
