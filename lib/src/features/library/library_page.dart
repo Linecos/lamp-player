@@ -327,6 +327,9 @@ class _LibraryPageState extends State<LibraryPage>
   double _lastVolume = 1;
   bool _engineNoticeShown = false;
 
+  /// 键盘调音量时让播放条弹出音量浮层（只有悬停才显示，快捷键下看不见百分比）
+  final VolumePanelPeek _volumePeek = VolumePanelPeek();
+
   /// 是否请求 WASAPI 独占输出（偏好；设备不支持时引擎会回落共享）
   bool _exclusive = false;
 
@@ -535,6 +538,7 @@ class _LibraryPageState extends State<LibraryPage>
     _progress.dispose();
     _nowPlaying.dispose();
     _volumeNotifier.dispose();
+    _volumePeek.dispose();
     super.dispose();
   }
 
@@ -740,10 +744,14 @@ class _LibraryPageState extends State<LibraryPage>
           ShortcutAction.next: () => _unlessTyping(() => unawaited(_next())),
           ShortcutAction.previous: () =>
               _unlessTyping(() => unawaited(_previous())),
-          ShortcutAction.volumeUp: () =>
-              _unlessTyping(() => _setVolume(_volume + 0.05)),
-          ShortcutAction.volumeDown: () =>
-              _unlessTyping(() => _setVolume(_volume - 0.05)),
+          ShortcutAction.volumeUp: () => _unlessTyping(() {
+            _setVolume(_volume + 0.05);
+            _volumePeek.peek();
+          }),
+          ShortcutAction.volumeDown: () => _unlessTyping(() {
+            _setVolume(_volume - 0.05);
+            _volumePeek.peek();
+          }),
           ShortcutAction.toggleMute: _toggleMute,
           ShortcutAction.focusSearch: _focusSearch,
           ShortcutAction.mediaTogglePlay: () => unawaited(_togglePlayback()),
@@ -1189,6 +1197,7 @@ class _LibraryPageState extends State<LibraryPage>
       onSeekEnd: (double seconds) => unawaited(_onSeekEnd(seconds)),
       onVolumeChanged: _setVolume,
       onToggleMute: _toggleMute,
+      volumePanelPeek: _volumePeek,
       onShowQueue: () => unawaited(_showQueue()),
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,

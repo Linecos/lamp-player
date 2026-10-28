@@ -19,6 +19,15 @@ import 'playback_queue.dart';
 /// 加载一首曲目的歌词；不注入时播放条不显示歌词预览。
 typedef TrackLyricsLoader = Future<TrackLyrics> Function(String path);
 
+/// 请播放条把音量浮层弹出来一下。
+///
+/// 音量条平时只在悬停时出现；用 Ctrl+↑ / Ctrl+↓ 调音量时若只换图标，
+/// 看不出当前百分比。浮层本身仍归 `_VolumeControl` 的 `OverlayPortal` 管，
+/// 这里只发「展示一下」的信号，免得把控制器暴露给页面。
+class VolumePanelPeek extends ChangeNotifier {
+  void peek() => notifyListeners();
+}
+
 /// 底部播放条：曲目信息、上一首 / 播放暂停 / 下一首、进度、音量与队列入口。
 ///
 /// 布局是经典三段式：左「封面 + 曲名（+ 当前歌词）」与右「时间 + 进度 +
@@ -67,10 +76,14 @@ class PlayerBar extends StatelessWidget {
     this.onOpenNowPlaying,
     this.lyricsLoader,
     this.spectrum,
+    this.volumePanelPeek,
   });
 
   /// 频谱数据：传了才在曲名右侧显示迷你条（测试不注入就不画）
   final ValueListenable<List<double>>? spectrum;
+
+  /// 键盘调音量时用来弹出音量浮层；不传则只有悬停才显示
+  final VolumePanelPeek? volumePanelPeek;
 
   /// 当前曲目的歌词来源；不传时左段只显示曲名 / 艺术家
   final TrackLyricsLoader? lyricsLoader;
@@ -300,6 +313,7 @@ class PlayerBar extends StatelessWidget {
               size: buttonSize,
               onChanged: onVolumeChanged,
               onToggleMute: onToggleMute,
+              peek: volumePanelPeek,
             ),
           ],
         );
@@ -631,6 +645,7 @@ class _VolumeControl extends StatefulWidget {
     this.size = 40,
     this.onChanged,
     this.onToggleMute,
+    this.peek,
   });
 
   final double volume;
@@ -641,6 +656,9 @@ class _VolumeControl extends StatefulWidget {
 
   final ValueChanged<double>? onChanged;
   final VoidCallback? onToggleMute;
+
+  /// 键盘调音量的信号源；收到就弹一次浮层
+  final VolumePanelPeek? peek;
 
   @override
   State<_VolumeControl> createState() => _VolumeControlState();
@@ -657,10 +675,48 @@ class _VolumeControlState extends State<_VolumeControl> {
   /// 收起延迟：从按钮移向浮层时会先经过一小段空隙，立刻收就没法用
   Timer? _hideTimer;
 
+  /// 键盘调音量后浮层停留多久：足够看清百分比，又不至于一直挡着列表
+  static const Duration _peekDuration = Duration(milliseconds: 1200);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.peek?.addListener(_handlePeek);
+  }
+
+  @override
+  void didUpdateWidget(covariant _VolumeControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peek != widget.peek) {
+      oldWidget.peek?.removeListener(_handlePeek);
+      widget.peek?.addListener(_handlePeek);
+    }
+  }
+
   @override
   void dispose() {
+    widget.peek?.removeListener(_handlePeek);
     _hideTimer?.cancel();
     super.dispose();
+  }
+
+  /// 键盘调音量：弹一次浮层并停留一会儿，鼠标不在上面也会自动收起
+  void _handlePeek() {
+    if (!mounted || !widget.enabled || widget.onChanged == null) {
+      return;
+    }
+    _hideTimer?.cancel();
+    if (!_portal.isShowing) {
+      _portal.show();
+    }
+    _hideTimer = Timer(_peekDuration, () {
+      if (!mounted || _overButton || _overPanel) {
+        return;
+      }
+      if (_portal.isShowing) {
+        _portal.hide();
+      }
+    });
   }
 
   void _syncVisibility() {

@@ -287,6 +287,37 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('Ctrl+上下调音量时弹出音量浮层，过一会儿自动收起', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    expect(
+      find.byKey(const ValueKey<String>('player-volume')),
+      findsNothing,
+      reason: '没悬停也不调音量时浮层不该出现',
+    );
+
+    await _pressWithCtrl(tester, LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('player-volume')),
+      findsOneWidget,
+      reason: '键盘调音量应弹出浮层，方便看到百分比',
+    );
+    expect(find.text('95%'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('player-volume')),
+      findsNothing,
+      reason: '鼠标不在上面，停留一会儿后自动收起',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('搜索框内按空格不会切换播放', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
