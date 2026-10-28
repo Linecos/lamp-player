@@ -66,6 +66,33 @@ Write-Host ''
 Write-Host 'Lamp Player 本地检查' -ForegroundColor White
 Write-Host '-------------------' -ForegroundColor DarkGray
 
+Write-Host ''
+Write-Host '==> FRB 版本三处一致' -ForegroundColor Cyan
+# Cargo.toml / pubspec.yaml / ci.yml 的 FRB_VERSION 必须同版本：不一致时
+# codegen 生成的代码会和运行时 crate 对不上，CI 的 frb 一致性 job 才会报错，
+# 而那时通常已经推上去了。这里提前拦住。
+$frbSpecs = @(
+    @{ File = 'rust/Cargo.toml'; Pattern = 'flutter_rust_bridge\s*=\s*"=([\d.]+)"' },
+    @{ File = 'pubspec.yaml'; Pattern = 'flutter_rust_bridge:\s*([\d.]+)' },
+    @{ File = '.github/workflows/ci.yml'; Pattern = 'FRB_VERSION:\s*"([\d.]+)"' }
+)
+$frbFound = @{}
+foreach ($spec in $frbSpecs) {
+    $hit = Select-String -Path (Join-Path $root $spec.File) -Pattern $spec.Pattern |
+        Select-Object -First 1
+    $frbFound[$spec.File] = if ($hit) { $hit.Matches[0].Groups[1].Value } else { '' }
+}
+$frbUnique = @($frbFound.Values | Where-Object { $_ -ne '' } | Sort-Object -Unique)
+if (($frbFound.Values -contains '') -or ($frbUnique.Count -ne 1)) {
+    foreach ($key in $frbFound.Keys) {
+        $value = if ($frbFound[$key]) { $frbFound[$key] } else { '未找到' }
+        Write-Host ('    ' + $key + ' = ' + $value) -ForegroundColor Yellow
+    }
+    [void]$failed.Add('FRB 版本一致')
+} else {
+    Write-Host ('    三处都是 ' + $frbUnique[0]) -ForegroundColor DarkGray
+}
+
 if (-not $SkipFlutter) {
     Write-Host ''
     Write-Host '==> flutter analyze' -ForegroundColor Cyan
