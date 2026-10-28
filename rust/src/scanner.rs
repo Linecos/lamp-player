@@ -75,6 +75,10 @@ pub fn collect_tracks_incremental(
 
     let mut collected = Collected::default();
     let added_at = now_secs();
+    // 外挂封面按目录缓存：一个 500 首的专辑目录只有一张 folder.jpg，
+    // 不缓存的话每首都 read_dir 一遍目录、再把整张图读进来算哈希
+    // （8 MB 的图 × 500 次 ≈ 4 GB IO），首扫会卡在磁盘上。
+    let mut sidecar_cache: SidecarCache = HashMap::new();
 
     // 不跟随软链接，避免目录环导致无限遍历
     for entry in WalkDir::new(folder).follow_links(false) {
@@ -118,7 +122,14 @@ pub fn collect_tracks_incremental(
             continue;
         }
 
-        match read_track_guarded(path, added_at, mtime_ns, size, covers_dir) {
+        match read_track_guarded(
+            path,
+            added_at,
+            mtime_ns,
+            size,
+            covers_dir,
+            &mut sidecar_cache,
+        ) {
             Ok(track) => collected.tracks.push(track),
             Err(_) => collected.failed += 1,
         }
@@ -139,6 +150,9 @@ pub fn is_audio_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 单次扫描内的外挂封面缓存：目录 → 该目录命中的封面缓存路径（`None` 表示没有）
+type SidecarCache = HashMap<PathBuf, Option<String>>;
+
 /// 解析单个文件，把 panic 隔离在单个文件内。
 ///
 /// lofty 解析损坏/恶意文件时理论上可能 panic；panic 穿过 FFI 会直接终止进程，
@@ -149,9 +163,10 @@ fn read_track_guarded(
     mtime_ns: i64,
     size: i64,
     covers_dir: Option<&Path>,
+    sidecar_cache: &mut SidecarCache,
 ) -> Result<ScannedTrack> {
     match catch_unwind(AssertUnwindSafe(|| {
-        read_track(path, added_at, mtime_ns, size, covers_dir)
+        read_track(path, added_at, mtime_ns, size, covers_dir, sidecar_cache)
     })) {
         Ok(result) => result,
         Err(_) => anyhow::bail!("解析元数据时发生 panic: {}", path.display()),
@@ -167,6 +182,7 @@ fn read_track(
     mtime_ns: i64,
     size: i64,
     covers_dir: Option<&Path>,
+    sidecar_cache: &mut SidecarCache,
 ) -> Result<ScannedTrack> {
     let tagged = lofty::read_from_path(path)
         .with_context(|| format!("解析元数据失败: {}", path.display()))?;
@@ -199,7 +215,7 @@ fn read_track(
     // 封面来源优先级：标签内嵌 → 同目录外挂图（cover.jpg / folder.jpg …）
     let cover_path = covers_dir.and_then(|dir| {
         tag.and_then(|t| extract_cover(t, dir))
-            .or_else(|| sidecar_cover(path, dir))
+            .or_else(|| sidecar_cover_cached(path, dir, sidecar_cache))
     });
 
     // ReplayGain 曲目增益，标签里通常写成 "-7.23 dB"；没有就按 0 处理。
@@ -264,6 +280,25 @@ fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str) -> Option<
         fs::write(&path, data).ok()?;
     }
     path.to_str().map(str::to_owned)
+}
+
+/// 带目录缓存的 [`sidecar_cover`]。
+///
+/// 同一目录下的曲目共用一张外挂封面，命中一次就够：缓存的是「找到 + 落盘」
+/// 之后的缓存文件名，后续曲目直接复用，不再 `read_dir` 目录、也不再整张读图。
+/// 只在单次扫描内有效——扫描期间用户换封面属极少见，下次扫描自然纠正。
+fn sidecar_cover_cached(
+    path: &Path,
+    covers_dir: &Path,
+    cache: &mut SidecarCache,
+) -> Option<String> {
+    let dir = path.parent()?;
+    if let Some(cached) = cache.get(dir) {
+        return cached.clone();
+    }
+    let found = sidecar_cover(path, covers_dir);
+    cache.insert(dir.to_path_buf(), found.clone());
+    found
 }
 
 /// 同目录外挂封面兜底：`cover.jpg` / `folder.jpg` / `album.png` 之类。
@@ -397,8 +432,12 @@ fn path_key_with(path: &str, windows: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_hash, parse_replay_gain, path_key_with, sidecar_cover, store_cover};
+    use super::{
+        content_hash, parse_replay_gain, path_key_with, sidecar_cover, sidecar_cover_cached,
+        store_cover,
+    };
     use lofty::picture::{MimeType, Picture, PictureType};
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -482,6 +521,39 @@ mod tests {
         let empty = temp_dir("sidecar_empty");
         fs::write(empty.join("a.mp3"), b"x").expect("写曲目占位");
         assert!(sidecar_cover(&empty.join("a.mp3"), &covers).is_none());
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&empty);
+    }
+
+    /// 同一目录的多首曲目只该扫一次封面：500 首的专辑目录若不缓存，
+    /// 每首都 read_dir + 整张读图（8 MB × 500 ≈ 4 GB IO）。
+    #[test]
+    fn sidecar_cover_cache_spares_repeated_directory_scans() {
+        let dir = temp_dir("sidecar_cache");
+        let covers = dir.join("covers");
+        let track = dir.join("a.mp3");
+        fs::write(&track, b"x").expect("写曲目占位");
+        let cover = dir.join("cover.jpg");
+        fs::write(&cover, [0xFF, 0xD8, 0xFF, 0x33]).expect("写 cover.jpg");
+
+        let mut cache = HashMap::new();
+        let first = sidecar_cover_cached(&track, &covers, &mut cache).expect("首次应命中");
+
+        // 删掉原图：缓存生效时第二次仍返回同一结果，说明没有再读盘
+        fs::remove_file(&cover).expect("删除原图");
+        assert_eq!(
+            Some(first),
+            sidecar_cover_cached(&track, &covers, &mut cache),
+            "同一目录第二次应走缓存",
+        );
+
+        // 没有封面的目录也要记下来，否则同目录每首歌都会重扫一遍
+        let empty = temp_dir("sidecar_cache_empty");
+        let bare = empty.join("b.mp3");
+        fs::write(&bare, b"x").expect("写曲目占位");
+        assert!(sidecar_cover_cached(&bare, &covers, &mut cache).is_none());
+        assert!(cache.contains_key(empty.as_path()), "空结果也应缓存");
 
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&empty);
