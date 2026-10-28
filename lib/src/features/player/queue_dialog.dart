@@ -196,7 +196,8 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                   controller: _scroll,
                   child: ReorderableListView.builder(
                     scrollController: _scroll,
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    // 左右各留 8：选中色块才不会顶到弹窗两侧、被 28 圆角切掉
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
                     itemCount: tracks.length,
                     buildDefaultDragHandles: false,
                     // newIndex 已扣掉被取走的那一行，直接交给队列
@@ -211,7 +212,7 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                           Animation<double> animation,
                         ) => Material(
                           color: scheme.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           child: child,
                         ),
                     itemBuilder: (BuildContext context, int index) {
@@ -231,6 +232,8 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                                     alpha: 0.35,
                                   )
                                 : null,
+                            // 与其它列表行一致：通栏直角色块在圆角弹窗里很扎眼
+                            borderRadius: BorderRadius.circular(16),
                           ),
                           child: ListTile(
                             key: ValueKey<String>('queue-item-$index'),

@@ -194,7 +194,8 @@ extension _SelectionSection on _LibraryPageState {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Material(
         color: scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(20),
+        // 与列表行的高亮同档（24），不再用 20 这一档
+        borderRadius: BorderRadius.circular(24),
         clipBehavior: Clip.antiAlias,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,

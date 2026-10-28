@@ -176,7 +176,8 @@ class _AlbumCard extends StatelessWidget {
                     return AlbumCover(
                       path: album.coverPath,
                       size: constraints.maxWidth,
-                      radius: 24,
+                      // 32 外框 - 12 内边距 = 20，与卡片圆角同心
+                      radius: 20,
                     );
                   },
                 ),

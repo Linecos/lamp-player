@@ -571,7 +571,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
               // 选择框自带一层底：与左侧图标同色，文字才不会看着浮在卡片上
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Padding(
                 // 上下各 6：让胶囊和左侧 40 的图标圈差不多高
@@ -1316,11 +1316,17 @@ class _SeedCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: radius,
-            border: Border.all(
-              color: selected ? scheme.primary : scheme.outlineVariant,
-              width: selected ? 2 : 1,
-            ),
+            border: Border.all(color: scheme.outlineVariant),
           ),
+          // 选中描边用 foregroundDecoration：它不参与布局，边框从 1px 变 2px
+          // 时里面的圆形预览不会缩 2px（Container 会把 decoration.padding
+          // 叠加进内边距，写在 decoration 里就会）
+          foregroundDecoration: selected
+              ? BoxDecoration(
+                  borderRadius: radius,
+                  border: Border.all(color: scheme.primary, width: 2),
+                )
+              : null,
           child: AspectRatio(
             aspectRatio: 1,
             child: Stack(

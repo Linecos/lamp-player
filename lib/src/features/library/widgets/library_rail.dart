@@ -279,7 +279,9 @@ class _RailItem extends StatelessWidget {
 
     final Widget item = Material(
       color: selected ? scheme.secondaryContainer : Colors.transparent,
-      borderRadius: BorderRadius.circular(28),
+      // 胶囊：展开 56 / 收起 48 两种高度下都是两端半圆，不会因为写死 28
+      // 在高 48 时被隐式夹紧
+      shape: const StadiumBorder(),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,

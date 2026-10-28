@@ -65,7 +65,7 @@ class _PlaylistCard extends StatelessWidget {
       color: scheme.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(32),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
@@ -80,7 +80,8 @@ class _PlaylistCard extends StatelessWidget {
                 height: 56,
                 decoration: BoxDecoration(
                   color: scheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(16),
+                  // 32 外框 - 12 内边距 = 20，内外圆角才平行
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Icon(
                   Icons.queue_music,

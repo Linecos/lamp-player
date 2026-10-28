@@ -976,8 +976,9 @@ class _LibraryPageState extends State<LibraryPage>
   Widget _buildSearchField(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    // 胶囊：半径给足，RRect 会按短边自动夹到高度的一半，改高度也不会变形
     final OutlineInputBorder border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(999),
       borderSide: BorderSide.none,
     );
 
@@ -998,7 +999,7 @@ class _LibraryPageState extends State<LibraryPage>
         border: border,
         enabledBorder: border,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(999),
           borderSide: BorderSide(color: scheme.primary, width: 1.6),
         ),
         prefixIcon: Padding(
