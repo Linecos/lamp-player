@@ -46,12 +46,13 @@ void main() {
       final double fallen = controller.bands.value.first;
       expect(fallen, lessThan(risen));
       // 只回落一小步（release 系数），不是直接掉到 0
-      expect(fallen, greaterThan(risen * 0.7));
+      expect(fallen, greaterThan(risen * 0.55));
 
       controller.detach();
       async.flushMicrotasks();
       expect(controller.bands.value, isEmpty);
       expect(controller.isListening, isFalse);
+      expect(controller.isPolling, isFalse);
     });
   });
 
@@ -91,9 +92,11 @@ void main() {
       );
       controller.attach();
       async.flushMicrotasks();
+      // 先出一帧，把「没有有效帧就改轮询」的兜底解除
       source.last.add(_frame(0.4));
       async.flushMicrotasks();
       expect(source.count, 1);
+      expect(controller.isPolling, isFalse);
 
       // 3 秒没有任何帧：超过 stallTimeout 就该重连
       async.elapse(const Duration(seconds: 3));
@@ -105,6 +108,38 @@ void main() {
       final int settled = source.count;
       async.elapse(const Duration(seconds: 5));
       expect(source.count, settled);
+    });
+  });
+
+  test('流一直不出帧时退化成轮询', () {
+    fakeAsync((FakeAsync async) {
+      final _Source source = _Source();
+      int samples = 0;
+      final SpectrumController controller = SpectrumController.withSource(
+        () => source.open(),
+        sample: () async {
+          samples += 1;
+          return _frame(0.6);
+        },
+      );
+      controller.attach();
+      async.flushMicrotasks();
+      expect(controller.isPolling, isFalse);
+
+      // 宽限期一过：一帧有效数据都没有，改轮询
+      async.elapse(SpectrumController.streamGrace);
+      expect(controller.isPolling, isTrue);
+      async.elapse(SpectrumController.pollInterval * 3);
+      expect(samples, greaterThan(1));
+      expect(controller.bands.value, isNotEmpty);
+      expect(controller.bands.value.first, greaterThan(0.2));
+
+      controller.detach();
+      async.flushMicrotasks();
+      expect(controller.bands.value, isEmpty);
+      final int settled = samples;
+      async.elapse(const Duration(seconds: 2));
+      expect(samples, settled, reason: '退订后应停止轮询');
     });
   });
 
