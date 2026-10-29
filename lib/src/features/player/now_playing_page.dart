@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../library/library_sort.dart' show trackArtist;
 import 'cover_palette.dart';
 import 'lyrics_view.dart';
+import 'output_device_dialog.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
 import 'shortcuts.dart';
@@ -268,29 +269,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
   }
 
-  void _showToast(
-    String message, {
-    LayerLink? link,
-    Alignment targetAnchor = Alignment.topCenter,
-    Alignment followerAnchor = Alignment.bottomCenter,
-    Offset offset = const Offset(0, -14),
-  }) {
+  /// 轻提示统一弹在播放 / 暂停键上方：那位置在窗口里是水平的中间，
+  /// 无论提示来自哪个按钮都出现在同一处，不会跟着按钮跑到屏幕边缘。
+  void _showToast(String message) {
     _removeToast();
     final OverlayState? overlay = Overlay.maybeOf(context);
     if (overlay == null) {
       return;
     }
     final OverlayEntry entry = OverlayEntry(
-      // 锚在被点的按钮上：提示就弹在刚操作的位置旁边
       builder: (BuildContext context) => Positioned(
         left: 0,
         top: 0,
         child: CompositedTransformFollower(
-          link: link ?? _toggleLink,
+          link: _toggleLink,
           showWhenUnlinked: false,
-          targetAnchor: targetAnchor,
-          followerAnchor: followerAnchor,
-          offset: offset,
+          targetAnchor: Alignment.topCenter,
+          followerAnchor: Alignment.bottomCenter,
+          offset: const Offset(0, -14),
           child: _ImmersiveToast(message: message, onDone: _removeToast),
         ),
       ),
@@ -1036,15 +1032,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   devices: widget.devices,
                                   selected: widget.selectedDevice,
                                   onSelect: widget.onSelectDevice!,
-                                  // 按钮在右上角，提示挂在它下面
-                                  onToast: (String message, LayerLink link) =>
-                                      _showToast(
-                                        message,
-                                        link: link,
-                                        targetAnchor: Alignment.bottomCenter,
-                                        followerAnchor: Alignment.topCenter,
-                                        offset: const Offset(0, 12),
-                                      ),
+                                  onToast: _showToast,
                                 ),
                               IconButton(
                                 key: const ValueKey<String>(
@@ -1133,8 +1121,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 }
 
-/// 输出设备选择：菜单里列「系统默认 + 枚举到的设备」，当前项打勾。
-class _OutputDeviceButton extends StatefulWidget {
+/// 输出设备按钮：点开弹窗列「系统默认 + 枚举到的设备」，当前项打勾。
+class _OutputDeviceButton extends StatelessWidget {
   const _OutputDeviceButton({
     required this.devices,
     required this.selected,
@@ -1148,22 +1136,38 @@ class _OutputDeviceButton extends StatefulWidget {
   /// 选中某块声卡（-1 表示回到系统默认）
   final ValueChanged<int> onSelect;
 
-  /// 弹提示：设备名在菜单里可能被截断，这里补全
-  final void Function(String message, LayerLink link) onToast;
+  /// 选完弹一句提示（位置由页面统一决定）
+  final ValueChanged<String> onToast;
 
-  @override
-  State<_OutputDeviceButton> createState() => _OutputDeviceButtonState();
-}
-
-class _OutputDeviceButtonState extends State<_OutputDeviceButton> {
-  /// 提示要挂在这个按钮下面
-  final LayerLink _link = LayerLink();
+  /// 打开设备弹窗；选中后回调给页面并提示一句
+  Future<void> _pick(
+    BuildContext context,
+    List<rust.PlayerDevice> available,
+    int active,
+  ) async {
+    final int? picked = await showOutputDeviceDialog(
+      context,
+      devices: available,
+      selected: active,
+    );
+    if (picked == null) {
+      return;
+    }
+    String name = '系统默认';
+    for (final rust.PlayerDevice device in available) {
+      if (device.index == picked) {
+        name = device.name;
+      }
+    }
+    onSelect(picked);
+    onToast('输出设备：$name');
+  }
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final ValueListenable<List<rust.PlayerDevice>>? list = widget.devices;
-    final ValueListenable<int>? current = widget.selected;
+    final ValueListenable<List<rust.PlayerDevice>>? list = devices;
+    final ValueListenable<int>? current = selected;
     if (list == null || current == null) {
       return const SizedBox.shrink();
     }
@@ -1179,45 +1183,20 @@ class _OutputDeviceButtonState extends State<_OutputDeviceButton> {
                   Widget? child,
                 ) {
                   final bool hasDevices = available.isNotEmpty;
-                  return PopupMenuButton<int>(
+                  return IconButton(
                     key: const ValueKey<String>('now-playing-output'),
                     tooltip: '输出设备',
                     padding: EdgeInsets.zero,
-                    enabled: hasDevices,
-                    onSelected: (int index) {
-                      String name = '系统默认';
-                      for (final rust.PlayerDevice device in available) {
-                        if (device.index == index) {
-                          name = device.name;
-                        }
-                      }
-                      widget.onSelect(index);
-                      widget.onToast('输出设备：$name', _link);
-                    },
-                    itemBuilder: (BuildContext context) =>
-                        <PopupMenuEntry<int>>[
-                          CheckedPopupMenuItem<int>(
-                            value: -1,
-                            checked: active < 0,
-                            child: const Text('系统默认'),
-                          ),
-                          for (final rust.PlayerDevice device in available)
-                            CheckedPopupMenuItem<int>(
-                              value: device.index,
-                              checked: device.index == active,
-                              child: Text(device.name),
-                            ),
-                        ],
-                    icon: CompositedTransformTarget(
-                      link: _link,
-                      child: Icon(
-                        Icons.speaker_outlined,
-                        size: 24,
-                        // 选中了具体设备时用主色提示「不是系统默认」
-                        color: active >= 0
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant,
-                      ),
+                    onPressed: hasDevices
+                        ? () => unawaited(_pick(context, available, active))
+                        : null,
+                    icon: Icon(
+                      Icons.speaker_outlined,
+                      size: 24,
+                      // 选中了具体设备时用主色提示「不是系统默认」
+                      color: active >= 0
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
                     ),
                   );
                 },

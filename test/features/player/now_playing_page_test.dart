@@ -631,6 +631,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(picks, <int>[2], reason: '选中设备要回调给页面');
+
+    // 提示统一弹在播放 / 暂停键上方（与沉浸模式提示同一位置）
+    final Rect toast = tester.getRect(find.text('输出设备：耳机'));
+    final Rect toggle = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-toggle')),
+    );
+    expect(toast.bottom, lessThanOrEqualTo(toggle.top));
+    expect(toast.center.dx, closeTo(toggle.center.dx, 1));
     await _settleToast(tester);
   });
 
