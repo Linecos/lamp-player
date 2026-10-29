@@ -605,6 +605,26 @@ void main() {
     await tester.pump(const Duration(minutes: 16));
     expect(toggles, 0, reason: '取消后不该再暂停');
   });
+
+  testWidgets('睡眠定时弹窗右上角的叉号能直接关掉，不改动现有定时', (WidgetTester tester) async {
+    int toggles = 0;
+    await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('sleep-close')), findsOneWidget);
+
+    // 先把轮盘拨到 15 分再关窗：关窗不该保存这个值
+    await tester.tap(find.byKey(const ValueKey<String>('sleep-preset-15')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('sleep-close')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('sleep-dial')), findsNothing);
+    await tester.pump(const Duration(minutes: 16));
+    expect(toggles, 0, reason: '叉号只是关窗，不该开始倒计时');
+  });
+
   testWidgets('播放页可切换输出设备', (WidgetTester tester) async {
     final ValueNotifier<List<rust.PlayerDevice>> devices =
         ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[
