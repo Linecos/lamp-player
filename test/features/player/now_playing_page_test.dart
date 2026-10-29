@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
+import 'package:lamp_player/src/features/player/lyrics_view.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
@@ -87,6 +88,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
   VoidCallback? onToggleDesktopLyricLock,
+  ValueListenable<List<double>>? spectrum,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -116,6 +118,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onOpenEqualizer: onOpenEqualizer,
         onToggleDesktopLyrics: onToggleDesktopLyrics,
         onToggleDesktopLyricLock: onToggleDesktopLyricLock,
+        spectrum: spectrum,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -232,6 +235,35 @@ void main() {
       ),
     );
     expect(third.style?.fontWeight, FontWeight.w600);
+  });
+
+  testWidgets('频谱丝带的高度交给歌词做底部淡出', (WidgetTester tester) async {
+    final ValueNotifier<List<double>> spectrum = ValueNotifier<List<double>>(
+      List<double>.filled(24, 0.6),
+    );
+    addTearDown(spectrum.dispose);
+    await _pump(tester, data: _data(), lyrics: _timed(), spectrum: spectrum);
+
+    final Rect bars = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-spectrum')),
+    );
+    final LyricsView view = tester.widget<LyricsView>(find.byType(LyricsView));
+    expect(bars.height, 72, reason: '丝带高度是淡出高度的来源');
+    expect(
+      view.edgeFadeBand,
+      bars.height + 6,
+      reason: '底部淡出要盖过整条丝带（含贴底的那 6px）',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('lyrics-edge-fade')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('没有频谱时不必为丝带留出淡出高度', (WidgetTester tester) async {
+    await _pump(tester, data: _data(), lyrics: _timed());
+    final LyricsView view = tester.widget<LyricsView>(find.byType(LyricsView));
+    expect(view.edgeFadeBand, 0);
   });
 
   testWidgets('无时间轴的内嵌歌词按纯文本展示', (WidgetTester tester) async {

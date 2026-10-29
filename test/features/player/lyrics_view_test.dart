@@ -26,6 +26,7 @@ Future<void> _pump(
   required ValueNotifier<double> position,
   required ValueNotifier<bool> playing,
   ValueChanged<double>? onSeek,
+  double band = 0,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
   tester.view.devicePixelRatio = 1;
@@ -41,6 +42,7 @@ Future<void> _pump(
           position: position,
           playing: playing,
           onSeek: (double seconds) async => onSeek?.call(seconds),
+          edgeFadeBand: band,
         ),
       ),
     ),
@@ -188,5 +190,68 @@ void main() {
     await tester.tap(find.text('第二行'));
     await tester.pump();
     expect(seeks.single, closeTo(5.0, 0.001));
+  });
+
+  test('上下淡出的 stops：底部盖过丝带再留一段过渡', () {
+    final List<double> stops = lyricFadeStops(height: 700, top: 44, band: 78);
+    expect(stops.first, 0);
+    expect(stops.last, 1);
+    expect(stops[1] * 700, closeTo(44, 0.5), reason: '顶部只藏半行');
+    final double bottom = (1 - stops[2]) * 700;
+    expect(
+      bottom,
+      greaterThanOrEqualTo(78 + 40),
+      reason: '盖住 78 高的频谱丝带之后还要有过渡段',
+    );
+    expect(bottom, lessThan(700 / 2), reason: '别把半个歌词区都吃掉');
+  });
+
+  test('歌词区很矮时过渡收缩到下限，不越过顶部淡出', () {
+    final List<double> small = lyricFadeStops(height: 200, top: 44, band: 78);
+    expect((1 - small[2]) * 200, closeTo(78 + 40, 0.5));
+    for (int i = 1; i < small.length; i += 1) {
+      expect(
+        small[i],
+        greaterThanOrEqualTo(small[i - 1]),
+        reason: 'stops 不能反序',
+      );
+    }
+    // 极端情况（比两段之和还矮）收成一条硬边，而不是让 stops 反序
+    final List<double> tiny = lyricFadeStops(height: 60, top: 44, band: 78);
+    expect(tiny[1], tiny[2]);
+    for (int i = 1; i < tiny.length; i += 1) {
+      expect(tiny[i], greaterThanOrEqualTo(tiny[i - 1]));
+    }
+  });
+
+  testWidgets('整片歌词套 dstIn 遮罩做边界淡出', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 5000, text: '第一行'),
+        _line(start: 5000, end: 9000, text: '第二行'),
+      ],
+      position: position,
+      playing: playing,
+      band: 78,
+    );
+
+    final Finder maskFinder = find.byKey(
+      const ValueKey<String>('lyrics-edge-fade'),
+    );
+    final ShaderMask mask = tester.widget<ShaderMask>(maskFinder);
+    expect(mask.blendMode, BlendMode.dstIn);
+    final Rect rect = tester.getRect(maskFinder);
+    expect(rect.height, greaterThan(0));
+    expect(
+      mask.shaderCallback(Offset.zero & rect.size),
+      isNotNull,
+      reason: '遮罩要按歌词区尺寸算出渐变',
+    );
   });
 }

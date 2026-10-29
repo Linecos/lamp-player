@@ -19,6 +19,7 @@ class LyricsView extends StatefulWidget {
     required this.position,
     required this.playing,
     required this.onSeek,
+    this.edgeFadeBand = 0,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -31,9 +32,50 @@ class LyricsView extends StatefulWidget {
 
   final Future<void> Function(double seconds) onSeek;
 
+  /// 底部必须淡干净的额外高度：正在播放页的频谱丝带压在歌词下层，
+  /// 丝带有多高，底部淡出就要盖过它，滚下来的文字才不会糊在柱子上。
+  final double edgeFadeBand;
+
   @override
   State<LyricsView> createState() => _LyricsViewState();
 }
+
+/// 上下淡出的渐变 stops（透明 → 不透明 → 不透明 → 透明）。
+///
+/// 底部一段按「丝带高度 [band] + 随高度缩放的过渡」算：最小窗口（900×560）里
+/// 歌词区只有 370 高，用固定值会把整个下半屏吃掉。过渡段最少 [_fadeRampMin]，
+/// 保证边框上滚动时不是一下子黑掉。
+@visibleForTesting
+List<double> lyricFadeStops({
+  required double height,
+  required double top,
+  required double band,
+}) {
+  if (height <= 0) {
+    return const <double>[0, 0, 1, 1];
+  }
+  final double ramp = (height * _fadeRampRatio).clamp(
+    _fadeRampMin,
+    _fadeRampMax,
+  );
+  final double bottom = (band + ramp).clamp(0.0, height);
+  final double t = (top / height).clamp(0.0, 1.0);
+  final double b = (1 - bottom / height).clamp(0.0, 1.0);
+  // 极矮的歌词区里两段会越过对方，取中点收成一条硬边，别让 stops 反序
+  if (t > b) {
+    final double mid = (t + b) / 2;
+    return <double>[0, mid, mid, 1];
+  }
+  return <double>[0, t, b, 1];
+}
+
+/// 顶部淡出高度：藏住被视口上沿硬切掉的半行
+const double _fadeTop = 44;
+
+/// 底部过渡段：随歌词区高度缩放，并夹在 [_fadeRampMin]~[_fadeRampMax]
+const double _fadeRampRatio = 0.15;
+const double _fadeRampMin = 40;
+const double _fadeRampMax = 80;
 
 class _LyricsViewState extends State<LyricsView> {
   final ScrollController _scroll = ScrollController();
@@ -46,6 +88,16 @@ class _LyricsViewState extends State<LyricsView> {
 
   /// 是否正在听 [UiClock]（只有播放中且歌词带逐字时间轴才需要）
   bool _clockOn = false;
+
+  /// 上下淡出的遮罩（[ShaderMask] 的 dstIn 渐变）：按歌词区尺寸缓存。
+  ///
+  /// `shaderCallback` 每次绘制都会调一次，逐字染色 30fps 重绘时每帧新建一个
+  /// 着色器，正是流光背景踩过的坑（Skia 缓存永远命中不了）。
+  Rect? _maskRect;
+  Shader? _maskShader;
+
+  /// 缓存对应的丝带高度：切到没频谱的界面时要重建
+  double _maskBand = -1;
 
   late List<GlobalKey> _keys;
 
@@ -209,36 +261,70 @@ class _LyricsViewState extends State<LyricsView> {
       builder: (BuildContext context, BoxConstraints constraints) {
         // 上下留出半屏，首尾行也能滚到正中间
         final double padding = math.max(24, constraints.maxHeight * 0.4);
-        // 上下淡出交给每行自己的「按距离衰减」：以前这里套 ShaderMask，
-        // 整块歌词每帧都要走一遍 saveLayer + dstIn 混合（逐字染色 30fps
-        // 重绘时等于每帧把整片歌词重新遮罩一次），实测是播放时的大头
-        return NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: SingleChildScrollView(
-            controller: _scroll,
-            padding: EdgeInsets.symmetric(vertical: padding, horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                for (int i = 0; i < widget.lines.length; i += 1)
-                  KeyedSubtree(
-                    key: ValueKey<String>('lyric-$i'),
-                    child: _LyricLineView(
-                      anchorKey: _keys[i],
-                      line: widget.lines[i],
-                      active: i == _active,
-                      distance: _active < 0 ? i : (i - _active).abs(),
-                      position: _smooth,
-                      textTheme: theme.textTheme,
-                      onSeek: widget.onSeek,
+        // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
+        // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
+        // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
+        return ShaderMask(
+          key: const ValueKey<String>('lyrics-edge-fade'),
+          blendMode: BlendMode.dstIn,
+          shaderCallback: _fadeShader,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: SingleChildScrollView(
+              controller: _scroll,
+              padding: EdgeInsets.symmetric(vertical: padding, horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  for (int i = 0; i < widget.lines.length; i += 1)
+                    KeyedSubtree(
+                      key: ValueKey<String>('lyric-$i'),
+                      child: _LyricLineView(
+                        anchorKey: _keys[i],
+                        line: widget.lines[i],
+                        active: i == _active,
+                        distance: _active < 0 ? i : (i - _active).abs(),
+                        position: _smooth,
+                        textTheme: theme.textTheme,
+                        onSeek: widget.onSeek,
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
     );
+  }
+
+  /// 上下淡出的遮罩：同一个尺寸只建一次着色器
+  Shader _fadeShader(Rect rect) {
+    final Shader? cached = _maskShader;
+    if (cached != null &&
+        _maskRect == rect &&
+        _maskBand == widget.edgeFadeBand) {
+      return cached;
+    }
+    _maskRect = rect;
+    _maskBand = widget.edgeFadeBand;
+    final Shader shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      // 只有 alpha 起作用（dstIn）：透明处把歌词抹掉，白色处原样保留
+      colors: const <Color>[
+        Color(0x00FFFFFF),
+        Color(0xFFFFFFFF),
+        Color(0xFFFFFFFF),
+        Color(0x00FFFFFF),
+      ],
+      stops: lyricFadeStops(
+        height: rect.height,
+        top: _fadeTop,
+        band: widget.edgeFadeBand,
+      ),
+    ).createShader(rect);
+    return _maskShader = shader;
   }
 }
 
