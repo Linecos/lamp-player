@@ -3,10 +3,14 @@ import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/player/spectrum_controller.dart';
 
 Float32List _frame(double value) =>
     Float32List.fromList(List<double>.filled(24, value));
+
+/// 频谱帧要等下一个 30fps 时钟跳才画出去
+void _tick(FakeAsync async) => async.elapse(UiClock.interval);
 
 /// 假的数据源：每次 open 都记下来，测试自己往里推帧
 class _Source {
@@ -38,11 +42,13 @@ void main() {
 
       source.last.add(_frame(0.8));
       async.flushMicrotasks();
+      _tick(async);
       final double risen = controller.bands.value.first;
       expect(risen, greaterThan(0.4));
 
       source.last.add(_frame(0));
       async.flushMicrotasks();
+      _tick(async);
       final double fallen = controller.bands.value.first;
       expect(fallen, lessThan(risen));
       // 只回落一小步（release 系数），不是直接掉到 0
@@ -77,6 +83,7 @@ void main() {
 
       source.last.add(_frame(0.5));
       async.flushMicrotasks();
+      _tick(async);
       expect(controller.bands.value, isNotEmpty);
 
       controller.detach();

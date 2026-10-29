@@ -3,14 +3,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
+import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 
 /// 歌词视图：居中、当前行逐字染色、上下淡出。
 ///
-/// 进度只从 [position] 拿（播放服务每 500ms 推一次），行内用 [Ticker] 插值到
-/// 每帧，逐字染色才不会一顿一顿。整列歌词一次性建好（一首歌通常 < 200 行），
+/// 进度只从 [position] 拿（播放服务每 500ms 推一次），行内用 [UiClock] 插值到
+/// 30fps，逐字染色才不会一顿一顿。整列歌词一次性建好（一首歌通常 < 200 行），
 /// 换来的是变高行也能精确居中——虚拟列表做不到这一点。
 class LyricsView extends StatefulWidget {
   const LyricsView({
@@ -35,15 +35,17 @@ class LyricsView extends StatefulWidget {
   State<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsViewState extends State<LyricsView>
-    with SingleTickerProviderStateMixin {
+class _LyricsViewState extends State<LyricsView> {
   final ScrollController _scroll = ScrollController();
 
   /// 插值后的进度：每帧更新，只被当前行监听
   final ValueNotifier<double> _smooth = ValueNotifier<double>(0);
 
-  final Stopwatch _watch = Stopwatch();
-  late final Ticker _ticker;
+  /// [_base] 取自哪个时刻（[UiClock] 秒）：插值从这一时刻往后推算
+  double _baseAt = 0;
+
+  /// 是否正在听 [UiClock]（只有播放中且歌词带逐字时间轴才需要）
+  bool _clockOn = false;
 
   late List<GlobalKey> _keys;
 
@@ -57,14 +59,14 @@ class _LyricsViewState extends State<LyricsView>
   void initState() {
     super.initState();
     _keys = _buildKeys();
-    _ticker = createTicker(_onTick);
     _base = widget.position.value;
+    _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
     _active = _indexAt(_base);
     _playing = widget.playing.value;
     widget.position.addListener(_onPosition);
     widget.playing.addListener(_onPlaying);
-    _syncTicker();
+    _syncClock();
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _scrollToActive(animate: false),
     );
@@ -99,7 +101,9 @@ class _LyricsViewState extends State<LyricsView>
     widget.position.removeListener(_onPosition);
     widget.playing.removeListener(_onPlaying);
     _resumeTimer?.cancel();
-    _ticker.dispose();
+    if (_clockOn) {
+      UiClock.instance.removeListener(_onTick);
+    }
     _scroll.dispose();
     _smooth.dispose();
     super.dispose();
@@ -108,37 +112,32 @@ class _LyricsViewState extends State<LyricsView>
   List<GlobalKey> _buildKeys() =>
       List<GlobalKey>.generate(widget.lines.length, (_) => GlobalKey());
 
-  /// 只有存在逐字时间轴时才需要 60fps 插值；整篇行级歌词跟着 500ms 的进度走就够
+  /// 只有存在逐字时间轴时才需要逐帧插值；整篇行级歌词跟着 500ms 的进度走就够
   bool get _needsSmoothing =>
       widget.lines.any((lyrics_api.LyricLine line) => line.words.length >= 2);
 
-  void _syncTicker() {
-    if (_playing && _needsSmoothing) {
-      if (!_ticker.isActive) {
-        _watch
-          ..reset()
-          ..start();
-        _ticker.start();
-      }
+  void _syncClock() {
+    final bool on = _playing && _needsSmoothing;
+    if (on == _clockOn) {
+      return;
+    }
+    _clockOn = on;
+    if (on) {
+      _baseAt = UiClock.instance.seconds;
+      UiClock.instance.addListener(_onTick);
     } else {
-      if (_ticker.isActive) {
-        _ticker.stop();
-      }
-      _watch.stop();
+      UiClock.instance.removeListener(_onTick);
     }
   }
 
-  void _onTick(Duration _) {
-    _smooth.value = _base + _watch.elapsedMicroseconds / 1000000;
+  void _onTick() {
+    _smooth.value = _base + (UiClock.instance.seconds - _baseAt);
     _updateActive();
   }
 
   void _onPosition() {
     _base = widget.position.value;
-    _watch.reset();
-    if (_playing) {
-      _watch.start();
-    }
+    _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
     _updateActive();
   }
@@ -147,8 +146,8 @@ class _LyricsViewState extends State<LyricsView>
     _playing = widget.playing.value;
     // 暂停瞬间以插值结果为准，避免回跳到 500ms 前的旧进度
     _base = _smooth.value;
-    _watch.reset();
-    _syncTicker();
+    _baseAt = UiClock.instance.seconds;
+    _syncClock();
   }
 
   void _updateActive() {
@@ -210,42 +209,31 @@ class _LyricsViewState extends State<LyricsView>
       builder: (BuildContext context, BoxConstraints constraints) {
         // 上下留出半屏，首尾行也能滚到正中间
         final double padding = math.max(24, constraints.maxHeight * 0.4);
-        return ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (Rect rect) => const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              Color(0x00FFFFFF),
-              Color(0xFFFFFFFF),
-              Color(0xFFFFFFFF),
-              Color(0x00FFFFFF),
-            ],
-            stops: <double>[0, 0.12, 0.88, 1],
-          ).createShader(rect),
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: SingleChildScrollView(
-              controller: _scroll,
-              padding: EdgeInsets.symmetric(vertical: padding, horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  for (int i = 0; i < widget.lines.length; i += 1)
-                    KeyedSubtree(
-                      key: ValueKey<String>('lyric-$i'),
-                      child: _LyricLineView(
-                        anchorKey: _keys[i],
-                        line: widget.lines[i],
-                        active: i == _active,
-                        distance: _active < 0 ? i : (i - _active).abs(),
-                        position: _smooth,
-                        textTheme: theme.textTheme,
-                        onSeek: widget.onSeek,
-                      ),
+        // 上下淡出交给每行自己的「按距离衰减」：以前这里套 ShaderMask，
+        // 整块歌词每帧都要走一遍 saveLayer + dstIn 混合（逐字染色 30fps
+        // 重绘时等于每帧把整片歌词重新遮罩一次），实测是播放时的大头
+        return NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: SingleChildScrollView(
+            controller: _scroll,
+            padding: EdgeInsets.symmetric(vertical: padding, horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                for (int i = 0; i < widget.lines.length; i += 1)
+                  KeyedSubtree(
+                    key: ValueKey<String>('lyric-$i'),
+                    child: _LyricLineView(
+                      anchorKey: _keys[i],
+                      line: widget.lines[i],
+                      active: i == _active,
+                      distance: _active < 0 ? i : (i - _active).abs(),
+                      position: _smooth,
+                      textTheme: theme.textTheme,
+                      onSeek: widget.onSeek,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         );
@@ -511,23 +499,23 @@ class _KaraokeTextState extends State<_KaraokeText> {
       builder: (BuildContext context, BoxConstraints constraints) {
         _layout(constraints.maxWidth);
         final TextPainter base = _base!;
+        // 逐字染色每 33ms 重画一次：用 `repaint` 直连进度通知器，只重画这一层。
+        // 以前套的是 ValueListenableBuilder —— 每拍都要重建 widget、重建画笔、
+        // 再重排一次，实测把正在播放页的帧数顶到 3 倍（1 拍 3 帧）。
         return Semantics(
           label: widget.text,
-          child: ValueListenableBuilder<double>(
-            valueListenable: widget.position,
-            builder: (BuildContext context, double seconds, Widget? child) {
-              return CustomPaint(
-                size: base.size,
-                painter: KaraokeTextPainter(
-                  base: base,
-                  highlight: _highlight!,
-                  boxes: _boxes,
-                  times: _times,
-                  lineEndMs: widget.lineEndMs,
-                  positionMs: seconds * 1000,
-                ),
-              );
-            },
+          child: RepaintBoundary(
+            child: CustomPaint(
+              size: base.size,
+              painter: KaraokeTextPainter(
+                base: base,
+                highlight: _highlight!,
+                boxes: _boxes,
+                times: _times,
+                lineEndMs: widget.lineEndMs,
+                position: widget.position,
+              ),
+            ),
           ),
         );
       },
@@ -544,15 +532,20 @@ class KaraokeTextPainter extends CustomPainter {
     required this.boxes,
     required this.times,
     required this.lineEndMs,
-    required this.positionMs,
-  });
+    required this.position,
+  }) : super(repaint: position);
 
   final TextPainter base;
   final TextPainter highlight;
   final List<List<Rect>> boxes;
   final List<int> times;
   final int lineEndMs;
-  final double positionMs;
+
+  /// 播放进度：直接监听它重画，不重建 widget
+  final ValueListenable<double> position;
+
+  /// 当前进度（毫秒），画的时候现取
+  double get positionMs => position.value * 1000;
 
   /// 需要染色的区域（排版坐标）：已唱完的字整块，当前字按进度从左往右
   Path get fillPath {
@@ -609,8 +602,11 @@ class KaraokeTextPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(KaraokeTextPainter oldDelegate) =>
-      oldDelegate.positionMs != positionMs ||
-      oldDelegate.base != base ||
-      oldDelegate.highlight != highlight ||
-      oldDelegate.boxes != boxes;
+      // 进度变化由 `repaint` 直接触发，这里只管「排版结果变了没有」
+      !identical(oldDelegate.base, base) ||
+      !identical(oldDelegate.highlight, highlight) ||
+      !identical(oldDelegate.boxes, boxes) ||
+      !identical(oldDelegate.times, times) ||
+      oldDelegate.lineEndMs != lineEndMs ||
+      oldDelegate.position != position;
 }

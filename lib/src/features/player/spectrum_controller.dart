@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../common/ui_clock.dart';
 import '../../rust/api/player.dart' as rust;
 
 /// 打开一条频谱流（引擎侧线程按 33ms 推帧）
@@ -83,6 +84,13 @@ class SpectrumController {
   Timer? _pollTimer;
   Duration _retryDelay = _retryMin;
 
+  /// 最新一帧：等下一个 30fps 时钟跳再一次性画出去。
+  ///
+  /// 以前收到帧就直接改 `bands`，和流光背景的 30fps 时钟各走各的，
+  /// 两个源一错开就是 60~100 帧/秒的整帧重绘（240Hz 屏上更夸张）。
+  List<double>? _pending;
+  bool _clockOn = false;
+
   /// 累计收到的帧数；看门狗靠它的增量判断流是不是停了
   int _frames = 0;
   int _framesSeen = 0;
@@ -144,7 +152,31 @@ class SpectrumController {
       // 引擎不可用（非 Windows / DLL 缺失）：不显示频谱，别影响播放
       _onBroken();
     }
+    _syncClock(true);
     _armGrace();
+  }
+
+  /// 频谱跟着 [UiClock] 一起出帧：所有装饰动画共用同一个 30fps 节拍，
+  /// 不会因为数据源和动画错相而多出一倍的帧
+  void _syncClock(bool on) {
+    if (on == _clockOn) {
+      return;
+    }
+    _clockOn = on;
+    if (on) {
+      UiClock.instance.addListener(_flush);
+    } else {
+      UiClock.instance.removeListener(_flush);
+    }
+  }
+
+  void _flush() {
+    final List<double>? next = _pending;
+    if (next == null) {
+      return;
+    }
+    _pending = null;
+    bands.value = next;
   }
 
   /// 流启动后盯着它：一直没出有效帧就别耗着了，改轮询
@@ -264,6 +296,8 @@ class SpectrumController {
   }
 
   void _stop() {
+    _syncClock(false);
+    _pending = null;
     _watchdog?.cancel();
     _watchdog = null;
     _retryTimer?.cancel();
@@ -311,7 +345,7 @@ class SpectrumController {
       }
     }
     _smoothed = next;
-    bands.value = next;
+    _pending = next;
 
     if (loudest < 0.001) {
       if (_polling) {

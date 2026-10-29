@@ -116,7 +116,16 @@ class _SpectrumPainter extends CustomPainter {
         ? ((size.width - gap * (fit - 1)) / fit).clamp(1.0, step * 2)
         : barWidth;
     final double advance = width + gap;
-    final Paint paint = Paint()..isAntiAlias = true;
+    // 整高渐变只建一次：以前每根柱子各建一个（8 根 × 30fps = 240 个/秒），
+    // 每帧柱高都不同，Skia 的渐变缓存永远命中不了，是播放时 CPU 的大头
+    final Rect full = Rect.fromLTWH(0, 0, width, size.height);
+    final Paint paint = Paint()
+      ..isAntiAlias = true
+      ..shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: <Color>[color, color.withValues(alpha: 0.45)],
+      ).createShader(full);
 
     for (int i = 0; i < fit; i += 1) {
       final double value = values[i].clamp(0.0, 1.0);
@@ -127,16 +136,16 @@ class _SpectrumPainter extends CustomPainter {
         width,
         barHeight,
       );
-      // 从底部的实色渐变到顶部的浅色：矮柱子也不会糊成一团
-      paint.shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: <Color>[color, color.withValues(alpha: 0.45)],
-      ).createShader(rect);
-      canvas.drawRRect(
+      // 把整高渐变按柱高压缩进这根柱子：视觉与「每根一个渐变」一致，
+      // 但不用再为每根柱子生成着色器
+      canvas.save();
+      canvas.clipRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(width / 2)),
-        paint,
       );
+      canvas.translate(rect.left, rect.top);
+      canvas.scale(1, barHeight / size.height);
+      canvas.drawRect(full, paint);
+      canvas.restore();
     }
   }
 

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -702,10 +704,13 @@ void main() {
     );
 
     double turns() {
-      final RotationTransition spin = tester.widget<RotationTransition>(
+      // 旋转由 UiClock 的 60fps 档每 16ms 推进一次，不跟显示器刷新率走；
+      // 角度读自 Transform 的矩阵
+      final Transform spin = tester.widget<Transform>(
         find.byKey(const ValueKey<String>('now-playing-cover-spin')),
       );
-      return spin.turns.value;
+      final List<double> m = spin.transform.storage;
+      return math.atan2(m[1], m[0]) / (2 * math.pi);
     }
 
     expect(turns(), 0, reason: '默认方形封面不转');
