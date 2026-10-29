@@ -176,8 +176,21 @@ extension _OutputSection on _LibraryPageState {
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,
       desktopLyrics: _desktopLyrics,
+      desktopLyricLocked: _desktopLyricLocked,
     );
     _pushDesktopLyric();
+    _syncTrayDesktopLyrics();
+  }
+
+  /// 托盘菜单的勾选态：显示 / 锁定桌面歌词
+  void _syncTrayDesktopLyrics() {
+    unawaited(
+      widget.trayController?.updateDesktopLyrics(
+            visible: _desktopLyrics,
+            locked: _desktopLyricLocked,
+          ) ??
+          Future<void>.value(),
+    );
   }
 
   /* ------------------------------------------------------- 桌面歌词 */
@@ -245,11 +258,16 @@ extension _OutputSection on _LibraryPageState {
 
   /// 开关桌面歌词：窗口常驻，只切显示 / 隐藏
   Future<void> _setDesktopLyrics(bool enabled) async {
+    // 显式打开歌词 = 解锁：锁定后窗口鼠标穿透，没有别的入口能点回来
+    if (enabled) {
+      _desktopLyricLocked = false;
+    }
     _update(() => _desktopLyrics = enabled);
     _saveSessionNow();
     _publishProgress();
     try {
       if (enabled) {
+        await _pushDesktopLyricSettings();
         await desktop_lyrics.desktopLyricsShow();
         _desktopLine = '';
         _pushDesktopLyric();
@@ -264,12 +282,56 @@ extension _OutputSection on _LibraryPageState {
     }
   }
 
+  /// 锁定 / 解锁桌面歌词。
+  ///
+  /// 锁定后窗口鼠标穿透：桌面上点不到、拖不动、也出不来工具栏，所以正在播放页
+  /// 的桌面歌词按钮旁边常驻一个锁形开关——那是唯一的解锁入口。
+  Future<void> _setDesktopLyricLocked(bool locked) async {
+    _update(() => _desktopLyricLocked = locked);
+    _saveSessionNow();
+    _publishProgress();
+    try {
+      await desktop_lyrics.desktopLyricsSetLocked(locked: locked);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('切换桌面歌词锁定失败：${ErrorRetry.describe(error)}');
+      return;
+    }
+    if (locked && mounted) {
+      _showMessage('桌面歌词已锁定：鼠标点击会穿透到下层窗口，解锁请在托盘菜单或正在播放页取消锁定');
+    }
+  }
+
+  /// 把字号、锁定、播放状态先推给窗口，再显示：否则首帧会按默认字号排版，
+  /// 用户会看到一次明显的跳动
+  Future<void> _pushDesktopLyricSettings() async {
+    await desktop_lyrics.desktopLyricsSetFontSize(size: _desktopLyricFontSize);
+    await desktop_lyrics.desktopLyricsSetLocked(locked: _desktopLyricLocked);
+    await desktop_lyrics.desktopLyricsSetPlaying(playing: _isPlaying);
+  }
+
+  /// 播放状态变化时同步给窗口：工具栏的播放 / 暂停字形跟着变
+  void _syncDesktopLyricPlaying() {
+    if (!_desktopLyrics) {
+      return;
+    }
+    unawaited(
+      desktop_lyrics
+          .desktopLyricsSetPlaying(playing: _isPlaying)
+          .catchError((Object error) => debugPrint('同步桌面歌词播放状态失败：$error')),
+    );
+  }
+
   /// 启动时按上次状态恢复窗口；失败只记日志，不影响播放
   Future<void> _restoreDesktopLyrics() async {
+    _syncTrayDesktopLyrics();
     if (!_desktopLyrics) {
       return;
     }
     try {
+      await _pushDesktopLyricSettings();
       await desktop_lyrics.desktopLyricsShow();
       _desktopLine = '';
       _pushDesktopLyric();

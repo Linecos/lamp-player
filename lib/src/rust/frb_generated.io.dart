@@ -35,6 +35,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  RustStreamSink<DesktopLyricsCommand>
+  dco_decode_StreamSink_desktop_lyrics_command_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<Float32List> dco_decode_StreamSink_list_prim_f_32_strict_Sse(
     dynamic raw,
   );
@@ -58,6 +62,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DailyPlaytime dco_decode_daily_playtime(dynamic raw);
+
+  @protected
+  DesktopLyricsCommand dco_decode_desktop_lyrics_command(dynamic raw);
 
   @protected
   double dco_decode_f_32(dynamic raw);
@@ -165,6 +172,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
+  RustStreamSink<DesktopLyricsCommand>
+  sse_decode_StreamSink_desktop_lyrics_command_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RustStreamSink<Float32List> sse_decode_StreamSink_list_prim_f_32_strict_Sse(
     SseDeserializer deserializer,
   );
@@ -188,6 +201,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DailyPlaytime sse_decode_daily_playtime(SseDeserializer deserializer);
+
+  @protected
+  DesktopLyricsCommand sse_decode_desktop_lyrics_command(
+    SseDeserializer deserializer,
+  );
 
   @protected
   double sse_decode_f_32(SseDeserializer deserializer);
@@ -304,6 +322,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_desktop_lyrics_command_Sse(
+    RustStreamSink<DesktopLyricsCommand> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_list_prim_f_32_strict_Sse(
     RustStreamSink<Float32List> self,
     SseSerializer serializer,
@@ -329,6 +353,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_daily_playtime(DailyPlaytime self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_desktop_lyrics_command(
+    DesktopLyricsCommand self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_f_32(double self, SseSerializer serializer);

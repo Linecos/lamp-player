@@ -7,9 +7,23 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
+
 /// 当前平台是否支持桌面歌词（目前只有 Windows）
 bool desktopLyricsSupported() =>
     RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSupported();
+
+/// 当前是否处于锁定（鼠标穿透）状态
+bool desktopLyricsLocked() =>
+    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsLocked();
+
+/// 当前字号（16–56，96 DPI 逻辑像素）
+int desktopLyricsFontSize() =>
+    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsFontSize();
+
+/// 订阅桌面歌词窗口的按钮事件流。重复调用会重复注册，Dart 侧只订阅一次。
+Stream<DesktopLyricsCommand> desktopLyricsCommands() =>
+    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsCommands();
 
 /// 显示桌面歌词窗口；未创建时先创建
 Future<void> desktopLyricsShow() =>
@@ -22,3 +36,39 @@ Future<void> desktopLyricsHide() =>
 /// 更新桌面歌词显示的那一行
 Future<void> desktopLyricsSetLine({required String line}) =>
     RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSetLine(line: line);
+
+/// 同步播放状态：工具栏的播放 / 暂停字形跟着变
+Future<void> desktopLyricsSetPlaying({required bool playing}) => RustLib
+    .instance
+    .api
+    .crateApiDesktopLyricsDesktopLyricsSetPlaying(playing: playing);
+
+/// 设置字号（16–56，96 DPI 逻辑像素）
+Future<void> desktopLyricsSetFontSize({required int size}) => RustLib
+    .instance
+    .api
+    .crateApiDesktopLyricsDesktopLyricsSetFontSize(size: size);
+
+/// 锁定（鼠标穿透）/ 解锁
+Future<void> desktopLyricsSetLocked({required bool locked}) => RustLib
+    .instance
+    .api
+    .crateApiDesktopLyricsDesktopLyricsSetLocked(locked: locked);
+
+/// 桌面歌词窗口按钮发来的命令
+///
+/// 带值的变化（锁定 / 字号）不塞进命令里：FRB 给带字段的枚举生成 Dart 代码时
+/// 需要 `freezed` 依赖，为一个布尔值不值得。收到命令后用
+/// `desktop_lyrics_locked()` / `desktop_lyrics_font_size()` 读最新状态即可。
+enum DesktopLyricsCommand {
+  playPause,
+  previous,
+  next,
+  close,
+
+  /// 锁定状态变了（true = 已锁定，鼠标穿透）
+  lockToggled,
+
+  /// 用户点了字号 +/-
+  fontSizeChanged,
+}
