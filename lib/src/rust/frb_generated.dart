@@ -2711,15 +2711,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HiddenTrack dco_decode_hidden_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return HiddenTrack(
       path: dco_decode_String(arr[0]),
       title: dco_decode_String(arr[1]),
       artist: dco_decode_String(arr[2]),
       album: dco_decode_String(arr[3]),
       durationSecs: dco_decode_f_64(arr[4]),
-      hiddenAt: dco_decode_i_64(arr[5]),
+      coverPath: dco_decode_String(arr[5]),
+      hiddenAt: dco_decode_i_64(arr[6]),
     );
   }
 
@@ -3098,6 +3099,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_artist = sse_decode_String(deserializer);
     var var_album = sse_decode_String(deserializer);
     var var_durationSecs = sse_decode_f_64(deserializer);
+    var var_coverPath = sse_decode_String(deserializer);
     var var_hiddenAt = sse_decode_i_64(deserializer);
     return HiddenTrack(
       path: var_path,
@@ -3105,6 +3107,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       artist: var_artist,
       album: var_album,
       durationSecs: var_durationSecs,
+      coverPath: var_coverPath,
       hiddenAt: var_hiddenAt,
     );
   }
@@ -3593,6 +3596,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.artist, serializer);
     sse_encode_String(self.album, serializer);
     sse_encode_f_64(self.durationSecs, serializer);
+    sse_encode_String(self.coverPath, serializer);
     sse_encode_i_64(self.hiddenAt, serializer);
   }
 

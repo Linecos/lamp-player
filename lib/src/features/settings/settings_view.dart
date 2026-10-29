@@ -15,6 +15,7 @@ import '../library/library_revision.dart';
 import '../player/equalizer.dart';
 import '../player/shortcuts.dart';
 import 'equalizer_page.dart';
+import 'hidden_tracks_view.dart';
 import 'listening_stats_page.dart';
 import 'listening_stats_repository.dart';
 import 'theme_controller.dart';
@@ -2188,8 +2189,9 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
       title: const Text('被隐藏的歌曲'),
       contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       content: SizedBox(
-        width: 520,
-        height: 340,
+        // 多了 40px 封面与一列信息，比原来的纯文字列表宽一点
+        width: 560,
+        height: 360,
         child: _buildBody(theme, scheme),
       ),
       actions: <Widget>[
@@ -2245,25 +2247,6 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
       );
     }
 
-    return ListView.separated(
-      itemCount: items.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (BuildContext context, int index) {
-        final db.HiddenTrack item = items[index];
-        final String subtitle = <String>[
-          item.artist,
-          item.album,
-        ].where((String part) => part.isNotEmpty).join(' · ');
-        return ListTile(
-          dense: true,
-          title: Text(item.title.isEmpty ? item.path : item.title),
-          subtitle: subtitle.isEmpty ? null : Text(subtitle),
-          trailing: TextButton(
-            onPressed: () => unawaited(_restore(item)),
-            child: const Text('恢复'),
-          ),
-        );
-      },
-    );
+    return HiddenTracksView(items: items, onRestore: _restore);
   }
 }

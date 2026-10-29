@@ -92,6 +92,9 @@ class HiddenTrack {
   final String album;
   final double durationSecs;
 
+  /// 封面缓存路径（空字符串表示没有封面），列表里和普通曲目一样显示
+  final String coverPath;
+
   /// 隐藏时刻（Unix 秒），用于列表排序
   final PlatformInt64 hiddenAt;
 
@@ -101,6 +104,7 @@ class HiddenTrack {
     required this.artist,
     required this.album,
     required this.durationSecs,
+    required this.coverPath,
     required this.hiddenAt,
   });
 
@@ -111,6 +115,7 @@ class HiddenTrack {
       artist.hashCode ^
       album.hashCode ^
       durationSecs.hashCode ^
+      coverPath.hashCode ^
       hiddenAt.hashCode;
 
   @override
@@ -123,5 +128,6 @@ class HiddenTrack {
           artist == other.artist &&
           album == other.album &&
           durationSecs == other.durationSecs &&
+          coverPath == other.coverPath &&
           hiddenAt == other.hiddenAt;
 }
