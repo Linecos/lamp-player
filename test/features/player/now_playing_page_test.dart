@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/common/widgets/cover_shape.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
@@ -667,6 +668,70 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(tester.getSize(find.byType(AlbumCover).first).width, 336);
+  });
+
+  testWidgets('打开圆形封面后阴影容器也跟着变圆', (WidgetTester tester) async {
+    addTearDown(() => circularCovers.value = false);
+    await _pump(tester, data: _data());
+
+    BoxDecoration shadowDecoration() {
+      final Finder container = find.byWidgetPredicate(
+        (Widget widget) =>
+            widget is Container &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration! as BoxDecoration).boxShadow != null,
+      );
+      return tester.widget<Container>(container).decoration! as BoxDecoration;
+    }
+
+    expect(shadowDecoration().shape, BoxShape.rectangle);
+
+    circularCovers.value = true;
+    await tester.pump();
+
+    // 矩形阴影会在圆形封面四角露出一圈方形光晕
+    expect(shadowDecoration().shape, BoxShape.circle);
+    expect(shadowDecoration().borderRadius, isNull);
+  });
+
+  testWidgets('圆形封面 25 秒转一圈，暂停就停住', (WidgetTester tester) async {
+    addTearDown(() => circularCovers.value = false);
+    final ValueNotifier<NowPlayingData> notifier = await _pump(
+      tester,
+      data: _data(),
+    );
+
+    double turns() {
+      final RotationTransition spin = tester.widget<RotationTransition>(
+        find.byKey(const ValueKey<String>('now-playing-cover-spin')),
+      );
+      return spin.turns.value;
+    }
+
+    expect(turns(), 0, reason: '默认方形封面不转');
+
+    circularCovers.value = true;
+    await tester.pump();
+    expect(turns(), 0);
+
+    // 6 秒 = 6/25 圈
+    await tester.pump(const Duration(seconds: 6));
+    expect(turns(), closeTo(6 / 25, 0.01));
+
+    // 暂停：停在当前角度，不会跳回正面
+    final NowPlayingData playing = notifier.value;
+    notifier.value = NowPlayingData(
+      track: playing.track,
+      isPlaying: false,
+      position: playing.position,
+      duration: playing.duration,
+      isAvailable: playing.isAvailable,
+      volume: playing.volume,
+    );
+    await tester.pump();
+    final double frozen = turns();
+    await tester.pump(const Duration(seconds: 5));
+    expect(turns(), frozen);
   });
 
   testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {

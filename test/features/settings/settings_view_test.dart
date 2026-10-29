@@ -350,6 +350,38 @@ void main() {
     expect(find.text('动态流光背景'), findsOneWidget);
   });
 
+  testWidgets('圆形封面开关默认关闭并回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> changes = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            trackCount: 1,
+            engineAvailable: true,
+            onCircularCoversChanged: changes.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('settings-circular-cover-switch'),
+    );
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(changes, <bool>[true], reason: '默认关，点一下应回调开启');
+    expect(find.text('圆形封面'), findsOneWidget);
+  });
+
   testWidgets('关闭到托盘开关展示状态并回调', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;

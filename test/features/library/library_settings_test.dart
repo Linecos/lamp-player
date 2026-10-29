@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/common/widgets/cover_shape.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 
@@ -248,6 +249,29 @@ void main() {
     expect(playback.eqEnabled, isTrue);
     expect(playback.eqGains, hasLength(10));
     expect(session.snapshot.eqEnabled, isTrue);
+  });
+
+  testWidgets('圆形封面开关会写回会话并立刻作用到全局封面', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      sessionStore: session,
+      viewSize: const Size(1280, 1400),
+    );
+    addTearDown(() => circularCovers.value = false);
+    await openSettings(tester);
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('settings-circular-cover-switch'),
+    );
+    await tester.ensureVisible(toggle);
+    expect(circularCovers.value, isFalse, reason: '默认关闭');
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(circularCovers.value, isTrue);
+    expect(session.snapshot.circularCovers, isTrue);
   });
 
   testWidgets('清理缺失文件只删记录并展示清理条数', (WidgetTester tester) async {

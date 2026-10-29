@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app/immersive_chrome.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
+import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
@@ -131,9 +132,13 @@ class NowPlayingPage extends StatefulWidget {
   State<NowPlayingPage> createState() => _NowPlayingPageState();
 }
 
-class _NowPlayingPageState extends State<NowPlayingPage> {
+class _NowPlayingPageState extends State<NowPlayingPage>
+    with SingleTickerProviderStateMixin {
   /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
   static const double _narrowLyricMinHeight = 132;
+
+  /// 圆形封面转一圈的时间（唱片机那种缓慢匀速）
+  static const Duration _coverSpinPeriod = Duration(seconds: 25);
 
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
@@ -152,6 +157,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 
   /// 播放 / 暂停：只驱动封面的跳动图标，范围比整页小得多。
   final ValueNotifier<bool> _playing = ValueNotifier<bool>(false);
+
+  /// 圆形封面的旋转：只在「圆形封面 + 正在播放」时转，暂停停在当前角度。
+  late final AnimationController _coverSpin;
 
   /// 拖动中的预览位置：松手才真正 seek，避免一次拖动发出几十条命令。
   ///
@@ -304,7 +312,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   @override
   void initState() {
     super.initState();
+    _coverSpin = AnimationController(vsync: this, duration: _coverSpinPeriod);
     widget.data.addListener(_onData);
+    circularCovers.addListener(_syncCoverSpin);
     _onData();
   }
 
@@ -320,6 +330,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   void dispose() {
     forceLightWindowControls.value = false;
     widget.data.removeListener(_onData);
+    circularCovers.removeListener(_syncCoverSpin);
+    _coverSpin.dispose();
     _position.dispose();
     _track.dispose();
     _playing.dispose();
@@ -341,6 +353,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     if (_playing.value != data.isPlaying) {
       _playing.value = data.isPlaying;
+      _syncCoverSpin();
     }
     if (_position.value != data.position) {
       _position.value = data.position;
@@ -348,6 +361,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _syncTrack();
     // 进度与播放态由各自的 builder 局部刷新。
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
+  }
+
+  /// 圆形封面转不转：只有「圆形封面 + 正在播放」才转，暂停停在当前角度。
+  ///
+  /// 用 `repeat()` 而不是 `forward(from: 0)`：暂停再播能接着原来的角度转，
+  /// 不会跳回正面。关掉圆形封面时把角度归零，下次打开从正面开始。
+  void _syncCoverSpin() {
+    if (!circularCovers.value) {
+      _coverSpin.stop();
+      _coverSpin.value = 0;
+      return;
+    }
+    if (_playing.value) {
+      if (!_coverSpin.isAnimating) {
+        _coverSpin.repeat();
+      }
+    } else {
+      _coverSpin.stop();
+    }
   }
 
   /// 音量步进（快捷键用）；夹在 0..1，与音量滑条同一约束
@@ -662,25 +694,44 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       available.isFinite && available < coverSize
                       ? available
                       : coverSize;
-                  return Container(
-                    decoration: BoxDecoration(
-                      // 与卡片同级：336px 的大封面用 20 显得几乎是直角
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 28,
-                          spreadRadius: 2,
-                          offset: const Offset(10, 12),
-                        ),
-                      ],
-                    ),
-                    child: AlbumCover(
-                      path: track.coverPath,
-                      size: size,
-                      // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                      radius: 28,
-                      playing: playing,
+                  return ValueListenableBuilder<bool>(
+                    valueListenable: circularCovers,
+                    builder:
+                        (BuildContext context, bool circular, Widget? child) {
+                          return Container(
+                            decoration: BoxDecoration(
+                              // 圆形封面时阴影容器也要跟着圆：矩形阴影会在
+                              // 圆角外露出一圈方形的光晕
+                              shape: circular
+                                  ? BoxShape.circle
+                                  : BoxShape.rectangle,
+                              // 与卡片同级：336px 的大封面用 20 显得几乎是直角
+                              borderRadius: circular
+                                  ? null
+                                  : BorderRadius.circular(28),
+                              boxShadow: <BoxShadow>[
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.35),
+                                  blurRadius: 28,
+                                  spreadRadius: 2,
+                                  offset: const Offset(10, 12),
+                                ),
+                              ],
+                            ),
+                            child: child,
+                          );
+                        },
+                    child: RotationTransition(
+                      key: const ValueKey<String>('now-playing-cover-spin'),
+                      // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                      turns: _coverSpin,
+                      child: AlbumCover(
+                        path: track.coverPath,
+                        size: size,
+                        // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                        radius: 28,
+                        playing: playing,
+                      ),
                     ),
                   );
                 },

@@ -51,6 +51,8 @@ class SettingsView extends StatelessWidget {
     this.shortcuts = kDefaultShortcuts,
     this.flowBackground = true,
     this.onFlowBackgroundChanged,
+    this.circularCovers = false,
+    this.onCircularCoversChanged,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -143,6 +145,10 @@ class SettingsView extends StatelessWidget {
   /// 正在播放页是否启用封面流光背景
   final bool flowBackground;
   final ValueChanged<bool>? onFlowBackgroundChanged;
+
+  /// 封面是否显示成圆形
+  final bool circularCovers;
+  final ValueChanged<bool>? onCircularCoversChanged;
 
   final bool scanning;
 
@@ -399,6 +405,14 @@ class SettingsView extends StatelessWidget {
         subtitle: flowBackground ? '正在播放页跟随封面颜色缓慢流动' : '已关闭流光，只保留静态封面取色背景',
         value: flowBackground,
         onChanged: onFlowBackgroundChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.circle_outlined,
+        title: '圆形封面',
+        switchKey: const ValueKey<String>('settings-circular-cover-switch'),
+        subtitle: circularCovers ? '所有封面都裁成正圆，正在播放页的阴影也跟着变圆' : '封面保持圆角方形',
+        value: circularCovers,
+        onChanged: onCircularCoversChanged,
       ),
     ]);
     section('关于', <Widget>[
