@@ -7,7 +7,12 @@ import 'package:tray_manager/tray_manager.dart';
 ///
 /// 顺序有意如此：播放控制在最上面（关窗后最常用的操作），
 /// 「显示主窗口 / 退出」放最下面，避免误点退出。
-List<MenuItem> trayMenuItems({required bool hasTrack, required bool playing}) {
+List<MenuItem> trayMenuItems({
+  required bool hasTrack,
+  required bool playing,
+  required bool desktopLyrics,
+  required bool desktopLyricLocked,
+}) {
   final bool enabled = hasTrack;
   return <MenuItem>[
     MenuItem(
@@ -18,6 +23,19 @@ List<MenuItem> trayMenuItems({required bool hasTrack, required bool playing}) {
     MenuItem(key: 'previous', label: '上一首', disabled: !enabled),
     MenuItem(key: 'next', label: '下一首', disabled: !enabled),
     MenuItem.separator(),
+    MenuItem.checkbox(
+      key: 'desktop_lyrics',
+      label: '显示桌面歌词',
+      checked: desktopLyrics,
+    ),
+    MenuItem.checkbox(
+      key: 'desktop_lyric_lock',
+      label: '锁定桌面歌词',
+      checked: desktopLyricLocked,
+      // 歌词窗口没开时没有可锁定的对象
+      disabled: !desktopLyrics,
+    ),
+    MenuItem.separator(),
     MenuItem(key: 'show', label: '显示主窗口'),
     MenuItem.separator(),
     MenuItem(key: 'quit', label: '退出'),
@@ -27,8 +45,9 @@ List<MenuItem> trayMenuItems({required bool hasTrack, required bool playing}) {
 /// 托盘图标与菜单。
 ///
 /// 左键单击唤起窗口，右键弹出菜单（Windows 下插件不会自动弹，必须自己调
-/// [TrayManager.popUpContextMenu]）。菜单提供播放控制快捷操作，
-/// 状态由曲库页通过 [updatePlayback] 同步；未绑定播放回调时这些项禁用。
+/// [TrayManager.popUpContextMenu]）。菜单提供播放控制与桌面歌词开关，
+/// 状态由曲库页通过 [updatePlayback] / [updateDesktopLyrics] 同步；
+/// 未绑定回调时这些项禁用或点了没反应。
 ///
 /// 初始化失败（图标缺失、系统限制）不影响主功能，只是关窗会退化成直接退出
 /// （见 `decideCloseAction`）。
@@ -40,13 +59,17 @@ class TrayController with TrayListener {
 
   bool _ready = false;
 
-  /// 上一次下发到菜单的状态，避免同一状态反复重建菜单
-  bool? _hasTrack;
-  bool? _playing;
+  /// 当前下发到菜单的状态，避免同一状态反复重建菜单
+  bool _hasTrack = false;
+  bool _playing = false;
+  bool _desktopLyrics = false;
+  bool _desktopLyricLocked = false;
 
   VoidCallback? _onTogglePlay;
   VoidCallback? _onNext;
   VoidCallback? _onPrevious;
+  VoidCallback? _onToggleDesktopLyrics;
+  VoidCallback? _onToggleDesktopLyricLock;
 
   /// 托盘是否可用；关窗逻辑据此决定是隐藏还是退出
   bool get available => _ready;
@@ -58,7 +81,7 @@ class TrayController with TrayListener {
     try {
       await trayManager.setIcon('assets/tray_icon.ico');
       await trayManager.setToolTip('Lamp Player');
-      await _applyMenu(hasTrack: false, playing: false);
+      await _applyMenu();
       trayManager.addListener(this);
       _ready = true;
     } catch (error) {
@@ -83,6 +106,20 @@ class TrayController with TrayListener {
     _onPrevious = null;
   }
 
+  /// 绑定桌面歌词开关；曲库页创建时调用，销毁时 [unbindDesktopLyrics]。
+  void bindDesktopLyrics({
+    required VoidCallback onToggle,
+    required VoidCallback onToggleLock,
+  }) {
+    _onToggleDesktopLyrics = onToggle;
+    _onToggleDesktopLyricLock = onToggleLock;
+  }
+
+  void unbindDesktopLyrics() {
+    _onToggleDesktopLyrics = null;
+    _onToggleDesktopLyricLock = null;
+  }
+
   /// 同步播放状态到菜单（播放/暂停文案、无曲目时禁用）。
   ///
   /// 只在状态真的变化时重建菜单，避免 500ms 轮询反复调 setContextMenu。
@@ -93,19 +130,35 @@ class TrayController with TrayListener {
     if (!_ready || (_hasTrack == hasTrack && _playing == playing)) {
       return;
     }
-    await _applyMenu(hasTrack: hasTrack, playing: playing);
-  }
-
-  Future<void> _applyMenu({
-    required bool hasTrack,
-    required bool playing,
-  }) async {
     _hasTrack = hasTrack;
     _playing = playing;
+    await _applyMenu();
+  }
+
+  /// 同步桌面歌词的显示 / 锁定状态（菜单勾选态，未显示时锁定项禁用）。
+  Future<void> updateDesktopLyrics({
+    required bool visible,
+    required bool locked,
+  }) async {
+    if (!_ready ||
+        (_desktopLyrics == visible && _desktopLyricLocked == locked)) {
+      return;
+    }
+    _desktopLyrics = visible;
+    _desktopLyricLocked = locked;
+    await _applyMenu();
+  }
+
+  Future<void> _applyMenu() async {
     try {
       await trayManager.setContextMenu(
         Menu(
-          items: trayMenuItems(hasTrack: hasTrack, playing: playing),
+          items: trayMenuItems(
+            hasTrack: _hasTrack,
+            playing: _playing,
+            desktopLyrics: _desktopLyrics,
+            desktopLyricLocked: _desktopLyricLocked,
+          ),
         ),
       );
     } catch (error) {
@@ -157,6 +210,10 @@ class TrayController with TrayListener {
         _onPrevious?.call();
       case 'next':
         _onNext?.call();
+      case 'desktop_lyrics':
+        _onToggleDesktopLyrics?.call();
+      case 'desktop_lyric_lock':
+        _onToggleDesktopLyricLock?.call();
       case 'show':
         unawaited(onShow());
       case 'quit':

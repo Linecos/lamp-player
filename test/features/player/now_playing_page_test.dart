@@ -21,6 +21,8 @@ NowPlayingData _data({
   double volume = 1,
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
+  bool desktopLyrics = false,
+  bool desktopLyricLocked = false,
 }) {
   return NowPlayingData(
     track: track ?? sampleTrack(title: '夜航', artist: '林间电台', album: '夜之专辑'),
@@ -31,6 +33,8 @@ NowPlayingData _data({
     volume: volume,
     repeat: repeat,
     shuffle: shuffle,
+    desktopLyrics: desktopLyrics,
+    desktopLyricLocked: desktopLyricLocked,
   );
 }
 
@@ -79,6 +83,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueChanged<int>? onSelectDevice,
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
+  VoidCallback? onToggleDesktopLyricLock,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -107,6 +112,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onSelectDevice: onSelectDevice,
         onOpenEqualizer: onOpenEqualizer,
         onToggleDesktopLyrics: onToggleDesktopLyrics,
+        onToggleDesktopLyricLock: onToggleDesktopLyricLock,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -282,6 +288,43 @@ void main() {
     await tester.tap(button);
     await tester.pump();
     expect(taps, 1);
+  });
+
+  testWidgets('锁定开关只在桌面歌词打开时出现，锁定后是实心锁', (WidgetTester tester) async {
+    int locks = 0;
+    final ValueNotifier<NowPlayingData> notifier = await _pump(
+      tester,
+      data: _data(),
+      onToggleDesktopLyrics: () {},
+      onToggleDesktopLyricLock: () => locks += 1,
+    );
+
+    final Finder lock = find.byKey(
+      const ValueKey<String>('now-playing-desktop-lyrics-lock'),
+    );
+    expect(lock, findsNothing, reason: '歌词没打开时没有可锁的东西');
+
+    notifier.value = _data(desktopLyrics: true, desktopLyricLocked: true);
+    await tester.pump();
+    expect(lock, findsOneWidget);
+    expect(find.byTooltip('解锁桌面歌词'), findsOneWidget);
+    expect(
+      find.descendant(of: lock, matching: find.byIcon(Icons.lock)),
+      findsOneWidget,
+      reason: '锁定状态要看得出来，否则用户不知道点哪里解锁',
+    );
+
+    await tester.tap(lock);
+    await tester.pump();
+    expect(locks, 1);
+
+    notifier.value = _data(desktopLyrics: true);
+    await tester.pump();
+    expect(find.byTooltip('锁定桌面歌词（鼠标穿透）'), findsOneWidget);
+    expect(
+      find.descendant(of: lock, matching: find.byIcon(Icons.lock_open)),
+      findsOneWidget,
+    );
   });
 
   testWidgets('没有曲目时展示空态且控制按钮禁用', (WidgetTester tester) async {

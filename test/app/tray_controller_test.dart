@@ -30,6 +30,8 @@ void main() {
       final List<MenuItem> items = trayMenuItems(
         hasTrack: true,
         playing: false,
+        desktopLyrics: false,
+        desktopLyricLocked: false,
       );
       final Map<String, MenuItem> byKey = <String, MenuItem>{
         for (final MenuItem item in items)
@@ -38,7 +40,15 @@ void main() {
 
       expect(
         byKey.keys,
-        containsAll(<String>['play_pause', 'previous', 'next', 'show', 'quit']),
+        containsAll(<String>[
+          'play_pause',
+          'previous',
+          'next',
+          'desktop_lyrics',
+          'desktop_lyric_lock',
+          'show',
+          'quit',
+        ]),
       );
       expect(byKey['play_pause']!.label, '播放');
       expect(byKey['play_pause']!.disabled, isFalse);
@@ -48,7 +58,12 @@ void main() {
     });
 
     test('播放中显示「暂停」', () {
-      final List<MenuItem> items = trayMenuItems(hasTrack: true, playing: true);
+      final List<MenuItem> items = trayMenuItems(
+        hasTrack: true,
+        playing: true,
+        desktopLyrics: false,
+        desktopLyricLocked: false,
+      );
       final MenuItem playPause = items.firstWhere(
         (MenuItem item) => item.key == 'play_pause',
       );
@@ -60,6 +75,8 @@ void main() {
       final List<MenuItem> items = trayMenuItems(
         hasTrack: false,
         playing: false,
+        desktopLyrics: false,
+        desktopLyricLocked: false,
       );
       final Map<String, MenuItem> byKey = <String, MenuItem>{
         for (final MenuItem item in items)
@@ -73,15 +90,52 @@ void main() {
       expect(byKey['quit']!.disabled, isFalse);
     });
 
-    test('含两个分隔线，菜单结构稳定', () {
+    test('含三个分隔线，菜单结构稳定', () {
       final List<MenuItem> items = trayMenuItems(
         hasTrack: true,
         playing: false,
+        desktopLyrics: false,
+        desktopLyricLocked: false,
       );
       expect(
         items.where((MenuItem item) => item.type == 'separator').length,
-        2,
+        3,
       );
+    });
+
+    test('桌面歌词未显示时锁定项置灰，显示后勾选态跟随状态', () {
+      Map<String, MenuItem> byKey({
+        required bool desktopLyrics,
+        required bool desktopLyricLocked,
+      }) => <String, MenuItem>{
+        for (final MenuItem item in trayMenuItems(
+          hasTrack: true,
+          playing: false,
+          desktopLyrics: desktopLyrics,
+          desktopLyricLocked: desktopLyricLocked,
+        ))
+          if (item.key != null) item.key!: item,
+      };
+
+      final Map<String, MenuItem> hidden = byKey(
+        desktopLyrics: false,
+        desktopLyricLocked: false,
+      );
+      expect(hidden['desktop_lyrics']!.type, 'checkbox');
+      expect(hidden['desktop_lyrics']!.label, '显示桌面歌词');
+      expect(hidden['desktop_lyrics']!.checked, isFalse);
+      expect(hidden['desktop_lyrics']!.disabled, isFalse);
+      expect(hidden['desktop_lyric_lock']!.type, 'checkbox');
+      expect(hidden['desktop_lyric_lock']!.label, '锁定桌面歌词');
+      expect(hidden['desktop_lyric_lock']!.disabled, isTrue);
+
+      final Map<String, MenuItem> shown = byKey(
+        desktopLyrics: true,
+        desktopLyricLocked: true,
+      );
+      expect(shown['desktop_lyrics']!.checked, isTrue);
+      expect(shown['desktop_lyric_lock']!.disabled, isFalse);
+      expect(shown['desktop_lyric_lock']!.checked, isTrue);
     });
   });
 
@@ -139,6 +193,119 @@ void main() {
       expect(next, 1);
       expect(previous, 1);
       expect(quit, 1);
+    });
+
+    test('菜单点击分发到桌面歌词开关', () async {
+      int toggled = 0;
+      int locked = 0;
+      final TrayController controller = TrayController(
+        onShow: () async {},
+        onQuit: () async {},
+      );
+      controller.bindDesktopLyrics(
+        onToggle: () => toggled += 1,
+        onToggleLock: () => locked += 1,
+      );
+
+      controller.onTrayMenuItemClick(
+        MenuItem(key: 'desktop_lyrics', label: '显示桌面歌词'),
+      );
+      controller.onTrayMenuItemClick(
+        MenuItem(key: 'desktop_lyric_lock', label: '锁定桌面歌词'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(toggled, 1);
+      expect(locked, 1);
+
+      // 解绑后点击不抛异常
+      controller.unbindDesktopLyrics();
+      expect(
+        () => controller.onTrayMenuItemClick(
+          MenuItem(key: 'desktop_lyrics', label: '显示桌面歌词'),
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('updateDesktopLyrics 刷新勾选态与禁用态，同状态不重复下发', () async {
+      final TrayController controller = TrayController(
+        onShow: () async {},
+        onQuit: () async {},
+      );
+      await controller.init();
+      calls.clear();
+
+      await controller.updateDesktopLyrics(visible: true, locked: false);
+      expect(
+        calls.where((MethodCall c) => c.method == 'setContextMenu'),
+        hasLength(1),
+      );
+
+      // 相同状态不再重建
+      await controller.updateDesktopLyrics(visible: true, locked: false);
+      expect(
+        calls.where((MethodCall c) => c.method == 'setContextMenu'),
+        hasLength(1),
+      );
+
+      // 隐藏后：显示项取消勾选，锁定项置灰
+      await controller.updateDesktopLyrics(visible: false, locked: false);
+      final List<MethodCall> menus = calls
+          .where((MethodCall c) => c.method == 'setContextMenu')
+          .toList();
+      expect(menus, hasLength(2));
+      final Map<Object?, Object?> args =
+          menus.last.arguments as Map<Object?, Object?>;
+      final List<Object?> items =
+          ((args['menu'] as Map<Object?, Object?>)['items'] as List<Object?>);
+      final Map<Object?, Object?> lyrics = items
+          .cast<Map<Object?, Object?>>()
+          .firstWhere(
+            (Map<Object?, Object?> item) => item['key'] == 'desktop_lyrics',
+          );
+      final Map<Object?, Object?> lock = items
+          .cast<Map<Object?, Object?>>()
+          .firstWhere(
+            (Map<Object?, Object?> item) => item['key'] == 'desktop_lyric_lock',
+          );
+      expect(lyrics['checked'], isFalse);
+      expect(lock['disabled'], isTrue);
+
+      await controller.dispose();
+    });
+
+    test('init 下发的菜单里桌面歌词项默认未勾选、锁定项置灰', () async {
+      final TrayController controller = TrayController(
+        onShow: () async {},
+        onQuit: () async {},
+      );
+
+      await controller.init();
+
+      final MethodCall menuCall = calls.lastWhere(
+        (MethodCall call) => call.method == 'setContextMenu',
+      );
+      final Map<Object?, Object?> args =
+          (menuCall.arguments as Map<Object?, Object?>);
+      final List<Object?> items =
+          ((args['menu'] as Map<Object?, Object?>)['items'] as List<Object?>);
+      final Map<Object?, Object?> lyrics = items
+          .cast<Map<Object?, Object?>>()
+          .firstWhere(
+            (Map<Object?, Object?> item) => item['key'] == 'desktop_lyrics',
+          );
+      final Map<Object?, Object?> lock = items
+          .cast<Map<Object?, Object?>>()
+          .firstWhere(
+            (Map<Object?, Object?> item) => item['key'] == 'desktop_lyric_lock',
+          );
+
+      expect(lyrics['checked'], isFalse);
+      expect(lyrics['disabled'], isFalse);
+      expect(lock['disabled'], isTrue);
+
+      await controller.dispose();
     });
 
     test('未绑定播放回调时点击播放项不抛异常', () {

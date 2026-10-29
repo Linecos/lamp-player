@@ -384,6 +384,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 桌面歌词窗口是否打开
   bool _desktopLyrics = false;
 
+  /// 桌面歌词字号（96 DPI 逻辑像素）与锁定状态；跟着会话存档走
+  int _desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault;
+  bool _desktopLyricLocked = false;
+
+  /// 桌面歌词窗口按钮（上一首 / 播放暂停 / 下一首 / 关闭 / 字号 / 锁定）
+  StreamSubscription<desktop_lyrics.DesktopLyricsCommand>? _lyricCommands;
+
   /// 当前曲目的歌词；换曲才重新读，进度轮询里只做线性查找
   lyrics_api.TrackLyrics? _lyrics;
   String? _lyricsPath;
@@ -491,12 +498,60 @@ class _LibraryPageState extends State<LibraryPage>
       onNext: () => unawaited(_next()),
       onPrevious: () => unawaited(_previous()),
     );
+    // 托盘里的桌面歌词开关：和正在播放页的按钮走同一套实现
+    widget.trayController?.bindDesktopLyrics(
+      onToggle: () => unawaited(_setDesktopLyrics(!_desktopLyrics)),
+      onToggleLock: () =>
+          unawaited(_setDesktopLyricLocked(!_desktopLyricLocked)),
+    );
     unawaited(_bootstrap());
     // 系统媒体控制：失败只影响系统浮层，不影响播放
     unawaited(_media.start());
+    _listenDesktopLyricCommands();
     widget.appLifecycle
       ?..addListener(_onLifecycleChanged)
       ..setBeforeExit(_exitHook);
+  }
+
+  /// 订阅桌面歌词窗口的按钮事件流。
+  ///
+  /// 只在用户打开桌面歌词后才有窗口可点，但流本身一直挂着：反复开关歌词时
+  /// 不必重新订阅。Rust 库没初始化（单元测试）时订阅失败，忽略即可。
+  void _listenDesktopLyricCommands() {
+    try {
+      _lyricCommands = desktop_lyrics.desktopLyricsCommands().listen(
+        _handleDesktopLyricCommand,
+        onError: (Object error) => debugPrint('桌面歌词事件流异常：$error'),
+      );
+    } catch (error) {
+      debugPrint('订阅桌面歌词事件失败：$error');
+    }
+  }
+
+  /// 桌面歌词窗口上的按钮：播放控制复用播放条那套实现
+  void _handleDesktopLyricCommand(desktop_lyrics.DesktopLyricsCommand command) {
+    switch (command) {
+      case desktop_lyrics.DesktopLyricsCommand.playPause:
+        unawaited(_togglePlayback());
+      case desktop_lyrics.DesktopLyricsCommand.previous:
+        unawaited(_previous());
+      case desktop_lyrics.DesktopLyricsCommand.next:
+        unawaited(_next());
+      case desktop_lyrics.DesktopLyricsCommand.close:
+        unawaited(_setDesktopLyrics(false));
+      case desktop_lyrics.DesktopLyricsCommand.lockToggled:
+        // 命令里不带值：锁定 / 字号以 Rust 侧为准，读回来写进会话
+        _update(() {
+          _desktopLyricLocked = desktop_lyrics.desktopLyricsLocked();
+        });
+        _publishProgress();
+        _saveSessionNow();
+      case desktop_lyrics.DesktopLyricsCommand.fontSizeChanged:
+        _update(() {
+          _desktopLyricFontSize = desktop_lyrics.desktopLyricsFontSize();
+        });
+        _saveSessionNow();
+    }
   }
 
   /// 关闭到托盘的开关变化：让设置页跟着刷新
@@ -509,6 +564,7 @@ class _LibraryPageState extends State<LibraryPage>
   @override
   void dispose() {
     _warmGainsCancelled = true;
+    unawaited(_lyricCommands?.cancel());
     _debounce?.cancel();
     _positionTimer?.cancel();
     _volumeTimer?.cancel();
@@ -529,6 +585,7 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_saveSession());
     unawaited(_flushPlayTime());
     widget.trayController?.unbindPlayback();
+    widget.trayController?.unbindDesktopLyrics();
     widget.appLifecycle
       ?..removeListener(_onLifecycleChanged)
       ..clearBeforeExit(_exitHook);
@@ -586,6 +643,8 @@ class _LibraryPageState extends State<LibraryPage>
       }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
       _desktopLyrics = snapshot.desktopLyrics;
+      _desktopLyricFontSize = snapshot.desktopLyricFontSize;
+      _desktopLyricLocked = snapshot.desktopLyricLocked;
       _flowBackground = snapshot.flowBackground;
     });
 
@@ -707,6 +766,8 @@ class _LibraryPageState extends State<LibraryPage>
       shortcutsJson: encodeShortcuts(_shortcuts),
       crossfadeSeconds: _crossfadeSeconds,
       desktopLyrics: _desktopLyrics,
+      desktopLyricFontSize: _desktopLyricFontSize,
+      desktopLyricLocked: _desktopLyricLocked,
       flowBackground: _flowBackground,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。

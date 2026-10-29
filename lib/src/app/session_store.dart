@@ -34,6 +34,8 @@ class SessionSnapshot {
     this.flowBackground = true,
     this.shortcutsJson = '',
     this.desktopLyrics = false,
+    this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
+    this.desktopLyricLocked = false,
   });
 
   final double volume;
@@ -87,6 +89,12 @@ class SessionSnapshot {
   /// 桌面歌词窗口是否打开
   final bool desktopLyrics;
 
+  /// 桌面歌词字号（96 DPI 逻辑像素）；Rust 侧同样夹在 16–56
+  final int desktopLyricFontSize;
+
+  /// 桌面歌词是否锁定（锁定 = 鼠标穿透）
+  final bool desktopLyricLocked;
+
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
 
@@ -124,6 +132,14 @@ class PrefsSessionStore implements SessionStore {
   static const String replayGainKey = 'player_replay_gain';
   static const String crossfadeKey = 'player_crossfade_seconds';
   static const String desktopLyricsKey = 'ui_desktop_lyrics';
+  static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
+  static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
+
+  /// 桌面歌词字号的默认值与范围（与 `rust/src/desktop_lyrics.rs` 保持一致）
+  static const int desktopLyricFontSizeDefault = 27;
+  static const int desktopLyricFontSizeMin = 16;
+  static const int desktopLyricFontSizeMax = 56;
+  static const int desktopLyricFontSizeStep = 3;
   static const String sortKey = 'ui_sort';
   static const String flowBackgroundKey = 'ui_flow_background';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
@@ -179,6 +195,11 @@ class PrefsSessionStore implements SessionStore {
         replayGain: prefs.getBool(replayGainKey) ?? false,
         crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
         desktopLyrics: prefs.getBool(desktopLyricsKey) ?? false,
+        desktopLyricFontSize:
+            (prefs.getInt(desktopLyricFontSizeKey) ??
+                    desktopLyricFontSizeDefault)
+                .clamp(desktopLyricFontSizeMin, desktopLyricFontSizeMax),
+        desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
@@ -239,6 +260,14 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setBool(replayGainKey, snapshot.replayGain);
       await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
       await prefs.setBool(desktopLyricsKey, snapshot.desktopLyrics);
+      await prefs.setInt(
+        desktopLyricFontSizeKey,
+        snapshot.desktopLyricFontSize.clamp(
+          desktopLyricFontSizeMin,
+          desktopLyricFontSizeMax,
+        ),
+      );
+      await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,

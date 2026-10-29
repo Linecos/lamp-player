@@ -37,6 +37,7 @@ class NowPlayingData {
     this.repeat = LoopMode.off,
     this.shuffle = false,
     this.desktopLyrics = false,
+    this.desktopLyricLocked = false,
   });
 
   final Track? track;
@@ -50,6 +51,9 @@ class NowPlayingData {
 
   /// 桌面歌词是否打开
   final bool desktopLyrics;
+
+  /// 桌面歌词是否锁定（锁定 = 鼠标穿透）
+  final bool desktopLyricLocked;
 }
 
 /// 歌词加载函数；测试可注入，避免落盘 / 依赖 Rust。
@@ -80,6 +84,7 @@ class NowPlayingPage extends StatefulWidget {
     this.animateBackground = false,
     this.shortcuts = kDefaultShortcuts,
     this.onToggleDesktopLyrics,
+    this.onToggleDesktopLyricLock,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -87,6 +92,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 开关桌面歌词；为空时不显示该按钮
   final VoidCallback? onToggleDesktopLyrics;
+
+  /// 锁定 / 解锁桌面歌词（锁定 = 鼠标穿透，桌面上点不到，只能从这里解开）
+  final VoidCallback? onToggleDesktopLyricLock;
 
   /// 频谱数据：传了才在歌词下层铺一条全宽音频丝带
   final ValueListenable<List<double>>? spectrum;
@@ -1078,6 +1086,28 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                         : Icons.subtitles_outlined,
                                     size: 24,
                                     color: data.desktopLyrics
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              // 锁定后桌面歌词窗口鼠标穿透，点不到也拖不动，
+                              // 这个开关是唯一的解锁入口，所以常驻在歌词按钮旁边
+                              if (widget.onToggleDesktopLyricLock != null &&
+                                  data.desktopLyrics)
+                                IconButton(
+                                  key: const ValueKey<String>(
+                                    'now-playing-desktop-lyrics-lock',
+                                  ),
+                                  tooltip: data.desktopLyricLocked
+                                      ? '解锁桌面歌词'
+                                      : '锁定桌面歌词（鼠标穿透）',
+                                  onPressed: widget.onToggleDesktopLyricLock,
+                                  icon: Icon(
+                                    data.desktopLyricLocked
+                                        ? Icons.lock
+                                        : Icons.lock_open,
+                                    size: 24,
+                                    color: data.desktopLyricLocked
                                         ? scheme.primary
                                         : scheme.onSurfaceVariant,
                                   ),

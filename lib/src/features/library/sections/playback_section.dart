@@ -126,6 +126,8 @@ extension _PlaybackSection on _LibraryPageState {
   void _syncMediaSession({bool stopped = false}) {
     // 频谱流的开关注释挂在同一批状态切换点上：放歌开始订阅、暂停 / 停止退订
     _syncSpectrum();
+    // 桌面歌词工具栏的播放 / 暂停字形
+    _syncDesktopLyricPlaying();
     final Track? track = _currentTrack;
     // 托盘菜单同步：无曲目时播放项禁用，播放中显示「暂停」
     unawaited(
@@ -243,6 +245,8 @@ extension _PlaybackSection on _LibraryPageState {
                   : null,
               onToggleDesktopLyrics: () =>
                   unawaited(_setDesktopLyrics(!_desktopLyrics)),
+              onToggleDesktopLyricLock: () =>
+                  unawaited(_setDesktopLyricLocked(!_desktopLyricLocked)),
               animateBackground: _flowBackground,
               shortcuts: _shortcuts,
             ),
