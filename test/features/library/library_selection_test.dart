@@ -144,7 +144,7 @@ void main() {
     expect(find.text('已加入 2 首到「晨间」'), findsOneWidget);
   });
 
-  testWidgets('从曲库移除所选只删记录并退出多选', (WidgetTester tester) async {
+  testWidgets('隐藏所选只删记录并退出多选', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
@@ -152,19 +152,19 @@ void main() {
     await _enterSelection(tester);
     await _selectAll(tester);
 
-    await tester.tap(find.byTooltip('从曲库移除'));
+    await tester.tap(find.byTooltip('隐藏所选'));
     await tester.pumpAndSettle();
 
-    expect(find.text('从曲库移除 2 首？'), findsOneWidget);
-    expect(find.textContaining('不会删除磁盘上的音频文件'), findsOneWidget);
+    expect(find.text('隐藏 2 首？'), findsOneWidget);
+    expect(find.textContaining('不删除磁盘上的音频文件'), findsOneWidget);
 
-    await tester.tap(find.text('从曲库移除').last);
+    await tester.tap(find.text('隐藏').last);
     await tester.pumpAndSettle();
 
-    expect(repository.removeTracksCalls, 1);
-    expect(repository.lastRemovedPaths, hasLength(2));
+    expect(repository.hideTracksCalls, 1);
+    expect(repository.lastHiddenPaths, hasLength(2));
     expect(repository.tracks, isEmpty);
-    expect(find.text('已从曲库移除 2 首'), findsOneWidget);
+    expect(find.text('已隐藏 2 首'), findsOneWidget);
     expect(find.byType(Checkbox), findsNothing, reason: '删除后应退出多选');
     expect(find.text('曲库还是空的'), findsOneWidget);
   });

@@ -24,6 +24,37 @@ void main() {
     expect(find.text('03:00'), findsWidgets);
   });
 
+  testWidgets('右键单曲可隐藏，菜单项在第一组内', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+    );
+
+    final Finder row = find.text('夜航');
+    final TestGesture gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(row));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('加入歌单…'), findsOneWidget);
+    expect(find.text('隐藏歌曲'), findsOneWidget);
+    // 位置：排在「加入歌单…」之后、「在资源管理器中显示」之前，即第一组内
+    final double removeY = tester.getCenter(find.text('隐藏歌曲')).dy;
+    expect(removeY, greaterThan(tester.getCenter(find.text('加入歌单…')).dy));
+    expect(removeY, lessThan(tester.getCenter(find.text('在资源管理器中显示')).dy));
+
+    await tester.tap(find.text('隐藏歌曲'));
+    await tester.pumpAndSettle();
+
+    expect(repository.hideTracksCalls, 1);
+    expect(repository.lastHiddenPaths, hasLength(1));
+    expect(find.text('夜航'), findsNothing, reason: '移除后该行应从列表消失');
+    expect(find.text('潮汐'), findsOneWidget, reason: '其它曲目不受影响');
+  });
+
   testWidgets('空曲库展示空态', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: const <Track>[]);
 

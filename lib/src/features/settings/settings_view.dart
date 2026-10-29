@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_version.dart';
 import '../../common/common.dart';
+import '../../rust/api/db.dart' as db;
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
@@ -238,6 +239,12 @@ class SettingsView extends StatelessWidget {
             : null,
       ),
       _ActionRow(
+        icon: Icons.visibility_off_outlined,
+        title: '被隐藏的歌曲',
+        subtitle: '从曲库隐藏的曲目，扫描时自动跳过，可在这里恢复',
+        onTap: () => unawaited(_openHiddenTracks(context)),
+      ),
+      _ActionRow(
         icon: Icons.cleaning_services_outlined,
         title: '清理缺失文件',
         subtitle: pruningMissing ? '正在检查曲库记录…' : '移除磁盘上已不存在的曲目记录，不会删除音频文件',
@@ -466,6 +473,13 @@ class SettingsView extends StatelessWidget {
       return custom(text, query);
     }
     return text.toLowerCase().contains(query.toLowerCase());
+  }
+
+  static Future<void> _openHiddenTracks(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => const _HiddenTracksDialog(),
+    );
   }
 
   void _openStats(BuildContext context) {
@@ -2098,4 +2112,155 @@ class _WheelPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WheelPainter oldDelegate) => oldDelegate.hsv != hsv;
+}
+
+/// 「被隐藏的歌曲」列表：从曲库隐藏的曲目，可逐条恢复。
+///
+/// 数据直接从曲库读，不经过曲库页——隐藏列表和当前播放状态无关，
+/// 设置页单独打开也能看。
+class _HiddenTracksDialog extends StatefulWidget {
+  const _HiddenTracksDialog();
+
+  @override
+  State<_HiddenTracksDialog> createState() => _HiddenTracksDialogState();
+}
+
+class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
+  List<db.HiddenTrack>? _items;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final List<db.HiddenTrack> items = await db.hiddenTracks();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = '读取失败：${ErrorRetry.describe(error)}';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _restore(db.HiddenTrack track) async {
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
+    try {
+      await db.unhideTracks(paths: <String>[track.path]);
+      await _load();
+      messenger?.showSnackBar(SnackBar(content: Text('已恢复：${track.title}')));
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('恢复失败：${ErrorRetry.describe(error)}')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    return AlertDialog(
+      title: const Text('被隐藏的歌曲'),
+      contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      content: SizedBox(
+        width: 520,
+        height: 340,
+        child: _buildBody(theme, scheme),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('完成'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBody(ThemeData theme, ColorScheme scheme) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final String? error = _error;
+    if (error != null) {
+      return Center(
+        child: Text(
+          error,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error),
+        ),
+      );
+    }
+    final List<db.HiddenTrack> items = _items ?? const <db.HiddenTrack>[];
+    if (items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.visibility_off_outlined,
+              size: 40,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '没有被隐藏的歌曲',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '在曲目上右键「隐藏歌曲」会放到这里',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      itemCount: items.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (BuildContext context, int index) {
+        final db.HiddenTrack item = items[index];
+        final String subtitle = <String>[
+          item.artist,
+          item.album,
+        ].where((String part) => part.isNotEmpty).join(' · ');
+        return ListTile(
+          dense: true,
+          title: Text(item.title.isEmpty ? item.path : item.title),
+          subtitle: subtitle.isEmpty ? null : Text(subtitle),
+          trailing: TextButton(
+            onPressed: () => unawaited(_restore(item)),
+            child: const Text('恢复'),
+          ),
+        );
+      },
+    );
+  }
 }
