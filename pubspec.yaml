@@ -48,6 +48,9 @@ dependencies:
   screen_retriever: ^0.2.2
   tray_manager: ^0.5.2
   pinyin: ^3.3.0
+  # 装饰动画的时间源：widget 测试里 fake_async 会把 clock 换成假时钟，
+  # 用 Stopwatch / DateTime.now 的话 tester.pump(6s) 推不动动画
+  clock: ^1.1.2
 
 # 本地打过补丁的 tray_manager：0.5.2 弹出托盘菜单前没把自己设为前台窗口，
 # 导致点菜单以外的地方关不掉菜单。补丁见 third_party/tray_manager/windows/

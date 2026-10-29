@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/immersive_chrome.dart';
 import '../../common/formatters/duration.dart';
+import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
@@ -132,8 +134,7 @@ class NowPlayingPage extends StatefulWidget {
   State<NowPlayingPage> createState() => _NowPlayingPageState();
 }
 
-class _NowPlayingPageState extends State<NowPlayingPage>
-    with SingleTickerProviderStateMixin {
+class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
   static const double _narrowLyricMinHeight = 132;
 
@@ -158,8 +159,16 @@ class _NowPlayingPageState extends State<NowPlayingPage>
   /// 播放 / 暂停：只驱动封面的跳动图标，范围比整页小得多。
   final ValueNotifier<bool> _playing = ValueNotifier<bool>(false);
 
-  /// 圆形封面的旋转：只在「圆形封面 + 正在播放」时转，暂停停在当前角度。
-  late final AnimationController _coverSpin;
+  /// 圆形封面的旋转角度（0~1 圈）：只在「圆形封面 + 正在播放」时转，
+  /// 暂停停在当前角度。用 [UiClock.fast]（60fps）推进：旋转是最吃时间分辨率的
+  /// 动作，15fps 一眼看出停顿、30fps 仍略跳；跟着显示器刷新率走的话，240Hz 屏上
+  /// 等于每帧重新旋转、重新贴图。
+  final ValueNotifier<double> _coverTurns = ValueNotifier<double>(0);
+
+  /// 暂停前累计转过的秒数 / 本次开始转的时刻（[UiClock] 秒）
+  double _spinElapsed = 0;
+  double _spinStartedAt = 0;
+  bool _spinning = false;
 
   /// 拖动中的预览位置：松手才真正 seek，避免一次拖动发出几十条命令。
   ///
@@ -312,7 +321,6 @@ class _NowPlayingPageState extends State<NowPlayingPage>
   @override
   void initState() {
     super.initState();
-    _coverSpin = AnimationController(vsync: this, duration: _coverSpinPeriod);
     widget.data.addListener(_onData);
     circularCovers.addListener(_syncCoverSpin);
     _onData();
@@ -331,7 +339,8 @@ class _NowPlayingPageState extends State<NowPlayingPage>
     forceLightWindowControls.value = false;
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
-    _coverSpin.dispose();
+    _stopSpin();
+    _coverTurns.dispose();
     _position.dispose();
     _track.dispose();
     _playing.dispose();
@@ -365,21 +374,39 @@ class _NowPlayingPageState extends State<NowPlayingPage>
 
   /// 圆形封面转不转：只有「圆形封面 + 正在播放」才转，暂停停在当前角度。
   ///
-  /// 用 `repeat()` 而不是 `forward(from: 0)`：暂停再播能接着原来的角度转，
-  /// 不会跳回正面。关掉圆形封面时把角度归零，下次打开从正面开始。
+  /// 暂停时把已转的秒数累计下来，再播能接着原来的角度转，不会跳回正面。
+  /// 关掉圆形封面时角度归零，下次打开从正面开始。
   void _syncCoverSpin() {
     if (!circularCovers.value) {
-      _coverSpin.stop();
-      _coverSpin.value = 0;
+      _stopSpin();
+      _spinElapsed = 0;
+      _coverTurns.value = 0;
       return;
     }
     if (_playing.value) {
-      if (!_coverSpin.isAnimating) {
-        _coverSpin.repeat();
+      if (!_spinning) {
+        _spinning = true;
+        _spinStartedAt = UiClock.fast.seconds;
+        UiClock.fast.addListener(_onSpinTick);
       }
     } else {
-      _coverSpin.stop();
+      _stopSpin();
     }
+  }
+
+  void _stopSpin() {
+    if (!_spinning) {
+      return;
+    }
+    _spinElapsed += UiClock.fast.seconds - _spinStartedAt;
+    _spinning = false;
+    UiClock.fast.removeListener(_onSpinTick);
+  }
+
+  void _onSpinTick() {
+    final double seconds = _spinElapsed + UiClock.fast.seconds - _spinStartedAt;
+    _coverTurns.value =
+        (seconds / (_coverSpinPeriod.inMilliseconds / 1000)) % 1;
   }
 
   /// 音量步进（快捷键用）；夹在 0..1，与音量滑条同一约束
@@ -721,16 +748,33 @@ class _NowPlayingPageState extends State<NowPlayingPage>
                             child: child,
                           );
                         },
-                    child: RotationTransition(
-                      key: const ValueKey<String>('now-playing-cover-spin'),
-                      // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
-                      turns: _coverSpin,
-                      child: AlbumCover(
-                        path: track.coverPath,
-                        size: size,
-                        // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                        radius: 28,
-                        playing: playing,
+                    child: RepaintBoundary(
+                      // 旋转只改矩阵：封面自己一层，转起来不用重画歌词 / 控件；
+                      // 里面再套一层让图片光栅缓存住，只有矩阵在变
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: _coverTurns,
+                        // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                        builder:
+                            (
+                              BuildContext context,
+                              double turns,
+                              Widget? child,
+                            ) => Transform.rotate(
+                              key: const ValueKey<String>(
+                                'now-playing-cover-spin',
+                              ),
+                              angle: turns * math.pi * 2,
+                              child: child,
+                            ),
+                        child: RepaintBoundary(
+                          child: AlbumCover(
+                            path: track.coverPath,
+                            size: size,
+                            // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                            radius: 28,
+                            playing: playing,
+                          ),
+                        ),
                       ),
                     ),
                   );

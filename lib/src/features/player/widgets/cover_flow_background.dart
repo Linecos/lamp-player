@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../common/ui_clock.dart';
+
 /// 光斑位图每边的像素数。
 ///
 /// 光斑本身是很柔的径向渐变，放大到整屏也看不出像素块；192² 一张约 150KB，
@@ -47,18 +49,18 @@ class CoverFlowBackground extends StatefulWidget {
   State<CoverFlowBackground> createState() => _CoverFlowBackgroundState();
 }
 
-class _CoverFlowBackgroundState extends State<CoverFlowBackground>
-    with SingleTickerProviderStateMixin {
-  /// 一个完整循环的时长。
-  ///
-  /// 只走单向、不 `reverse`：反向播放会让光斑原路退回，看起来是
-  /// 「一呼一吸」而不是「流动」。12 秒扫过一整屏约 160 px/s，
-  /// 9 秒时偏快、20 秒以上大屏上几乎看不出位移。
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 12),
-  );
+/// 一个完整循环的时长。
+///
+/// 只走单向、不 `reverse`：反向播放会让光斑原路退回，看起来是
+/// 「一呼一吸」而不是「流动」。12 秒扫过一整屏约 160 px/s，
+/// 9 秒时偏快、20 秒以上大屏上几乎看不出位移。
+const double _auraPeriod = 12;
+
+class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
   bool _reduceMotion = false;
+
+  /// 动画起点（[UiClock.slow] 秒）：相位从 0 开始算，打开流光时从头扫
+  double _origin = UiClock.slow.seconds;
 
   /// 当前色板对应的预渲染光斑（`[色板色][色相档]`）；色板变化时整组重建
   List<List<ui.Image>>? _spots;
@@ -68,34 +70,20 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    _syncAnimation();
   }
 
   @override
   void didUpdateWidget(CoverFlowBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.animate != widget.animate) {
-      _syncAnimation();
-    }
-  }
-
-  void _syncAnimation() {
-    final bool shouldAnimate = widget.animate && !_reduceMotion;
-    if (shouldAnimate) {
-      if (!_controller.isAnimating) {
-        _controller.repeat();
-      }
-    } else {
-      _controller
-        ..stop()
-        ..value = 0;
+      // 重新打开流光时从相位 0 开始，和关掉前的位置无关
+      _origin = UiClock.slow.seconds;
     }
   }
 
   @override
   void dispose() {
     _disposeSpots();
-    _controller.dispose();
     super.dispose();
   }
 
@@ -171,12 +159,23 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
+        // 静态底单独一层：不挂动画，只在换色板时重画。和流光共用一张画布时，
+        // 这三块整屏光斑每帧都要重新混合一遍，白白吃掉一半填充率
+        RepaintBoundary(
+          child: CustomPaint(
+            painter: _BasePainter(
+              surface: Color.lerp(palette[1], Colors.black, 0.55)!,
+              spots: _spots!,
+            ),
+            child: const SizedBox.expand(),
+          ),
+        ),
         RepaintBoundary(
           child: CustomPaint(
             painter: _AuraPainter(
-              surface: Color.lerp(palette[1], Colors.black, 0.55)!,
               spots: _spots!,
-              animation: animating ? _controller : null,
+              animate: animating,
+              origin: _origin,
             ),
             child: const SizedBox.expand(),
           ),
@@ -278,36 +277,126 @@ double _smoothstep(double edge0, double edge1, double x) {
   return v * v * (3 - 2 * v);
 }
 
-class _AuraPainter extends CustomPainter {
-  _AuraPainter({required this.surface, required this.spots, this.animation})
-    : super(repaint: animation);
+/// 贴一块预渲染光斑：位图是「色板色 → 透明」的径向渐变，[Paint] 的 alpha
+/// 负责整体浓淡（`drawImageRect` 只取 Paint 的 alpha，不取 RGB）。
+void _paintSpot(
+  Canvas canvas,
+  Paint paint,
+  List<List<ui.Image>> spots,
+  Rect src,
+  Offset center,
+  double radius,
+  int colorIndex,
+  int hueStep,
+  double alpha,
+) {
+  final double a = alpha.clamp(0.0, 1.0);
+  if (a <= 0.002) {
+    return;
+  }
+  paint.color = Colors.white.withValues(alpha: a);
+  canvas.drawImageRect(
+    spots[colorIndex][hueStep],
+    src,
+    Rect.fromCircle(center: center, radius: radius),
+    paint,
+  );
+}
+
+/// 光斑位图的源矩形（整张）。
+Rect get _spotSrc =>
+    Rect.fromLTWH(0, 0, _spotImageSize.toDouble(), _spotImageSize.toDouble());
+
+/// 无色相偏移的那一档（静态底用它）。
+const int _neutralHueStep = (_spotHueSteps - 1) ~/ 2;
+
+/// 不随动画变的底：底色 + 三块静态光斑。
+///
+/// 单独一层（外层 `RepaintBoundary`），只画一次；既决定整页的色调（关闭
+/// 流光时也靠它），也保证某块流动光刚好淡出时背景不会塌成一片近黑。
+class _BasePainter extends CustomPainter {
+  _BasePainter({required this.surface, required this.spots});
 
   final Color surface;
+
+  /// 色板色 × 色相档的预渲染光斑。
+  final List<List<ui.Image>> spots;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = surface);
+    final Paint paint = Paint()..filterQuality = FilterQuality.low;
+    final Rect src = _spotSrc;
+
+    _paintSpot(
+      canvas,
+      paint,
+      spots,
+      src,
+      Offset(size.width * 0.7, size.height * 0.25),
+      size.width * 0.95,
+      0,
+      _neutralHueStep,
+      0.72,
+    );
+    _paintSpot(
+      canvas,
+      paint,
+      spots,
+      src,
+      Offset(size.width * 0.12, size.height * 0.85),
+      size.width * 0.75,
+      1,
+      _neutralHueStep,
+      0.5,
+    );
+    _paintSpot(
+      canvas,
+      paint,
+      spots,
+      src,
+      Offset(size.width * 0.9, size.height * 0.9),
+      size.width * 0.55,
+      2,
+      _neutralHueStep,
+      0.36,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BasePainter oldDelegate) {
+    return !identical(oldDelegate.spots, spots) ||
+        oldDelegate.surface != surface;
+  }
+}
+
+/// 每帧重绘的四条流动光斑（背景完全透明，压在 [_BasePainter] 上面）。
+///
+/// 相位来自 [UiClock.slow]（15fps），不跟着显示器刷新率走：240Hz 屏上按刷新率
+/// 出帧等于每帧把整屏混合四遍，CPU 白烧十几倍。这层是整窗大小，每帧都是一次
+/// 全屏重绘，实测占了正在播放页一半的 CPU，所以单独降到 15fps。
+class _AuraPainter extends CustomPainter {
+  _AuraPainter({required this.spots, this.animate = false, this.origin = 0})
+    : super(repaint: animate ? UiClock.slow : null);
 
   /// 色板色 × 色相档的预渲染光斑；画的时候直接挑一张贴上去。
   final List<List<ui.Image>> spots;
 
-  /// 为空时画静态帧；非空时由它驱动重绘。
-  final Animation<double>? animation;
+  /// false 时画静态帧（golden / 关闭流光 / 系统要求减少动效）。
+  final bool animate;
 
-  /// 无色相偏移的那一档（静态底用它）。
-  static const int _neutralStep = (_spotHueSteps - 1) ~/ 2;
+  /// 相位零点（[UiClock.slow] 秒）
+  final double origin;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Rect rect = Offset.zero & size;
-    canvas.drawRect(rect, Paint()..color = surface);
-
-    final double t = animation?.value ?? 0;
+    final double t = animate
+        ? ((UiClock.slow.seconds - origin) / _auraPeriod) % 1
+        : 0;
     final double angle = t * math.pi * 2;
     // 一个 Paint 用到底：只有 alpha 在变，贴图方式不变
     final Paint paint = Paint()..filterQuality = FilterQuality.low;
-    final Rect src = Rect.fromLTWH(
-      0,
-      0,
-      _spotImageSize.toDouble(),
-      _spotImageSize.toDouble(),
-    );
+    final Rect src = _spotSrc;
 
     /// 贴一块光斑：位图是「色板色 → 透明」的径向渐变，`paint` 的 alpha
     /// 负责整体浓淡（`drawImageRect` 只取 Paint 的 alpha，不取 RGB）。
@@ -318,44 +407,18 @@ class _AuraPainter extends CustomPainter {
       int hueStep,
       double alpha,
     ) {
-      final double a = alpha.clamp(0.0, 1.0);
-      if (a <= 0.002) {
-        return;
-      }
-      paint.color = Colors.white.withValues(alpha: a);
-      canvas.drawImageRect(
-        spots[colorIndex][hueStep],
-        src,
-        Rect.fromCircle(center: center, radius: radius),
+      _paintSpot(
+        canvas,
         paint,
+        spots,
+        src,
+        center,
+        radius,
+        colorIndex,
+        hueStep,
+        alpha,
       );
     }
-
-    /// 静态底：不随动画变。
-    ///
-    /// 既决定整页的色调（关闭流光时也靠它），也保证某块流动光刚好淡出时
-    /// 背景不会塌成一片近黑。
-    spot(
-      Offset(size.width * 0.7, size.height * 0.25),
-      size.width * 0.95,
-      0,
-      _neutralStep,
-      0.72,
-    );
-    spot(
-      Offset(size.width * 0.12, size.height * 0.85),
-      size.width * 0.75,
-      1,
-      _neutralStep,
-      0.5,
-    );
-    spot(
-      Offset(size.width * 0.9, size.height * 0.9),
-      size.width * 0.55,
-      2,
-      _neutralStep,
-      0.36,
-    );
 
     /// 一块光沿一条直线匀速穿过画面，到头从另一侧再来。
     ///
@@ -456,7 +519,7 @@ class _AuraPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _AuraPainter oldDelegate) {
     return !identical(oldDelegate.spots, spots) ||
-        oldDelegate.surface != surface ||
-        oldDelegate.animation != animation;
+        oldDelegate.animate != animate ||
+        oldDelegate.origin != origin;
   }
 }
