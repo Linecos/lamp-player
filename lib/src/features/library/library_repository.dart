@@ -44,17 +44,20 @@ abstract interface class LibraryRepository {
 
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   ///
-  /// 注意：这条路径**不记隐藏**，下次扫描会重新加回来。
-  /// 界面上的「隐藏歌曲」走 [hideTracks]。
+  /// 注意：这条路径**真删行**，会级联清掉收藏 / 歌单 / 播放历史，而且
+  /// 下次扫描会把文件重新加回来。界面上的「隐藏歌曲」走 [hideTracks]。
   Future<int> removeTracks(List<String> paths);
 
-  /// 隐藏曲目：记录搬进隐藏列表并从曲库删掉，下次扫描按路径跳过
+  /// 隐藏曲目：行留在库里，只把 `hidden` 标记置位，曲库列表与搜索不再显示。
+  ///
+  /// 收藏、歌单、播放历史、听歌时长都挂在 `tracks(path)` 上，删行会被级联
+  /// 清空——所以这里不删，恢复时才能原样回来。
   Future<int> hideTracks(List<String> paths);
 
   /// 被隐藏的曲目，最近隐藏的在前
   Future<List<db.HiddenTrack>> hiddenTracks();
 
-  /// 恢复隐藏：按快照插回曲库；返回恢复条数
+  /// 恢复隐藏：把标记翻回去；返回恢复条数
   Future<int> unhideTracks(List<String> paths);
 
   /// 把 ReplayGain 增益写进音频文件标签（`REPLAYGAIN_TRACK_GAIN`）

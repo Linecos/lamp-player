@@ -336,3 +336,47 @@ fn scan_matches_paths_across_case_and_separator_changes() {
     db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();
 }
+
+/// 隐藏之后重扫：不重新解析（指纹还在），也不会被重新加回列表。
+///
+/// v7 的隐藏是把行搬进 hidden_tracks 再删掉，隐藏曲目因此从增量指纹里消失，
+/// 每次扫描都要重新读标签、重新抽封面——抽出来的封面还会在扫描结束时被
+/// 当成残留删掉。改成标记位之后指纹还在，重扫应当全部 `unchanged`。
+#[test]
+fn scan_skips_hidden_tracks_without_reparsing() {
+    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let root = unique_dir("hidden");
+    let db_path = root.join("library.db");
+    db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
+
+    let music = root.join("music");
+    write_wav(&music.join("a.wav"), 0.5);
+    write_wav(&music.join("b.wav"), 0.5);
+
+    let first = scan::scan_folder(music.to_string_lossy().into_owned()).expect("首扫");
+    assert_eq!(first.upserted, 2);
+
+    let tracks = db::all_tracks().expect("读曲库");
+    let hidden_path = tracks
+        .iter()
+        .find(|item| item.title == "a")
+        .expect("应有 a.wav")
+        .path
+        .clone();
+    assert_eq!(db::hide_tracks(vec![hidden_path]).expect("隐藏"), 1);
+    assert_eq!(db::all_tracks().expect("读曲库").len(), 1);
+
+    let again = scan::scan_folder(music.to_string_lossy().into_owned()).expect("重扫");
+    assert_eq!(again.scanned, 2, "两个文件都还在磁盘上");
+    assert_eq!(again.unchanged, 2, "隐藏曲目也在指纹里，不该重新解析");
+    assert_eq!(again.upserted, 0);
+    assert_eq!(again.pruned, 0, "隐藏不算「磁盘上没了」");
+    assert_eq!(
+        db::all_tracks().expect("读曲库").len(),
+        1,
+        "重扫不该把它加回来"
+    );
+    assert_eq!(db::hidden_tracks().expect("读隐藏列表").len(), 1);
+
+    fs::remove_dir_all(&root).ok();
+}
