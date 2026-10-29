@@ -32,6 +32,7 @@ class SessionSnapshot {
     this.replayGain = false,
     this.crossfadeSeconds = 0,
     this.flowBackground = true,
+    this.circularCovers = false,
     this.shortcutsJson = '',
     this.desktopLyrics = false,
     this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
@@ -98,6 +99,9 @@ class SessionSnapshot {
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
 
+  /// 封面是否显示成圆形（默认关）
+  final bool circularCovers;
+
   /// 自定义键位的 JSON（`[encodeShortcut]` 的数组）；空串表示全用默认键位。
   ///
   /// 存原始字符串而不是 `List<ShortcutBinding>`：解析失败时调用方可以整体
@@ -142,6 +146,7 @@ class PrefsSessionStore implements SessionStore {
   static const int desktopLyricFontSizeStep = 3;
   static const String sortKey = 'ui_sort';
   static const String flowBackgroundKey = 'ui_flow_background';
+  static const String circularCoversKey = 'ui_circular_covers';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
   static const String shortcutsKey = 'player_shortcuts';
   static const String volumeCurveVersionKey = 'volume_curve_version';
@@ -204,6 +209,7 @@ class PrefsSessionStore implements SessionStore {
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
         flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
+        circularCovers: prefs.getBool(circularCoversKey) ?? false,
         shortcutsJson: prefs.getString(shortcutsKey) ?? '',
       );
     } catch (_) {
@@ -227,6 +233,7 @@ class PrefsSessionStore implements SessionStore {
       }
       await prefs.setDouble(lastPositionKey, snapshot.lastPositionSecs);
       await prefs.setBool(flowBackgroundKey, snapshot.flowBackground);
+      await prefs.setBool(circularCoversKey, snapshot.circularCovers);
       await prefs.setString(repeatKey, snapshot.repeat.name);
       await prefs.setBool(shuffleKey, snapshot.shuffle);
       final String? section = snapshot.section;

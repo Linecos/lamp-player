@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
+import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../../rust/api/lyrics.dart';
@@ -501,11 +502,20 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
             // 封面可点：打开正在播放页（歌词 / 大封面）
             // 高亮只包封面本身：把 12px 间距放进 InkWell 会让高亮比封面
             // 宽出一截，看起来和封面错位
-            InkWell(
-              key: const ValueKey<String>('player-bar-open-now-playing'),
-              borderRadius: BorderRadius.circular(16),
-              hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-              onTap: current == null ? null : widget.onOpenNowPlaying,
+            ValueListenableBuilder<bool>(
+              valueListenable: circularCovers,
+              builder: (BuildContext context, bool circular, Widget? child) {
+                return InkWell(
+                  key: const ValueKey<String>('player-bar-open-now-playing'),
+                  // 圆形封面时高亮也得是圆的，否则四角会露出方形底色
+                  borderRadius: BorderRadius.circular(
+                    circular ? _coverSize / 2 : 16,
+                  ),
+                  hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+                  onTap: current == null ? null : widget.onOpenNowPlaying,
+                  child: child,
+                );
+              },
               child: AlbumCover(
                 path: current?.coverPath,
                 size: _coverSize,

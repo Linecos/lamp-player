@@ -119,6 +119,28 @@ void main() {
       expect(find.byType(Image), findsOneWidget);
       expect(find.byIcon(Icons.music_note), findsNothing);
     });
+
+    testWidgets('打开圆形封面后圆角变成半径的一半，关掉能恢复', (WidgetTester tester) async {
+      // 全局开关：用例结束必须复位，否则会污染其它用例
+      addTearDown(() => circularCovers.value = false);
+
+      await _pumpInScaffold(tester, const AlbumCover(size: 40, radius: 12));
+
+      BorderRadius clipRadius() {
+        final ClipRRect clip = tester.widget<ClipRRect>(find.byType(ClipRRect));
+        return clip.borderRadius as BorderRadius;
+      }
+
+      expect(clipRadius().topLeft.x, 12, reason: '默认还是圆角方形');
+
+      circularCovers.value = true;
+      await tester.pump();
+      expect(clipRadius().topLeft.x, 20, reason: '40 的圆形半径就是 size / 2');
+
+      circularCovers.value = false;
+      await tester.pump();
+      expect(clipRadius().topLeft.x, 12);
+    });
   });
 
   group('ErrorRetry', () {

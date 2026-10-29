@@ -2,9 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'cover_shape.dart';
+
 /// 专辑封面缩略图：有缓存文件就显示图片，否则回退到音符 / 播放中图标。
 ///
 /// 只接收文件路径，不依赖曲目模型，任何页面都能复用。
+/// 设置里打开「圆形封面」后，圆角自动变成 [size] 的一半（即正圆）。
 class AlbumCover extends StatelessWidget {
   const AlbumCover({
     super.key,
@@ -31,8 +34,16 @@ class AlbumCover extends StatelessWidget {
     final double pixels = MediaQuery.devicePixelRatioOf(context) * size;
     final String? coverPath = path;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
+    return ValueListenableBuilder<bool>(
+      valueListenable: circularCovers,
+      // 只换圆角、不换子树：ValueListenableBuilder 重建的仍是同一个
+      // ClipRRect，图片状态（已解码的那帧）不会被丢掉
+      builder: (BuildContext context, bool circular, Widget? child) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(circular ? size / 2 : radius),
+          child: child,
+        );
+      },
       child: SizedBox(
         width: size,
         height: size,

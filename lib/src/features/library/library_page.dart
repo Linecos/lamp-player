@@ -399,6 +399,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 正在播放页是否启用封面取色流光；关闭后只保留静态取色背景
   bool _flowBackground = true;
 
+  /// 封面是否显示成圆形（设置里的开关，默认关）
+  bool _circularCovers = false;
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -646,6 +649,10 @@ class _LibraryPageState extends State<LibraryPage>
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
       _desktopLyricLocked = snapshot.desktopLyricLocked;
       _flowBackground = snapshot.flowBackground;
+      _circularCovers = snapshot.circularCovers;
+      // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
+      // 立刻同步，免得界面先按方形画一遍再跳成圆形
+      circularCovers.value = snapshot.circularCovers;
     });
 
     if (!mounted) {
@@ -769,6 +776,7 @@ class _LibraryPageState extends State<LibraryPage>
       desktopLyricFontSize: _desktopLyricFontSize,
       desktopLyricLocked: _desktopLyricLocked,
       flowBackground: _flowBackground,
+      circularCovers: _circularCovers,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
     //
@@ -934,6 +942,13 @@ class _LibraryPageState extends State<LibraryPage>
 
   void _setFlowBackground(bool value) {
     _update(() => _flowBackground = value);
+    _saveSessionNow();
+  }
+
+  void _setCircularCovers(bool value) {
+    _update(() => _circularCovers = value);
+    // 所有 AlbumCover 都订阅这个通知器，改完立刻生效，不必整页重建
+    circularCovers.value = value;
     _saveSessionNow();
   }
 

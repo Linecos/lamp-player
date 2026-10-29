@@ -50,6 +50,8 @@ extension _SettingsSection on _LibraryPageState {
             onShowShortcuts: () => unawaited(_openShortcuts()),
             flowBackground: _flowBackground,
             onFlowBackgroundChanged: _setFlowBackground,
+            circularCovers: _circularCovers,
+            onCircularCoversChanged: _setCircularCovers,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,

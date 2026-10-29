@@ -20,6 +20,7 @@ void main() {
     expect(snapshot.sort, LibrarySort.library);
     expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
     expect(snapshot.flowBackground, isTrue, reason: '默认开启流光背景');
+    expect(snapshot.circularCovers, isFalse, reason: '圆形封面默认关闭');
   });
 
   test('保存后可以完整读回', () async {
@@ -114,6 +115,17 @@ void main() {
 
     await store.save(const SessionSnapshot(flowBackground: true));
     expect((await store.load()).flowBackground, isTrue);
+  });
+
+  test('圆形封面偏好可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    await store.save(const SessionSnapshot(circularCovers: true));
+    expect((await store.load()).circularCovers, isTrue);
+
+    await store.save(const SessionSnapshot(circularCovers: false));
+    expect((await store.load()).circularCovers, isFalse);
   });
 
   test('独占输出偏好可以存取', () async {
