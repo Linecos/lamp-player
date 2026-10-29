@@ -304,7 +304,7 @@ class _LyricLineView extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
     final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: active ? 30 : 24,
+      fontSize: active ? 28 : 22,
       height: 1.45,
       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
       letterSpacing: 0.2,
@@ -328,7 +328,7 @@ class _LyricLineView extends StatelessWidget {
         textAlign: TextAlign.center,
         style: style.copyWith(
           color: active ? activeColor : dim,
-          fontSize: active ? 26 : 20,
+          fontSize: active ? 24 : 18,
         ),
       );
     } else if (active && line.words.length >= 2) {
@@ -374,8 +374,8 @@ class _LyricLineView extends StatelessWidget {
                   style: TextStyle(
                     // 译文只比正文略小，避免层级断层
                     fontSize: active
-                        ? (_hasCjk(extra) ? 25 : 23)
-                        : (_hasCjk(extra) ? 20 : 19),
+                        ? (_hasCjk(extra) ? 23 : 21)
+                        : (_hasCjk(extra) ? 18 : 17),
                     height: 1.4,
                     color: Colors.white.withValues(
                       alpha: active
