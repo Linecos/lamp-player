@@ -47,6 +47,8 @@ pub enum Command {
 /// 字号范围与步进（96 DPI 下的逻辑像素）
 pub const MIN_FONT_SIZE: i32 = 16;
 pub const MAX_FONT_SIZE: i32 = 56;
+/// 只有 Windows 实现里的按钮会用到；非 Windows 平台（CI 的 clippy）别报死代码
+#[cfg_attr(not(windows), allow(dead_code))]
 pub const FONT_STEP: i32 = 3;
 pub const DEFAULT_FONT_SIZE: i32 = 27;
 
