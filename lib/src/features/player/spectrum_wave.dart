@@ -138,9 +138,6 @@ class _BarsPainter extends CustomPainter {
     final int last = values.length - 1;
     final Paint paint = Paint()..isAntiAlias = true;
 
-    // 整排画在一个图层里，最后用 dstIn 抹掉左右两端
-    final Rect rect = Offset.zero & size;
-    canvas.saveLayer(rect, Paint());
     for (int i = 0; i < count; i += 1) {
       final double t = count == 1 ? 0 : i / (count - 1);
       final double value = _sample(last * t).clamp(0.0, 1.0);
@@ -152,8 +149,12 @@ class _BarsPainter extends CustomPainter {
       );
       final double x = i * (bar + _gap);
       final Color base = _tint(t);
+      // 两端 6% 内淡出。以前是整排 `saveLayer` + 渐变 mask 再 `dstIn`，
+      // 每帧都要开一张离屏图层、建一个线性渐变着色器；直接把系数乘进
+      // 每根柱子的 alpha，效果一样，代价只剩一次乘法。
+      final double fade = _edgeFade(t);
       // 越高的柱子越亮：安静的段落整排淡下去，鼓点一敲就亮起来
-      final double alpha = (0.26 + 0.40 * value) * strength;
+      final double alpha = (0.26 + 0.40 * value) * strength * fade;
       final double top = size.height - height;
       paint.color = base.withValues(alpha: alpha);
       canvas.drawRRect(
@@ -175,21 +176,18 @@ class _BarsPainter extends CustomPainter {
         );
       }
     }
-    canvas.drawRect(
-      rect,
-      Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = const LinearGradient(
-          colors: <Color>[
-            Colors.transparent,
-            Colors.white,
-            Colors.white,
-            Colors.transparent,
-          ],
-          stops: <double>[0, 0.06, 0.94, 1],
-        ).createShader(rect),
-    );
-    canvas.restore();
+  }
+
+  /// 两端 6% 内线性淡出，中段保持 1（与原渐变 mask 的 stops 一致）
+  static double _edgeFade(double t) {
+    const double edge = 0.06;
+    if (t < edge) {
+      return t / edge;
+    }
+    if (t > 1 - edge) {
+      return (1 - t) / edge;
+    }
+    return 1;
   }
 
   /// 横向色相：左端 → 中段 → 右端

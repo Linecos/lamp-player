@@ -1,7 +1,24 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+/// 光斑位图每边的像素数。
+///
+/// 光斑本身是很柔的径向渐变，放大到整屏也看不出像素块；192² 一张约 150KB，
+/// 28 张合计约 4MB，换来的是每帧零着色器创建。
+const int _spotImageSize = 192;
+
+/// 每个色板色预渲染几档色相（在 ±[_spotHueAmp]° 内等分）。
+const int _spotHueSteps = 7;
+
+/// 流动光斑的色相摆动幅度（度）；与原先每帧算 HSL 时的幅度保持一致。
+const double _spotHueAmp = 14;
+
+/// 测试用：预渲染光斑的累计张数，用来确认动画帧不会反复重建位图。
+@visibleForTesting
+int coverFlowSpotRenderCount = 0;
 
 /// 正在播放页的封面取色背景。
 ///
@@ -9,6 +26,10 @@ import 'package:flutter/material.dart';
 /// 每个色块沿固定方向匀速穿过画面（[sweep]），看起来是「光在流」而不是
 /// 「色块在原地呼吸」；动画只让 [CustomPainter] 重绘，不重建歌词与控件；
 /// 测试 / golden 可通过 [animate] 关闭。
+///
+/// 光斑按「色板色 × 色相档」预渲染成位图，每帧只做 `drawImageRect`：
+/// 直接每帧 `RadialGradient.createShader` 时，圆心 / 半径每帧都不同，
+/// Skia 无法命中着色器缓存，进程提交内存会以每秒上百 MB 的速度上涨。
 class CoverFlowBackground extends StatefulWidget {
   const CoverFlowBackground({
     super.key,
@@ -38,6 +59,10 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
     duration: const Duration(seconds: 12),
   );
   bool _reduceMotion = false;
+
+  /// 当前色板对应的预渲染光斑（`[色板色][色相档]`）；色板变化时整组重建
+  List<List<ui.Image>>? _spots;
+  List<Color>? _spotPalette;
 
   @override
   void didChangeDependencies() {
@@ -69,8 +94,63 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
 
   @override
   void dispose() {
+    _disposeSpots();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _disposeSpots() {
+    final List<List<ui.Image>>? spots = _spots;
+    _spots = null;
+    _spotPalette = null;
+    if (spots == null) {
+      return;
+    }
+    for (final List<ui.Image> row in spots) {
+      for (final ui.Image image in row) {
+        image.dispose();
+      }
+    }
+  }
+
+  /// 按色板预渲染光斑位图（色板色 × 色相档）。
+  ///
+  /// 只在换歌 / 换主题时跑一次；画的时候挑对应档位直接贴图。
+  List<List<ui.Image>> _buildSpots(List<Color> palette) {
+    return <List<ui.Image>>[
+      for (final Color color in palette)
+        <ui.Image>[
+          for (int step = 0; step < _spotHueSteps; step += 1)
+            _renderSpot(color, step),
+        ],
+    ];
+  }
+
+  ui.Image _renderSpot(Color color, int step) {
+    final HSLColor hsl = HSLColor.fromColor(color);
+    final double shift =
+        -_spotHueAmp + 2 * _spotHueAmp * step / (_spotHueSteps - 1);
+    final Color shifted = hsl.withHue((hsl.hue + shift) % 360).toColor();
+
+    final Rect rect = Rect.fromLTWH(
+      0,
+      0,
+      _spotImageSize.toDouble(),
+      _spotImageSize.toDouble(),
+    );
+    final ui.PictureRecorder recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          colors: <Color>[shifted, shifted.withValues(alpha: 0)],
+        ).createShader(rect),
+    );
+    final ui.Picture picture = recorder.endRecording();
+    final ui.Image image = picture.toImageSync(_spotImageSize, _spotImageSize);
+    picture.dispose();
+    coverFlowSpotRenderCount += 1;
+    return image;
   }
 
   @override
@@ -81,6 +161,11 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
       widget.colors ??
           <Color>[scheme.primary, scheme.tertiary, scheme.secondary],
     );
+    if (_spots == null || !listEquals(_spotPalette, palette)) {
+      _disposeSpots();
+      _spots = _buildSpots(palette);
+      _spotPalette = palette;
+    }
     final bool animating = widget.animate && !_reduceMotion;
 
     return Stack(
@@ -89,8 +174,8 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground>
         RepaintBoundary(
           child: CustomPaint(
             painter: _AuraPainter(
-              colors: palette,
               surface: Color.lerp(palette[1], Colors.black, 0.55)!,
+              spots: _spots!,
               animation: animating ? _controller : null,
             ),
             child: const SizedBox.expand(),
@@ -194,14 +279,19 @@ double _smoothstep(double edge0, double edge1, double x) {
 }
 
 class _AuraPainter extends CustomPainter {
-  _AuraPainter({required this.colors, required this.surface, this.animation})
+  _AuraPainter({required this.surface, required this.spots, this.animation})
     : super(repaint: animation);
 
-  final List<Color> colors;
   final Color surface;
+
+  /// 色板色 × 色相档的预渲染光斑；画的时候直接挑一张贴上去。
+  final List<List<ui.Image>> spots;
 
   /// 为空时画静态帧；非空时由它驱动重绘。
   final Animation<double>? animation;
+
+  /// 无色相偏移的那一档（静态底用它）。
+  static const int _neutralStep = (_spotHueSteps - 1) ~/ 2;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -210,16 +300,35 @@ class _AuraPainter extends CustomPainter {
 
     final double t = animation?.value ?? 0;
     final double angle = t * math.pi * 2;
+    // 一个 Paint 用到底：只有 alpha 在变，贴图方式不变
+    final Paint paint = Paint()..filterQuality = FilterQuality.low;
+    final Rect src = Rect.fromLTWH(
+      0,
+      0,
+      _spotImageSize.toDouble(),
+      _spotImageSize.toDouble(),
+    );
 
-    void spot(Offset center, double radius, Color color, double alpha) {
-      final Paint paint = Paint()
-        ..shader = RadialGradient(
-          colors: <Color>[
-            color.withValues(alpha: alpha.clamp(0.0, 1.0)),
-            color.withValues(alpha: 0),
-          ],
-        ).createShader(Rect.fromCircle(center: center, radius: radius));
-      canvas.drawRect(rect, paint);
+    /// 贴一块光斑：位图是「色板色 → 透明」的径向渐变，`paint` 的 alpha
+    /// 负责整体浓淡（`drawImageRect` 只取 Paint 的 alpha，不取 RGB）。
+    void spot(
+      Offset center,
+      double radius,
+      int colorIndex,
+      int hueStep,
+      double alpha,
+    ) {
+      final double a = alpha.clamp(0.0, 1.0);
+      if (a <= 0.002) {
+        return;
+      }
+      paint.color = Colors.white.withValues(alpha: a);
+      canvas.drawImageRect(
+        spots[colorIndex][hueStep],
+        src,
+        Rect.fromCircle(center: center, radius: radius),
+        paint,
+      );
     }
 
     /// 静态底：不随动画变。
@@ -229,19 +338,22 @@ class _AuraPainter extends CustomPainter {
     spot(
       Offset(size.width * 0.7, size.height * 0.25),
       size.width * 0.95,
-      colors[0],
+      0,
+      _neutralStep,
       0.72,
     );
     spot(
       Offset(size.width * 0.12, size.height * 0.85),
       size.width * 0.75,
-      colors[1],
+      1,
+      _neutralStep,
       0.5,
     );
     spot(
       Offset(size.width * 0.9, size.height * 0.9),
       size.width * 0.55,
-      colors[2],
+      2,
+      _neutralStep,
       0.36,
     );
 
@@ -262,7 +374,7 @@ class _AuraPainter extends CustomPainter {
       required int laps,
       required double radius,
       required double alpha,
-      required Color color,
+      required int colorIndex,
       required double wobble,
     }) {
       final double p = (t * laps + phase) % 1.0;
@@ -274,11 +386,19 @@ class _AuraPainter extends CustomPainter {
       final double x = fromX + (toX - fromX) * p;
       final double y = fromY + (toY - fromY) * p;
       // 垂直于行进方向的一点摆动，避免看起来像一块平移的贴图
-      final double sway = math.sin(angle * laps + phase * math.pi * 2) * wobble;
+      final double wave = math.sin(angle * laps + phase * math.pi * 2);
+      final double sway = wave * wobble;
+      // 色相也按各自节奏摆动：四个斑同频变色同样会显得「整块一起呼吸」。
+      // 摆动值量化到预渲染档位，省掉每帧的 HSL 换算。
+      final int hueStep = ((wave + 1) / 2 * (_spotHueSteps - 1)).round().clamp(
+        0,
+        _spotHueSteps - 1,
+      );
       spot(
         Offset(size.width * x, size.height * (y + sway)),
         size.width * radius * (1 + 0.08 * math.sin(angle * 2 + phase * 6)),
-        _flowColor(color, phase * math.pi * 2, angle, 14, laps),
+        colorIndex,
+        hueStep,
         alpha * fade,
       );
     }
@@ -292,7 +412,7 @@ class _AuraPainter extends CustomPainter {
       laps: 1,
       radius: 0.72,
       alpha: 0.8,
-      color: colors[0],
+      colorIndex: 0,
       wobble: 0.03,
     );
     sweep(
@@ -304,7 +424,7 @@ class _AuraPainter extends CustomPainter {
       laps: 1,
       radius: 0.52,
       alpha: 0.6,
-      color: colors[1],
+      colorIndex: 1,
       wobble: 0.035,
     );
     sweep(
@@ -316,7 +436,7 @@ class _AuraPainter extends CustomPainter {
       laps: 2,
       radius: 0.42,
       alpha: 0.45,
-      color: colors[2],
+      colorIndex: 2,
       wobble: 0.03,
     );
     sweep(
@@ -328,28 +448,14 @@ class _AuraPainter extends CustomPainter {
       laps: 2,
       radius: 0.36,
       alpha: 0.38,
-      color: colors[3],
+      colorIndex: 3,
       wobble: 0.035,
     );
   }
 
-  /// 色相也按各自节奏摆动：四个斑同频变色同样会显得「整块一起呼吸」。
-  Color _flowColor(
-    Color color,
-    double phase,
-    double angle,
-    double hueAmp,
-    int rate,
-  ) {
-    final HSLColor hsl = HSLColor.fromColor(color);
-    return hsl
-        .withHue((hsl.hue + hueAmp * math.sin(angle * rate + phase)) % 360)
-        .toColor();
-  }
-
   @override
   bool shouldRepaint(covariant _AuraPainter oldDelegate) {
-    return !listEquals(oldDelegate.colors, colors) ||
+    return !identical(oldDelegate.spots, spots) ||
         oldDelegate.surface != surface ||
         oldDelegate.animation != animation;
   }
