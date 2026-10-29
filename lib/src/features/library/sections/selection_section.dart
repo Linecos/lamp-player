@@ -249,7 +249,7 @@ extension _SelectionSection on _LibraryPageState {
                 icon: const Icon(Icons.graphic_eq),
               ),
               IconButton(
-                tooltip: _selectionInPlaylist ? '从歌单移除' : '从曲库移除',
+                tooltip: _selectionInPlaylist ? '从歌单移除' : '隐藏所选',
                 onPressed: enabled ? () => unawaited(_removeSelected()) : null,
                 icon: Icon(
                   _selectionInPlaylist
@@ -558,14 +558,13 @@ extension _SelectionSection on _LibraryPageState {
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: Text(
-          fromPlaylist
-              ? '从歌单移除 ${tracks.length} 首？'
-              : '从曲库移除 ${tracks.length} 首？',
+          fromPlaylist ? '从歌单移除 ${tracks.length} 首？' : '隐藏 ${tracks.length} 首？',
         ),
         content: Text(
           fromPlaylist
               ? '只从这个歌单移除，不会删除曲库记录或磁盘上的音频文件。'
-              : '只删除曲库记录，不会删除磁盘上的音频文件。',
+              : '从曲库移除并记入隐藏列表，扫描时会跳过；不删除磁盘上的音频文件，'
+                    '可在「设置 → 被隐藏的歌曲」里恢复。',
         ),
         actions: <Widget>[
           TextButton(
@@ -578,7 +577,7 @@ extension _SelectionSection on _LibraryPageState {
               foregroundColor: scheme.onError,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(fromPlaylist ? '移除' : '从曲库移除'),
+            child: Text(fromPlaylist ? '移除' : '隐藏'),
           ),
         ],
       ),
@@ -603,7 +602,8 @@ extension _SelectionSection on _LibraryPageState {
         }
         _showMessage('已从歌单移除 ${paths.length} 首');
       } else {
-        final int removed = await _repository.removeTracks(paths.toList());
+        // 与右键「隐藏歌曲」同一套：写进隐藏列表，下次扫描跳过
+        final int removed = await _repository.hideTracks(paths.toList());
         if (!mounted) {
           return;
         }
@@ -613,7 +613,7 @@ extension _SelectionSection on _LibraryPageState {
         if (!mounted) {
           return;
         }
-        _showMessage('已从曲库移除 $removed 首');
+        _showMessage('已隐藏 $removed 首');
       }
       _exitSelection();
     } catch (error) {

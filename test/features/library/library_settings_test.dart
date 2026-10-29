@@ -266,6 +266,7 @@ void main() {
       const ValueKey<String>('settings-circular-cover-switch'),
     );
     await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
     expect(circularCovers.value, isFalse, reason: '默认关闭');
     await tester.tap(toggle);
     await tester.pumpAndSettle();

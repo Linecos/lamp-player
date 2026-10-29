@@ -589,12 +589,39 @@ extension _PlaybackSection on _LibraryPageState {
         unawaited(_toggleFavorite(track));
       case TrackContextAction.addToPlaylist:
         unawaited(_addToPlaylist(track));
+      case TrackContextAction.removeFromLibrary:
+        unawaited(_removeTrackFromLibrary(track));
       case TrackContextAction.revealInExplorer:
         unawaited(_revealInExplorer(track));
       case TrackContextAction.copyPath:
         unawaited(_copyPath(track));
       case TrackContextAction.openWithMusicTag:
         unawaited(_openWithMusicTag(track));
+    }
+  }
+
+  /// 右键单曲「隐藏歌曲」。
+  ///
+  /// 记录搬进 hidden_tracks 并从曲库删掉，下次扫描按路径跳过，不会又加回来。
+  /// 文件与播放队列都不动——歌还在磁盘上，正在播的那首没必要被打断。
+  Future<void> _removeTrackFromLibrary(Track track) async {
+    try {
+      final int hidden = await _repository.hideTracks(<String>[track.path]);
+      if (!mounted) {
+        return;
+      }
+      _applyRemovedPaths(<String>{track.path});
+      // 歌单曲目数会跟着变，网格里的数字要重读
+      await _loadPlaylists();
+      if (!mounted) {
+        return;
+      }
+      _showMessage(hidden > 0 ? '已隐藏：${track.title}' : '曲库里已经没有这首');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage('隐藏失败：${ErrorRetry.describe(error)}');
     }
   }
 

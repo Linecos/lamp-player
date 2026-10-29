@@ -16,6 +16,9 @@ enum TrackContextAction {
   addToQueue,
   toggleFavorite,
   addToPlaylist,
+
+  /// 隐藏歌曲：移出曲库并记入隐藏列表，扫描时跳过；不删文件、不打断播放
+  removeFromLibrary,
   revealInExplorer,
   copyPath,
 
@@ -364,6 +367,11 @@ class _TrackRow extends StatelessWidget {
           TrackContextAction.addToPlaylist,
           Icons.playlist_add,
           '加入歌单…',
+        ),
+        _menuItem(
+          TrackContextAction.removeFromLibrary,
+          Icons.visibility_off_outlined,
+          '隐藏歌曲',
         ),
         const PopupMenuDivider(),
         _menuItem(

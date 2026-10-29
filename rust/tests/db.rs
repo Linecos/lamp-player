@@ -330,7 +330,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 6, "升级后应写入当前结构版本");
+    assert_eq!(version, 7, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -616,4 +616,48 @@ fn remove_tracks_prunes_orphan_covers() {
         1
     );
     assert!(!cover.exists(), "删除曲目后不再被引用的封面应被回收");
+}
+
+#[test]
+fn hide_moves_track_into_hidden_list_and_unhide_restores_it() {
+    let (_lock, dir) = begin("hide");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    db::upsert_tracks(vec![
+        track("/music/hide.mp3", "要隐藏的", Some("周杰伦"), Some("专辑")),
+        track("/music/keep.mp3", "留下的", None, None),
+    ])
+    .expect("入库");
+
+    let hidden = db::hide_tracks(vec!["/music/hide.mp3".to_string()]).expect("隐藏");
+    assert_eq!(hidden, 1);
+    assert_eq!(db::all_tracks().expect("读曲库").len(), 1, "曲库里只剩一首");
+
+    let listed = db::hidden_tracks().expect("读隐藏列表");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].title, "要隐藏的");
+    assert_eq!(listed[0].artist, "周杰伦");
+    assert_eq!(listed[0].album, "专辑");
+
+    // 扫描时按 path_key 跳过，所以这里比的是归一化后的集合
+    let keys = db::hidden_path_keys_for_test().expect("读排除集合");
+    assert_eq!(keys.len(), 1);
+
+    let restored = db::unhide_tracks(vec!["/music/hide.mp3".to_string()]).expect("恢复");
+    assert_eq!(restored, 1);
+    assert!(db::hidden_tracks().expect("读隐藏列表").is_empty());
+    let all = db::all_tracks().expect("读曲库");
+    assert_eq!(all.len(), 2);
+    assert!(all.iter().any(|item| item.path == "/music/hide.mp3"));
+}
+
+#[test]
+fn hiding_unknown_path_is_a_no_op() {
+    let (_lock, dir) = begin("hide_missing");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    db::upsert_tracks(vec![track("/music/a.mp3", "a", None, None)]).expect("入库");
+
+    let hidden = db::hide_tracks(vec!["/music/nope.mp3".to_string()]).expect("隐藏");
+    assert_eq!(hidden, 0);
+    assert_eq!(db::all_tracks().expect("读曲库").len(), 1);
+    assert!(db::hidden_tracks().expect("读隐藏列表").is_empty());
 }
