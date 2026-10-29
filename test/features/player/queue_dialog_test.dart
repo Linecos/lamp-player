@@ -46,7 +46,11 @@ Future<Color> _pixelAt(
   return Color.fromARGB(255, bytes[i], bytes[i + 1], bytes[i + 2]);
 }
 
-Future<void> _openQueue(WidgetTester tester, {required int current}) async {
+Future<void> _openQueue(
+  WidgetTester tester, {
+  required int current,
+  int count = 8,
+}) async {
   tester.view.physicalSize = const Size(900, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -54,7 +58,7 @@ Future<void> _openQueue(WidgetTester tester, {required int current}) async {
 
   final PlaybackQueue queue = PlaybackQueue(
     tracks: <Track>[
-      for (int i = 0; i < 8; i += 1)
+      for (int i = 0; i < count; i += 1)
         sampleTrack(title: '曲目 $i', artist: '歌手 $i'),
     ],
     index: current,
@@ -172,5 +176,31 @@ void main() {
     final Rect row = tester.getRect(highlightBox);
     expect(row.left - dialog.left, 8, reason: '色块不该顶到弹窗左侧');
     expect(dialog.right - row.right, 8, reason: '右侧同理');
+  });
+
+  testWidgets('长队列打开时直接滚到当前曲目', (WidgetTester tester) async {
+    await _openQueue(tester, current: 30, count: 40);
+
+    final Finder current = find.byKey(const ValueKey<String>('queue-item-30'));
+    expect(current, findsOneWidget, reason: '当前曲目应该已经滚进可视区');
+
+    final Rect viewport = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('queue-dialog')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final Rect row = tester.getRect(current);
+    expect(row.top, greaterThanOrEqualTo(viewport.top));
+    expect(row.bottom, lessThanOrEqualTo(viewport.bottom));
+  });
+
+  testWidgets('弹窗底部不再放随机与循环开关', (WidgetTester tester) async {
+    await _openQueue(tester, current: 0);
+
+    expect(find.byTooltip('随机播放'), findsNothing);
+    expect(find.byTooltip('关闭随机播放'), findsNothing);
+    expect(find.byTooltip('循环播放：关'), findsNothing);
+    expect(find.byType(AlertDialog), findsOneWidget);
   });
 }

@@ -766,15 +766,11 @@ void main() {
     await tester.tap(find.byTooltip('播放队列'));
     await tester.pumpAndSettle();
 
-    // 标题栏放「清空 / 关闭」，随机 / 循环挪到底部
+    // 标题栏只放「清空 / 关闭」；随机 / 循环在播放条与正在播放页有入口，弹窗里不再重复
     expect(find.byTooltip('清空队列'), findsOneWidget);
     expect(find.byTooltip('关闭'), findsOneWidget);
-    expect(find.byTooltip('随机播放'), findsOneWidget);
-    expect(
-      tester.getCenter(find.byTooltip('清空队列')).dy,
-      lessThan(tester.getCenter(find.byTooltip('随机播放')).dy),
-      reason: '清空 / 关闭在顶部，随机 / 循环在底部',
-    );
+    expect(find.byTooltip('随机播放'), findsNothing);
+    expect(find.byTooltip('循环播放：关'), findsNothing);
 
     // 移除当前曲目：后一首顶上来并继续播放
     await tester.tap(find.byTooltip('从队列移除').first);
