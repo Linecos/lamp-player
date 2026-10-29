@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
-import 'package:lamp_player/src/features/settings/equalizer_page.dart';
+import 'package:lamp_player/src/features/settings/equalizer_panel.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -469,7 +469,12 @@ void main() {
     await tester.tap(find.text('均衡器'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(EqualizerPage), findsOneWidget);
+    // 与正在播放页同一个弹窗：外壳是对话框，内容仍是同一块面板
+    expect(
+      find.byKey(const ValueKey<String>('equalizer-dialog')),
+      findsOneWidget,
+    );
+    expect(find.byType(EqualizerPanel), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-0')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-9')), findsOneWidget);
   });

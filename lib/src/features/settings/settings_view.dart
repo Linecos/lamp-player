@@ -13,8 +13,9 @@ import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../library/library_revision.dart';
 import '../player/equalizer.dart';
+import '../player/equalizer_dialog.dart';
 import '../player/shortcuts.dart';
-import 'equalizer_page.dart';
+
 import 'hidden_tracks_view.dart';
 import 'listening_stats_page.dart';
 import 'listening_stats_repository.dart';
@@ -492,18 +493,16 @@ class SettingsView extends StatelessWidget {
     );
   }
 
-  void _openEqualizer(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => EqualizerPage(
-          enabled: eqEnabled,
-          gains: eqGains,
-          presetName: eqPresetName,
-          customPresets: eqCustomPresets,
-          onChanged: onEqualizerChanged,
-          onCustomPresetsChanged: onEqPresetsChanged,
-        ),
-      ),
+  /// 均衡器：与正在播放页同一个弹窗（以前这里是 push 一整页，风格不统一）
+  Future<void> _openEqualizer(BuildContext context) {
+    return showEqualizerDialog(
+      context,
+      enabled: eqEnabled,
+      gains: eqGains,
+      presetName: eqPresetName,
+      customPresets: eqCustomPresets,
+      onChanged: onEqualizerChanged,
+      onCustomPresetsChanged: onEqPresetsChanged,
     );
   }
 }

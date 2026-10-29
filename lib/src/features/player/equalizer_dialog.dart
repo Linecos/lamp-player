@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../player/equalizer.dart';
-import '../settings/equalizer_page.dart';
+import '../settings/equalizer_panel.dart';
 
-/// 均衡器弹窗（正在播放页的入口）。
+/// 均衡器弹窗：设置页与正在播放页共用同一个入口。
 ///
-/// 原来这里直接 `push` 一整页，和播放队列 / 输出设备 / 睡眠定时的弹窗
-/// 风格不统一；现在同一套 Dialog：图标 + 标题 + 关闭叉号，内容与设置页的
-/// [EqualizerPanel] 完全一致（开关 / 预设 / 曲线 / 10 段推子）。
+/// 两个入口以前不一致——正在播放页是弹窗、设置页 push 一整页；现在统一成
+/// 图标 + 标题 + 关闭叉号，和播放队列 / 输出设备 / 睡眠定时同一套外壳，
+/// 内容都是 [EqualizerPanel]（开关 / 预设 / 曲线 / 10 段推子）。
 Future<void> showEqualizerDialog(
   BuildContext context, {
   required bool enabled,
