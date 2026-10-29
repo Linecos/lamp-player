@@ -60,27 +60,53 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
+          padding: const EdgeInsets.fromLTRB(24, 24, 16, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Text(
-                '睡眠定时',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: scheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                off
-                    ? '不定时，到点不会自动暂停'
-                    : (widget.hasTimer
-                          ? '当前还剩 $_minutes 分钟，到点自动暂停'
-                          : '到点自动暂停，醒来点一下继续'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+              // 与播放队列、输出设备弹窗一致：标题右边留一个关闭叉号，
+              // 不用先找到底部的「取消」
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          '睡眠定时',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          off
+                              ? '不定时，到点不会自动暂停'
+                              : (widget.hasTimer
+                                    ? '当前还剩 $_minutes 分钟，到点自动暂停'
+                                    : '到点自动暂停，醒来点一下继续'),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    key: const ValueKey<String>('sleep-close'),
+                    tooltip: '关闭',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 20),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Center(
