@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/equalizer.dart';
 import 'package:lamp_player/src/features/settings/equalizer_curve.dart';
-import 'package:lamp_player/src/features/settings/equalizer_page.dart';
+import 'package:lamp_player/src/features/settings/equalizer_panel.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
 Future<void> _pump(
@@ -24,13 +24,16 @@ Future<void> _pump(
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.light(AppTheme.defaultSeed),
-      home: EqualizerPage(
-        enabled: enabled,
-        gains: gains ?? List<double>.filled(10, 0),
-        presetName: presetName,
-        customPresets: customPresets,
-        onChanged: onChanged,
-        onCustomPresetsChanged: onPresetsChanged,
+      // 面板本身只负责内容，外壳在两个入口的弹窗里（`showEqualizerDialog`）
+      home: Scaffold(
+        body: EqualizerPanel(
+          enabled: enabled,
+          gains: gains ?? List<double>.filled(10, 0),
+          presetName: presetName,
+          customPresets: customPresets,
+          onChanged: onChanged,
+          onCustomPresetsChanged: onPresetsChanged,
+        ),
       ),
     ),
   );

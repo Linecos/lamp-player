@@ -7,55 +7,10 @@ import '../../common/widgets/wheel_step.dart';
 import '../player/equalizer.dart';
 import 'equalizer_curve.dart';
 
-/// 均衡器独立页（设置页入口）：Scaffold 外壳 + [EqualizerPanel]。
-///
-/// 正在播放页用的是同样内容的弹窗（`showEqualizerDialog`），两边共用面板。
-class EqualizerPage extends StatelessWidget {
-  const EqualizerPage({
-    super.key,
-    required this.enabled,
-    required this.gains,
-    this.customPresets = const <EqualizerPreset>[],
-    this.presetName,
-    this.onChanged,
-    this.onCustomPresetsChanged,
-  });
-
-  final bool enabled;
-  final List<double> gains;
-  final List<EqualizerPreset> customPresets;
-
-  /// 当前套用的预设名；null 表示手动调过
-  final String? presetName;
-
-  /// 开关 / 推子 / 选预设都会回调，`presetName` 为 null 表示自定义
-  final void Function(bool enabled, List<double> gains, String? presetName)?
-  onChanged;
-
-  final ValueChanged<List<EqualizerPreset>>? onCustomPresetsChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: scheme.surfaceContainerLow,
-      appBar: AppBar(
-        title: const Text('均衡器'),
-        backgroundColor: scheme.surfaceContainerLow,
-      ),
-      body: EqualizerPanel(
-        enabled: enabled,
-        gains: gains,
-        presetName: presetName,
-        customPresets: customPresets,
-        onChanged: onChanged,
-        onCustomPresetsChanged: onCustomPresetsChanged,
-      ),
-    );
-  }
-}
-
 /// 均衡器面板：开关 + 预设切换 + 10 段推子 + 自存预设。
+///
+/// 设置页与正在播放页都通过 `showEqualizerDialog` 打开同一个弹窗，本文件只
+/// 提供面板本身，外壳（标题 + 关闭按钮）在 `player/equalizer_dialog.dart`。
 ///
 /// 预设是"多套命名曲线"，与曲目无关：内置 5 套 + 用户自己命名的若干套，
 /// 切换即生效，推子改动后自动退化成「自定义」。
