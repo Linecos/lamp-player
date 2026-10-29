@@ -5,6 +5,7 @@ import 'package:lamp_player/src/features/library/library_repository.dart';
 import 'package:lamp_player/src/features/library/music_tag.dart';
 import 'package:lamp_player/src/features/player/playback_service.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
+import 'package:lamp_player/src/rust/api/db.dart' as db;
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/rust/api/scan.dart';
@@ -242,6 +243,45 @@ class FakeLibraryRepository implements LibraryRepository {
     }
     playlist.updatedAt = _now();
     return true;
+  }
+
+  int hideTracksCalls = 0;
+  List<String> lastHiddenPaths = <String>[];
+  final List<db.HiddenTrack> hidden = <db.HiddenTrack>[];
+
+  @override
+  Future<int> hideTracks(List<String> paths) async {
+    hideTracksCalls += 1;
+    lastHiddenPaths = List<String>.of(paths);
+    for (final String path in paths) {
+      final int index = tracks.indexWhere((Track t) => t.path == path);
+      if (index < 0) {
+        continue;
+      }
+      final Track track = tracks[index];
+      hidden.add(
+        db.HiddenTrack(
+          path: track.path,
+          title: track.title,
+          artist: track.artist ?? '',
+          album: track.album ?? '',
+          durationSecs: track.durationSecs,
+          hiddenAt: 0,
+        ),
+      );
+      tracks.removeAt(index);
+    }
+    return paths.length;
+  }
+
+  @override
+  Future<List<db.HiddenTrack>> hiddenTracks() async =>
+      List<db.HiddenTrack>.of(hidden);
+
+  @override
+  Future<int> unhideTracks(List<String> paths) async {
+    hidden.removeWhere((db.HiddenTrack item) => paths.contains(item.path));
+    return paths.length;
   }
 
   @override

@@ -8,8 +8,9 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `backup_before_upgrade`, `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `merge_track_path`, `migrate`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `store_replay_gain`, `substring_search`, `table_exists`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
+// These functions are ignored because they are not marked as `pub`: `backup_before_upgrade`, `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `hidden_path_keys`, `merge_track_path`, `migrate`, `now_secs`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `store_replay_gain`, `substring_search`, `table_exists`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
+// These functions are ignored (category: IgnoreBecauseExplicitAttribute): `hidden_path_keys_for_test`
 
 /// 初始化数据库：建表 + FTS5 虚表 + 同步触发器，并按需升级结构。
 ///
@@ -53,10 +54,68 @@ Future<int> upsertTracks({required List<Track> tracks}) =>
 Future<int> pruneMissingTracks() =>
     RustLib.instance.api.crateApiDbPruneMissingTracks();
 
+/// 隐藏曲目：元数据搬进 `hidden_tracks`，再从 `tracks` 删掉。
+///
+/// 与 `remove_tracks` 的区别是**记得住**：下次扫描会跳过这些路径，不会又加回来。
+Future<int> hideTracks({required List<String> paths}) =>
+    RustLib.instance.api.crateApiDbHideTracks(paths: paths);
+
+/// 被隐藏的曲目列表（最近隐藏的在前）
+Future<List<HiddenTrack>> hiddenTracks() =>
+    RustLib.instance.api.crateApiDbHiddenTracks();
+
+/// 恢复隐藏：按快照插回 `tracks` 并移出排除列表。
+///
+/// `file_mtime` / `file_size` 留 0，让下次扫描重新解析一遍标签与封面。
+Future<int> unhideTracks({required List<String> paths}) =>
+    RustLib.instance.api.crateApiDbUnhideTracks(paths: paths);
+
+Future<int> removeTracks({required List<String> paths}) =>
+    RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);
+
 /// 按路径批量删除曲库记录，返回实际删除数。
 ///
 /// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
 /// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
 /// （否则会「删 0 条且不报错」）。
-Future<int> removeTracks({required List<String> paths}) =>
-    RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);
+/// 被隐藏的曲目：已移出曲库、扫描时跳过，但文件还在磁盘上。
+class HiddenTrack {
+  final String path;
+  final String title;
+  final String artist;
+  final String album;
+  final double durationSecs;
+
+  /// 隐藏时刻（Unix 秒），用于列表排序
+  final PlatformInt64 hiddenAt;
+
+  const HiddenTrack({
+    required this.path,
+    required this.title,
+    required this.artist,
+    required this.album,
+    required this.durationSecs,
+    required this.hiddenAt,
+  });
+
+  @override
+  int get hashCode =>
+      path.hashCode ^
+      title.hashCode ^
+      artist.hashCode ^
+      album.hashCode ^
+      durationSecs.hashCode ^
+      hiddenAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HiddenTrack &&
+          runtimeType == other.runtimeType &&
+          path == other.path &&
+          title == other.title &&
+          artist == other.artist &&
+          album == other.album &&
+          durationSecs == other.durationSecs &&
+          hiddenAt == other.hiddenAt;
+}
