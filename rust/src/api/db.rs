@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 7;
+const SCHEMA_VERSION: i32 = 8;
 
 struct Database {
     path: String,
@@ -286,6 +286,8 @@ CREATE INDEX IF NOT EXISTS play_sessions_day ON play_sessions(day DESC);
 ///
 /// 「移除曲库」不再是真的删掉——记录搬到这里，下次扫描按路径跳过，
 /// 否则删了又被扫描加回来，等于没删。元数据留快照，恢复时不用重新解析文件。
+///
+/// v8 起这张表不再使用：隐藏改成 `tracks.hidden` 标记位，见 [`migrate`]。
 const SCHEMA_V7: &str = r#"
 CREATE TABLE IF NOT EXISTS hidden_tracks (
     path          TEXT    PRIMARY KEY,
@@ -390,6 +392,45 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         conn.pragma_update(None, "user_version", 7)?;
     }
 
+    if version < 8 {
+        // v8：隐藏从「搬走 + 删行」改成 `tracks.hidden` 标记位。
+        //
+        // v7 那套把元数据搬进 hidden_tracks、再从 tracks 删行，而歌单 / 收藏 /
+        // 播放历史 / 听歌时长全部 `ON DELETE CASCADE` 挂在 tracks(path) 上：
+        // 隐藏一首歌等于把它的用户数据一起删了，恢复只能还原一条空壳记录；
+        // 正在播放的那首被隐藏后，连红心都点不动（写库时「曲目不在曲库」）。
+        //
+        // 现在行留着，只是打个标记：外键关系天然保住，恢复就是把标记翻回去。
+        // 老库已隐藏的行还躺在 hidden_tracks 里，搬回 tracks 并置 hidden = 1；
+        // 它们的关系数据在隐藏那一刻就被级联清了，找不回来（只能靠升级前的 .bak）。
+        if !column_exists(conn, "tracks", "hidden")? {
+            conn.execute_batch("ALTER TABLE tracks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;")?;
+        }
+        if !column_exists(conn, "tracks", "hidden_at")? {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN hidden_at INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        if table_exists(conn, "hidden_tracks")? {
+            // added_at 用隐藏时刻兜底：这些行的原入库时间早就随删行丢了
+            conn.execute_batch(
+                r#"
+                INSERT INTO tracks
+                    (path, title, artist, album, duration_secs, added_at, hidden, hidden_at)
+                SELECT path, title, artist, album, duration_secs, hidden_at, 1, hidden_at
+                  FROM hidden_tracks
+                 WHERE true
+                ON CONFLICT(path) DO UPDATE SET
+                    hidden    = 1,
+                    hidden_at = excluded.hidden_at;
+                DROP TABLE hidden_tracks;
+                "#,
+            )?;
+        }
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS tracks_hidden ON tracks(hidden);")?;
+        conn.pragma_update(None, "user_version", 8)?;
+    }
+
     Ok(())
 }
 
@@ -431,7 +472,7 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM tracks t
             JOIN tracks_fts f ON f.rowid = t.id
-            WHERE tracks_fts MATCH ?1
+            WHERE t.hidden = 0 AND tracks_fts MATCH ?1
             ORDER BY bm25(tracks_fts), t.id
             LIMIT ?2
             "#,
@@ -475,7 +516,7 @@ fn substring_search(query: &str, limit: i32) -> anyhow::Result<Vec<Track>> {
     let fields = "(title || ' ' || COALESCE(artist, '') || ' ' || COALESCE(album, ''))";
     let mut sql = String::from(
         "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain \
-         FROM tracks WHERE ",
+         FROM tracks WHERE hidden = 0 AND ",
     );
     for index in 0..terms.len() {
         if index > 0 {
@@ -535,6 +576,7 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
             r#"
             SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain
             FROM tracks
+            WHERE hidden = 0
             ORDER BY artist, album, track_num, title
             "#,
         )?;
@@ -673,6 +715,9 @@ pub(crate) fn store_replay_gain(path: &str, gain_db: f64) -> anyhow::Result<()> 
 }
 
 /// 已入库文件的指纹（path → (mtime_ns, size)），供扫描时跳过未变文件。
+///
+/// **隐藏曲目也要带上**：它们仍在 `tracks` 里，扫描会照常遍历到这些文件；
+/// 指纹缺了就会被判成「新文件」重新解析一遍（标签 + 抽封面），每次扫描都白干。
 pub(crate) fn file_signatures() -> anyhow::Result<HashMap<String, (i64, i64)>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
@@ -912,8 +957,8 @@ fn merge_track_path(
         let copied = tx.execute(
             r#"
             INSERT INTO tracks
-                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain)
-            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain, hidden, hidden_at)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain, hidden, hidden_at
             FROM tracks
             WHERE path = ?2
             "#,
@@ -964,12 +1009,7 @@ fn merge_track_path(
     Ok(())
 }
 
-/// 按路径批量删除曲库记录，返回实际删除数。
-///
-/// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
-/// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
-/// （否则会「删 0 条且不报错」）。
-/// 被隐藏的曲目：已移出曲库、扫描时跳过，但文件还在磁盘上。
+/// 被隐藏的曲目：还在曲库里（收藏、歌单、播放历史都保留），只是列表里不显示。
 pub struct HiddenTrack {
     pub path: String,
     pub title: String,
@@ -987,9 +1027,11 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// 隐藏曲目：元数据搬进 `hidden_tracks`，再从 `tracks` 删掉。
+/// 隐藏曲目：只把 `tracks.hidden` 置位，行留在库里。
 ///
-/// 与 `remove_tracks` 的区别是**记得住**：下次扫描会跳过这些路径，不会又加回来。
+/// 与 `remove_tracks`（真删行）的区别是**记得住**：下次扫描不会又加回来，
+/// 而且收藏 / 歌单 / 播放历史 / 听歌时长都挂在 `tracks(path)` 外键上，
+/// 删行会被级联清空——隐藏不动行，这些用户数据原样保留，恢复时不用重建。
 pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     if paths.is_empty() {
         return Ok(0);
@@ -998,23 +1040,15 @@ pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     let hidden_at = now_secs();
 
     with_conn(|conn| {
-        let targets: Vec<(String, String, String, String, f64)> = {
-            let mut stmt = conn
-                .prepare_cached("SELECT path, title, artist, album, duration_secs FROM tracks")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, f64>(4)?,
-                ))
-            })?;
+        // path_key 是 Rust 侧算的，SQL 里没有同款函数：先取候选再在内存里筛
+        let targets: Vec<String> = {
+            let mut stmt = conn.prepare_cached("SELECT path FROM tracks WHERE hidden = 0")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             let mut found = Vec::new();
             for row in rows {
-                let item = row?;
-                if keys.contains(&path_key(&item.0)) {
-                    found.push(item);
+                let path = row?;
+                if keys.contains(&path_key(&path)) {
+                    found.push(path);
                 }
             }
             found
@@ -1026,19 +1060,14 @@ pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
 
         let tx = conn.transaction()?;
         let mut count = 0;
-        for (path, title, artist, album, duration_secs) in &targets {
-            tx.execute(
-                "INSERT OR REPLACE INTO hidden_tracks
-                    (path, title, artist, album, duration_secs, hidden_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![path, title, artist, album, duration_secs, hidden_at],
+        for path in &targets {
+            count += tx.execute(
+                "UPDATE tracks SET hidden = 1, hidden_at = ?2 WHERE path = ?1",
+                params![path, hidden_at],
             )?;
-            // FTS 由 tracks 上的触发器同步，这里不用手动动索引
-            tx.execute("DELETE FROM tracks WHERE path = ?1", params![path])?;
-            count += 1;
         }
         tx.commit()?;
-        Ok(count)
+        Ok(i32::try_from(count).unwrap_or(i32::MAX))
     })
 }
 
@@ -1047,7 +1076,8 @@ pub fn hidden_tracks() -> anyhow::Result<Vec<HiddenTrack>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT path, title, artist, album, duration_secs, hidden_at
-               FROM hidden_tracks
+               FROM tracks
+              WHERE hidden = 1
               ORDER BY hidden_at DESC, path",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1064,35 +1094,25 @@ pub fn hidden_tracks() -> anyhow::Result<Vec<HiddenTrack>> {
     })
 }
 
-/// 恢复隐藏：按快照插回 `tracks` 并移出排除列表。
+/// 恢复隐藏：把标记翻回去。
 ///
-/// `file_mtime` / `file_size` 留 0，让下次扫描重新解析一遍标签与封面。
+/// 行一直在库里，元数据、封面、文件指纹、收藏 / 歌单 / 历史都是原样，
+/// 所以恢复之后立刻就能播放，也不需要在下次扫描时重新解析。
 pub fn unhide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     if paths.is_empty() {
         return Ok(0);
     }
     let keys: HashSet<String> = paths.iter().map(|path| path_key(path)).collect();
-    let added_at = now_secs();
 
     with_conn(|conn| {
-        let targets: Vec<(String, String, String, String, f64)> = {
-            let mut stmt = conn.prepare_cached(
-                "SELECT path, title, artist, album, duration_secs FROM hidden_tracks",
-            )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, f64>(4)?,
-                ))
-            })?;
+        let targets: Vec<String> = {
+            let mut stmt = conn.prepare_cached("SELECT path FROM tracks WHERE hidden = 1")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             let mut found = Vec::new();
             for row in rows {
-                let item = row?;
-                if keys.contains(&path_key(&item.0)) {
-                    found.push(item);
+                let path = row?;
+                if keys.contains(&path_key(&path)) {
+                    found.push(path);
                 }
             }
             found
@@ -1104,31 +1124,27 @@ pub fn unhide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
 
         let tx = conn.transaction()?;
         let mut count = 0;
-        for (path, title, artist, album, duration_secs) in &targets {
-            tx.execute(
-                "INSERT OR REPLACE INTO tracks
-                    (path, title, artist, album, duration_secs, added_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![path, title, artist, album, duration_secs, added_at],
+        for path in &targets {
+            count += tx.execute(
+                "UPDATE tracks SET hidden = 0, hidden_at = 0 WHERE path = ?1",
+                params![path],
             )?;
-            tx.execute("DELETE FROM hidden_tracks WHERE path = ?1", params![path])?;
-            count += 1;
         }
         tx.commit()?;
-        Ok(count)
+        Ok(i32::try_from(count).unwrap_or(i32::MAX))
     })
 }
 
-/// 仅供集成测试读取排除集合（生产代码走 [`hidden_path_keys`]）
+/// 仅供集成测试读取隐藏集合（生产代码走 [`hidden_path_keys`]）
 #[flutter_rust_bridge::frb(ignore)]
 pub fn hidden_path_keys_for_test() -> anyhow::Result<HashSet<String>> {
     hidden_path_keys()
 }
 
-/// 扫描时用的排除集合（`path_key` 归一化）
+/// 被隐藏曲目的路径集合（`path_key` 归一化）
 pub(crate) fn hidden_path_keys() -> anyhow::Result<HashSet<String>> {
     with_conn(|conn| {
-        let mut stmt = conn.prepare_cached("SELECT path FROM hidden_tracks")?;
+        let mut stmt = conn.prepare_cached("SELECT path FROM tracks WHERE hidden = 1")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut keys = HashSet::new();
         for row in rows {
@@ -1138,6 +1154,14 @@ pub(crate) fn hidden_path_keys() -> anyhow::Result<HashSet<String>> {
     })
 }
 
+/// 按路径批量删除曲库记录，返回实际删除数。
+///
+/// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
+/// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
+/// （否则会「删 0 条且不报错」）。
+///
+/// 界面上的「隐藏歌曲」不走这里（见 [`hide_tracks`]）：这条路径删掉的行
+/// 下次扫描会重新加回来，且会连带清掉用户数据。
 pub fn remove_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     if paths.is_empty() {
         return Ok(0);
@@ -1233,7 +1257,9 @@ mod tests {
                 file_mtime    INTEGER NOT NULL DEFAULT 0,
                 file_size     INTEGER NOT NULL DEFAULT 0,
                 cover_path    TEXT NOT NULL DEFAULT '',
-                replay_gain   REAL NOT NULL DEFAULT 0
+                replay_gain   REAL NOT NULL DEFAULT 0,
+                hidden        INTEGER NOT NULL DEFAULT 0,
+                hidden_at     INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE playlists (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,

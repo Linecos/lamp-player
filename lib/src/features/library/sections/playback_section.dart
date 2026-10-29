@@ -602,7 +602,8 @@ extension _PlaybackSection on _LibraryPageState {
 
   /// 右键单曲「隐藏歌曲」。
   ///
-  /// 记录搬进 hidden_tracks 并从曲库删掉，下次扫描按路径跳过，不会又加回来。
+  /// 行留在库里、只打 `hidden` 标记：收藏 / 歌单 / 播放历史 / 听歌时长都挂在
+  /// `tracks(path)` 外键上，删行会被级联清空；扫描也不会再把它加回来。
   /// 文件与播放队列都不动——歌还在磁盘上，正在播的那首没必要被打断。
   Future<void> _removeTrackFromLibrary(Track track) async {
     try {

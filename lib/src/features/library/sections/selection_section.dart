@@ -602,7 +602,7 @@ extension _SelectionSection on _LibraryPageState {
         }
         _showMessage('已从歌单移除 ${paths.length} 首');
       } else {
-        // 与右键「隐藏歌曲」同一套：写进隐藏列表，下次扫描跳过
+        // 与右键「隐藏歌曲」同一套：打 hidden 标记，扫描不会再加回来
         final int removed = await _repository.hideTracks(paths.toList());
         if (!mounted) {
           return;

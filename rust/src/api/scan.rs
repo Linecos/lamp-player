@@ -57,18 +57,10 @@ pub fn scan_folder(folder: String) -> Result<ScanReport> {
         let folder = dunce::canonicalize(&folder)
             .with_context(|| format!("目录不存在或无权访问: {folder}"))?;
         let covers_dir = db::covers_dir()?;
-        let mut collected =
-            scanner::collect_tracks_incremental(&folder, &known, Some(&covers_dir))?;
-
-        // 被隐藏的曲目不参与入库：记录在 hidden_tracks 里，扫描永远跳过，
-        // 否则「移除曲库」删掉的歌下一次扫描就又回来了
-        if let Ok(hidden) = db::hidden_path_keys() {
-            if !hidden.is_empty() {
-                collected
-                    .tracks
-                    .retain(|item| !hidden.contains(&scanner::path_key(&item.track.path)));
-            }
-        }
+        // 被隐藏的曲目照常解析入库：它们还在 `tracks` 里（`hidden = 1`），
+        // 指纹也在，未修改的文件会被增量扫描跳过；文件改过就顺便更新元数据。
+        // v7 时代是「搬走再删行」，所以那时必须在这里剔除，否则扫描会把它们加回来。
+        let collected = scanner::collect_tracks_incremental(&folder, &known, Some(&covers_dir))?;
 
         let upserted = db::upsert_scanned(&collected.tracks)
             .with_context(|| format!("扫描结果写入曲库失败: {}", folder.display()))?;

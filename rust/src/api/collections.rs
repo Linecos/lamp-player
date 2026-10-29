@@ -22,10 +22,14 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// 歌单曲目数只数**可见**曲目：被隐藏的歌不显示在列表里，数字要跟着对得上。
 const PLAYLIST_SELECT: &str = r#"
     SELECT p.id,
            p.name,
-           (SELECT COUNT(*) FROM playlist_items i WHERE i.playlist_id = p.id),
+           (SELECT COUNT(*)
+              FROM playlist_items i
+              JOIN tracks t ON t.path = i.track_path
+             WHERE i.playlist_id = p.id AND t.hidden = 0),
            p.created_at,
            p.updated_at
     FROM playlists p
@@ -166,7 +170,7 @@ pub fn playlist_tracks(id: i64) -> anyhow::Result<Vec<Track>> {
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM playlist_items i
             JOIN tracks t ON t.path = i.track_path
-            WHERE i.playlist_id = ?1
+            WHERE i.playlist_id = ?1 AND t.hidden = 0
             ORDER BY i.position, i.added_at, i.rowid
             "#,
         )?;
@@ -184,10 +188,13 @@ pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
         let tx = conn.transaction()?;
         playlist_exists(&tx, id)?;
         let mut paths: Vec<String> = {
+            // 下标由界面给，界面上看不到隐藏曲目，这里也要剔除，否则会挪错行
             let mut stmt = tx.prepare_cached(
-                "SELECT track_path FROM playlist_items
-                 WHERE playlist_id = ?1
-                 ORDER BY position, added_at, rowid",
+                "SELECT i.track_path
+                   FROM playlist_items i
+                   JOIN tracks t ON t.path = i.track_path
+                  WHERE i.playlist_id = ?1 AND t.hidden = 0
+                  ORDER BY i.position, i.added_at, i.rowid",
             )?;
             let rows = stmt.query_map([id], |row| row.get(0))?;
             rows.collect::<Result<Vec<_>, _>>()?
@@ -317,6 +324,7 @@ pub fn list_favorites() -> anyhow::Result<Vec<Track>> {
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM favorites f
             JOIN tracks t ON t.path = f.track_path
+            WHERE t.hidden = 0
             ORDER BY f.added_at DESC, t.id
             "#,
         )?;
@@ -328,8 +336,13 @@ pub fn list_favorites() -> anyhow::Result<Vec<Track>> {
 /// 全部收藏路径。列表页一次性拉取，避免逐曲调 `is_favorite`。
 pub fn favorite_paths() -> anyhow::Result<Vec<String>> {
     with_conn(|conn| {
-        let mut stmt =
-            conn.prepare_cached("SELECT track_path FROM favorites ORDER BY added_at DESC")?;
+        let mut stmt = conn.prepare_cached(
+            "SELECT f.track_path
+               FROM favorites f
+               JOIN tracks t ON t.path = f.track_path
+              WHERE t.hidden = 0
+              ORDER BY f.added_at DESC",
+        )?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })
@@ -424,6 +437,7 @@ pub fn recent_tracks(limit: i32) -> anyhow::Result<Vec<Track>> {
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
             FROM play_history h
             JOIN tracks t ON t.path = h.track_path
+            WHERE t.hidden = 0
             ORDER BY h.last_played_at DESC, t.id
             LIMIT ?1
             "#,
@@ -508,7 +522,7 @@ pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
                    h.play_count
             FROM play_history h
             JOIN tracks t ON t.path = h.track_path
-            WHERE h.play_count > 0
+            WHERE h.play_count > 0 AND t.hidden = 0
             ORDER BY h.play_count DESC, h.last_played_at DESC, t.id
             LIMIT ?1
             "#,

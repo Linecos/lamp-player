@@ -330,7 +330,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 7, "升级后应写入当前结构版本");
+    assert_eq!(version, 8, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -346,6 +346,10 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     assert!(
         columns.contains(&"replay_gain".to_string()),
         "v5 应补上 ReplayGain 列"
+    );
+    assert!(
+        columns.contains(&"hidden".to_string()) && columns.contains(&"hidden_at".to_string()),
+        "v8 应补上隐藏标记两列"
     );
     drop(conn);
 
@@ -660,4 +664,180 @@ fn hiding_unknown_path_is_a_no_op() {
     assert_eq!(hidden, 0);
     assert_eq!(db::all_tracks().expect("读曲库").len(), 1);
     assert!(db::hidden_tracks().expect("读隐藏列表").is_empty());
+}
+
+/// 隐藏不能动用户数据。
+///
+/// v7 的实现是「元数据搬走 + 从 tracks 删行」，而收藏 / 歌单 / 播放历史 /
+/// 听歌时长全部 `ON DELETE CASCADE` 挂在 `tracks(path)` 上：隐藏一首歌等于把
+/// 它的收藏、歌单条目、播放历史和听歌时长一起删了，恢复只能还原一条空壳记录。
+/// 现在改成 `tracks.hidden` 标记位，行留着，关系自然也在。
+#[test]
+fn hiding_keeps_collections_and_playtime() {
+    let (_lock, dir) = begin("hide_keeps");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    let path = "/music/hide.mp3".to_string();
+    db::upsert_tracks(vec![track(&path, "要隐藏的", Some("周杰伦"), Some("专辑"))]).expect("入库");
+
+    let playlist = collections::create_playlist("我的歌单".to_string()).expect("建歌单");
+    collections::add_track_to_playlist(playlist.id, path.clone()).expect("加进歌单");
+    collections::set_favorite(path.clone(), true).expect("收藏");
+    collections::record_play(path.clone()).expect("记一次播放");
+    collections::record_play_time(path.clone(), 20261029, 42).expect("记时长");
+
+    assert_eq!(db::hide_tracks(vec![path.clone()]).expect("隐藏"), 1);
+    assert!(
+        db::all_tracks().expect("读曲库").is_empty(),
+        "曲库列表里看不到"
+    );
+    assert!(
+        db::search_tracks("要隐藏".to_string(), 10)
+            .expect("检索")
+            .is_empty(),
+        "搜索也不该再命中"
+    );
+
+    // 列表里不再出现（收藏 / 歌单 / 历史都按 hidden 过滤），但行都还在
+    assert!(
+        collections::list_favorites().expect("读收藏").is_empty(),
+        "收藏列表不该再出现"
+    );
+    assert!(
+        collections::is_favorite(path.clone()).expect("读收藏"),
+        "收藏那一行必须留着，否则恢复就找不回来了"
+    );
+    assert!(
+        collections::playlist_tracks(playlist.id)
+            .expect("读歌单")
+            .is_empty(),
+        "歌单列表里不该再出现"
+    );
+    assert!(
+        !collections::add_track_to_playlist(playlist.id, path.clone()).expect("再加一次"),
+        "说「已经在歌单里」就证明条目没被删掉"
+    );
+    assert_eq!(
+        collections::list_playlists().expect("读歌单列表")[0].track_count,
+        0,
+        "歌单曲目数只数看得见的"
+    );
+    assert!(
+        collections::recent_tracks(10).expect("读历史").is_empty(),
+        "播放历史里不该再出现"
+    );
+    assert_eq!(
+        collections::play_stats().expect("读统计").total_plays,
+        1,
+        "播放次数是聚合值，隐藏不该让统计变小"
+    );
+    assert_eq!(
+        collections::play_stats().expect("读统计").total_seconds,
+        42,
+        "听歌时长要留着"
+    );
+
+    // 隐藏的是「正在播放」那首时，播放器还在继续写：这些操作不能报错
+    collections::set_favorite(path.clone(), false).expect("隐藏后仍可改收藏");
+    collections::record_play(path.clone()).expect("隐藏后仍可记播放");
+    collections::record_play_time(path.clone(), 20261029, 8).expect("隐藏后仍可记时长");
+
+    // 恢复：标记翻回去，一切原样
+    assert_eq!(db::unhide_tracks(vec![path.clone()]).expect("恢复"), 1);
+    let all = db::all_tracks().expect("读曲库");
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].title, "要隐藏的");
+    assert_eq!(
+        collections::playlist_tracks(playlist.id)
+            .expect("读歌单")
+            .len(),
+        1,
+        "恢复后歌单条目回到原位"
+    );
+    assert_eq!(
+        collections::recent_tracks(10).expect("读历史").len(),
+        1,
+        "恢复后播放历史还在"
+    );
+    assert_eq!(
+        collections::play_stats().expect("读统计").total_plays,
+        2,
+        "隐藏期间记的那次播放也要在"
+    );
+    assert_eq!(
+        collections::play_stats().expect("读统计").total_seconds,
+        50,
+        "隐藏期间记的时长也要留着"
+    );
+}
+
+/// v7 → v8：老库里已被隐藏的曲目从 `hidden_tracks` 搬回 `tracks` 并置位。
+#[test]
+fn migrate_v8_moves_v7_hidden_rows_back_into_tracks() {
+    let (_lock, dir) = begin("migrate_v8");
+    let path = dir.db_path();
+
+    {
+        let conn = rusqlite::Connection::open(&path).expect("打开 v7 库");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE tracks (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                path          TEXT    NOT NULL UNIQUE,
+                title         TEXT    NOT NULL DEFAULT '',
+                artist        TEXT    NOT NULL DEFAULT '',
+                album         TEXT    NOT NULL DEFAULT '',
+                duration_secs REAL    NOT NULL DEFAULT 0,
+                track_num     INTEGER NOT NULL DEFAULT 0,
+                added_at      INTEGER NOT NULL DEFAULT 0,
+                file_mtime    INTEGER NOT NULL DEFAULT 0,
+                file_size     INTEGER NOT NULL DEFAULT 0,
+                cover_path    TEXT    NOT NULL DEFAULT '',
+                replay_gain   REAL    NOT NULL DEFAULT 0
+            );
+            CREATE TABLE hidden_tracks (
+                path          TEXT    PRIMARY KEY,
+                title         TEXT    NOT NULL DEFAULT '',
+                artist        TEXT    NOT NULL DEFAULT '',
+                album         TEXT    NOT NULL DEFAULT '',
+                duration_secs REAL    NOT NULL DEFAULT 0,
+                hidden_at     INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO tracks (path, title) VALUES ('/music/keep.mp3', '留下的');
+            INSERT INTO hidden_tracks (path, title, artist, album, duration_secs, hidden_at)
+                VALUES ('/music/hide.mp3', '藏起来的', '歌手', '专辑', 180, 1000);
+            PRAGMA user_version = 7;
+            "#,
+        )
+        .expect("建 v7 库");
+    }
+
+    db::init_db(path.clone()).expect("升级 v7 库");
+
+    let hidden = db::hidden_tracks().expect("读隐藏列表");
+    assert_eq!(hidden.len(), 1, "老库里的隐藏记录要能被列出来");
+    assert_eq!(hidden[0].path, "/music/hide.mp3");
+    assert_eq!(hidden[0].title, "藏起来的");
+    assert_eq!(hidden[0].artist, "歌手");
+    assert_eq!(hidden[0].hidden_at, 1000);
+
+    let all = db::all_tracks().expect("读曲库");
+    assert_eq!(all.len(), 1, "搬回来但仍是隐藏状态，不该出现在列表里");
+
+    // 老表用完即弃，避免两处状态并存
+    let conn = rusqlite::Connection::open(&path).expect("重新打开");
+    let legacy: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'hidden_tracks'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("查表");
+    assert_eq!(legacy, 0, "v7 的 hidden_tracks 表应被移除");
+    drop(conn);
+
+    assert_eq!(
+        db::unhide_tracks(vec!["/music/hide.mp3".to_string()]).expect("恢复"),
+        1
+    );
+    assert_eq!(db::all_tracks().expect("读曲库").len(), 2, "恢复后回到列表");
 }

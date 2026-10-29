@@ -60,4 +60,16 @@ extension _DataSection on _LibraryPageState {
       });
     }
   }
+
+  /// 别的页面动了曲库（设置页恢复隐藏歌曲）：静默重载，不打断当前列表。
+  void _onLibraryChanged() {
+    if (!mounted) {
+      // 页面已经销毁（正常路径下 dispose 会摘掉监听，这里是兜底）
+      libraryRevision.removeListener(_onLibraryChanged);
+      return;
+    }
+    unawaited(_loadTracks(silent: true));
+    // 歌单曲目数、收藏计数都可能跟着变
+    unawaited(_loadPlaylists());
+  }
 }

@@ -54,9 +54,11 @@ Future<int> upsertTracks({required List<Track> tracks}) =>
 Future<int> pruneMissingTracks() =>
     RustLib.instance.api.crateApiDbPruneMissingTracks();
 
-/// 隐藏曲目：元数据搬进 `hidden_tracks`，再从 `tracks` 删掉。
+/// 隐藏曲目：只把 `tracks.hidden` 置位，行留在库里。
 ///
-/// 与 `remove_tracks` 的区别是**记得住**：下次扫描会跳过这些路径，不会又加回来。
+/// 与 `remove_tracks`（真删行）的区别是**记得住**：下次扫描不会又加回来，
+/// 而且收藏 / 歌单 / 播放历史 / 听歌时长都挂在 `tracks(path)` 外键上，
+/// 删行会被级联清空——隐藏不动行，这些用户数据原样保留，恢复时不用重建。
 Future<int> hideTracks({required List<String> paths}) =>
     RustLib.instance.api.crateApiDbHideTracks(paths: paths);
 
@@ -64,21 +66,25 @@ Future<int> hideTracks({required List<String> paths}) =>
 Future<List<HiddenTrack>> hiddenTracks() =>
     RustLib.instance.api.crateApiDbHiddenTracks();
 
-/// 恢复隐藏：按快照插回 `tracks` 并移出排除列表。
+/// 恢复隐藏：把标记翻回去。
 ///
-/// `file_mtime` / `file_size` 留 0，让下次扫描重新解析一遍标签与封面。
+/// 行一直在库里，元数据、封面、文件指纹、收藏 / 歌单 / 历史都是原样，
+/// 所以恢复之后立刻就能播放，也不需要在下次扫描时重新解析。
 Future<int> unhideTracks({required List<String> paths}) =>
     RustLib.instance.api.crateApiDbUnhideTracks(paths: paths);
-
-Future<int> removeTracks({required List<String> paths}) =>
-    RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);
 
 /// 按路径批量删除曲库记录，返回实际删除数。
 ///
 /// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
 /// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
 /// （否则会「删 0 条且不报错」）。
-/// 被隐藏的曲目：已移出曲库、扫描时跳过，但文件还在磁盘上。
+///
+/// 界面上的「隐藏歌曲」不走这里（见 [`hide_tracks`]）：这条路径删掉的行
+/// 下次扫描会重新加回来，且会连带清掉用户数据。
+Future<int> removeTracks({required List<String> paths}) =>
+    RustLib.instance.api.crateApiDbRemoveTracks(paths: paths);
+
+/// 被隐藏的曲目：还在曲库里（收藏、歌单、播放历史都保留），只是列表里不显示。
 class HiddenTrack {
   final String path;
   final String title;

@@ -11,6 +11,7 @@ import '../../rust/api/db.dart' as db;
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
+import '../library/library_revision.dart';
 import '../player/equalizer.dart';
 import '../player/shortcuts.dart';
 import 'equalizer_page.dart';
@@ -2167,6 +2168,8 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
     );
     try {
       await db.unhideTracks(paths: <String>[track.path]);
+      // 曲库页不在同一棵子树里，靠进程内通知让它重新拉一次列表
+      markLibraryChanged();
       await _load();
       messenger?.showSnackBar(SnackBar(content: Text('已恢复：${track.title}')));
     } catch (error) {

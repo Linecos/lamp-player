@@ -1,8 +1,15 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.9（2026-10-28）**
+> **当前版本：v0.10（2026-10-29）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.10 变更：`hide_tracks` 语义从「搬进 hidden_tracks 再从 tracks 删行」改成
+> 「置 `tracks.hidden` 标记」。签名不变，但行为变了：隐藏不再级联删掉收藏 / 歌单 /
+> 播放历史 / 听歌时长（v7 的实现会，恢复只能回来一条空壳记录），隐藏中的曲目也
+> 可以继续写收藏 / 播放记录。曲库结构升到 v8（`user_version = 8`），升级时把
+> `hidden_tracks` 里的行搬回 `tracks` 并置位后删表。收藏 / 歌单 / 历史 / 排行统一
+> 过滤 `hidden = 1`（行保留、列表不显示）。
 >
 > v0.9 变更：`player_analyze_replay_gain` 现在会把算出的增益写回曲库
 > （`tracks.replay_gain`），重扫时文件仍无标签也不会覆盖；`player_set_replay_gain`
@@ -105,6 +112,9 @@
 | `upsert_tracks(tracks: Vec<Track>) -> Result<i32>` | `Future<int> upsertTracks({required List<Track> tracks})` | 已实现 |
 | `prune_missing_tracks() -> Result<i32>` | `Future<int> pruneMissingTracks()` | 已实现 |
 | `remove_tracks(paths: Vec<String>) -> Result<i32>` | `Future<int> removeTracks({required List<String> paths})` | 已实现 |
+| `hide_tracks(paths: Vec<String>) -> Result<i32>` | `Future<int> hideTracks({required List<String> paths})` | 已实现 |
+| `hidden_tracks() -> Result<Vec<HiddenTrack>>` | `Future<List<HiddenTrack>> hiddenTracks()` | 已实现 |
+| `unhide_tracks(paths: Vec<String>) -> Result<i32>` | `Future<int> unhideTracks({required List<String> paths})` | 已实现 |
 
 语义补充：
 
@@ -127,6 +137,13 @@
 - `remove_tracks` 按路径批量删除曲库记录，**只删记录、不动磁盘上的音频文件**；
   歌单 / 收藏 / 播放历史由外键级联清理。整批在单事务里完成，重复或不在库里的路径
   直接忽略，返回实际删除条数；空列表返回 0。
+- `hide_tracks` / `unhide_tracks` 只改 `tracks.hidden` 标记，**不动行**：收藏、歌单、
+  播放历史、听歌时长都挂在 `tracks(path)` 外键上，删行会被级联清空。隐藏中的曲目
+  照常可以写收藏与播放记录（正在播放的那首被隐藏时不该报错）。`all_tracks` /
+  `search_tracks` / 收藏 / 歌单 / 历史 / 排行都过滤 `hidden = 1`：行保留、列表不显示，
+  恢复即刻复原。扫描照常维护隐藏曲目的元数据（指纹在，未改动的文件不会重新解析）。
+- `HiddenTrack`（`path/title/artist/album/duration_secs/hidden_at`）用于「被隐藏的歌曲」
+  列表，最近隐藏的在前；`hidden_at` 为隐藏时刻（Unix 秒）。
 - 两道数据保护（会级联删除歌单 / 收藏 / 历史，不能误删）：
   1. **卷根可达性**：某块盘的根目录读不到时（移动硬盘 / 网络盘未挂载），该卷下的曲目
      一律不算缺失，直接跳过；

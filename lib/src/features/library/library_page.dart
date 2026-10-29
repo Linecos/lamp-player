@@ -39,6 +39,7 @@ import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'drop_import.dart';
 import 'library_repository.dart';
+import 'library_revision.dart';
 import 'library_sort.dart';
 import 'music_tag.dart';
 import 'playlist_io.dart';
@@ -508,6 +509,8 @@ class _LibraryPageState extends State<LibraryPage>
           unawaited(_setDesktopLyricLocked(!_desktopLyricLocked)),
     );
     unawaited(_bootstrap());
+    // 别的页面改了曲库（设置页恢复隐藏歌曲）时重载列表，恢复的曲子才看得见
+    libraryRevision.addListener(_onLibraryChanged);
     // 系统媒体控制：失败只影响系统浮层，不影响播放
     unawaited(_media.start());
     _listenDesktopLyricCommands();
@@ -576,6 +579,7 @@ class _LibraryPageState extends State<LibraryPage>
     _sectionRefreshTimer?.cancel();
     _deviceTimer?.cancel();
     _nowPlayingDeviceTimer?.cancel();
+    libraryRevision.removeListener(_onLibraryChanged);
     _sectionFade.dispose();
     _sectionNotifier.dispose();
     _railNotifier.dispose();

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/features/library/library_revision.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
@@ -53,6 +54,25 @@ void main() {
     expect(repository.lastHiddenPaths, hasLength(1));
     expect(find.text('夜航'), findsNothing, reason: '移除后该行应从列表消失');
     expect(find.text('潮汐'), findsOneWidget, reason: '其它曲目不受影响');
+  });
+
+  testWidgets('别处恢复隐藏歌曲后曲库自动重载', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+    );
+    final int before = repository.loadCalls;
+
+    // 设置页里点了「恢复」：仓库里多回一首，然后通知曲库页
+    repository.tracks = <Track>[
+      ...repository.tracks,
+      sampleTrack(title: '回来的'),
+    ];
+    markLibraryChanged();
+    await tester.pumpAndSettle();
+
+    expect(repository.loadCalls, before + 1, reason: '收到通知要重新拉列表');
+    expect(find.text('回来的'), findsOneWidget, reason: '恢复的曲子要立刻出现在列表里');
   });
 
   testWidgets('空曲库展示空态', (WidgetTester tester) async {
