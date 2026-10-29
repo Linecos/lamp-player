@@ -49,6 +49,13 @@ dependencies:
   tray_manager: ^0.5.2
   pinyin: ^3.3.0
 
+# 本地打过补丁的 tray_manager：0.5.2 弹出托盘菜单前没把自己设为前台窗口，
+# 导致点菜单以外的地方关不掉菜单。补丁见 third_party/tray_manager/windows/
+# tray_manager_plugin.cpp 里的 PopUpContextMenu。
+dependency_overrides:
+  tray_manager:
+    path: third_party/tray_manager
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
