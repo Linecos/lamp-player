@@ -266,6 +266,7 @@ class FakeLibraryRepository implements LibraryRepository {
           artist: track.artist ?? '',
           album: track.album ?? '',
           durationSecs: track.durationSecs,
+          coverPath: track.coverPath ?? '',
           hiddenAt: 0,
         ),
       );

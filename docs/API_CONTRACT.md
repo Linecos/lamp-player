@@ -142,8 +142,9 @@
   照常可以写收藏与播放记录（正在播放的那首被隐藏时不该报错）。`all_tracks` /
   `search_tracks` / 收藏 / 歌单 / 历史 / 排行都过滤 `hidden = 1`：行保留、列表不显示，
   恢复即刻复原。扫描照常维护隐藏曲目的元数据（指纹在，未改动的文件不会重新解析）。
-- `HiddenTrack`（`path/title/artist/album/duration_secs/hidden_at`）用于「被隐藏的歌曲」
-  列表，最近隐藏的在前；`hidden_at` 为隐藏时刻（Unix 秒）。
+- `HiddenTrack`（`path/title/artist/album/duration_secs/cover_path/hidden_at`）用于「被隐藏的
+  歌曲」列表，最近隐藏的在前；`hidden_at` 为隐藏时刻（Unix 秒），`cover_path` 是封面缓存
+  路径（空字符串表示没有封面），设置页据此像曲库列表一样显示封面。
 - 两道数据保护（会级联删除歌单 / 收藏 / 历史，不能误删）：
   1. **卷根可达性**：某块盘的根目录读不到时（移动硬盘 / 网络盘未挂载），该卷下的曲目
      一律不算缺失，直接跳过；

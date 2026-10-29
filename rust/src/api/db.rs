@@ -1016,6 +1016,8 @@ pub struct HiddenTrack {
     pub artist: String,
     pub album: String,
     pub duration_secs: f64,
+    /// 封面缓存路径（空字符串表示没有封面），列表里和普通曲目一样显示
+    pub cover_path: String,
     /// 隐藏时刻（Unix 秒），用于列表排序
     pub hidden_at: i64,
 }
@@ -1075,7 +1077,7 @@ pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
 pub fn hidden_tracks() -> anyhow::Result<Vec<HiddenTrack>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT path, title, artist, album, duration_secs, hidden_at
+            "SELECT path, title, artist, album, duration_secs, cover_path, hidden_at
                FROM tracks
               WHERE hidden = 1
               ORDER BY hidden_at DESC, path",
@@ -1087,7 +1089,8 @@ pub fn hidden_tracks() -> anyhow::Result<Vec<HiddenTrack>> {
                 artist: row.get(2)?,
                 album: row.get(3)?,
                 duration_secs: row.get(4)?,
-                hidden_at: row.get(5)?,
+                cover_path: row.get(5)?,
+                hidden_at: row.get(6)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

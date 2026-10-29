@@ -2910,6 +2910,7 @@ impl SseDecode for crate::api::db::HiddenTrack {
         let mut var_artist = <String>::sse_decode(deserializer);
         let mut var_album = <String>::sse_decode(deserializer);
         let mut var_durationSecs = <f64>::sse_decode(deserializer);
+        let mut var_coverPath = <String>::sse_decode(deserializer);
         let mut var_hiddenAt = <i64>::sse_decode(deserializer);
         return crate::api::db::HiddenTrack {
             path: var_path,
@@ -2917,6 +2918,7 @@ impl SseDecode for crate::api::db::HiddenTrack {
             artist: var_artist,
             album: var_album,
             duration_secs: var_durationSecs,
+            cover_path: var_coverPath,
             hidden_at: var_hiddenAt,
         };
     }
@@ -3590,6 +3592,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::db::HiddenTrack {
             self.artist.into_into_dart().into_dart(),
             self.album.into_into_dart().into_dart(),
             self.duration_secs.into_into_dart().into_dart(),
+            self.cover_path.into_into_dart().into_dart(),
             self.hidden_at.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -3984,6 +3987,7 @@ impl SseEncode for crate::api::db::HiddenTrack {
         <String>::sse_encode(self.artist, serializer);
         <String>::sse_encode(self.album, serializer);
         <f64>::sse_encode(self.duration_secs, serializer);
+        <String>::sse_encode(self.cover_path, serializer);
         <i64>::sse_encode(self.hidden_at, serializer);
     }
 }
