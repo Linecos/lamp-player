@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
+import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
@@ -25,6 +26,8 @@ import 'package:window_manager/window_manager.dart';
 /// 5. `runApp`。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 封面缓存默认 100MB，对桌面窗口来说远大于一屏能看的数量，先收紧再挂界面
+  configureImageCache();
 
   // 尺寸先读出来再建窗，避免先按默认大小闪一下；存储异常时 1 秒后按默认尺寸继续
   const WindowStateStore windowStore = PrefsWindowStateStore();

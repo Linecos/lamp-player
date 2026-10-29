@@ -105,6 +105,49 @@ void main() {
     expect(hues.any((double h) => h >= 35 && h <= 70), isTrue);
   });
 
+  testWidgets('动画帧复用预渲染光斑，不会每帧重建位图', (WidgetTester tester) async {
+    final int before = coverFlowSpotRenderCount;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(AppTheme.defaultSeed),
+        home: const CoverFlowBackground(
+          colors: <Color>[Color(0xFF3355AA), Color(0xFFAA5533)],
+          child: SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+
+    // 4 个色板色 × 7 档色相
+    final int built = coverFlowSpotRenderCount - before;
+    expect(built, 28);
+
+    // 跑满一个循环（12 秒）：位图不该被重新渲染
+    await tester.pump(const Duration(seconds: 12));
+    expect(coverFlowSpotRenderCount - before, built);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('换封面配色会重建光斑位图', (WidgetTester tester) async {
+    final int before = coverFlowSpotRenderCount;
+
+    Widget host(List<Color> colors) => MaterialApp(
+      theme: AppTheme.dark(AppTheme.defaultSeed),
+      home: CoverFlowBackground(
+        colors: colors,
+        animate: false,
+        child: const SizedBox.expand(),
+      ),
+    );
+
+    await tester.pumpWidget(host(const <Color>[Color(0xFF3355AA)]));
+    await tester.pumpWidget(host(const <Color>[Color(0xFF33AA55)]));
+
+    expect(coverFlowSpotRenderCount - before, 56);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('没有封面色时用主题色兜底', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
