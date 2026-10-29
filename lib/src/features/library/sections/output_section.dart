@@ -134,19 +134,16 @@ extension _OutputSection on _LibraryPageState {
     _saveSessionNow();
   }
 
-  /// 均衡器页：设置页和正在播放页共用同一个入口
+  /// 均衡器：设置页打开独立页面，正在播放页打开同内容的弹窗
   Future<void> _openEqualizer() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => EqualizerPage(
-          enabled: _eqEnabled,
-          gains: _eqGains,
-          presetName: _eqPresetName,
-          customPresets: _eqCustomPresets,
-          onChanged: _isAvailable ? _setEqualizer : null,
-          onCustomPresetsChanged: _setEqCustomPresets,
-        ),
-      ),
+    await showEqualizerDialog(
+      context,
+      enabled: _eqEnabled,
+      gains: _eqGains,
+      presetName: _eqPresetName,
+      customPresets: _eqCustomPresets,
+      onChanged: _isAvailable ? _setEqualizer : null,
+      onCustomPresetsChanged: _setEqCustomPresets,
     );
   }
 

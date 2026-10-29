@@ -7,11 +7,10 @@ import '../../common/widgets/wheel_step.dart';
 import '../player/equalizer.dart';
 import 'equalizer_curve.dart';
 
-/// 均衡器独立页：开关 + 预设切换 + 10 段推子 + 自存预设。
+/// 均衡器独立页（设置页入口）：Scaffold 外壳 + [EqualizerPanel]。
 ///
-/// 预设是"多套命名曲线"，与曲目无关：内置 5 套 + 用户自己命名的若干套，
-/// 切换即生效，推子改动后自动退化成「自定义」。
-class EqualizerPage extends StatefulWidget {
+/// 正在播放页用的是同样内容的弹窗（`showEqualizerDialog`），两边共用面板。
+class EqualizerPage extends StatelessWidget {
   const EqualizerPage({
     super.key,
     required this.enabled,
@@ -36,10 +35,59 @@ class EqualizerPage extends StatefulWidget {
   final ValueChanged<List<EqualizerPreset>>? onCustomPresetsChanged;
 
   @override
-  State<EqualizerPage> createState() => _EqualizerPageState();
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: scheme.surfaceContainerLow,
+      appBar: AppBar(
+        title: const Text('均衡器'),
+        backgroundColor: scheme.surfaceContainerLow,
+      ),
+      body: EqualizerPanel(
+        enabled: enabled,
+        gains: gains,
+        presetName: presetName,
+        customPresets: customPresets,
+        onChanged: onChanged,
+        onCustomPresetsChanged: onCustomPresetsChanged,
+      ),
+    );
+  }
 }
 
-class _EqualizerPageState extends State<EqualizerPage> {
+/// 均衡器面板：开关 + 预设切换 + 10 段推子 + 自存预设。
+///
+/// 预设是"多套命名曲线"，与曲目无关：内置 5 套 + 用户自己命名的若干套，
+/// 切换即生效，推子改动后自动退化成「自定义」。
+class EqualizerPanel extends StatefulWidget {
+  const EqualizerPanel({
+    super.key,
+    required this.enabled,
+    required this.gains,
+    this.customPresets = const <EqualizerPreset>[],
+    this.presetName,
+    this.onChanged,
+    this.onCustomPresetsChanged,
+  });
+
+  final bool enabled;
+  final List<double> gains;
+  final List<EqualizerPreset> customPresets;
+
+  /// 当前套用的预设名；null 表示手动调过
+  final String? presetName;
+
+  /// 开关 / 推子 / 选预设都会回调，`presetName` 为 null 表示自定义
+  final void Function(bool enabled, List<double> gains, String? presetName)?
+  onChanged;
+
+  final ValueChanged<List<EqualizerPreset>>? onCustomPresetsChanged;
+
+  @override
+  State<EqualizerPanel> createState() => _EqualizerPanelState();
+}
+
+class _EqualizerPanelState extends State<EqualizerPanel> {
   late List<double> _gains = normalizeEqGains(widget.gains);
 
   /// 滚轮连续滚动时的下发合并计时器
@@ -48,7 +96,7 @@ class _EqualizerPageState extends State<EqualizerPage> {
   late bool _enabled = widget.enabled;
 
   @override
-  void didUpdateWidget(EqualizerPage oldWidget) {
+  void didUpdateWidget(EqualizerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!sameEqGains(oldWidget.gains, widget.gains)) {
       _gains = normalizeEqGains(widget.gains);
@@ -80,33 +128,23 @@ class _EqualizerPageState extends State<EqualizerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Scaffold(
-      backgroundColor: scheme.surfaceContainerLow,
-      appBar: AppBar(
-        title: const Text('均衡器'),
-        backgroundColor: scheme.surfaceContainerLow,
-      ),
-      // 不滚动：窗口最小高度 560 时页面也摆得下，滚轮就能专心留给推子。
-      // 高度再小（极端小窗）才退回滚动，并且滚轮已由 PointerSignalResolver
-      // 抢在 Scrollable 之前，调推子不会顺带滚页面。
-      body: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final bool tooShort = constraints.maxHeight < 460;
-          final Widget content = Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: _pageColumn(context, compact: constraints.maxHeight < 620),
-          );
-          if (!tooShort) {
-            return content;
-          }
-          return SingleChildScrollView(
-            child: SizedBox(height: 460, child: content),
-          );
-        },
-      ),
+    // 不滚动：窗口最小高度 560 时页面也摆得下，滚轮就能专心留给推子。
+    // 高度再小（极端小窗）才退回滚动，并且滚轮已由 PointerSignalResolver
+    // 抢在 Scrollable 之前，调推子不会顺带滚页面。
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool tooShort = constraints.maxHeight < 460;
+        final Widget content = Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: _pageColumn(context, compact: constraints.maxHeight < 620),
+        );
+        if (!tooShort) {
+          return content;
+        }
+        return SingleChildScrollView(
+          child: SizedBox(height: 460, child: content),
+        );
+      },
     );
   }
 
