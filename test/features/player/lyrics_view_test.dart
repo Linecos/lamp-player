@@ -106,26 +106,66 @@ void main() {
       playing: playing,
     );
 
-    final Finder karaoke = find.byWidgetPredicate(
+    final Finder prefix = find.byWidgetPredicate(
       (Widget widget) =>
-          widget is CustomPaint && widget.painter is KaraokeTextPainter,
+          widget is CustomPaint && widget.painter is KaraokePrefixPainter,
     );
-    expect(karaoke, findsOneWidget, reason: '当前行要走逐字染色');
+    final Finder word = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is CustomPaint && widget.painter is KaraokeWordPainter,
+    );
+    expect(prefix, findsOneWidget, reason: '当前行要走逐字染色');
+    expect(word, findsOneWidget, reason: '正在唱的那个字单独一层');
 
-    Future<Rect> fillAt(double seconds) async {
+    /// 已唱区域的宽度 = 前缀层（整字填满）+ 当前字（按进度）
+    Future<double> fillAt(double seconds) async {
       position.value = seconds;
       await tester.pump();
-      final CustomPaint paint = tester.widget<CustomPaint>(karaoke);
-      return (paint.painter! as KaraokeTextPainter).fillPath.getBounds();
+      final double done =
+          (tester.widget<CustomPaint>(prefix).painter! as KaraokePrefixPainter)
+              .fillPath
+              .getBounds()
+              .width;
+      if (word.evaluate().isEmpty) {
+        return done;
+      }
+      final double singing =
+          (tester.widget<CustomPaint>(word).painter! as KaraokeWordPainter)
+              .clipPath
+              .getBounds()
+              .width;
+      return done + singing;
     }
 
-    expect((await fillAt(1.0)).width, 0, reason: '第一字起点还没开始唱');
-    final double early = (await fillAt(2.0)).width;
-    final double late = (await fillAt(3.0)).width;
+    expect(await fillAt(1.0), 0, reason: '第一字起点还没开始唱');
+    final double early = await fillAt(2.0);
+    final double late = await fillAt(3.0);
     expect(early, greaterThan(0));
     expect(late, greaterThan(early), reason: '时间越往后染色越宽');
-    // 染色区必须落在文字上：宽度不超过整行，左边界不为负
-    expect((await fillAt(4.9)).width, lessThan(200));
+    // 染色区必须落在文字上：宽度不超过整行
+    expect(await fillAt(4.9), lessThan(200));
+
+    // 同一个字里推进进度只该重绘那一层，不该重建画笔（重建 = 前缀层跟着重画）
+    position.value = 1.2;
+    await tester.pump();
+    final Object tickPainter = tester.widget<CustomPaint>(word).painter!;
+    position.value = 1.4;
+    await tester.pump();
+    expect(
+      identical(tickPainter, tester.widget<CustomPaint>(word).painter),
+      isTrue,
+      reason: '同一个字内推进进度不该重建画笔',
+    );
+
+    // 换到下一个字才重建（前缀层要把刚唱完的字并进去）
+    final Object beforeWord = tester.widget<CustomPaint>(prefix).painter!;
+    position.value = 2.4;
+    await tester.pump();
+    expect(
+      identical(beforeWord, tester.widget<CustomPaint>(prefix).painter),
+      isFalse,
+      reason: '跨过一个字时前缀层要重建',
+    );
   });
 
   testWidgets('翻译与罗马音显示在正文下方', (WidgetTester tester) async {

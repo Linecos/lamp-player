@@ -585,22 +585,18 @@ class _KaraokeTextState extends State<_KaraokeText> {
       builder: (BuildContext context, BoxConstraints constraints) {
         _layout(constraints.maxWidth);
         final TextPainter base = _base!;
-        // 逐字染色每 33ms 重画一次：用 `repaint` 直连进度通知器，只重画这一层。
-        // 以前套的是 ValueListenableBuilder —— 每拍都要重建 widget、重建画笔、
-        // 再重排一次，实测把正在播放页的帧数顶到 3 倍（1 拍 3 帧）。
         return Semantics(
           label: widget.text,
-          child: RepaintBoundary(
-            child: CustomPaint(
-              size: base.size,
-              painter: KaraokeTextPainter(
-                base: base,
-                highlight: _highlight!,
-                boxes: _boxes,
-                times: _times,
-                lineEndMs: widget.lineEndMs,
-                position: widget.position,
-              ),
+          child: SizedBox(
+            width: base.width,
+            height: base.height,
+            child: _KaraokeLayers(
+              base: base,
+              highlight: _highlight!,
+              boxes: _boxes,
+              times: _times,
+              lineEndMs: widget.lineEndMs,
+              position: widget.position,
             ),
           ),
         );
@@ -609,17 +605,233 @@ class _KaraokeTextState extends State<_KaraokeText> {
   }
 }
 
-/// 逐字染色画笔：整行先画暗色，再按已唱进度裁切画一遍高亮。
-@visibleForTesting
-class KaraokeTextPainter extends CustomPainter {
-  KaraokeTextPainter({
+/// 逐字染色的两层结构：静态前缀 + 正在唱的那个字。
+///
+/// 以前是一个画笔每 33ms 把整行重画一遍（暗色整行 + 裁切的高亮整行），
+/// 一次约 4ms；参考 ZeroBit 的做法，拆成两层：
+/// * **前缀层**——整行暗色 + 已经唱完的字，只在跨过一个字时重建（一行 6~9 次）；
+/// * **正在唱的字**——单独一个图层，位置就是这个词的包围盒，每 33ms 只重绘这一小块。
+///
+/// 每拍要刷的面积从「整行」降到「一个字」，画笔本身仍然是同一套裁切逻辑。
+class _KaraokeLayers extends StatefulWidget {
+  const _KaraokeLayers({
     required this.base,
     required this.highlight,
     required this.boxes,
     required this.times,
     required this.lineEndMs,
     required this.position,
-  }) : super(repaint: position);
+  });
+
+  final TextPainter base;
+  final TextPainter highlight;
+  final List<List<Rect>> boxes;
+  final List<int> times;
+  final int lineEndMs;
+  final ValueListenable<double> position;
+
+  @override
+  State<_KaraokeLayers> createState() => _KaraokeLayersState();
+}
+
+class _KaraokeLayersState extends State<_KaraokeLayers> {
+  /// 正在唱的那个字；-1 表示还没到第一个字 / 整行已经唱完
+  int _current = -1;
+
+  /// 已经唱完的字数（前缀层要整块填色的范围）
+  int _sung = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _compute();
+    widget.position.addListener(_sync);
+  }
+
+  @override
+  void didUpdateWidget(_KaraokeLayers oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.position, widget.position)) {
+      oldWidget.position.removeListener(_sync);
+      widget.position.addListener(_sync);
+    }
+    if (!identical(oldWidget.times, widget.times) ||
+        oldWidget.lineEndMs != widget.lineEndMs ||
+        !identical(oldWidget.boxes, widget.boxes)) {
+      _compute();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.position.removeListener(_sync);
+    super.dispose();
+  }
+
+  /// 每 33ms 被调一次：只有「换到下一个字」时才重建，其余时候什么都不做
+  void _sync() {
+    final int current = _indexAt(widget.position.value * 1000);
+    final int sung = _sungAt(widget.position.value * 1000, current);
+    if (current == _current && sung == _sung) {
+      return;
+    }
+    setState(() {
+      _current = current;
+      _sung = sung;
+    });
+  }
+
+  void _compute() {
+    final double ms = widget.position.value * 1000;
+    _current = _indexAt(ms);
+    _sung = _sungAt(ms, _current);
+  }
+
+  /// 最后一条 `times[i] <= ms` 的下标；整行唱完返回 -1
+  int _indexAt(double ms) {
+    if (ms >= widget.lineEndMs) {
+      return -1;
+    }
+    int found = -1;
+    for (int i = 0; i < widget.times.length; i += 1) {
+      if (widget.times[i] <= ms) {
+        found = i;
+      } else {
+        break;
+      }
+    }
+    return found;
+  }
+
+  int _sungAt(double ms, int current) {
+    if (ms >= widget.lineEndMs) {
+      return widget.times.length;
+    }
+    return current < 0 ? 0 : current;
+  }
+
+  /// 某个字的包围盒（外扩 2px，别把抗锯齿边裁掉）
+  Rect? _wordRect(int index) {
+    if (index < 0 || index >= widget.boxes.length) {
+      return null;
+    }
+    final List<Rect> rects = widget.boxes[index];
+    if (rects.isEmpty) {
+      return null;
+    }
+    Rect bound = rects.first;
+    for (final Rect rect in rects.skip(1)) {
+      bound = bound.expandToInclude(rect);
+    }
+    return bound.inflate(2);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Rect? word = _wordRect(_current);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: KaraokePrefixPainter(
+                base: widget.base,
+                highlight: widget.highlight,
+                boxes: widget.boxes,
+                times: widget.times,
+                lineEndMs: widget.lineEndMs,
+                sung: _sung,
+              ),
+            ),
+          ),
+        ),
+        if (word != null)
+          Positioned.fromRect(
+            rect: word,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: KaraokeWordPainter(
+                  highlight: widget.highlight,
+                  boxes: widget.boxes,
+                  times: widget.times,
+                  lineEndMs: widget.lineEndMs,
+                  index: _current,
+                  origin: word.topLeft,
+                  position: widget.position,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 逐字染色要填色的区域（排版坐标）。
+///
+/// 只算 [from]、[to) 这一段字：前缀层传 `[0, sung)`，正在唱的字传 `[i, i + 1)`。
+/// 一个字被折行拆成多段时按宽度顺序依次填。
+@visibleForTesting
+Path karaokeFillPath({
+  required List<List<Rect>> boxes,
+  required List<int> times,
+  required int lineEndMs,
+  required double positionMs,
+  required int from,
+  required int to,
+}) {
+  final Path path = Path();
+  final int end = math.min(to, boxes.length);
+  for (int i = math.max(from, 0); i < end; i += 1) {
+    final double start = times[i].toDouble();
+    if (positionMs <= start) {
+      break;
+    }
+    final double next = i + 1 < times.length
+        ? times[i + 1].toDouble()
+        : lineEndMs.toDouble();
+    final double progress = next <= start
+        ? 1
+        : ((positionMs - start) / (next - start)).clamp(0.0, 1.0);
+    final List<Rect> rects = boxes[i];
+    if (rects.isEmpty) {
+      continue;
+    }
+    if (progress >= 1) {
+      for (final Rect rect in rects) {
+        path.addRect(rect);
+      }
+      continue;
+    }
+    double remain =
+        rects.fold<double>(0, (double sum, Rect rect) => sum + rect.width) *
+        progress;
+    for (final Rect rect in rects) {
+      if (remain <= 0) {
+        break;
+      }
+      final double take = math.min(remain, rect.width);
+      path.addRect(Rect.fromLTWH(rect.left, rect.top, take, rect.height));
+      remain -= take;
+    }
+  }
+  return path;
+}
+
+/// 静态前缀层：整行暗色 + 已经唱完的字（整块填色）。
+///
+/// 只在跨过一个字时重建，所以它不进 `repaint`，也就不跟着进度每拍重绘。
+@visibleForTesting
+class KaraokePrefixPainter extends CustomPainter {
+  KaraokePrefixPainter({
+    required this.base,
+    required this.highlight,
+    required this.boxes,
+    required this.times,
+    required this.lineEndMs,
+    required this.sung,
+  });
 
   final TextPainter base;
   final TextPainter highlight;
@@ -627,51 +839,19 @@ class KaraokeTextPainter extends CustomPainter {
   final List<int> times;
   final int lineEndMs;
 
-  /// 播放进度：直接监听它重画，不重建 widget
-  final ValueListenable<double> position;
+  /// 已经唱完的字数
+  final int sung;
 
-  /// 当前进度（毫秒），画的时候现取
-  double get positionMs => position.value * 1000;
-
-  /// 需要染色的区域（排版坐标）：已唱完的字整块，当前字按进度从左往右
-  Path get fillPath {
-    final Path path = Path();
-    for (int i = 0; i < boxes.length; i += 1) {
-      final double start = times[i].toDouble();
-      if (positionMs <= start) {
-        break;
-      }
-      final double end = i + 1 < times.length
-          ? times[i + 1].toDouble()
-          : lineEndMs.toDouble();
-      final double progress = end <= start
-          ? 1
-          : ((positionMs - start) / (end - start)).clamp(0.0, 1.0);
-      final List<Rect> rects = boxes[i];
-      if (rects.isEmpty) {
-        continue;
-      }
-      if (progress >= 1) {
-        for (final Rect rect in rects) {
-          path.addRect(rect);
-        }
-        continue;
-      }
-      // 一个字被折行拆成多段时，按宽度顺序依次填
-      double remain =
-          rects.fold<double>(0, (double sum, Rect rect) => sum + rect.width) *
-          progress;
-      for (final Rect rect in rects) {
-        if (remain <= 0) {
-          break;
-        }
-        final double take = math.min(remain, rect.width);
-        path.addRect(Rect.fromLTWH(rect.left, rect.top, take, rect.height));
-        remain -= take;
-      }
-    }
-    return path;
-  }
+  /// 已唱区域的排版坐标（测试用）
+  Path get fillPath => karaokeFillPath(
+    boxes: boxes,
+    times: times,
+    lineEndMs: lineEndMs,
+    // 前缀层里的字都是唱完的，直接用无穷大让 progress 取满
+    positionMs: double.infinity,
+    from: 0,
+    to: sung,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -687,12 +867,75 @@ class KaraokeTextPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(KaraokeTextPainter oldDelegate) =>
-      // 进度变化由 `repaint` 直接触发，这里只管「排版结果变了没有」
+  bool shouldRepaint(KaraokePrefixPainter oldDelegate) =>
       !identical(oldDelegate.base, base) ||
       !identical(oldDelegate.highlight, highlight) ||
       !identical(oldDelegate.boxes, boxes) ||
       !identical(oldDelegate.times, times) ||
       oldDelegate.lineEndMs != lineEndMs ||
+      oldDelegate.sung != sung;
+}
+
+/// 正在唱的那个字：图层只有这个词那么大，每 33ms 只重绘这一小块。
+@visibleForTesting
+class KaraokeWordPainter extends CustomPainter {
+  KaraokeWordPainter({
+    required this.highlight,
+    required this.boxes,
+    required this.times,
+    required this.lineEndMs,
+    required this.index,
+    required this.origin,
+    required this.position,
+  }) : super(repaint: position);
+
+  final TextPainter highlight;
+  final List<List<Rect>> boxes;
+  final List<int> times;
+  final int lineEndMs;
+
+  /// 正在唱的字的下标
+  final int index;
+
+  /// 这个字在图里的左上角：画的时候把整行平移回来，只留这个词
+  final Offset origin;
+
+  /// 播放进度：直接监听它重画，不重建 widget
+  final ValueListenable<double> position;
+
+  double get positionMs => position.value * 1000;
+
+  /// 这个字已唱到的部分（图层坐标，测试用）
+  @visibleForTesting
+  Path get clipPath => karaokeFillPath(
+    boxes: boxes,
+    times: times,
+    lineEndMs: lineEndMs,
+    positionMs: positionMs,
+    from: index,
+    to: index + 1,
+  ).shift(-origin);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Path path = clipPath;
+    if (path.getBounds().isEmpty) {
+      return;
+    }
+    canvas.save();
+    canvas.clipPath(path);
+    canvas.translate(-origin.dx, -origin.dy);
+    highlight.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(KaraokeWordPainter oldDelegate) =>
+      !identical(oldDelegate.highlight, highlight) ||
+      !identical(oldDelegate.boxes, boxes) ||
+      !identical(oldDelegate.times, times) ||
+      oldDelegate.lineEndMs != lineEndMs ||
+      oldDelegate.index != index ||
+      oldDelegate.origin != origin ||
       oldDelegate.position != position;
 }
