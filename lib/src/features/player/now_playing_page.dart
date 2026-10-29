@@ -753,32 +753,29 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             child: child,
                           );
                         },
-                    child: RepaintBoundary(
-                      // 旋转只改矩阵：封面自己一层，转起来不用重画歌词 / 控件；
-                      // 里面再套一层让图片光栅缓存住，只有矩阵在变
-                      child: ValueListenableBuilder<double>(
-                        valueListenable: _coverTurns,
-                        // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
-                        builder:
-                            (
-                              BuildContext context,
-                              double turns,
-                              Widget? child,
-                            ) => Transform.rotate(
-                              key: const ValueKey<String>(
-                                'now-playing-cover-spin',
+                    // 旋转用「Transform 在上、RepaintBoundary 在下」：
+                    // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的光栅），
+                    // 反过来套一层边界就变成每帧把转过的封面重新光栅化一遍
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _coverTurns,
+                      // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                      builder:
+                          (BuildContext context, double turns, Widget? child) =>
+                              Transform.rotate(
+                                key: const ValueKey<String>(
+                                  'now-playing-cover-spin',
+                                ),
+                                angle: turns * math.pi * 2,
+                                child: child,
                               ),
-                              angle: turns * math.pi * 2,
-                              child: child,
-                            ),
-                        child: RepaintBoundary(
-                          child: AlbumCover(
-                            path: track.coverPath,
-                            size: size,
-                            // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                            radius: 28,
-                            playing: playing,
-                          ),
+                      child: RepaintBoundary(
+                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件
+                        child: AlbumCover(
+                          path: track.coverPath,
+                          size: size,
+                          // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                          radius: 28,
+                          playing: playing,
                         ),
                       ),
                     ),
