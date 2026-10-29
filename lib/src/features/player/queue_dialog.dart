@@ -7,7 +7,7 @@ import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'playback_queue.dart';
 
-/// 播放队列面板：查看即将播放的曲目，直接跳播，并切换随机 / 循环。
+/// 播放队列面板：查看即将播放的曲目，直接跳播。打开时自动定位到当前曲目。
 ///
 /// 面板直接读写传入的 [queue]：移除 / 清空立即生效，[onChanged] 让页面
 /// 同步播放状态（移除当前曲目时切到下一首，清空时停下）。
@@ -34,8 +34,14 @@ class _PlaybackQueueDialog extends StatefulWidget {
 }
 
 class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
-  /// 两行列表项的估算高度：用来把当前曲目滚到可视区域中间偏上。
+  /// 行高：列表用 itemExtent 固定，滚动定位才能直接算出位置。
+  ///
+  /// 之前只按 72 估算、实际 ListTile 被主题的 compact 密度压到 64，
+  /// 长队列里越算越偏，当前曲目会滚到可视区外面。
   static const double _itemExtent = 72;
+
+  /// 列表上下各留的 padding
+  static const double _listPadding = 4;
 
   final ScrollController _scroll = ScrollController();
 
@@ -60,10 +66,14 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
     if (index < 0) {
       return;
     }
-    final double target = (index * _itemExtent - _itemExtent * 2).clamp(
-      0.0,
-      _scroll.position.maxScrollExtent,
-    );
+    final ScrollPosition position = _scroll.position;
+    final double rowTop = _listPadding + index * _itemExtent;
+    // 当前曲目放到可视区中间，首尾会被夹到列表两端
+    final double target =
+        (rowTop - (position.viewportDimension - _itemExtent) / 2).clamp(
+          0.0,
+          position.maxScrollExtent,
+        );
     if (animate) {
       unawaited(
         _scroll.animateTo(
@@ -75,18 +85,6 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
     } else {
       _scroll.jumpTo(target);
     }
-  }
-
-  void _cycleRepeat() {
-    widget.queue.setRepeat(widget.queue.repeat.next);
-    setState(() {});
-    unawaited(widget.onChanged());
-  }
-
-  void _toggleShuffle() {
-    widget.queue.setShuffle(!widget.queue.shuffle);
-    setState(() {});
-    unawaited(widget.onChanged());
   }
 
   /// 拖拽用的稳定 key：路径 + 同名第几次（队列允许同一首出现多次）
@@ -150,8 +148,6 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
     final ColorScheme scheme = theme.colorScheme;
     final List<Track> tracks = widget.queue.tracks;
     final int currentIndex = widget.queue.index;
-    final LoopMode repeat = widget.queue.repeat;
-    final bool shuffle = widget.queue.shuffle;
 
     return AlertDialog(
       key: const ValueKey<String>('queue-dialog'),
@@ -196,8 +192,15 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                   controller: _scroll,
                   child: ReorderableListView.builder(
                     scrollController: _scroll,
+                    // 行高固定，_scrollToCurrent 才能算出准确位置
+                    itemExtent: _itemExtent,
                     // 左右各留 8：选中色块才不会顶到弹窗两侧、被 28 圆角切掉
-                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                    padding: const EdgeInsets.fromLTRB(
+                      8,
+                      _listPadding,
+                      8,
+                      _listPadding,
+                    ),
                     itemCount: tracks.length,
                     buildDefaultDragHandles: false,
                     // newIndex 已扣掉被取走的那一行，直接交给队列
@@ -335,30 +338,6 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                 ),
         ),
       ),
-      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 16, 10),
-      // 随机 / 循环是常用开关，挪到对话框底部；标题栏只留「清空 / 关闭」，
-      // 破坏性操作与状态开关不再挤在同一行
-      actions: <Widget>[
-        IconButton(
-          isSelected: shuffle,
-          tooltip: shuffle ? '关闭随机播放' : '随机播放',
-          onPressed: _toggleShuffle,
-          icon: const Icon(Icons.shuffle, size: 20),
-        ),
-        IconButton(
-          isSelected: repeat != LoopMode.off,
-          tooltip: switch (repeat) {
-            LoopMode.off => '循环播放：关',
-            LoopMode.all => '循环播放：列表',
-            LoopMode.one => '循环播放：单曲',
-          },
-          onPressed: _cycleRepeat,
-          icon: Icon(
-            repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-            size: 20,
-          ),
-        ),
-      ],
     );
   }
 }
