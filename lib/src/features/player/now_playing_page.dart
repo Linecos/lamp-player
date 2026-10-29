@@ -138,6 +138,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
   static const double _narrowLyricMinHeight = 132;
 
+  /// 频谱丝带：贴底 [_spectrumBottom]、高 [_spectrumHeight]。
+  /// 歌词的底部淡出要盖过这条丝带，两处数值必须同源。
+  static const double _spectrumBottom = 6;
+  static const double _spectrumHeight = 72;
+
   /// 圆形封面转一圈的时间（唱片机那种缓慢匀速）
   static const Duration _coverSpinPeriod = Duration(seconds: 25);
 
@@ -562,8 +567,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             Positioned(
                               left: 0,
                               right: 0,
-                              bottom: 6,
-                              height: 72,
+                              bottom: _spectrumBottom,
+                              height: _spectrumHeight,
                               child: _fadeWhenImmersive(
                                 chromeKey: const ValueKey<String>(
                                   'now-playing-spectrum',
@@ -861,6 +866,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       position: _position,
       playing: _playing,
       onSeek: widget.onSeek,
+      // 频谱丝带铺在歌词下层：底部要淡干净这一段，滚下来的文字才不会压在柱子上
+      edgeFadeBand: widget.spectrum == null
+          ? 0
+          : _spectrumBottom + _spectrumHeight,
     );
   }
 
