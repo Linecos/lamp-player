@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 struct Database {
     path: String,
@@ -282,6 +282,21 @@ CREATE TABLE IF NOT EXISTS play_sessions (
 CREATE INDEX IF NOT EXISTS play_sessions_day ON play_sessions(day DESC);
 "#;
 
+/// v7：被隐藏的曲目。
+///
+/// 「移除曲库」不再是真的删掉——记录搬到这里，下次扫描按路径跳过，
+/// 否则删了又被扫描加回来，等于没删。元数据留快照，恢复时不用重新解析文件。
+const SCHEMA_V7: &str = r#"
+CREATE TABLE IF NOT EXISTS hidden_tracks (
+    path          TEXT    PRIMARY KEY,
+    title         TEXT    NOT NULL DEFAULT '',
+    artist        TEXT    NOT NULL DEFAULT '',
+    album         TEXT    NOT NULL DEFAULT '',
+    duration_secs REAL    NOT NULL DEFAULT 0,
+    hidden_at     INTEGER NOT NULL DEFAULT 0
+);
+"#;
+
 /// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -368,6 +383,11 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
             )?;
         }
         conn.pragma_update(None, "user_version", 6)?;
+    }
+
+    if version < 7 {
+        conn.execute_batch(SCHEMA_V7)?;
+        conn.pragma_update(None, "user_version", 7)?;
     }
 
     Ok(())
@@ -949,6 +969,175 @@ fn merge_track_path(
 /// 只删数据库里的记录，不动磁盘上的音频文件；歌单 / 收藏 / 播放历史通过外键
 /// 级联清理。匹配用 [`path_key`] 归一化，调用方传大小写 / 分隔符变体也能删到
 /// （否则会「删 0 条且不报错」）。
+/// 被隐藏的曲目：已移出曲库、扫描时跳过，但文件还在磁盘上。
+pub struct HiddenTrack {
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_secs: f64,
+    /// 隐藏时刻（Unix 秒），用于列表排序
+    pub hidden_at: i64,
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+/// 隐藏曲目：元数据搬进 `hidden_tracks`，再从 `tracks` 删掉。
+///
+/// 与 `remove_tracks` 的区别是**记得住**：下次扫描会跳过这些路径，不会又加回来。
+pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let keys: HashSet<String> = paths.iter().map(|path| path_key(path)).collect();
+    let hidden_at = now_secs();
+
+    with_conn(|conn| {
+        let targets: Vec<(String, String, String, String, f64)> = {
+            let mut stmt = conn
+                .prepare_cached("SELECT path, title, artist, album, duration_secs FROM tracks")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, f64>(4)?,
+                ))
+            })?;
+            let mut found = Vec::new();
+            for row in rows {
+                let item = row?;
+                if keys.contains(&path_key(&item.0)) {
+                    found.push(item);
+                }
+            }
+            found
+        };
+
+        if targets.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        for (path, title, artist, album, duration_secs) in &targets {
+            tx.execute(
+                "INSERT OR REPLACE INTO hidden_tracks
+                    (path, title, artist, album, duration_secs, hidden_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![path, title, artist, album, duration_secs, hidden_at],
+            )?;
+            // FTS 由 tracks 上的触发器同步，这里不用手动动索引
+            tx.execute("DELETE FROM tracks WHERE path = ?1", params![path])?;
+            count += 1;
+        }
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+/// 被隐藏的曲目列表（最近隐藏的在前）
+pub fn hidden_tracks() -> anyhow::Result<Vec<HiddenTrack>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT path, title, artist, album, duration_secs, hidden_at
+               FROM hidden_tracks
+              ORDER BY hidden_at DESC, path",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(HiddenTrack {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                duration_secs: row.get(4)?,
+                hidden_at: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+/// 恢复隐藏：按快照插回 `tracks` 并移出排除列表。
+///
+/// `file_mtime` / `file_size` 留 0，让下次扫描重新解析一遍标签与封面。
+pub fn unhide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let keys: HashSet<String> = paths.iter().map(|path| path_key(path)).collect();
+    let added_at = now_secs();
+
+    with_conn(|conn| {
+        let targets: Vec<(String, String, String, String, f64)> = {
+            let mut stmt = conn.prepare_cached(
+                "SELECT path, title, artist, album, duration_secs FROM hidden_tracks",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, f64>(4)?,
+                ))
+            })?;
+            let mut found = Vec::new();
+            for row in rows {
+                let item = row?;
+                if keys.contains(&path_key(&item.0)) {
+                    found.push(item);
+                }
+            }
+            found
+        };
+
+        if targets.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        for (path, title, artist, album, duration_secs) in &targets {
+            tx.execute(
+                "INSERT OR REPLACE INTO tracks
+                    (path, title, artist, album, duration_secs, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![path, title, artist, album, duration_secs, added_at],
+            )?;
+            tx.execute("DELETE FROM hidden_tracks WHERE path = ?1", params![path])?;
+            count += 1;
+        }
+        tx.commit()?;
+        Ok(count)
+    })
+}
+
+/// 仅供集成测试读取排除集合（生产代码走 [`hidden_path_keys`]）
+#[flutter_rust_bridge::frb(ignore)]
+pub fn hidden_path_keys_for_test() -> anyhow::Result<HashSet<String>> {
+    hidden_path_keys()
+}
+
+/// 扫描时用的排除集合（`path_key` 归一化）
+pub(crate) fn hidden_path_keys() -> anyhow::Result<HashSet<String>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached("SELECT path FROM hidden_tracks")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut keys = HashSet::new();
+        for row in rows {
+            keys.insert(path_key(&row?));
+        }
+        Ok(keys)
+    })
+}
+
 pub fn remove_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     if paths.is_empty() {
         return Ok(0);

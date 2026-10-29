@@ -75,6 +75,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double dco_decode_f_64(dynamic raw);
 
   @protected
+  HiddenTrack dco_decode_hidden_track(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -85,6 +88,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<DailyPlaytime> dco_decode_list_daily_playtime(dynamic raw);
+
+  @protected
+  List<HiddenTrack> dco_decode_list_hidden_track(dynamic raw);
 
   @protected
   List<LyricLine> dco_decode_list_lyric_line(dynamic raw);
@@ -216,6 +222,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
+  HiddenTrack sse_decode_hidden_track(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -228,6 +237,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<DailyPlaytime> sse_decode_list_daily_playtime(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<HiddenTrack> sse_decode_list_hidden_track(SseDeserializer deserializer);
 
   @protected
   List<LyricLine> sse_decode_list_lyric_line(SseDeserializer deserializer);
@@ -369,6 +381,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_hidden_track(HiddenTrack self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -380,6 +395,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_daily_playtime(
     List<DailyPlaytime> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_hidden_track(
+    List<HiddenTrack> self,
     SseSerializer serializer,
   );
 
