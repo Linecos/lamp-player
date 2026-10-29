@@ -70,8 +70,8 @@ void main() {
     final Text active = tester.widget<Text>(find.text('当前行'));
     final Text inactive = tester.widget<Text>(find.text('下一行'));
 
-    expect(active.style?.fontSize, 30);
-    expect(inactive.style?.fontSize, 24);
+    expect(active.style?.fontSize, 28);
+    expect(inactive.style?.fontSize, 22);
     expect(active.style?.color?.r, 1);
     expect(active.style?.color?.g, 1);
     expect(active.style?.color?.b, 1);
@@ -161,7 +161,7 @@ void main() {
         .style!
         .fontSize!;
     final double cjk = tester.widget<Text>(find.text('大人一直说')).style!.fontSize!;
-    expect(body, 30);
+    expect(body, 28);
     expect(latin / body, greaterThan(0.7), reason: '罗马音不能比正文小太多');
     expect(cjk / body, greaterThan(0.75), reason: '译文不能比正文小太多');
     expect(cjk, lessThan(body), reason: '译文仍需略小于正文');
