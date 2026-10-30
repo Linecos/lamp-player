@@ -138,6 +138,26 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
   static const double _narrowLyricMinHeight = 132;
 
+  /// 宽屏内容的最大宽度：再宽就不跟着长，整块居中，避免超宽屏上左右拉散
+  static const double _maxContentWidth = 1600;
+
+  /// 顶部那一条「正在播放 + 收起」的高度：封面要按**窗口**上边界对齐，
+  /// 而 `_body` 的坐标原点在 header 下面，算等距时得把它减掉
+  static const double _headerHeight = 48;
+
+  /// 45 度线上的最小内边距占窗口短边的比例：小窗口靠它离开角落
+  static const double _minInsetRatio = 0.22;
+
+  /// 封面下方那三行（歌名 / 歌手 / 专辑）大致占的高度：算封面能长多大时要
+  /// 把它一起留出来，免得文字压在频谱丝带上
+  static const double _infoReserve = 104;
+
+  /// 封面外圈留给阴影的余量（blur 28 + 偏移 10/12 + 呼吸空间），左右各一半
+  static const double _coverShadowPad = 84;
+
+  /// 封面最小边长：再矮的窗口也不缩到看不清楚
+  static const double _minCoverSize = 200;
+
   /// 频谱丝带：贴底 [_spectrumBottom]、高 [_spectrumHeight]。
   /// 歌词的底部淡出要盖过这条丝带，两处数值必须同源。
   static const double _spectrumBottom = 6;
@@ -661,24 +681,72 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool wide = constraints.maxWidth >= 760;
-        final double coverSize = wide ? 336 : 240;
-        final Widget info = _trackInfo(context, track, coverSize);
+        // 内容宽度跟着窗口走（上限 1600，再宽就整块居中），封面尺寸则由宽度、
+        // 高度两个预算取小——否则要么全屏时封面贴在左边、歌词甩到右边，
+        // 要么矮窗口里封面 + 下方三行文字顶到频谱丝带上。
+        final double contentWidth = math.min(
+          constraints.maxWidth - 64,
+          _maxContentWidth,
+        );
+        // 封面到**窗口**左边界的距离：页面内边距 32 + 内容块限宽后居中的偏移
+        // + 封面外圈留给阴影的余量
+        final double centerGap =
+            math.max(0, constraints.maxWidth - 64 - contentWidth) / 2;
+        final double baseInset = centerGap + 32 + _coverShadowPad / 2;
+        // 74 太贴左上角（封面本身才 300 出头，离边太近会显得挤在角落），
+        // 按可用短边的 22% 起算；大窗口本来就更靠内，取两者较大的那个。
+        final double coverInset = math.max(
+          baseInset,
+          math.min(constraints.maxWidth, constraints.maxHeight) *
+              _minInsetRatio,
+        );
+        // 封面尺寸：宽度允许的上限（左栏占内容宽 35%）和「实际还剩多少高度」
+        // 二选一，取小的。默认 1280×720 窗口下封面原本 342，加上下方三行文字
+        // 就顶到频谱丝带上了——不放小就再也挪不进去，只能一直贴在左上角。
+        final double areaHeight =
+            constraints.maxHeight - _spectrumBottom - _spectrumHeight;
+        final double widthBudget =
+            (contentWidth * 0.35).clamp(380.0, 560.0) - _coverShadowPad;
+        final double heightBudget =
+            areaHeight + _headerHeight - _infoReserve - coverInset;
+        final double coverSize = math
+            .min(widthBudget, heightBudget)
+            .clamp(_minCoverSize, 440.0);
+        // 左栏宽度跟着封面走，封面在栏内水平居中（左右各留半个阴影余量）
+        final double laneWidth = coverSize + _coverShadowPad;
+        // 多出来的量左右各让一半：内容块整体内缩，封面左边距正好等于 coverInset
+        final double extraInset = coverInset - baseInset;
+        // `_body` 从 header 下方开始，换算成窗口坐标要减掉 header 的高度，
+        // 否则封面看起来离顶还是比离左更远一截
+        final double topPadding = math.max(8, coverInset - _headerHeight);
+        final Widget info = _trackInfo(context, track, wide ? coverSize : 240);
         final Widget lyric = _lyricsView(context);
         if (wide) {
           return Padding(
-            padding: const EdgeInsets.fromLTRB(32, 8, 32, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SizedBox(
-                  width: 420,
-                  child: Center(
-                    child: SizedBox(width: coverSize, child: info),
-                  ),
+            padding: EdgeInsets.fromLTRB(32, topPadding, 32, 0),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                // 位置靠「内缩 contentWidth + 居中」实现，左右各让 extraInset
+                width: math.max(0, contentWidth - extraInset * 2),
+                // 顶部内边距已吃掉 topPadding；Row 是 stretch，需要确定高度
+                height: math.max(0, constraints.maxHeight - topPadding),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    SizedBox(
+                      width: laneWidth,
+                      // 水平居中（阴影有余量）、垂直靠顶：封面顶边就是内边距
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(width: coverSize, child: info),
+                      ),
+                    ),
+                    const SizedBox(width: 32),
+                    Expanded(child: lyric),
+                  ],
                 ),
-                const SizedBox(width: 32),
-                Expanded(child: lyric),
-              ],
+              ),
             ),
           );
         }
