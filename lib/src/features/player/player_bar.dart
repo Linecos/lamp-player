@@ -544,6 +544,11 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
                 size: _coverSize,
                 radius: 16,
                 playing: widget.isPlaying,
+                // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
+                // 就成了「从别处飞过来」，几乎只留淡入才自然
+                animateOnChange: true,
+                transitionDuration: const Duration(milliseconds: 300),
+                transitionScale: 1.04,
               ),
             ),
             const SizedBox(width: 12),
