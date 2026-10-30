@@ -497,9 +497,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     _loadedPath = path;
     _lyrics = null;
-    if (_palette != null) {
-      setState(() => _palette = null);
-    }
+    // 色板先留着上一首的：清空会让整屏背景先闪一下主题色、等新色板算好
+    // （几十毫秒后）再跳回来，等于切一次歌变两次色。旧的留在原地，新色板
+    // 到了由背景自己做淡入。
     unawaited(_loadLyrics(path));
     unawaited(_loadPalette(track?.coverPath, path));
   }
@@ -885,6 +885,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                           // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
                           radius: 28,
                           playing: playing,
+                          // 换歌时新封面收进来 + 淡入，别硬切
+                          animateOnChange: true,
                         ),
                       ),
                     ),

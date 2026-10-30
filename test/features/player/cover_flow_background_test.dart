@@ -148,6 +148,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('换色板时旧光斑留到过渡结束，连切也不会误释放', (WidgetTester tester) async {
+    Widget host(List<Color> colors) => MaterialApp(
+      theme: AppTheme.dark(AppTheme.defaultSeed),
+      home: CoverFlowBackground(
+        colors: colors,
+        animate: false,
+        child: const SizedBox.expand(),
+      ),
+    );
+
+    await tester.pumpWidget(host(const <Color>[Color(0xFF3355AA)]));
+    await tester.pump();
+
+    await tester.pumpWidget(host(const <Color>[Color(0xFF33AA55)]));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    // 淡出还没走完又换一次：上一组仍在被绘制，不能提前 dispose，
+    // 否则下一帧会拿一张已释放的位图去贴（真机上直接崩）
+    await tester.pumpWidget(host(const <Color>[Color(0xFFAA3355)]));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(tester.takeException(), isNull);
+
+    // 过渡收尾：旧组释放、只剩一组
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('没有封面色时用主题色兜底', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -56,7 +56,11 @@ class CoverFlowBackground extends StatefulWidget {
 /// 9 秒时偏快、20 秒以上大屏上几乎看不出位移。
 const double _auraPeriod = 12;
 
-class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
+/// 换色板时的过渡时长：和封面的换图过渡同一个量级，整页才像「一起换过去」
+const Duration _paletteFadeDuration = Duration(milliseconds: 360);
+
+class _CoverFlowBackgroundState extends State<CoverFlowBackground>
+    with SingleTickerProviderStateMixin {
   bool _reduceMotion = false;
 
   /// 动画起点（[UiClock.slow] 秒）：相位从 0 开始算，打开流光时从头扫
@@ -65,6 +69,29 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
   /// 当前色板对应的预渲染光斑（`[色板色][色相档]`）；色板变化时整组重建
   List<List<ui.Image>>? _spots;
   List<Color>? _spotPalette;
+
+  /// 正在淡出的上一组光斑与底色：换歌时整屏背景要是硬切，比封面那点
+  /// 过渡明显得多。过渡结束后释放
+  List<List<ui.Image>>? _fadingSpots;
+  Color? _fadingSurface;
+
+  late final AnimationController _paletteFade = AnimationController(
+    vsync: this,
+    duration: _paletteFadeDuration,
+    value: 1,
+  );
+
+  late final CurvedAnimation _paletteMix = CurvedAnimation(
+    parent: _paletteFade,
+    curve: Curves.easeInOutCubic,
+  );
+
+  /// 连切时只认最后一次：动画结束的回调对不上就把旧组放回去
+  int _fadeToken = 0;
+
+  /// 底色：色板第二色压暗，决定整页的基调
+  static Color _surfaceOf(List<Color> palette) =>
+      Color.lerp(palette[1], Colors.black, 0.55)!;
 
   @override
   void didChangeDependencies() {
@@ -83,15 +110,16 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
 
   @override
   void dispose() {
+    _disposeGroup(_fadingSpots);
+    // 先解掉对 controller 的监听，再销毁 controller
+    _paletteMix.dispose();
+    _paletteFade.dispose();
     _disposeSpots();
     super.dispose();
   }
 
-  void _disposeSpots() {
-    final List<List<ui.Image>>? spots = _spots;
-    _spots = null;
-    _spotPalette = null;
-    if (spots == null) {
+  void _disposeGroup(List<List<ui.Image>>? spots) {
+    if (spots == null || identical(spots, _spots)) {
       return;
     }
     for (final List<ui.Image> row in spots) {
@@ -99,6 +127,13 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
         image.dispose();
       }
     }
+  }
+
+  void _disposeSpots() {
+    final List<List<ui.Image>>? spots = _spots;
+    _spots = null;
+    _spotPalette = null;
+    _disposeGroup(spots);
   }
 
   /// 按色板预渲染光斑位图（色板色 × 色相档）。
@@ -150,9 +185,28 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
           <Color>[scheme.primary, scheme.tertiary, scheme.secondary],
     );
     if (_spots == null || !listEquals(_spotPalette, palette)) {
-      _disposeSpots();
+      final List<List<ui.Image>>? previous = _spots;
+      final List<Color>? previousPalette = _spotPalette;
       _spots = _buildSpots(palette);
       _spotPalette = palette;
+      if (previous != null && previousPalette != null) {
+        // 旧的留在下面淡出，等过渡结束再释放（连切时直接丢掉更早的那组）
+        _disposeGroup(_fadingSpots);
+        _fadingSpots = previous;
+        _fadingSurface = _surfaceOf(previousPalette);
+        final int token = ++_fadeToken;
+        _paletteFade.forward(from: 0).whenComplete(() {
+          if (!mounted || token != _fadeToken) {
+            return;
+          }
+          final List<List<ui.Image>>? stale = _fadingSpots;
+          setState(() {
+            _fadingSpots = null;
+            _fadingSurface = null;
+          });
+          _disposeGroup(stale);
+        });
+      }
     }
     final bool animating = widget.animate && !_reduceMotion;
 
@@ -164,8 +218,11 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
         RepaintBoundary(
           child: CustomPaint(
             painter: _BasePainter(
-              surface: Color.lerp(palette[1], Colors.black, 0.55)!,
+              surface: _surfaceOf(palette),
               spots: _spots!,
+              previousSurface: _fadingSurface,
+              previousSpots: _fadingSpots,
+              mix: _fadingSpots == null ? null : _paletteMix,
             ),
             child: const SizedBox.expand(),
           ),
@@ -176,6 +233,8 @@ class _CoverFlowBackgroundState extends State<CoverFlowBackground> {
               spots: _spots!,
               animate: animating,
               origin: _origin,
+              previousSpots: _fadingSpots,
+              mix: _fadingSpots == null ? null : _paletteMix,
             ),
             child: const SizedBox.expand(),
           ),
@@ -315,58 +374,89 @@ const int _neutralHueStep = (_spotHueSteps - 1) ~/ 2;
 /// 单独一层（外层 `RepaintBoundary`），只画一次；既决定整页的色调（关闭
 /// 流光时也靠它），也保证某块流动光刚好淡出时背景不会塌成一片近黑。
 class _BasePainter extends CustomPainter {
-  _BasePainter({required this.surface, required this.spots});
+  _BasePainter({
+    required this.surface,
+    required this.spots,
+    this.previousSurface,
+    this.previousSpots,
+    this.mix,
+  }) : super(repaint: mix);
 
   final Color surface;
 
   /// 色板色 × 色相档的预渲染光斑。
   final List<List<ui.Image>> spots;
 
+  /// 换色板前的底色 / 光斑：过渡期间压在下面淡出
+  final Color? previousSurface;
+  final List<List<ui.Image>>? previousSpots;
+
+  /// 0 = 全是旧色板，1 = 全是新色板；为空表示没有过渡
+  final Animation<double>? mix;
+
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = surface);
+    final double m = mix?.value ?? 1;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = Color.lerp(previousSurface ?? surface, surface, m)!,
+    );
     final Paint paint = Paint()..filterQuality = FilterQuality.low;
     final Rect src = _spotSrc;
 
-    _paintSpot(
-      canvas,
-      paint,
-      spots,
-      src,
-      Offset(size.width * 0.7, size.height * 0.25),
-      size.width * 0.95,
-      0,
-      _neutralHueStep,
-      0.72,
-    );
-    _paintSpot(
-      canvas,
-      paint,
-      spots,
-      src,
-      Offset(size.width * 0.12, size.height * 0.85),
-      size.width * 0.75,
-      1,
-      _neutralHueStep,
-      0.5,
-    );
-    _paintSpot(
-      canvas,
-      paint,
-      spots,
-      src,
-      Offset(size.width * 0.9, size.height * 0.9),
-      size.width * 0.55,
-      2,
-      _neutralHueStep,
-      0.36,
-    );
+    void block(List<List<ui.Image>> set, double weight) {
+      if (weight <= 0.002) {
+        return;
+      }
+      _paintSpot(
+        canvas,
+        paint,
+        set,
+        src,
+        Offset(size.width * 0.7, size.height * 0.25),
+        size.width * 0.95,
+        0,
+        _neutralHueStep,
+        0.72 * weight,
+      );
+      _paintSpot(
+        canvas,
+        paint,
+        set,
+        src,
+        Offset(size.width * 0.12, size.height * 0.85),
+        size.width * 0.75,
+        1,
+        _neutralHueStep,
+        0.5 * weight,
+      );
+      _paintSpot(
+        canvas,
+        paint,
+        set,
+        src,
+        Offset(size.width * 0.9, size.height * 0.9),
+        size.width * 0.55,
+        2,
+        _neutralHueStep,
+        0.36 * weight,
+      );
+    }
+
+    final List<List<ui.Image>>? previous = previousSpots;
+    if (previous != null) {
+      block(previous, 1 - m);
+    }
+    block(spots, m);
   }
 
   @override
   bool shouldRepaint(covariant _BasePainter oldDelegate) {
     return !identical(oldDelegate.spots, spots) ||
-        oldDelegate.surface != surface;
+        !identical(oldDelegate.previousSpots, previousSpots) ||
+        oldDelegate.surface != surface ||
+        oldDelegate.previousSurface != previousSurface ||
+        oldDelegate.mix != mix;
   }
 }
 
@@ -376,8 +466,18 @@ class _BasePainter extends CustomPainter {
 /// 出帧等于每帧把整屏混合四遍，CPU 白烧十几倍。这层是整窗大小，每帧都是一次
 /// 全屏重绘，实测占了正在播放页一半的 CPU，所以单独降到 15fps。
 class _AuraPainter extends CustomPainter {
-  _AuraPainter({required this.spots, this.animate = false, this.origin = 0})
-    : super(repaint: animate ? UiClock.slow : null);
+  _AuraPainter({
+    required this.spots,
+    this.animate = false,
+    this.origin = 0,
+    this.previousSpots,
+    this.mix,
+  }) : super(
+         repaint: Listenable.merge(<Listenable?>[
+           if (animate) UiClock.slow,
+           mix,
+         ]),
+       );
 
   /// 色板色 × 色相档的预渲染光斑；画的时候直接挑一张贴上去。
   final List<List<ui.Image>> spots;
@@ -388,8 +488,16 @@ class _AuraPainter extends CustomPainter {
   /// 相位零点（[UiClock.slow] 秒）
   final double origin;
 
+  /// 换色板前的光斑：过渡期间一起画，按 [mix] 分权重淡出
+  final List<List<ui.Image>>? previousSpots;
+
+  /// 0 = 全是旧色板，1 = 全是新色板；为空表示没有过渡
+  final Animation<double>? mix;
+
   @override
   void paint(Canvas canvas, Size size) {
+    final double m = mix?.value ?? 1;
+    final List<List<ui.Image>>? previous = previousSpots;
     final double t = animate
         ? ((UiClock.slow.seconds - origin) / _auraPeriod) % 1
         : 0;
@@ -400,6 +508,9 @@ class _AuraPainter extends CustomPainter {
 
     /// 贴一块光斑：位图是「色板色 → 透明」的径向渐变，`paint` 的 alpha
     /// 负责整体浓淡（`drawImageRect` 只取 Paint 的 alpha，不取 RGB）。
+    ///
+    /// 换色板过渡期间同位置画两遍：旧的挑 1-m、新的挑 m，光斑位置与相位
+    /// 一致，看着就是颜色慢慢换过去
     void spot(
       Offset center,
       double radius,
@@ -407,6 +518,19 @@ class _AuraPainter extends CustomPainter {
       int hueStep,
       double alpha,
     ) {
+      if (previous != null) {
+        _paintSpot(
+          canvas,
+          paint,
+          previous,
+          src,
+          center,
+          radius,
+          colorIndex,
+          hueStep,
+          alpha * (1 - m),
+        );
+      }
       _paintSpot(
         canvas,
         paint,
@@ -416,7 +540,7 @@ class _AuraPainter extends CustomPainter {
         radius,
         colorIndex,
         hueStep,
-        alpha,
+        alpha * m,
       );
     }
 
@@ -519,7 +643,9 @@ class _AuraPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _AuraPainter oldDelegate) {
     return !identical(oldDelegate.spots, spots) ||
+        !identical(oldDelegate.previousSpots, previousSpots) ||
         oldDelegate.animate != animate ||
-        oldDelegate.origin != origin;
+        oldDelegate.origin != origin ||
+        oldDelegate.mix != mix;
   }
 }
