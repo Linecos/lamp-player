@@ -697,11 +697,36 @@ void main() {
     await _settleToast(tester);
   });
 
-  testWidgets('大窗口封面用满放大后的 336', (WidgetTester tester) async {
+  testWidgets('封面随窗口放大，但有上限', (WidgetTester tester) async {
     await _pump(tester, data: _data());
 
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.byType(AlbumCover).first).width, 336);
+    final double at1280 = tester.getSize(find.byType(AlbumCover).first).width;
+    expect(at1280, closeTo(341, 8), reason: '默认窗口与原来的 336 基本一致');
+
+    // 全屏 / 大窗口：封面跟着变大，但整块内容限宽，封面不能被无限放大
+    await _pump(tester, data: _data(), size: const Size(1920, 1080));
+    final double at1920 = tester.getSize(find.byType(AlbumCover).first).width;
+    expect(at1920, greaterThan(at1280), reason: '窗口变大封面要跟上');
+    expect(at1920, lessThanOrEqualTo(480), reason: '留出歌词与阴影的空间');
+  });
+
+  testWidgets('封面落在 45 度线上：到左边界与到上边界等距', (WidgetTester tester) async {
+    for (final Size size in <Size>[
+      const Size(1080, 720),
+      const Size(1280, 900),
+      const Size(1920, 1080),
+      const Size(2560, 1440),
+    ]) {
+      await _pump(tester, data: _data(), size: size);
+      final Rect page = tester.getRect(find.byType(NowPlayingPage));
+      final Rect cover = tester.getRect(find.byType(AlbumCover).first);
+      expect(
+        cover.left - page.left,
+        closeTo(cover.top - page.top, 2),
+        reason: '$size 下封面到左、到上的距离应该相同',
+      );
+    }
   });
 
   testWidgets('打开圆形封面后阴影容器也跟着变圆', (WidgetTester tester) async {
@@ -771,6 +796,29 @@ void main() {
     expect(turns(), frozen);
   });
 
+  testWidgets('默认 1280×720 窗口：封面往里挪，且不把歌名压到频谱上', (WidgetTester tester) async {
+    final ValueNotifier<List<double>> spectrum = ValueNotifier<List<double>>(
+      List<double>.filled(24, 0.6),
+    );
+    addTearDown(spectrum.dispose);
+    await _pump(
+      tester,
+      data: _data(),
+      size: const Size(1280, 720),
+      spectrum: spectrum,
+    );
+
+    final Rect cover = tester.getRect(find.byType(AlbumCover).first);
+    final Rect bars = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-spectrum')),
+    );
+    final Rect album = tester.getRect(find.text('夜之专辑'));
+
+    expect(cover.left, closeTo(cover.top, 2), reason: '仍然落在左上 45 度线上');
+    expect(cover.left, greaterThan(100), reason: '不能还挤在角落（旧值 74）');
+    expect(album.bottom, lessThan(bars.top), reason: '往下挪之后，封面下那三行文字不能压在频谱丝带上');
+  });
+
   testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {
     // 900×560 是 main.dart 里 windowManager 允许的最小窗口
     await _pump(tester, data: _data(), size: const Size(900, 560));
@@ -778,7 +826,7 @@ void main() {
     expect(tester.takeException(), isNull, reason: '最小窗口下不该溢出');
     final double cover = tester.getSize(find.byType(AlbumCover).first).width;
     expect(cover, lessThan(336), reason: '高度不够时封面要让位');
-    expect(cover, greaterThan(200), reason: '也不该缩到看不出封面');
+    expect(cover, greaterThanOrEqualTo(200), reason: '也不该缩到看不出封面');
   });
 
   testWidgets('空格 / 方向键 / 媒体键在本页生效', (WidgetTester tester) async {
