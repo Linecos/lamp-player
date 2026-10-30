@@ -422,12 +422,16 @@ extension _SelectionSection on _LibraryPageState {
       return;
     }
 
-    // 标签改过之后曲库里的增益还是旧的：重扫受影响目录，增量只重解析改过的文件
+    // 标签改过之后曲库里的增益还是旧的：重扫受影响目录，增量只重解析改过的文件。
+    // 重扫失败只影响「曲库里的增益」，标签已经写进文件了，但这次起播仍会用旧值，
+    // 所以要如实告诉用户，别静默吞掉。
+    int scanFailures = 0;
     for (final String folder in folders) {
       try {
         await _repository.scanFolder(folder);
-      } catch (_) {
-        // 重扫失败不影响标签已经写进文件，下次扫描会补上
+      } catch (error) {
+        scanFailures += 1;
+        debugPrint('重扫 $folder 失败：$error');
       }
     }
     if (folders.isNotEmpty) {
@@ -440,12 +444,15 @@ extension _SelectionSection on _LibraryPageState {
     final String average = written == 0
         ? ''
         : '，平均 ${(sum / written).toStringAsFixed(1)} dB';
+    final String rescan = scanFailures == 0
+        ? ''
+        : '；$scanFailures 个目录重扫失败，曲库里的增益还是旧的（下次扫描会补上）';
     _showMessage(
       cancelled
-          ? '已取消：完成 $written 首$average，其余未处理'
+          ? '已取消：完成 $written 首$average，其余未处理$rescan'
           : failed == 0
-          ? '已写入 $written 首的 ReplayGain$average'
-          : '已写入 $written 首$average，$failed 首失败（只读或格式不支持写标签）',
+          ? '已写入 $written 首的 ReplayGain$average$rescan'
+          : '已写入 $written 首$average，$failed 首失败（只读或格式不支持写标签）$rescan',
     );
   }
 
@@ -589,9 +596,12 @@ extension _SelectionSection on _LibraryPageState {
     final Set<String> paths = tracks.map((Track track) => track.path).toSet();
     try {
       if (fromPlaylist && playlistId != null) {
-        for (final String path in paths) {
-          await _repository.removeTrackFromPlaylist(playlistId, path);
-        }
+        // 整批一个事务：逐条删的话，第 4 首失败时前 3 首已经删了，
+        // 界面却按「整批失败」提示，用户不知道到底删掉几条
+        final int removed = await _repository.removeTracksFromPlaylist(
+          playlistId,
+          paths.toList(),
+        );
         if (!mounted) {
           return;
         }
@@ -600,7 +610,7 @@ extension _SelectionSection on _LibraryPageState {
         if (!mounted) {
           return;
         }
-        _showMessage('已从歌单移除 ${paths.length} 首');
+        _showMessage('已从歌单移除 $removed 首');
       } else {
         // 与右键「隐藏歌曲」同一套：打 hidden 标记，扫描不会再加回来
         final int removed = await _repository.hideTracks(paths.toList());

@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.10（2026-10-29）**
+> **当前版本：v0.11（2026-10-30）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.11 变更：新增 `collections::remove_tracks_from_playlist`（批量移出歌单，整批一个
+> 事务，返回真正删掉的条数）。纯新增，不改现有语义。
 >
 > v0.10 变更：`hide_tracks` 语义从「搬进 hidden_tracks 再从 tracks 删行」改成
 > 「置 `tracks.hidden` 标记」。签名不变，但行为变了：隐藏不再级联删掉收藏 / 歌单 /
@@ -162,6 +165,7 @@
 | `playlist_tracks(id: i64) -> Result<Vec<Track>>` | `Future<List<Track>> playlistTracks({required PlatformInt64 id})` | 已实现 |
 | `add_track_to_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> addTrackToPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
 | `remove_track_from_playlist(id: i64, path: String) -> Result<bool>` | `Future<bool> removeTrackFromPlaylist({required PlatformInt64 id, required String path})` | 已实现 |
+| `remove_tracks_from_playlist(id: i64, paths: Vec<String>) -> Result<i32>` | `Future<int> removeTracksFromPlaylist({required PlatformInt64 id, required List<String> paths})` | 已实现 |
 | `add_tracks_to_playlist(id: i64, paths: Vec<String>) -> Result<i32>` | `Future<int> addTracksToPlaylist({required PlatformInt64 id, required List<String> paths})` | 已实现 |
 | `list_favorites() -> Result<Vec<Track>>` | `Future<List<Track>> listFavorites()` | 已实现 |
 | `favorite_paths() -> Result<Vec<String>>` | `Future<List<String>> favoritePaths()` | 已实现 |
@@ -209,6 +213,15 @@
   天，不补零，补零是展示层的事。时长也通过外键 `ON DELETE CASCADE` 跟着曲目清理。
 - **时长上报时机**：Dart 侧按轮询增量累计（只认 0 < delta < 3 秒，seek 跳变与切歌跨度不计入），
   攒到 15 秒或遇到暂停 / 切歌 / 播完 / 停止 / 退出时写库，不逐拍写。
+- **路径合并**（`merge_track_path`）：同一文件的不同字面路径（大小写 / 分隔符）合并时，
+  收藏、歌单、播放历史、听歌时长都要迁到新路径；历史按曲目合并次数并保留较新的时间，
+  时长按 `(曲目, 天)` 逐日**相加**（`ON CONFLICT ... seconds + excluded.seconds`），
+  不是二选一——否则合并一次就把旧路径那一截时长连同热力图一起删掉。
+- **歌单排序**（`move_playlist_track`）：下标按**界面可见顺序**给；隐藏曲目也在歌单里，
+  实现按「槽位」处理——可见曲目按拖拽结果依次填回原来的可见槽位，隐藏条目留在自己的槽位，
+  最后整体重排成 `0..n-1`。这样序号始终唯一，隐藏曲恢复后仍在原来的相对位置。
+- **批量移出**（`remove_tracks_from_playlist`）：整批一个事务，只回真正删掉的条数；
+  不在歌单里的路径忽略。界面批量移出必须走它，逐条删会出现「删了一半但提示整批失败」。
 
 ## 6. 扫描 `api::scan`
 

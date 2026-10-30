@@ -321,11 +321,19 @@ extension _OutputSection on _LibraryPageState {
     );
   }
 
-  /// 启动时按上次状态恢复窗口；失败只记日志，不影响播放
+  /// 启动时按上次状态恢复窗口；失败只记日志，不影响播放。
+  ///
+  /// 恢复显示时**强制解锁**：锁定状态是鼠标穿透，主界面还没出来时（关到托盘
+  /// 启动）只能靠托盘菜单解开。与「显式打开歌词 = 解锁」保持一致。
   Future<void> _restoreDesktopLyrics() async {
     _syncTrayDesktopLyrics();
     if (!_desktopLyrics) {
       return;
+    }
+    if (_desktopLyricLocked) {
+      _desktopLyricLocked = false;
+      _saveSessionNow();
+      _publishProgress();
     }
     try {
       await _pushDesktopLyricSettings();

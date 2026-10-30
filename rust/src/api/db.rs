@@ -93,6 +93,17 @@ fn backup_before_upgrade(conn: &mut Connection, path: &str) {
     // WAL 里可能压着还没落盘的数据，先合并再复制，否则副本是残缺的
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     let backup = PathBuf::from(format!("{path}.bak"));
+    // 已经有一份「同一个旧版本」的备份就留着：迁移崩在中途后重跑时，
+    // 那一份才是真正的升级前状态，别用半升级的库把它盖掉。
+    if backup.exists() {
+        let backup_version = Connection::open(&backup).ok().and_then(|conn| {
+            conn.pragma_query_value(None, "user_version", |row| row.get::<_, i32>(0))
+                .ok()
+        });
+        if backup_version == Some(version) {
+            return;
+        }
+    }
     if let Err(error) = fs::copy(source, &backup) {
         eprintln!("升级前备份曲库失败（{}）：{error}", backup.display());
     }
@@ -307,54 +318,59 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         bail!("曲库结构版本 {version} 高于当前程序支持的 {SCHEMA_VERSION}，请升级 Lamp Player");
     }
 
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    // 整段迁移放进一个事务：中途崩溃 / 断电整体回滚，不会留下「加了一半列、
+    // 版本号还是旧的」半升级状态（那种库下次启动会重跑迁移，还会把升级前的
+    // `.bak` 备份覆盖成半成品）。
+    let tx = conn.transaction()?;
+
     if version < 1 {
-        conn.execute_batch(SCHEMA_V1)?;
+        tx.execute_batch(SCHEMA_V1)?;
         // v1 之前建的库没有增量扫描需要的两列
-        if !column_exists(conn, "tracks", "file_mtime")? {
-            conn.execute_batch(
+        if !column_exists(&tx, "tracks", "file_mtime")? {
+            tx.execute_batch(
                 "ALTER TABLE tracks ADD COLUMN file_mtime INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
-        if !column_exists(conn, "tracks", "file_size")? {
-            conn.execute_batch(
+        if !column_exists(&tx, "tracks", "file_size")? {
+            tx.execute_batch(
                 "ALTER TABLE tracks ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
         // 老库可能缺触发器或索引漂移，重建一次最省心（只发生在升级那一次）
-        conn.execute_batch("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild');")?;
-        conn.pragma_update(None, "user_version", 1)?;
+        tx.execute_batch("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild');")?;
+        tx.pragma_update(None, "user_version", 1)?;
     }
 
     if version < 2 {
-        conn.execute_batch(SCHEMA_V2)?;
-        conn.pragma_update(None, "user_version", 2)?;
+        tx.execute_batch(SCHEMA_V2)?;
+        tx.pragma_update(None, "user_version", 2)?;
     }
 
     if version < 3 {
         // v3：封面缓存路径。老库没有封面，把文件指纹清零，让下次扫描重新解析
         // 一遍（否则未变化的文件会被增量扫描跳过，封面永远补不上）。
-        if !column_exists(conn, "tracks", "cover_path")? {
-            conn.execute_batch(
-                "ALTER TABLE tracks ADD COLUMN cover_path TEXT NOT NULL DEFAULT '';",
-            )?;
+        if !column_exists(&tx, "tracks", "cover_path")? {
+            tx.execute_batch("ALTER TABLE tracks ADD COLUMN cover_path TEXT NOT NULL DEFAULT '';")?;
         }
-        conn.execute_batch("UPDATE tracks SET file_mtime = 0, file_size = 0;")?;
-        conn.pragma_update(None, "user_version", 3)?;
+        tx.execute_batch("UPDATE tracks SET file_mtime = 0, file_size = 0;")?;
+        tx.pragma_update(None, "user_version", 3)?;
     }
 
     if version < 4 {
-        conn.execute_batch(SCHEMA_V4)?;
-        conn.pragma_update(None, "user_version", 4)?;
+        tx.execute_batch(SCHEMA_V4)?;
+        tx.pragma_update(None, "user_version", 4)?;
     }
 
     if version < 5 {
         // v5：ReplayGain 曲目增益。老库没有这个标签，清零即可；下次扫描会补。
-        if !column_exists(conn, "tracks", "replay_gain")? {
-            conn.execute_batch(
-                "ALTER TABLE tracks ADD COLUMN replay_gain REAL NOT NULL DEFAULT 0;",
-            )?;
+        if !column_exists(&tx, "tracks", "replay_gain")? {
+            tx.execute_batch("ALTER TABLE tracks ADD COLUMN replay_gain REAL NOT NULL DEFAULT 0;")?;
         }
-        conn.pragma_update(None, "user_version", 5)?;
+        tx.pragma_update(None, "user_version", 5)?;
     }
 
     if version < 6 {
@@ -362,9 +378,9 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         // 之后读写都认 position；added_at 只作为冲突时的兜底。
         //
         // 表可能不存在（早期库只建了 tracks），这时跳过即可，别让升级卡住。
-        if table_exists(conn, "playlist_items")? {
-            if !column_exists(conn, "playlist_items", "position")? {
-                conn.execute_batch(
+        if table_exists(&tx, "playlist_items")? {
+            if !column_exists(&tx, "playlist_items", "position")? {
+                tx.execute_batch(
                     r#"
                     ALTER TABLE playlist_items
                         ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
@@ -379,17 +395,17 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
                     "#,
                 )?;
             }
-            conn.execute_batch(
+            tx.execute_batch(
                 "CREATE INDEX IF NOT EXISTS playlist_items_pos
                      ON playlist_items(playlist_id, position);",
             )?;
         }
-        conn.pragma_update(None, "user_version", 6)?;
+        tx.pragma_update(None, "user_version", 6)?;
     }
 
     if version < 7 {
-        conn.execute_batch(SCHEMA_V7)?;
-        conn.pragma_update(None, "user_version", 7)?;
+        tx.execute_batch(SCHEMA_V7)?;
+        tx.pragma_update(None, "user_version", 7)?;
     }
 
     if version < 8 {
@@ -403,17 +419,17 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         // 现在行留着，只是打个标记：外键关系天然保住，恢复就是把标记翻回去。
         // 老库已隐藏的行还躺在 hidden_tracks 里，搬回 tracks 并置 hidden = 1；
         // 它们的关系数据在隐藏那一刻就被级联清了，找不回来（只能靠升级前的 .bak）。
-        if !column_exists(conn, "tracks", "hidden")? {
-            conn.execute_batch("ALTER TABLE tracks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;")?;
+        if !column_exists(&tx, "tracks", "hidden")? {
+            tx.execute_batch("ALTER TABLE tracks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;")?;
         }
-        if !column_exists(conn, "tracks", "hidden_at")? {
-            conn.execute_batch(
+        if !column_exists(&tx, "tracks", "hidden_at")? {
+            tx.execute_batch(
                 "ALTER TABLE tracks ADD COLUMN hidden_at INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
-        if table_exists(conn, "hidden_tracks")? {
+        if table_exists(&tx, "hidden_tracks")? {
             // added_at 用隐藏时刻兜底：这些行的原入库时间早就随删行丢了
-            conn.execute_batch(
+            tx.execute_batch(
                 r#"
                 INSERT INTO tracks
                     (path, title, artist, album, duration_secs, added_at, hidden, hidden_at)
@@ -427,10 +443,11 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
                 "#,
             )?;
         }
-        conn.execute_batch("CREATE INDEX IF NOT EXISTS tracks_hidden ON tracks(hidden);")?;
-        conn.pragma_update(None, "user_version", 8)?;
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS tracks_hidden ON tracks(hidden);")?;
+        tx.pragma_update(None, "user_version", 8)?;
     }
 
+    tx.commit()?;
     Ok(())
 }
 
@@ -788,9 +805,12 @@ pub(crate) fn tracks_with_missing_covers() -> anyhow::Result<Vec<String>> {
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })?;
+    // 与 `prune_missing_tracks` 同口径：只认「确实不存在」。
+    // `Path::exists()` 把权限不足 / 杀软锁文件也当成不存在，一次扫描就会把
+    // 这批曲目的指纹全清零、整批重新解析（这批正是有封面的那些）。
     Ok(rows
         .into_iter()
-        .filter(|(_, cover)| !Path::new(cover).exists())
+        .filter(|(_, cover)| file_missing(cover))
         .map(|(path, _)| path)
         .collect())
 }
@@ -1005,6 +1025,22 @@ fn merge_track_path(
     )?;
     tx.execute("DELETE FROM play_history WHERE track_path = ?1", [old_path])?;
 
+    // 听歌时长：按「曲目 × 日」聚合，同一天两边都有记录时要相加而不是二选一。
+    // 漏了这张表，合并一次就把旧路径那一截时长连同热力图一起级联删掉。
+    tx.execute(
+        r#"
+        INSERT INTO play_sessions (track_path, day, seconds)
+        SELECT ?1, day, seconds FROM play_sessions WHERE track_path = ?2
+        ON CONFLICT(track_path, day) DO UPDATE SET
+            seconds = play_sessions.seconds + excluded.seconds
+        "#,
+        params![target_path, old_path],
+    )?;
+    tx.execute(
+        "DELETE FROM play_sessions WHERE track_path = ?1",
+        [old_path],
+    )?;
+
     tx.execute("DELETE FROM tracks WHERE path = ?1", [old_path])?;
     Ok(())
 }
@@ -1042,19 +1078,37 @@ pub fn hide_tracks(paths: Vec<String>) -> anyhow::Result<i32> {
     let hidden_at = now_secs();
 
     with_conn(|conn| {
-        // path_key 是 Rust 侧算的，SQL 里没有同款函数：先取候选再在内存里筛
-        let targets: Vec<String> = {
+        // 先按字面精确查（走 path 上的 UNIQUE 索引，命中最常见的调用），
+        // 没命中的再退回 `path_key` 归一化比较——那一步要读全表，
+        // 万首曲库时会在库锁里多待几十毫秒。
+        let mut targets: Vec<String> = Vec::new();
+        let mut missed = 0;
+        for path in paths.iter().filter(|path| !path.is_empty()) {
+            let hit: Option<String> = conn
+                .query_row(
+                    "SELECT path FROM tracks WHERE path = ?1 AND hidden = 0",
+                    [path],
+                    |row| row.get(0),
+                )
+                .ok();
+            match hit {
+                Some(found) => targets.push(found),
+                None => missed += 1,
+            }
+        }
+        if missed > 0 {
             let mut stmt = conn.prepare_cached("SELECT path FROM tracks WHERE hidden = 0")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let mut found = Vec::new();
             for row in rows {
                 let path = row?;
+                if targets.contains(&path) {
+                    continue;
+                }
                 if keys.contains(&path_key(&path)) {
-                    found.push(path);
+                    targets.push(path);
                 }
             }
-            found
-        };
+        }
 
         if targets.is_empty() {
             return Ok(0);
@@ -1285,6 +1339,12 @@ mod tests {
                 track_path     TEXT PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
                 last_played_at INTEGER NOT NULL,
                 play_count     INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE play_sessions (
+                track_path TEXT    NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
+                day        INTEGER NOT NULL,
+                seconds    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (track_path, day)
             );
             "#,
         )

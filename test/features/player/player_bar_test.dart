@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -534,6 +535,49 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(_lyricKey), findsNothing);
+    });
+
+    testWidgets('歌词读失败后冷却结束会重试，不会一直空白', (WidgetTester tester) async {
+      int attempts = 0;
+      Future<TrackLyrics> loader(String path) async {
+        attempts += 1;
+        if (attempts == 1) {
+          throw StateError('文件被占用');
+        }
+        return _lyrics(<(int, String)>[(0, '补上的一句')]);
+      }
+
+      DateTime now = DateTime(2026, 1, 1, 12);
+      await withClock(Clock(() => now), () async {
+        await _pumpBar(
+          tester,
+          track: sampleTrack(title: '夜航'),
+          lyricsLoader: loader,
+        );
+        await tester.pump();
+        expect(attempts, 1);
+        expect(find.byKey(_lyricKey), findsNothing, reason: '第一次读失败');
+
+        // 冷却窗口内：同一首再刷新也不重试，避免对着坏文件反复解析
+        await _pumpBar(
+          tester,
+          track: sampleTrack(title: '夜航'),
+          lyricsLoader: loader,
+        );
+        await tester.pump();
+        expect(attempts, 1, reason: '冷却中不该重试');
+
+        // 过了冷却：下一次刷新重试并显示歌词
+        now = now.add(const Duration(seconds: 31));
+        await _pumpBar(
+          tester,
+          track: sampleTrack(title: '夜航'),
+          lyricsLoader: loader,
+        );
+        await tester.pump();
+        expect(attempts, 2, reason: '冷却结束后要再给一次机会');
+        expect(find.text('补上的一句'), findsOneWidget);
+      });
     });
 
     testWidgets('歌词读取失败按没有歌词处理', (WidgetTester tester) async {

@@ -62,6 +62,10 @@ extension _DataSection on _LibraryPageState {
   }
 
   /// 别的页面动了曲库（设置页恢复隐藏歌曲）：静默重载，不打断当前列表。
+  ///
+  /// 收藏 / 历史 / 当前打开的歌单各有自己的缓存，只刷 `_tracks` 的话，
+  /// 停在这些分区时刚恢复的歌要退出重进才出现；`_favoritePaths`（列表红心）
+  /// 也要一起刷，否则恢复的收藏曲会显示成「未收藏」。
   void _onLibraryChanged() {
     if (!mounted) {
       // 页面已经销毁（正常路径下 dispose 会摘掉监听，这里是兜底）
@@ -69,7 +73,13 @@ extension _DataSection on _LibraryPageState {
       return;
     }
     unawaited(_loadTracks(silent: true));
-    // 歌单曲目数、收藏计数都可能跟着变
     unawaited(_loadPlaylists());
+    unawaited(_refreshFavoritePaths());
+    unawaited(_loadFavorites());
+    unawaited(_loadHistory());
+    final int? playlistId = _selectedPlaylistId;
+    if (playlistId != null) {
+      unawaited(_loadPlaylistTracks(playlistId));
+    }
   }
 }

@@ -492,3 +492,99 @@ fn playlist_move_reorders_and_normalizes_positions() {
     collections::add_track_to_playlist(playlist.id, "/music/d.mp3".to_string()).expect("加 D");
     assert_eq!(titles(), vec!["A", "B", "C", "D"]);
 }
+
+/// 歌单里有隐藏曲目时拖拽排序：不能和隐藏行的 position 撞号。
+///
+/// 曾经的做法只读 `hidden = 0` 的行、写成 `0..n-1`，隐藏那条停在原地，
+/// 于是「A(0)、隐藏的 B(1)、C(2) 把 C 拖到最前」之后 A 和 B 都是 1，
+/// 恢复 B 时顺序只能靠 added_at / rowid 碰运气。
+#[test]
+fn moving_playlist_track_keeps_positions_unique_with_hidden_rows() {
+    let (_lock, dir) = begin("move_hidden");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+        ],
+    );
+    let playlist = collections::create_playlist("P".to_string()).expect("建歌单");
+    for path in ["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"] {
+        collections::add_track_to_playlist(playlist.id, path.to_string()).expect("加歌单");
+    }
+    db::hide_tracks(vec!["/music/b.mp3".to_string()]).expect("隐藏 B");
+
+    // 界面上看到的是 [A, C]：把 C 拖到最前
+    collections::move_playlist_track(playlist.id, 1, 0).expect("拖拽");
+
+    // 直接看 position 全量，确认唯一（另开连接读，不惊动单例）
+    let positions: Vec<i64> = {
+        let conn = rusqlite::Connection::open(dir.db_path()).expect("直连曲库");
+        let mut stmt = conn
+            .prepare("SELECT position FROM playlist_items WHERE playlist_id = ?1 ORDER BY position")
+            .expect("查询 position");
+        let rows = stmt
+            .query_map([playlist.id], |row| row.get(0))
+            .expect("遍历 position");
+        rows.collect::<Result<Vec<_>, _>>().expect("读 position")
+    };
+    assert_eq!(positions, vec![0, 1, 2], "position 必须唯一且连续");
+
+    let visible: Vec<String> = collections::playlist_tracks(playlist.id)
+        .expect("读歌单")
+        .iter()
+        .map(|t| t.title.clone())
+        .collect();
+    assert_eq!(visible, vec!["C", "A"], "可见顺序按拖拽结果");
+
+    // 恢复 B：仍在它原来的槽位（A 与 C 之间）
+    db::unhide_tracks(vec!["/music/b.mp3".to_string()]).expect("恢复");
+    let after: Vec<String> = collections::playlist_tracks(playlist.id)
+        .expect("读歌单")
+        .iter()
+        .map(|t| t.title.clone())
+        .collect();
+    assert_eq!(after, vec!["C", "B", "A"]);
+}
+
+/// 批量移出歌单：整批一个事务，返回真正删掉的条数。
+#[test]
+fn remove_tracks_from_playlist_is_one_batch() {
+    let (_lock, dir) = begin("batch_remove");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+        ],
+    );
+    let playlist = collections::create_playlist("P".to_string()).expect("建歌单");
+    collections::add_tracks_to_playlist(
+        playlist.id,
+        vec![
+            "/music/a.mp3".to_string(),
+            "/music/b.mp3".to_string(),
+            "/music/c.mp3".to_string(),
+        ],
+    )
+    .expect("批量加歌单");
+
+    let removed = collections::remove_tracks_from_playlist(
+        playlist.id,
+        vec![
+            "/music/a.mp3".to_string(),
+            "/music/b.mp3".to_string(),
+            "/music/not-there.mp3".to_string(),
+        ],
+    )
+    .expect("批量移出");
+    assert_eq!(removed, 2, "只算真正删掉的，不存在的路径忽略");
+    assert_eq!(
+        collections::playlist_tracks(playlist.id)
+            .expect("读歌单")
+            .len(),
+        1
+    );
+}

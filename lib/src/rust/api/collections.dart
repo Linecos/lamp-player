@@ -35,8 +35,13 @@ Future<List<Track>> playlistTracks({required PlatformInt64 id}) =>
 
 /// 把歌单里第 `from` 个曲目挪到第 `to` 个位置（下标按当前展示顺序）。
 ///
-/// 重排后把 position 归一化成 `0..n-1`：反复拖拽不会留下空洞，也不用担心
-/// 并发（单连接串行）产生的重号。
+/// 隐藏曲目在界面上看不见，但不能让它们「停在原地」：只给可见曲目写 `0..n-1`，
+/// 隐藏那条会保留旧号，于是和某个可见曲目撞车（`A(0)、隐藏的 B(1)、C(2)` 里把
+/// C 拖到最前，A 与 B 就都是 1），恢复 B 之后顺序只能靠 `added_at` 碰运气。
+///
+/// 这里的做法是**按槽位回填**：读出全部条目（含隐藏），把拖好的可见顺序依次
+/// 填回原来的可见槽位，隐藏条目留在自己的槽位上，最后整体重排成 `0..n-1`。
+/// 既保证序号唯一，也让隐藏曲恢复后仍在原来的相对位置。
 Future<void> movePlaylistTrack({
   required PlatformInt64 id,
   required int from,
@@ -45,6 +50,18 @@ Future<void> movePlaylistTrack({
   id: id,
   from: from,
   to: to,
+);
+
+/// 批量移出歌单，返回真正删掉的条数。
+///
+/// 整批一个事务：以前界面是逐条调 `remove_track_from_playlist`，第 4 首失败时
+/// 前 3 首已经删掉、界面却因为异常整批提示失败，用户不知道到底删了几条。
+Future<int> removeTracksFromPlaylist({
+  required PlatformInt64 id,
+  required List<String> paths,
+}) => RustLib.instance.api.crateApiCollectionsRemoveTracksFromPlaylist(
+  id: id,
+  paths: paths,
 );
 
 /// 往歌单加曲目；已在歌单内时返回 `false`。
