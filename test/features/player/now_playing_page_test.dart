@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
 import 'package:lamp_player/src/features/player/lyrics_view.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
@@ -89,6 +90,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onToggleDesktopLyrics,
   VoidCallback? onToggleDesktopLyricLock,
   ValueListenable<List<double>>? spectrum,
+  WindowControls? windowControls,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -119,6 +121,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onToggleDesktopLyrics: onToggleDesktopLyrics,
         onToggleDesktopLyricLock: onToggleDesktopLyricLock,
         spectrum: spectrum,
+        windowControls: windowControls,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -897,4 +900,63 @@ void main() {
 
     expect(seeks, isEmpty, reason: '时长未知时不该盲跳');
   });
+
+  testWidgets('按住头部能拖动窗口，双击可最大化', (WidgetTester tester) async {
+    // 正在播放页是整窗路由，把外壳标题栏连同拖动区一起盖住了：
+    // 这一页必须自带拖动区，否则用户按不住窗口（曾经如此）
+    final _FakeWindowControls controls = _FakeWindowControls();
+    await _pump(tester, data: _data(), windowControls: controls);
+
+    await tester.drag(
+      find.byKey(const ValueKey<String>('now-playing-window-drag')),
+      const Offset(0, 80),
+    );
+    await tester.pump();
+    expect(controls.drags, 1, reason: '头部按下拖动要交给窗口管理器');
+
+    await tester.tap(find.text('正在播放'));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('正在播放'));
+    await tester.pumpAndSettle();
+    expect(controls.maximizes, 1, reason: '双击头部最大化，与外壳标题栏一致');
+  });
+
+  testWidgets('头部拖动区不吃「收起」按钮', (WidgetTester tester) async {
+    final _FakeWindowControls controls = _FakeWindowControls();
+    await _pump(tester, data: _data(), windowControls: controls);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('now-playing-collapse')),
+    );
+    await tester.pumpAndSettle();
+    expect(controls.drags, 0);
+    expect(controls.maximizes, 0);
+  });
+}
+
+/// 只记录调用次数的窗口控制假实现
+class _FakeWindowControls implements WindowControls {
+  int drags = 0;
+  int maximizes = 0;
+
+  @override
+  Future<void> startDragging() async => drags += 1;
+
+  @override
+  Future<bool> toggleMaximize() async {
+    maximizes += 1;
+    return true;
+  }
+
+  @override
+  Future<void> minimize() async {}
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  Future<bool> isMaximized() async => false;
+
+  @override
+  Stream<bool> get maximizeChanges => const Stream<bool>.empty();
 }
