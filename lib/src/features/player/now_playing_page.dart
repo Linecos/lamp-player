@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/immersive_chrome.dart';
+import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
@@ -86,6 +87,7 @@ class NowPlayingPage extends StatefulWidget {
     this.spectrum,
     this.onOpenEqualizer,
     this.animateBackground = false,
+    this.windowControls,
     this.shortcuts = kDefaultShortcuts,
     this.onToggleDesktopLyrics,
     this.onToggleDesktopLyricLock,
@@ -105,6 +107,10 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
+
+  /// 窗口控制（拖动 / 双击最大化）：页面盖住了外壳的标题栏，
+  /// 这一层得自带拖动区，否则正在播放页上按不住窗口
+  final WindowControls? windowControls;
 
   /// 键位表；由曲库页透传，保证两页键位一致（见 `shortcuts.dart`）
   final List<ShortcutBinding> shortcuts;
@@ -299,6 +305,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       unawaited(widget.onTogglePlay());
     }
     _showToast('睡眠定时已到，已暂停播放');
+  }
+
+  /// 按住头部拖动窗口（页面自绘标题栏，外壳那一层被路由盖住了）
+  Future<void> _startDragging() async {
+    try {
+      await widget.windowControls?.startDragging();
+    } catch (error) {
+      debugPrint('拖动窗口失败：$error');
+    }
+  }
+
+  /// 双击头部最大化 / 还原，与外壳标题栏一致
+  Future<void> _toggleWindowMaximize() async {
+    try {
+      await widget.windowControls?.toggleMaximize();
+    } catch (error) {
+      debugPrint('切换最大化失败：$error');
+    }
   }
 
   void _toggleImmersive() {
@@ -663,8 +687,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                   height: 48,
                 ),
               ),
-              const SizedBox(width: 4),
-              Text('正在播放', style: theme.textTheme.titleMedium),
+              // 按钮右边的整条留白就是拖动区：正在播放页是整窗路由，把外壳
+              // 标题栏连同它的拖动区一起盖住了，不在这里补一个，窗口就拖不动。
+              // 拖动区必须和按钮并列而不是把它包进去——包进去的话，外层带了
+              // 双击手势，单击会被拖到 300ms 的双击判定之后才落地，按钮变迟钝。
+              Expanded(
+                child: GestureDetector(
+                  key: const ValueKey<String>('now-playing-window-drag'),
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (_) => unawaited(_startDragging()),
+                  onDoubleTap: () => unawaited(_toggleWindowMaximize()),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Text('正在播放', style: theme.textTheme.titleMedium),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
