@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -40,7 +43,11 @@ class LyricsView extends StatefulWidget {
   State<LyricsView> createState() => _LyricsViewState();
 }
 
-/// 上下淡出的渐变 stops（透明 → 不透明 → 不透明 → 透明）。
+/// 上下淡出的渐变 stops（两端各用三段缓冲，中间全不透明）。
+///
+/// 直线渐变在「透明→不透明」走完的那一点上斜率突变，文字笔画从糊到清楚是
+/// 一下子的，看着就是一条看不见的边。改成两段缓冲（0.3 处 12%、0.7 处 70%）
+/// 后，alpha 是 S 形收尾，边界感就散了。
 ///
 /// 底部一段按「丝带高度 [band] + 随高度缩放的过渡」算：最小窗口（900×560）里
 /// 歌词区只有 370 高，用固定值会把整个下半屏吃掉。过渡段最少 [_fadeRampMin]，
@@ -52,7 +59,7 @@ List<double> lyricFadeStops({
   required double band,
 }) {
   if (height <= 0) {
-    return const <double>[0, 0, 1, 1];
+    return const <double>[0, 0, 0, 0, 1, 1, 1, 1];
   }
   final double ramp = (height * _fadeRampRatio).clamp(
     _fadeRampMin,
@@ -64,18 +71,46 @@ List<double> lyricFadeStops({
   // 极矮的歌词区里两段会越过对方，取中点收成一条硬边，别让 stops 反序
   if (t > b) {
     final double mid = (t + b) / 2;
-    return <double>[0, mid, mid, 1];
+    return <double>[0, mid, mid, mid, mid, mid, mid, 1];
   }
-  return <double>[0, t, b, 1];
+  return <double>[
+    0,
+    t * 0.3,
+    t * 0.7,
+    t,
+    b,
+    b + (1 - b) * 0.3,
+    b + (1 - b) * 0.7,
+    1,
+  ];
 }
 
-/// 顶部淡出高度：藏住被视口上沿硬切掉的半行
-const double _fadeTop = 44;
+/// 顶部淡出高度：藏住被视口上沿硬切掉的半行，再往外留一截给渐变
+const double _fadeTop = 76;
+
+/// 换行时的逐行回弹：参数取自 ZeroBit 的 `SpringListView`。
+///
+/// 换行时整列 `jumpTo` 到新行居中，每行再用 `Transform` 推回 `deltaY`（视觉上
+/// 等于没动），随后按行序错峰弹回 0。全局积分一个弹簧做不到：那是整块刚性平移。
+const int _lineStepDelayMs = 26;
+
+/// 弹簧收尾容差：0.5px / 0.1px/s 以内掐断，免得一直抖
+const Tolerance _springTolerance = Tolerance(distance: 0.5, velocity: 0.1);
+
+/// 刚度 / 阻尼比随行在可视区里的位置递减：越靠下越软、越慢
+double _springStiffness(double ratio) => 175 - 20 * ratio;
+double _springDamping(double ratio) => 0.86 - 0.08 * ratio;
+
+/// 一次性大跳（点歌词跳转、切歌定位）用的时长与曲线。
+///
+/// 那种场景位移动辄几百像素，弹簧反而显得拖；短促地滑过去更干脆。
+const Duration _jumpDuration = Duration(milliseconds: 420);
+const Curve _jumpCurve = Curves.easeInOutCubic;
 
 /// 底部过渡段：随歌词区高度缩放，并夹在 [_fadeRampMin]~[_fadeRampMax]
-const double _fadeRampRatio = 0.15;
-const double _fadeRampMin = 40;
-const double _fadeRampMax = 80;
+const double _fadeRampRatio = 0.2;
+const double _fadeRampMin = 56;
+const double _fadeRampMax = 110;
 
 class _LyricsViewState extends State<LyricsView> {
   final ScrollController _scroll = ScrollController();
@@ -86,7 +121,7 @@ class _LyricsViewState extends State<LyricsView> {
   /// [_base] 取自哪个时刻（[UiClock] 秒）：插值从这一时刻往后推算
   double _baseAt = 0;
 
-  /// 是否正在听 [UiClock]（只有播放中且歌词带逐字时间轴才需要）
+  /// 是否正在听 [UiClock]（播放中且有歌词才需要）
   bool _clockOn = false;
 
   /// 上下淡出的遮罩（[ShaderMask] 的 dstIn 渐变）：按歌词区尺寸缓存。
@@ -101,16 +136,30 @@ class _LyricsViewState extends State<LyricsView> {
 
   late List<GlobalKey> _keys;
 
+  /// 每行外层（[Transform]）的 key。不能用正文那个：正文在 Transform 里面，
+  /// `getOffsetToReveal` 会把弹簧位移一起算进去，目标位置就跟着弹簧飘了
+  late List<GlobalKey> _lineKeys;
+
+  /// 换行信号：整列已经 `jumpTo` 到位，各行按这个 `deltaY` 把自己推回去再弹回
+  final ValueNotifier<_LineJump> _jump = ValueNotifier<_LineJump>(
+    _LineJump.none,
+  );
+  int _jumpId = 0;
+
   double _base = 0;
   int _active = -1;
   bool _playing = false;
   bool _userScrolling = false;
   Timer? _resumeTimer;
 
+  /// 正在自己 jumpTo：这期间滚动通知不是用户动作
+  bool _driving = false;
+
   @override
   void initState() {
     super.initState();
     _keys = _buildKeys();
+    _lineKeys = _buildKeys();
     _base = widget.position.value;
     _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
@@ -129,6 +178,7 @@ class _LyricsViewState extends State<LyricsView> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.lines, widget.lines)) {
       _keys = _buildKeys();
+      _lineKeys = _buildKeys();
       _active = -1;
       _smooth.value = _base;
       _active = _indexAt(_base);
@@ -158,18 +208,16 @@ class _LyricsViewState extends State<LyricsView> {
     }
     _scroll.dispose();
     _smooth.dispose();
+    _jump.dispose();
     super.dispose();
   }
 
   List<GlobalKey> _buildKeys() =>
       List<GlobalKey>.generate(widget.lines.length, (_) => GlobalKey());
 
-  /// 只有存在逐字时间轴时才需要逐帧插值；整篇行级歌词跟着 500ms 的进度走就够
-  bool get _needsSmoothing =>
-      widget.lines.any((lyrics_api.LyricLine line) => line.words.length >= 2);
-
   void _syncClock() {
-    final bool on = _playing && _needsSmoothing;
+    // 逐字插值、以及「什么时候换行」，都靠这个 tick 推进
+    final bool on = _playing && widget.lines.length > 1;
     if (on == _clockOn) {
       return;
     }
@@ -183,7 +231,8 @@ class _LyricsViewState extends State<LyricsView> {
   }
 
   void _onTick() {
-    _smooth.value = _base + (UiClock.instance.seconds - _baseAt);
+    final double now = UiClock.instance.seconds;
+    _smooth.value = _base + (now - _baseAt);
     _updateActive();
   }
 
@@ -208,7 +257,14 @@ class _LyricsViewState extends State<LyricsView> {
       return;
     }
     setState(() => _active = next);
-    if (!_userScrolling) {
+    if (_userScrolling) {
+      // 用户还在拖：先别抢，松手 3 秒后再跟回来（见 [_onScrollNotification]）
+      return;
+    }
+    if (_playing) {
+      _jumpToActive();
+    } else {
+      // 暂停时没有 tick，点歌词 / 拖进度条换行只能一次性滑过去
       _scrollToActive();
     }
   }
@@ -216,26 +272,135 @@ class _LyricsViewState extends State<LyricsView> {
   /// 二分找最后一条 `time <= position` 的歌词
   int _indexAt(double seconds) => lyricIndexAt(widget.lines, seconds);
 
-  void _scrollToActive({bool animate = true}) {
-    if (_active < 0 || _active >= _keys.length) {
+  /// 换行：整列瞬间归位，再让每一行自己弹回来（见 [_SpringLyricLine]）。
+  void _jumpToActive() {
+    if (_active < 0 || _active >= _keys.length || !_scroll.hasClients) {
       return;
     }
-    final BuildContext? context = _keys[_active].currentContext;
-    if (context == null) {
+    final ScrollPosition position = _scroll.position;
+    if (!position.hasPixels) {
+      return;
+    }
+    final double target = _revealOffset(_active);
+    if (target.isNaN) {
+      return;
+    }
+    final double clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    final double delta = clamped - position.pixels;
+    if (delta.abs() < 0.5) {
+      return;
+    }
+    // 拖进度条 / 切歌那种大跳：几百像素的弹簧会拖成慢动作，短促地滑过去
+    if (delta.abs() > position.viewportDimension * 0.75) {
+      _scrollToActive();
+      return;
+    }
+    _driving = true;
+    position.jumpTo(clamped);
+    _driving = false;
+    final (int top, int bottom) = _visibleSpan(clamped);
+    _jump.value = _LineJump(
+      id: ++_jumpId,
+      deltaY: delta,
+      top: top,
+      bottom: bottom,
+    );
+  }
+
+  /// 当前行居中时屏幕上看得到哪一段行（含首尾）：从当前行往外扩，
+  /// 居中偏移差超过半个视口就算出屏
+  (int, int) _visibleSpan(double anchorOffset) {
+    final double half = _scroll.position.viewportDimension / 2;
+    int top = _active;
+    int bottom = _active;
+    while (top > 0) {
+      final double offset = _revealOffset(top - 1);
+      if (offset.isNaN || (anchorOffset - offset).abs() > half) {
+        break;
+      }
+      top -= 1;
+    }
+    while (bottom < widget.lines.length - 1) {
+      final double offset = _revealOffset(bottom + 1);
+      if (offset.isNaN || (offset - anchorOffset).abs() > half) {
+        break;
+      }
+      bottom += 1;
+    }
+    return (top, bottom);
+  }
+
+  /// 第 [index] 行居中时的滚动偏移
+  double _revealOffset(int index) {
+    final RenderObject? line = _lineKeys[index].currentContext
+        ?.findRenderObject();
+    final RenderObject? text = _keys[index].currentContext?.findRenderObject();
+    if (line is! RenderBox || !line.attached || !line.hasSize) {
+      return double.nan;
+    }
+    if (text is! RenderBox || !text.attached || !text.hasSize) {
+      return double.nan;
+    }
+    // 居中的是正文：有译文时整行比正文高，按整行居中会把正文顶上去
+    final Offset offset = _layoutOffset(text, line);
+    final Rect rect = Rect.fromLTWH(
+      offset.dx,
+      offset.dy,
+      text.size.width,
+      text.size.height,
+    );
+    return RenderAbstractViewport.of(line)
+        .getOffsetToReveal(line, 0.5, rect: rect)
+        .offset;
+  }
+
+  /// [descendant] 在 [ancestor] 里的排版偏移：只累加 parentData，不走
+  /// paint transform，否则行自己的弹簧位移会混进来
+  static Offset _layoutOffset(RenderObject descendant, RenderObject ancestor) {
+    Offset offset = Offset.zero;
+    RenderObject node = descendant;
+    while (node != ancestor) {
+      final RenderObject? parent = node.parent;
+      if (parent == null) {
+        break;
+      }
+      final Object? data = node.parentData;
+      if (data is BoxParentData) {
+        offset += data.offset;
+      }
+      node = parent;
+    }
+    return offset;
+  }
+
+  void _scrollToActive({bool animate = true}) {
+    if (_active < 0 || _active >= _keys.length || !_scroll.hasClients) {
+      return;
+    }
+    final ScrollPosition position = _scroll.position;
+    final double target = _revealOffset(_active);
+    if (target.isNaN) {
+      return;
+    }
+    final double clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (!animate) {
+      position.jumpTo(clamped);
       return;
     }
     unawaited(
-      Scrollable.ensureVisible(
-        context,
-        alignment: 0.5,
-        duration: animate ? const Duration(milliseconds: 420) : Duration.zero,
-        curve: Curves.easeOutCubic,
-      ),
+      position.animateTo(clamped, duration: _jumpDuration, curve: _jumpCurve),
     );
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is ScrollStartNotification &&
+        !_driving &&
         notification.dragDetails != null) {
       // 用户接管滚动：先别抢，停手 3 秒后再跟回当前行
       _userScrolling = true;
@@ -247,7 +412,12 @@ class _LyricsViewState extends State<LyricsView> {
           return;
         }
         _userScrolling = false;
-        _scrollToActive();
+        if (_playing) {
+          _jumpToActive();
+        } else {
+          // 暂停中没有 tick，自己滑回去
+          _scrollToActive();
+        }
       });
     }
     return false;
@@ -268,19 +438,32 @@ class _LyricsViewState extends State<LyricsView> {
           key: const ValueKey<String>('lyrics-edge-fade'),
           blendMode: BlendMode.dstIn,
           shaderCallback: _fadeShader,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: SingleChildScrollView(
-              controller: _scroll,
-              padding: EdgeInsets.symmetric(vertical: padding, horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  for (int i = 0; i < widget.lines.length; i += 1)
-                    KeyedSubtree(
-                      key: ValueKey<String>('lyric-$i'),
-                      child: _LyricLineView(
+          // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
+          // 压着封面和文字的边缘很难看
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context)
+                .copyWith(scrollbars: false),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScrollNotification,
+              child: SingleChildScrollView(
+                controller: _scroll,
+                // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
+                // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(
+                  vertical: padding,
+                  horizontal: 16,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    for (int i = 0; i < widget.lines.length; i += 1)
+                      _SpringLyricLine(
+                        key: ValueKey<String>('lyric-$i'),
+                        index: i,
+                        lineKey: _lineKeys[i],
                         anchorKey: _keys[i],
+                        jump: _jump,
                         line: widget.lines[i],
                         active: i == _active,
                         distance: _active < 0 ? i : (i - _active).abs(),
@@ -288,8 +471,8 @@ class _LyricsViewState extends State<LyricsView> {
                         textTheme: theme.textTheme,
                         onSeek: widget.onSeek,
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -311,13 +494,9 @@ class _LyricsViewState extends State<LyricsView> {
     final Shader shader = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      // 只有 alpha 起作用（dstIn）：透明处把歌词抹掉，白色处原样保留
-      colors: const <Color>[
-        Color(0x00FFFFFF),
-        Color(0xFFFFFFFF),
-        Color(0xFFFFFFFF),
-        Color(0x00FFFFFF),
-      ],
+      // 只有 alpha 起作用（dstIn）：透明处把歌词抹掉，白色处原样保留。
+      // 每段缓冲取 12% / 70%，和 [lyricFadeStops] 的 0.3 / 0.7 对应
+      colors: _fadeColors,
       stops: lyricFadeStops(
         height: rect.height,
         top: _fadeTop,
@@ -327,6 +506,18 @@ class _LyricsViewState extends State<LyricsView> {
     return _maskShader = shader;
   }
 }
+
+/// 与 [lyricFadeStops] 的 8 个 stop 一一对应的 alpha（S 形收尾）
+const List<Color> _fadeColors = <Color>[
+  Color(0x00FFFFFF),
+  Color(0x1FFFFFFF),
+  Color(0xB3FFFFFF),
+  Color(0xFFFFFFFF),
+  Color(0xFFFFFFFF),
+  Color(0xB3FFFFFF),
+  Color(0x1FFFFFFF),
+  Color(0x00FFFFFF),
+];
 
 /// 二分找最后一条 `time <= seconds` 的歌词下标；没有歌词返回 -1。
 ///
@@ -349,6 +540,195 @@ int lyricIndexAt(List<lyrics_api.LyricLine> lines, double seconds) {
     }
   }
   return found;
+}
+
+/// 一次换行：整列已经 `jumpTo` 到位，各行按 [deltaY] 把自己推回去再弹回。
+class _LineJump {
+  const _LineJump({
+    required this.id,
+    required this.deltaY,
+    required this.top,
+    required this.bottom,
+  });
+
+  static const _LineJump none = _LineJump(id: 0, deltaY: 0, top: 0, bottom: 0);
+
+  /// 递增的序号：每行只处理比上次新的信号
+  final int id;
+
+  /// 这次换行滚动了多少像素（>0 表示内容往上走）
+  final double deltaY;
+
+  /// 可视区首行 / 末行
+  final int top;
+  final int bottom;
+}
+
+/// 一行歌词 + 它自己的回弹位移。
+///
+/// 换行时先被 `Transform` 推回去 [deltaY]（视觉上停在原地），再按行序错峰
+/// 弹回 0，形成一行接一行归位的波浪。
+class _SpringLyricLine extends StatefulWidget {
+  const _SpringLyricLine({
+    super.key,
+    required this.index,
+    required this.lineKey,
+    required this.anchorKey,
+    required this.jump,
+    required this.line,
+    required this.active,
+    required this.distance,
+    required this.position,
+    required this.textTheme,
+    required this.onSeek,
+  });
+
+  final int index;
+
+  /// 挂在外层：算居中偏移用，绕开弹簧位移
+  final GlobalKey lineKey;
+
+  /// 挂在正文上：居中以正文为准，译文不会把当前行顶偏
+  final GlobalKey anchorKey;
+
+  final ValueListenable<_LineJump> jump;
+  final lyrics_api.LyricLine line;
+  final bool active;
+  final int distance;
+  final ValueListenable<double> position;
+  final TextTheme textTheme;
+  final Future<void> Function(double seconds) onSeek;
+
+  @override
+  State<_SpringLyricLine> createState() => _SpringLyricLineState();
+}
+
+class _SpringLyricLineState extends State<_SpringLyricLine>
+    with SingleTickerProviderStateMixin {
+  /// value 就是这一行相对排版位置的 Y 偏移；第一次换行才建，避免几百个常驻 ticker
+  AnimationController? _spring;
+  int _trigger = 0;
+  Timer? _delay;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.jump.addListener(_onJump);
+  }
+
+  @override
+  void didUpdateWidget(_SpringLyricLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.jump != widget.jump) {
+      oldWidget.jump.removeListener(_onJump);
+      widget.jump.addListener(_onJump);
+    }
+  }
+
+  @override
+  void dispose() {
+    _delay?.cancel();
+    _spring?.dispose();
+    widget.jump.removeListener(_onJump);
+    super.dispose();
+  }
+
+  void _onJump() {
+    final _LineJump jump = widget.jump.value;
+    if (jump.id == _trigger) {
+      return;
+    }
+    _trigger = jump.id;
+    _delay?.cancel();
+
+    // 屏幕外的行直接归位，不占动画
+    if (jump.deltaY == 0 ||
+        widget.index < jump.top - 1 ||
+        widget.index > jump.bottom + 1) {
+      _spring?.value = 0;
+      return;
+    }
+
+    // 往前滚（内容往上走）时最上面那行先动，越往下越晚
+    final bool forward = jump.deltaY >= 0;
+    final int step = forward
+        ? widget.index - jump.top
+        : jump.bottom - widget.index;
+    final int delayMs = math.max(0, step) * _lineStepDelayMs;
+    final double ratio =
+        ((widget.index - jump.top) / math.max(1, jump.bottom - jump.top)).clamp(
+          0.0,
+          1.0,
+        );
+
+    final bool fresh = _spring == null;
+    final AnimationController spring = _spring ??=
+        AnimationController.unbounded(vsync: this);
+    if (fresh) {
+      setState(() {});
+    }
+    // 瞬间推回去：jumpTo 已经把整列挪走了，这里抵消掉，这一帧画面上没动
+    spring.value = jump.deltaY;
+
+    if (delayMs == 0) {
+      _run(spring, jump.deltaY, ratio);
+      return;
+    }
+    final int trigger = _trigger;
+    _delay = Timer(Duration(milliseconds: delayMs), () {
+      if (!mounted || trigger != _trigger) {
+        return;
+      }
+      _run(spring, jump.deltaY, ratio);
+    });
+  }
+
+  void _run(AnimationController spring, double from, double ratio) {
+    spring.animateWith(
+      SpringSimulation(
+        SpringDescription.withDampingRatio(
+          mass: 1,
+          stiffness: _springStiffness(ratio),
+          ratio: _springDamping(ratio),
+        ),
+        from,
+        0,
+        0,
+        tolerance: _springTolerance,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 每行一层 RepaintBoundary：弹动只挪图层，不重新光栅化文字
+    final Widget content = RepaintBoundary(
+      child: _LyricLineView(
+        anchorKey: widget.anchorKey,
+        line: widget.line,
+        active: widget.active,
+        distance: widget.distance,
+        position: widget.position,
+        textTheme: widget.textTheme,
+        onSeek: widget.onSeek,
+      ),
+    );
+    final AnimationController? spring = _spring;
+    return KeyedSubtree(
+      key: widget.lineKey,
+      child: spring == null
+          ? content
+          : AnimatedBuilder(
+              animation: spring,
+              builder: (BuildContext context, Widget? child) =>
+                  Transform.translate(
+                    offset: Offset(0, spring.value),
+                    child: child,
+                  ),
+              child: content,
+            ),
+    );
+  }
 }
 
 /// 单行歌词：正文 +（罗马音 / 翻译）
@@ -385,13 +765,17 @@ class _LyricLineView extends StatelessWidget {
     );
 
     // 歌词固定使用白色系，不跟随主题色；当前行最实，上下按距离淡出。
+    // 有了模糊之后不再一味压低透明度：远处那几行靠「糊」退出焦点，
+    // alpha 压太狠的话糊都看不见，层次只剩「有字 / 没字」两档
     final Color white = Colors.white;
     final Color activeColor = white.withValues(alpha: 0.96);
     final Color dim = white.withValues(
       alpha: switch (distance) {
-        1 => 0.42,
-        2 => 0.28,
-        _ => 0.16,
+        1 => 0.62,
+        2 => 0.5,
+        3 => 0.4,
+        4 => 0.32,
+        _ => 0.26,
       },
     );
 
@@ -423,6 +807,21 @@ class _LyricLineView extends StatelessWidget {
       );
     }
 
+    // 越远的行越虚：靠模糊表现「退出焦点」。只压不透明度的话，文字笔画在
+    // 某个 alpha 上还是清清楚楚的，边缘就还是硬的；糊开之后没有了高频细节，
+    // 再叠上遮罩的淡出才是渐进的。
+    //
+    // 从相邻一行就开始给一点糊，一级一级往上加：之前是 1 行全清、2 行直接
+    // σ1.2，一格就跳过去，看着像被分成「清楚」和「不清楚」两半。
+    final double blurSigma = switch (distance) {
+      0 => 0,
+      1 => 0.5,
+      2 => 1.1,
+      3 => 1.8,
+      4 => 2.5,
+      _ => 3.2,
+    };
+
     final List<String> extras = line.translation
         .split('\n')
         .map((String value) => value.trim())
@@ -437,7 +836,18 @@ class _LyricLineView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            KeyedSubtree(key: anchorKey, child: main),
+            KeyedSubtree(
+              key: anchorKey,
+              child: blurSigma <= 0
+                  ? main
+                  : ImageFiltered(
+                      imageFilter: ui.ImageFilter.blur(
+                        sigmaX: blurSigma,
+                        sigmaY: blurSigma,
+                      ),
+                      child: main,
+                    ),
+            ),
             if (extras.isNotEmpty) const SizedBox(height: 3),
             for (final String extra in extras)
               Padding(
