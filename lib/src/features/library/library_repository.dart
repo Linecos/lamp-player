@@ -42,6 +42,9 @@ abstract interface class LibraryRepository {
   /// 移出歌单；本来就不在歌单内返回 `false`
   Future<bool> removeTrackFromPlaylist(int id, String path);
 
+  /// 批量移出歌单；返回真正删掉的条数。整批一个事务，不会删一半
+  Future<int> removeTracksFromPlaylist(int id, List<String> paths);
+
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   ///
   /// 注意：这条路径**真删行**，会级联清掉收藏 / 歌单 / 播放历史，而且
@@ -136,6 +139,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<bool> removeTrackFromPlaylist(int id, String path) =>
       collections.removeTrackFromPlaylist(id: id, path: path);
+
+  @override
+  Future<int> removeTracksFromPlaylist(int id, List<String> paths) =>
+      collections.removeTracksFromPlaylist(id: id, paths: paths);
 
   @override
   Future<int> removeTracks(List<String> paths) => db.removeTracks(paths: paths);

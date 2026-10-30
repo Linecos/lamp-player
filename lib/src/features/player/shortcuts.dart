@@ -165,22 +165,25 @@ abstract interface class ShortcutStore {
 List<ShortcutBinding> normalizeShortcuts(List<ShortcutBinding> bindings) {
   final Map<ShortcutAction, ShortcutBinding> chosen =
       <ShortcutAction, ShortcutBinding>{};
-  final Set<SingleActivator> used = <SingleActivator>{};
+  // 必须比 [shortcutId] 而不是 `SingleActivator`：后者没有值相等语义（`==`
+  // 比对象身份），手改会话 JSON 解出来的每个实例都不相等，去重等于没做；
+  // 补默认键时也会认不出用户已经占用的组合键，两个动作抢同一个键。
+  final Set<String> used = <String>{};
   for (final ShortcutBinding binding in bindings) {
-    if (chosen.containsKey(binding.action) ||
-        used.contains(binding.activator)) {
+    final String id = shortcutId(binding.activator);
+    if (chosen.containsKey(binding.action) || used.contains(id)) {
       continue;
     }
     chosen[binding.action] = binding;
-    used.add(binding.activator);
+    used.add(id);
   }
   for (final ShortcutBinding fallback in kDefaultShortcuts) {
-    if (chosen.containsKey(fallback.action) ||
-        used.contains(fallback.activator)) {
+    final String id = shortcutId(fallback.activator);
+    if (chosen.containsKey(fallback.action) || used.contains(id)) {
       continue;
     }
     chosen[fallback.action] = fallback;
-    used.add(fallback.activator);
+    used.add(id);
   }
   return <ShortcutBinding>[
     for (final ShortcutBinding binding in kDefaultShortcuts)

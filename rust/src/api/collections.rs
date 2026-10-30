@@ -181,25 +181,39 @@ pub fn playlist_tracks(id: i64) -> anyhow::Result<Vec<Track>> {
 
 /// 把歌单里第 `from` 个曲目挪到第 `to` 个位置（下标按当前展示顺序）。
 ///
-/// 重排后把 position 归一化成 `0..n-1`：反复拖拽不会留下空洞，也不用担心
-/// 并发（单连接串行）产生的重号。
+/// 隐藏曲目在界面上看不见，但不能让它们「停在原地」：只给可见曲目写 `0..n-1`，
+/// 隐藏那条会保留旧号，于是和某个可见曲目撞车（`A(0)、隐藏的 B(1)、C(2)` 里把
+/// C 拖到最前，A 与 B 就都是 1），恢复 B 之后顺序只能靠 `added_at` 碰运气。
+///
+/// 这里的做法是**按槽位回填**：读出全部条目（含隐藏），把拖好的可见顺序依次
+/// 填回原来的可见槽位，隐藏条目留在自己的槽位上，最后整体重排成 `0..n-1`。
+/// 既保证序号唯一，也让隐藏曲恢复后仍在原来的相对位置。
 pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
     with_conn(|conn| {
         let tx = conn.transaction()?;
         playlist_exists(&tx, id)?;
-        let mut paths: Vec<String> = {
-            // 下标由界面给，界面上看不到隐藏曲目，这里也要剔除，否则会挪错行
+        // (path, hidden) 按 position 排好，槽位下标即最终 position
+        let slots: Vec<(String, bool)> = {
             let mut stmt = tx.prepare_cached(
-                "SELECT i.track_path
+                "SELECT i.track_path, t.hidden
                    FROM playlist_items i
                    JOIN tracks t ON t.path = i.track_path
-                  WHERE i.playlist_id = ?1 AND t.hidden = 0
+                  WHERE i.playlist_id = ?1
                   ORDER BY i.position, i.added_at, i.rowid",
             )?;
-            let rows = stmt.query_map([id], |row| row.get(0))?;
+            let rows = stmt.query_map([id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+            })?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
-        let len = paths.len();
+
+        // 可见曲目按界面顺序取出来，做拖拽
+        let mut visible: Vec<String> = slots
+            .iter()
+            .filter(|(_, hidden)| !hidden)
+            .map(|(path, _)| path.clone())
+            .collect();
+        let len = visible.len();
         let from = from.max(0) as usize;
         if from >= len {
             bail!("下标越界: {from} / {len}");
@@ -208,14 +222,30 @@ pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
         if from == to {
             return Ok(());
         }
-        let moved = paths.remove(from);
-        paths.insert(to, moved);
+        let moved = visible.remove(from);
+        visible.insert(to, moved);
+
+        // 把拖好的可见顺序填回槽位，隐藏条目原地不动
+        let mut ordered: Vec<String> = Vec::with_capacity(slots.len());
+        let mut next = visible.into_iter();
+        for (path, hidden) in slots {
+            // 注意先判 hidden：写成 match next.next() { _ if hidden => ... }
+            // 会先求值把可见项消耗掉，后面整列错位
+            if hidden {
+                ordered.push(path);
+            } else if let Some(fresh) = next.next() {
+                ordered.push(fresh);
+            } else {
+                ordered.push(path);
+            }
+        }
+
         {
             let mut stmt = tx.prepare_cached(
                 "UPDATE playlist_items SET position = ?1
                  WHERE playlist_id = ?2 AND track_path = ?3",
             )?;
-            for (index, path) in paths.iter().enumerate() {
+            for (index, path) in ordered.iter().enumerate() {
                 stmt.execute(params![index as i64, id, path])?;
             }
         }
@@ -225,6 +255,37 @@ pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
         )?;
         tx.commit()?;
         Ok(())
+    })
+}
+
+/// 批量移出歌单，返回真正删掉的条数。
+///
+/// 整批一个事务：以前界面是逐条调 `remove_track_from_playlist`，第 4 首失败时
+/// 前 3 首已经删掉、界面却因为异常整批提示失败，用户不知道到底删了几条。
+pub fn remove_tracks_from_playlist(id: i64, paths: Vec<String>) -> anyhow::Result<i32> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        playlist_exists(&tx, id)?;
+        let mut removed = 0;
+        {
+            let mut stmt = tx.prepare_cached(
+                "DELETE FROM playlist_items WHERE playlist_id = ?1 AND track_path = ?2",
+            )?;
+            for path in &paths {
+                removed += stmt.execute(params![id, path])?;
+            }
+        }
+        if removed > 0 {
+            tx.execute(
+                "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+                params![now_secs(), id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(i32::try_from(removed).unwrap_or(i32::MAX))
     })
 }
 

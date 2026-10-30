@@ -841,3 +841,76 @@ fn migrate_v8_moves_v7_hidden_rows_back_into_tracks() {
     );
     assert_eq!(db::all_tracks().expect("读曲库").len(), 2, "恢复后回到列表");
 }
+
+/// 合并孪生路径时要把听歌时长一起搬过去，且按天相加。
+///
+/// v8 之前 merge_track_path 漏了 `play_sessions`，而它挂在 `tracks(path)` 上
+/// 且 `ON DELETE CASCADE`：合并一次（同一文件先被记成 `e:/music/a.mp3`、
+/// 后来被扫描成 `E:/Music/a.mp3`）就把旧路径那一截时长连同热力图一起删掉。
+#[test]
+fn merge_track_path_keeps_play_sessions() {
+    let (_lock, dir) = begin("merge_sessions");
+    let db_path = dir.db_path();
+    db::init_db(db_path.clone()).expect("初始化曲库");
+
+    let target = "E:/Music/a.mp3";
+    let old = "e:/music/a.mp3";
+    db::upsert_tracks(vec![track(target, "A", None, None)]).expect("目标行");
+    // 目标自己当天已经听了 8 秒
+    collections::record_play_time(target.to_string(), 20261029, 8).expect("目标时长");
+
+    // 手工造一条「旧字面路径」的历史：两条 tracks 行 + 42 秒时长 + 收藏
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("直连曲库");
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")
+            .expect("超时");
+        conn.execute(
+            "INSERT INTO tracks (path, title, duration_secs, added_at) VALUES (?1, 'A', 1.5, 1)",
+            [old],
+        )
+        .expect("旧行");
+        conn.execute(
+            "INSERT INTO play_sessions (track_path, day, seconds) VALUES (?1, 20261029, 42)",
+            [old],
+        )
+        .expect("旧时长");
+        conn.execute(
+            "INSERT INTO favorites (track_path, added_at) VALUES (?1, 7)",
+            [old],
+        )
+        .expect("旧收藏");
+    }
+
+    // 再 upsert 目标路径 → reconcile_paths → merge_track_path
+    db::upsert_tracks(vec![track(target, "A", None, None)]).expect("触发合并");
+
+    if cfg!(windows) {
+        assert_eq!(db::all_tracks().expect("读曲库").len(), 1, "孪生行应合并");
+        assert_eq!(
+            collections::play_stats().expect("统计").total_seconds,
+            50,
+            "同一天两边都有记录，应相加（42 + 8）"
+        );
+        assert!(
+            collections::is_favorite(target.to_string()).expect("收藏"),
+            "收藏也要迁移到新路径"
+        );
+    }
+}
+
+/// 隐藏时路径大小写 / 分隔符不同也要能命中（走归一化兜底那一支）。
+#[test]
+fn hiding_matches_path_variants() {
+    let (_lock, dir) = begin("hide_variant");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    db::upsert_tracks(vec![track("E:/Music/A.mp3", "夜航", None, None)]).expect("写入");
+
+    // 只改大小写（正斜杠）：精确查未命中，必须走 path_key 兜底
+    let hidden = db::hide_tracks(vec!["e:/music/a.mp3".to_string()]).expect("隐藏");
+    if cfg!(windows) {
+        assert_eq!(hidden, 1, "归一化后应命中 1 条");
+        assert!(db::all_tracks().expect("读曲库").is_empty());
+    } else {
+        assert_eq!(hidden, 0, "非 Windows 路径区分大小写");
+    }
+}

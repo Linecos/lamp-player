@@ -129,6 +129,32 @@ void main() {
     );
   });
 
+  test('normalizeShortcuts 按键位去重，不按对象身份', () {
+    // 从会话 JSON 解码出来的每个 SingleActivator 都是新实例，`==` 比的是
+    // 对象身份：旧实现用 Set<SingleActivator> 去重，等于没去重。
+    final LogicalKeyboardKey space = LogicalKeyboardKey.space;
+    final List<ShortcutBinding> decoded = <ShortcutBinding>[
+      ShortcutBinding(
+        ShortcutAction.next,
+        SingleActivator(space, includeRepeats: false),
+      ),
+    ];
+    final String spaceId = shortcutId(
+      SingleActivator(space, includeRepeats: false),
+    );
+
+    final List<ShortcutBinding> fixed = normalizeShortcuts(decoded);
+    final int users = fixed
+        .where((ShortcutBinding b) => shortcutId(b.activator) == spaceId)
+        .length;
+    expect(users, 1, reason: '空格只该有一个主人');
+    expect(
+      fixed.any((ShortcutBinding b) => b.action == ShortcutAction.togglePlay),
+      isFalse,
+      reason: '补默认键时不能忽略用户已占用的组合键',
+    );
+  });
+
   test('键位编码 / 解码往返一致', () {
     // SingleActivator 没有值相等语义，比较编码结果而不是对象
     for (final ShortcutBinding binding in kDefaultShortcuts) {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show PointerEnterEvent, PointerExitEvent;
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
@@ -375,6 +376,16 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
   /// 递增令牌：切歌后旧的加载结果直接丢掉
   int _request = 0;
 
+  /// 读失败过的曲目 → 何时允许再试。
+  ///
+  /// 以前失败后 `_loadedPath` 还留着，同一首歌（只要不切歌）就再也不会重试，
+  /// 播放条会一直空白——文件被占用一次就够了。这里给失败留一个冷却窗口，
+  /// 到点后由下一次 widget 更新重新发起请求。
+  final Map<String, DateTime> _retryAfter = <String, DateTime>{};
+
+  /// 失败后的冷却时长：太短会对着坏文件反复解析，太长等于不重试
+  static const Duration _retryDelay = Duration(seconds: 30);
+
   @override
   void initState() {
     super.initState();
@@ -384,10 +395,9 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
   @override
   void didUpdateWidget(covariant _PlayerBarLeft oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.track?.path != widget.track?.path ||
-        oldWidget.lyricsLoader != widget.lyricsLoader) {
-      _syncTrack();
-    }
+    // 路径没变也可能需要重试（上一轮读失败过），所以这里不做短路：
+    // `_syncTrack` 内部只有一次字符串比较，命中了才真的读歌词
+    _syncTrack();
   }
 
   void _syncTrack() {
@@ -401,6 +411,14 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
     }
     if (path == _loadedPath) {
       return;
+    }
+    final DateTime? retryAt = _retryAfter[path];
+    if (retryAt != null) {
+      if (clock.now().isBefore(retryAt)) {
+        return;
+      }
+      // 冷却到点：清掉标记，重新走一遍加载
+      _retryAfter.remove(path);
     }
     _loadedPath = path;
     _request += 1;
@@ -423,8 +441,13 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
     try {
       result = await loader(path);
     } catch (error) {
-      // 歌词缺失不该影响播放：读失败就当这首没有歌词
+      // 歌词缺失不该影响播放：读失败就当这首没有歌词。
+      // 但要把「已加载」标记清掉，否则这首直到切歌都不会再试一次。
       debugPrint('读取播放条歌词失败：$error');
+      if (mounted && token == _request) {
+        _loadedPath = null;
+        _retryAfter[path] = clock.now().add(_retryDelay);
+      }
       return;
     }
     if (!mounted || token != _request) {

@@ -236,6 +236,21 @@ class FakeLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<int> removeTracksFromPlaylist(int id, List<String> paths) async {
+    final _FakePlaylist playlist = _playlistById(id);
+    int removed = 0;
+    for (final String path in paths) {
+      if (playlist.paths.remove(path)) {
+        removed += 1;
+      }
+    }
+    if (removed > 0) {
+      playlist.updatedAt = _now();
+    }
+    return removed;
+  }
+
+  @override
   Future<bool> removeTrackFromPlaylist(int id, String path) async {
     final _FakePlaylist playlist = _playlistById(id);
     if (!playlist.paths.remove(path)) {
