@@ -17,6 +17,17 @@ use rust_lib_lamp_player::scanner;
 /// 曲库连接是进程内单例，涉及 DB 的用例必须串行
 static DB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// 拿锁，并把上一条用例可能留下的连接关掉。
+///
+/// 只拿锁不够：上一条用例要是没走到结尾的 `close_db()`（新增用例漏写、或中途
+/// panic），全局连接还停在上一个临时库上，下一条 `init_db` 会因为「路径不同」
+/// 直接失败——表现成随机挂某一条，CI 上偶发过一次。
+fn lock_db() -> std::sync::MutexGuard<'static, ()> {
+    let guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _ = db::close_db();
+    guard
+}
+
 /// 生成一个 0.5 秒、8kHz、单声道 16bit 的静音 WAV（lofty 能解析时长，无标签）
 fn write_wav(path: &Path, seconds: f32) {
     let sample_rate: u32 = 8_000;
@@ -111,7 +122,7 @@ fn missing_directory_is_an_error() {
 #[test]
 fn scan_folder_is_incremental_and_prunes_deleted_files() {
     // 全局连接是单例，涉及 DB 的用例都需要拿锁串行
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("pipeline");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -162,7 +173,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
     use lofty::picture::{MimeType, Picture, PictureType};
     use lofty::tag::{Accessor, Tag, TagType};
 
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("cover");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -240,7 +251,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
 #[cfg(windows)]
 #[test]
 fn scan_merges_legacy_separator_variants() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("legacy_sep");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -307,7 +318,7 @@ fn scan_merges_legacy_separator_variants() {
 #[cfg(windows)]
 #[test]
 fn scan_matches_paths_across_case_and_separator_changes() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("casing");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -344,7 +355,7 @@ fn scan_matches_paths_across_case_and_separator_changes() {
 /// 当成残留删掉。改成标记位之后指纹还在，重扫应当全部 `unchanged`。
 #[test]
 fn scan_skips_hidden_tracks_without_reparsing() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("hidden");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -378,5 +389,8 @@ fn scan_skips_hidden_tracks_without_reparsing() {
     );
     assert_eq!(db::hidden_tracks().expect("读隐藏列表").len(), 1);
 
+    // 必须关掉再删目录：连接开着时 Windows 上删不掉（文件被占用），
+    // 而且下一条用例的 init_db 会把这里当成「已初始化成别的库」
+    db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();
 }
