@@ -315,11 +315,6 @@ class _WindowGlyphPainter extends CustomPainter {
       ..strokeCap = StrokeCap.butt
       ..strokeJoin = StrokeJoin.miter
       ..maskFilter = mask;
-    final Paint fill = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill
-      ..maskFilter = mask;
-
     switch (glyph) {
       case WindowGlyph.minimize:
         // 一条细横线，几乎占满图标宽度（参考稿里比折角框还宽一点）
@@ -343,27 +338,23 @@ class _WindowGlyphPainter extends CustomPainter {
           stroke,
         );
       case WindowGlyph.restore:
-        // 对角双箭头：实心三角箭头 + 中间一杆，箭头贴住两个对角
-        canvas.drawLine(
-          const Offset(4.6, 15.4),
-          const Offset(15.4, 4.6),
+        // 四角向内：折角的**拐点朝中心**、两臂伸向四角，和 maximize 正好相反。
+        // 之前用对角双箭头，和旁边两个「方框类」字形风格不搭，摆在一起很跳。
+        canvas.drawPath(
+          Path()
+            ..moveTo(1, 7)
+            ..lineTo(7, 7)
+            ..lineTo(7, 1)
+            ..moveTo(19, 7)
+            ..lineTo(13, 7)
+            ..lineTo(13, 1)
+            ..moveTo(1, 13)
+            ..lineTo(7, 13)
+            ..lineTo(7, 19)
+            ..moveTo(19, 13)
+            ..lineTo(13, 13)
+            ..lineTo(13, 19),
           stroke,
-        );
-        canvas.drawPath(
-          Path()
-            ..moveTo(18.8, 1.2)
-            ..lineTo(18.8, 9.2)
-            ..lineTo(10.8, 1.2)
-            ..close(),
-          fill,
-        );
-        canvas.drawPath(
-          Path()
-            ..moveTo(1.2, 18.8)
-            ..lineTo(1.2, 10.8)
-            ..lineTo(9.2, 18.8)
-            ..close(),
-          fill,
         );
       case WindowGlyph.close:
         // 叉：边长 17，留出呼吸空间
