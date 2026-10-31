@@ -247,6 +247,9 @@ extension _PlaybackSection on _LibraryPageState {
                   unawaited(_setDesktopLyrics(!_desktopLyrics)),
               onToggleDesktopLyricLock: () =>
                   unawaited(_setDesktopLyricLocked(!_desktopLyricLocked)),
+              // 点歌手 / 专辑：退出播放页，进曲库对应的详情
+              onOpenArtist: _openArtistFromNowPlaying,
+              onOpenAlbum: _openAlbumFromNowPlaying,
               animateBackground: _flowBackground,
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
@@ -258,6 +261,46 @@ extension _PlaybackSection on _LibraryPageState {
           _nowPlayingDeviceTimer?.cancel();
           _nowPlayingDeviceTimer = null;
         });
+  }
+
+  /// 正在播放页点歌手：退出播放页，切到「艺术家」分区并进该艺术家的详情。
+  void _openArtistFromNowPlaying(Track track) {
+    _jumpToDetail(
+      section: LibrarySection.artists,
+      select: () => _selectedArtist = trackArtist(track),
+    );
+  }
+
+  /// 正在播放页点专辑：同上，按「歌手 + 专辑名」的聚合键进专辑详情。
+  void _openAlbumFromNowPlaying(Track track) {
+    _jumpToDetail(
+      section: LibrarySection.albums,
+      select: () => _selectedAlbumKey = albumGroupKey(track),
+    );
+  }
+
+  /// 从别处跳到某个分区的详情（艺术家 / 专辑）。
+  ///
+  /// 先退掉播放页——详情在曲库页里，留在播放页上什么都看不到。然后交给
+  /// [_selectSection] 切分区：它这一帧只换侧栏高亮，内容与「清空选中」
+  /// 都发生在下一帧，所以选中要再往后推一帧，否则刚设上的值会被它抹掉。
+  ///
+  /// 已在该分区时 [_selectSection] 会同步清空选中后直接返回，那种情况
+  /// 下这一帧的 post-frame 也照样在，顺序不变。
+  void _jumpToDetail({
+    required LibrarySection section,
+    required VoidCallback select,
+  }) {
+    Navigator.of(context).maybePop();
+    _clearSearch();
+    _clearSelection();
+    _selectSection(section);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _update(select);
+    });
   }
 
   Future<void> _playAll(List<Track> tracks) async {
