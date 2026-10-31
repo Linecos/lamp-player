@@ -122,7 +122,7 @@ fn missing_directory_is_an_error() {
 #[test]
 fn scan_folder_is_incremental_and_prunes_deleted_files() {
     // 全局连接是单例，涉及 DB 的用例都需要拿锁串行
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("pipeline");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -173,7 +173,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
     use lofty::picture::{MimeType, Picture, PictureType};
     use lofty::tag::{Accessor, Tag, TagType};
 
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("cover");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -251,7 +251,7 @@ fn scan_extracts_embedded_cover_and_prunes_unused_files() {
 #[cfg(windows)]
 #[test]
 fn scan_merges_legacy_separator_variants() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("legacy_sep");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -318,7 +318,7 @@ fn scan_merges_legacy_separator_variants() {
 #[cfg(windows)]
 #[test]
 fn scan_matches_paths_across_case_and_separator_changes() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("casing");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -355,7 +355,7 @@ fn scan_matches_paths_across_case_and_separator_changes() {
 /// 当成残留删掉。改成标记位之后指纹还在，重扫应当全部 `unchanged`。
 #[test]
 fn scan_skips_hidden_tracks_without_reparsing() {
-    let _guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _guard = lock_db();
     let root = unique_dir("hidden");
     let db_path = root.join("library.db");
     db::init_db(db_path.to_string_lossy().into_owned()).expect("初始化曲库");
@@ -389,5 +389,8 @@ fn scan_skips_hidden_tracks_without_reparsing() {
     );
     assert_eq!(db::hidden_tracks().expect("读隐藏列表").len(), 1);
 
+    // 必须关掉再删目录：连接开着时 Windows 上删不掉（文件被占用），
+    // 而且下一条用例的 init_db 会把这里当成「已初始化成别的库」
+    db::close_db().expect("关闭曲库");
     fs::remove_dir_all(&root).ok();
 }
