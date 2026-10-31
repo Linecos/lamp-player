@@ -38,9 +38,9 @@ class LampTitleBar extends StatelessWidget {
   /// 三个按钮的总宽度；页面顶栏据此预留右侧空间。
   static const double controlsWidth = _captionWidth * 3;
 
-  /// 单个窗口按钮的宽度。字形 20px，左右各留 16px 空白，
-  /// 和 ZeroBit 那种「字距宽松、不挤成一排图标」的观感对齐
-  static const double _captionWidth = 52;
+  /// 单个窗口按钮的宽度，与 ed1d197 那版一致（46 + 15px 字形）：
+  /// 那套尺寸在顶栏里最不起眼，也不会把搜索框往左挤
+  static const double _captionWidth = 46;
 
   /// 高度；[WindowChrome] 据此预留布局。
   /// 48 给顶栏里的搜索框和窗口按钮留出上下呼吸空间。
@@ -269,7 +269,8 @@ class _WindowButtonsState extends State<WindowButtons> {
 /// 自绘窗口按钮的图形类型。
 enum WindowGlyph { minimize, maximize, restore, close }
 
-/// 窗口按钮字形：按 20×20 设计稿画，1.6px 描边、直角转折、平头端点。
+/// 窗口按钮字形：按 20×20 设计稿画、实际按 15px 输出（描边等比缩到
+/// 1.2px），直角转折、平头端点。
 ///
 /// 对齐 ZeroBit Player 那套线稿：一条细横线、四角折角、对角双箭头、叉。
 /// 早先用的是「圆角方框 + 圆头笔画 + 1.35 描边」，在 15px 下笔画几乎糊成一
@@ -377,7 +378,7 @@ class _WindowGlyphPainter extends CustomPainter {
 /// 圆形底而不是整格方块：正在播放页左上角的「收起」是标准 `IconButton`，
 /// 悬停高亮就是圆的；右上角这三个原先是整块矩形，同一条顶栏里两种形状并
 /// 存，看着像两套控件。现在三个按钮各自在一个圆形底上悬停，点击热区仍是
-/// 各自的整格（52×48，贴着窗口边角也好按）。
+/// 各自的整格（46×48，贴着窗口边角也好按）。
 ///
 /// 这里刻意不用 `Tooltip`：标题栏挂在 `MaterialApp.builder` 上，位于
 /// Navigator 的 `Overlay` 之上，而 `Tooltip` 强依赖 Overlay 祖先。
@@ -424,7 +425,7 @@ class _CaptionButtonState extends State<_CaptionButton> {
 
   /// 悬停时圆形底的直径。与「收起」按钮的圆形高亮视觉大小对齐，
   /// 比格子小一圈，相邻两个圆之间正好留出 6px 缝
-  static const double _hoverDiameter = 40;
+  static const double _hoverDiameter = 32;
 
   bool _hovering = false;
 
@@ -475,7 +476,7 @@ class _CaptionButtonState extends State<_CaptionButton> {
                 child: Center(
                   child: CustomPaint(
                     key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
-                    size: const Size(20, 20),
+                    size: const Size(15, 15),
                     painter: _WindowGlyphPainter(
                       glyph: widget.glyph,
                       color: foreground,

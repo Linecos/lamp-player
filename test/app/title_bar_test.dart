@@ -130,7 +130,7 @@ void main() {
         tester.getSize(
           find.descendant(of: button, matching: find.byType(AnimatedContainer)),
         ),
-        const Size(40, 40),
+        const Size(32, 32),
       );
     }
 
