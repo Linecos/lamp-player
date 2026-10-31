@@ -145,8 +145,7 @@ void main() {
     await _pump(tester, data: _data());
 
     expect(find.text('夜航'), findsOneWidget);
-    expect(find.text('林间电台'), findsOneWidget);
-    expect(find.text('夜之专辑'), findsOneWidget);
+    expect(find.text('林间电台-夜之专辑'), findsOneWidget);
     expect(find.text('暂无歌词'), findsOneWidget);
     expect(find.text('把同名 .lrc 放到歌曲旁边即可显示'), findsOneWidget);
   });
@@ -430,16 +429,24 @@ void main() {
     expect(target.height, inInclusiveRange(48, 80));
     expect(target.top, lessThanOrEqualTo(8), reason: 'header 贴住窗口顶端，与右侧窗口按钮齐平');
 
-    // 点标题文字不应收起
-    await tester.tap(find.text('正在播放'));
+    // 点标题留白（拖动区）不应收起
+    await tester.tap(
+      find.byKey(const ValueKey<String>('now-playing-window-drag')),
+    );
     await tester.pumpAndSettle();
-    expect(find.text('正在播放'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsOneWidget,
+    );
 
     // 点箭头周围能收起
     await tester.tap(find.byTooltip('收起'));
     await tester.pumpAndSettle();
 
-    expect(find.text('正在播放'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsNothing,
+    );
     expect(find.text('打开'), findsOneWidget);
   });
 
@@ -714,7 +721,7 @@ void main() {
     expect(at1920, lessThanOrEqualTo(480), reason: '留出歌词与阴影的空间');
   });
 
-  testWidgets('封面落在 45 度线上：到左边界与到上边界等距', (WidgetTester tester) async {
+  testWidgets('曲目信息压在封面上方，左对齐且随窗口内缩', (WidgetTester tester) async {
     for (final Size size in <Size>[
       const Size(1080, 720),
       const Size(1280, 900),
@@ -723,13 +730,40 @@ void main() {
     ]) {
       await _pump(tester, data: _data(), size: size);
       final Rect page = tester.getRect(find.byType(NowPlayingPage));
+      final Rect info = tester.getRect(
+        find.byKey(const ValueKey<String>('now-playing-info')),
+      );
       final Rect cover = tester.getRect(find.byType(AlbumCover).first);
       expect(
+        info.left - page.left,
+        closeTo(cover.left - page.left, 2),
+        reason: '$size 下信息块和封面左边要对齐',
+      );
+      expect(
+        info.bottom,
+        lessThanOrEqualTo(cover.top),
+        reason: '$size 下信息块要压在封面上方',
+      );
+      expect(
         cover.left - page.left,
-        closeTo(cover.top - page.top, 2),
-        reason: '$size 下封面到左、到上的距离应该相同',
+        greaterThan(80),
+        reason: '$size 下整列不能挤在角落',
       );
     }
+  });
+
+  testWidgets('歌词当前行与封面中心线对齐', (WidgetTester tester) async {
+    await _pump(tester, data: _data(position: 10), lyrics: _timed());
+
+    final Rect cover = tester.getRect(find.byType(AlbumCover).first);
+    final Rect active = tester.getRect(
+      find.byKey(const ValueKey<String>('lyric-2')),
+    );
+    expect(
+      active.center.dy,
+      closeTo(cover.center.dy, 8),
+      reason: '当前行要落在封面中心线上，而不是歌词区正中',
+    );
   });
 
   testWidgets('打开圆形封面后阴影容器也跟着变圆', (WidgetTester tester) async {
@@ -815,11 +849,14 @@ void main() {
     final Rect bars = tester.getRect(
       find.byKey(const ValueKey<String>('now-playing-spectrum')),
     );
-    final Rect album = tester.getRect(find.text('夜之专辑'));
+    final Rect info = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-info')),
+    );
 
-    expect(cover.left, closeTo(cover.top, 2), reason: '仍然落在左上 45 度线上');
+    expect(info.left, closeTo(cover.left, 2), reason: '信息块与封面左对齐');
+    expect(info.bottom, lessThanOrEqualTo(cover.top), reason: '信息块在封面上方');
     expect(cover.left, greaterThan(100), reason: '不能还挤在角落（旧值 74）');
-    expect(album.bottom, lessThan(bars.top), reason: '往下挪之后，封面下那三行文字不能压在频谱丝带上');
+    expect(cover.bottom, lessThan(bars.top), reason: '往下挪之后，封面不能压在频谱丝带上');
   });
 
   testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {
@@ -914,9 +951,13 @@ void main() {
     await tester.pump();
     expect(controls.drags, 1, reason: '头部按下拖动要交给窗口管理器');
 
-    await tester.tap(find.text('正在播放'));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('now-playing-window-drag')),
+    );
     await tester.pump(const Duration(milliseconds: 50));
-    await tester.tap(find.text('正在播放'));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('now-playing-window-drag')),
+    );
     await tester.pumpAndSettle();
     expect(controls.maximizes, 1, reason: '双击头部最大化，与外壳标题栏一致');
   });

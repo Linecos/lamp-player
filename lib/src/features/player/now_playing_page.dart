@@ -154,9 +154,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 45 度线上的最小内边距占窗口短边的比例：小窗口靠它离开角落
   static const double _minInsetRatio = 0.22;
 
-  /// 封面下方那三行（歌名 / 歌手 / 专辑）大致占的高度：算封面能长多大时要
-  /// 把它一起留出来，免得文字压在频谱丝带上
+  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时要
+  /// 把它一起留出来，免得整列顶到频谱丝带上
   static const double _infoReserve = 104;
+
+  /// 封面上面信息块 + 间距的实际高度：歌词当前行要和封面中心线对齐，按它换算。
+  /// 比 [_infoReserve] 略小，那 8px 是留给尺寸预算的余量
+  static const double _infoBlockHeight = 96;
+
+  /// 专辑并入歌手行后空出的一行（2px 间距 + 17px 行高）：标题下移补位，
+  /// 封面不跟着上移
+  static const double _infoRefillHeight = 19;
+
+  /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
+  /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
+  static const double _infoBlockLift = 48;
 
   /// 封面外圈留给阴影的余量（blur 28 + 偏移 10/12 + 呼吸空间），左右各一半
   static const double _coverShadowPad = 84;
@@ -648,7 +660,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   Widget _header(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
     return Padding(
       key: const ValueKey<String>('now-playing-header'),
       // 贴住窗口顶端，中心 y≈24，与右侧窗口按钮（中心 y≈22）齐平
@@ -660,7 +671,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             immersiveMode,
             pointerNearTop,
           ]),
-          // 沉浸模式下只保留封面 / 歌名 / 歌词，返回键与标题靠指针靠近顶端唤出
+          // 沉浸模式下只保留封面 / 歌名 / 歌词，返回键靠指针靠近顶端唤出
           builder: (BuildContext context, Widget? child) {
             final bool hidden = immersiveMode.value && !pointerNearTop.value;
             return IgnorePointer(
@@ -675,7 +686,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           },
           child: Row(
             children: <Widget>[
-              // 热区只覆盖箭头周围这一圈，标题文字不参与点击。
+              // 热区只覆盖箭头周围这一圈。
               IconButton(
                 key: const ValueKey<String>('now-playing-collapse'),
                 onPressed: () => Navigator.of(context).maybePop(),
@@ -697,13 +708,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                   behavior: HitTestBehavior.opaque,
                   onPanStart: (_) => unawaited(_startDragging()),
                   onDoubleTap: () => unawaited(_toggleWindowMaximize()),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Text('正在播放', style: theme.textTheme.titleMedium),
-                    ),
-                  ),
+                  child: const SizedBox.expand(),
                 ),
               ),
             ],
@@ -758,10 +763,27 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         // 多出来的量左右各让一半：内容块整体内缩，封面左边距正好等于 coverInset
         final double extraInset = coverInset - baseInset;
         // `_body` 从 header 下方开始，换算成窗口坐标要减掉 header 的高度，
-        // 否则封面看起来离顶还是比离左更远一截
-        final double topPadding = math.max(8, coverInset - _headerHeight);
+        // 否则封面看起来离顶还是比离左更远一截；信息块占了封面上面一截，
+        // 再把整列上提 [_infoBlockLift]
+        final double topPadding = math.max(
+          8,
+          coverInset - _headerHeight - _infoBlockLift,
+        );
+        // 歌词当前行与封面中心线对齐：封面中心在信息行下面，换算成歌词视口的比例
+        final double lyricHeight = math.max(
+          1,
+          constraints.maxHeight - topPadding,
+        );
+        final double revealAlignment =
+            ((_infoBlockHeight + coverSize / 2) / lyricHeight).clamp(
+              0.35,
+              0.68,
+            );
         final Widget info = _trackInfo(context, track, wide ? coverSize : 240);
-        final Widget lyric = _lyricsView(context);
+        final Widget lyric = _lyricsView(
+          context,
+          revealAlignment: wide ? revealAlignment : 0.5,
+        );
         if (wide) {
           return Padding(
             padding: EdgeInsets.fromLTRB(32, topPadding, 32, 0),
@@ -813,6 +835,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  /// 「歌手-专辑」合成一行；没有专辑时只显示歌手
+  String _artistAndAlbum(Track track) {
+    final String artist = trackArtist(track);
+    final String album = track.album ?? '';
+    return album.isEmpty ? artist : '$artist-$album';
+  }
+
   Widget _trackInfo(BuildContext context, Track track, double coverSize) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
@@ -821,9 +850,36 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // 左栏高度由窗口决定：封面拿分到的高度，放不下就自己缩，别把下面的
-        // 标题 / 歌手顶出可视区（900×560 这种最小窗口）。只缩封面不缩文字，
-        // 文字保持原生字号不发虚。
+        // 曲目信息压在封面上面（对齐参考布局）：先读完「在放什么」，再往下看封面
+        Column(
+          key: const ValueKey<String>('now-playing-info'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
+            const SizedBox(height: _infoRefillHeight),
+            Text(
+              track.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _artistAndAlbum(track),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
+        // （900×560 这种最小窗口）。只缩封面不缩文字，文字保持原生字号不发虚。
         Flexible(
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
@@ -896,38 +952,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             },
           ),
         ),
-        const SizedBox(height: 20),
-        Text(
-          track.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          trackArtist(track),
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-        if ((track.album ?? '').isNotEmpty) ...<Widget>[
-          const SizedBox(height: 2),
-          Text(
-            track.album!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ],
       ],
     );
   }
 
-  Widget _lyricsView(BuildContext context) {
+  Widget _lyricsView(BuildContext context, {double revealAlignment = 0.5}) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final lyrics_api.TrackLyrics? lyrics = _lyrics;
@@ -978,6 +1007,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       edgeFadeBand: widget.spectrum == null
           ? 0
           : _spectrumBottom + _spectrumHeight,
+      revealAlignment: revealAlignment,
     );
   }
 
