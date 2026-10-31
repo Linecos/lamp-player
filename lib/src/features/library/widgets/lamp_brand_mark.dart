@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 /// 侧栏品牌标记：一只黄灯泡。
@@ -9,8 +7,8 @@ import 'package:flutter/material.dart';
 /// 臂端 0.385、竖干到 0.512），灯座两道纹路在 0.564 / 0.617。比例也抄在
 /// `scripts/make_icon.py` 里，侧栏 / exe / 托盘三处形状一致。
 ///
-/// 深色模式给一块**纯黑**底板；浅色模式去掉底板、给灯泡加一圈灰色包边——
-/// 黄灯泡直接落在米白侧栏上边缘会「渗」进背景。
+/// 深色模式给一块**纯黑**底板，浅色模式给一块**浅灰**底板：黄灯泡直接落在
+/// 米白侧栏上会「渗」进背景，一块方底板既压住边缘，也和深色那版对上。
 class LampBrandMark extends StatelessWidget {
   const LampBrandMark({super.key, this.size = 28});
 
@@ -38,34 +36,20 @@ class _BulbMarkPainter extends CustomPainter {
   /// 灯丝与灯座纹路
   static const Color _ink = Color(0xFF1F1913);
 
-  /// 浅色模式的包边
-  static const Color _outline = Color(0xFF8B8B8B);
+  /// 浅色模式的底板：中性浅灰，比米白侧栏深一档，又不至于抢灯泡
+  static const Color _lightTile = Color(0xFFD6D6D6);
 
   @override
   void paint(Canvas canvas, Size size) {
     final double s = size.shortestSide;
     double px(double ratio) => ratio * s;
 
-    if (dark) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(px(0.22))),
-        Paint()..color = Colors.black,
-      );
-    }
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(px(0.22))),
+      Paint()..color = dark ? Colors.black : _lightTile,
+    );
 
     canvas.drawPath(_body(px), Paint()..color = _bulb);
-
-    if (!dark) {
-      // 浅色下补一圈灰色包边；minimum 保证 28px 下仍有近 1px
-      canvas.drawPath(
-        _body(px),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(0.9, px(0.016))
-          ..strokeJoin = StrokeJoin.round
-          ..color = _outline,
-      );
-    }
 
     // 灯丝：一个 Y。竖干偏长、两臂偏短，和图标稿一致
     canvas.drawPath(
@@ -120,10 +104,9 @@ class _BulbMarkPainter extends CustomPainter {
 
     return Path.combine(
       PathOperation.union,
-      Path()
-        ..addOval(
-          Rect.fromCircle(center: Offset(px(0.5), px(0.404)), radius: px(0.18)),
-        ),
+      Path()..addOval(
+        Rect.fromCircle(center: Offset(px(0.5), px(0.404)), radius: px(0.18)),
+      ),
       neck,
     );
   }
