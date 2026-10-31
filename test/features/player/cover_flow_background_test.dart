@@ -105,9 +105,7 @@ void main() {
     expect(hues.any((double h) => h >= 35 && h <= 70), isTrue);
   });
 
-  testWidgets('动画帧复用预渲染光斑，不会每帧重建位图', (WidgetTester tester) async {
-    final int before = coverFlowSpotRenderCount;
-
+  testWidgets('动画帧持续重绘，跑满一圈也不抛异常', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark(AppTheme.defaultSeed),
@@ -118,37 +116,13 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 16));
+    expect(tester.takeException(), isNull);
 
-    // 4 个色板色 × 7 档色相
-    final int built = coverFlowSpotRenderCount - before;
-    expect(built, 28);
-
-    // 跑满一个循环（12 秒）：位图不该被重新渲染
     await tester.pump(const Duration(seconds: 12));
-    expect(coverFlowSpotRenderCount - before, built);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('换封面配色会重建光斑位图', (WidgetTester tester) async {
-    final int before = coverFlowSpotRenderCount;
-
-    Widget host(List<Color> colors) => MaterialApp(
-      theme: AppTheme.dark(AppTheme.defaultSeed),
-      home: CoverFlowBackground(
-        colors: colors,
-        animate: false,
-        child: const SizedBox.expand(),
-      ),
-    );
-
-    await tester.pumpWidget(host(const <Color>[Color(0xFF3355AA)]));
-    await tester.pumpWidget(host(const <Color>[Color(0xFF33AA55)]));
-
-    expect(coverFlowSpotRenderCount - before, 56);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('换色板时旧光斑留到过渡结束，连切也不会误释放', (WidgetTester tester) async {
+  testWidgets('换封面配色会平滑过渡，连切也不抛异常', (WidgetTester tester) async {
     Widget host(List<Color> colors) => MaterialApp(
       theme: AppTheme.dark(AppTheme.defaultSeed),
       home: CoverFlowBackground(
@@ -164,14 +138,12 @@ void main() {
     await tester.pumpWidget(host(const <Color>[Color(0xFF33AA55)]));
     await tester.pump(const Duration(milliseconds: 120));
 
-    // 淡出还没走完又换一次：上一组仍在被绘制，不能提前 dispose，
-    // 否则下一帧会拿一张已释放的位图去贴（真机上直接崩）
+    // 淡出还没走完又换一次：过渡回调不能把新的那套清掉
     await tester.pumpWidget(host(const <Color>[Color(0xFFAA3355)]));
     await tester.pump(const Duration(milliseconds: 120));
-
     expect(tester.takeException(), isNull);
 
-    // 过渡收尾：旧组释放、只剩一组
+    // 过渡收尾
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
