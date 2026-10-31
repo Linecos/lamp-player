@@ -52,6 +52,8 @@ extension _SettingsSection on _LibraryPageState {
             onFlowBackgroundChanged: _setFlowBackground,
             circularCovers: _circularCovers,
             onCircularCoversChanged: _setCircularCovers,
+            // 底部播放岛是浮层：列表末尾要让出它的高度，「关于」才滚得出来
+            bottomPadding: PlayerBar.occupiedHeight + 8,
             onExclusiveChanged: _isAvailable && !_switchingOutput
                 ? (bool value) => unawaited(_setExclusive(value))
                 : null,
