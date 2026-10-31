@@ -934,15 +934,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                 child: child,
                               ),
                       child: RepaintBoundary(
-                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件
-                        child: AlbumCover(
-                          path: track.coverPath,
-                          size: size,
-                          // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                          radius: 28,
-                          playing: playing,
-                          // 换歌时新封面收进来 + 淡入，别硬切
-                          animateOnChange: true,
+                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件。
+                        // Hero 放在旋转外面，飞入 / 飞出时不跟着转。
+                        // 插值用 RectTween（中心 + 尺寸线性）：弧线 tween 是
+                        // 四个角各走各的弧线，尺寸差一个量级时中途会变竖长条
+                        child: Hero(
+                          tag: coverHeroTag,
+                          createRectTween: (Rect? begin, Rect? end) =>
+                              RectTween(begin: begin, end: end),
+                          child: AlbumCover(
+                            path: track.coverPath,
+                            size: size,
+                            // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                            radius: 28,
+                            playing: playing,
+                            // 换歌时新封面收进来 + 淡入，别硬切
+                            animateOnChange: true,
+                          ),
                         ),
                       ),
                     ),

@@ -539,16 +539,25 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
                   child: child,
                 );
               },
-              child: AlbumCover(
-                path: current?.coverPath,
-                size: _coverSize,
-                radius: 16,
-                playing: widget.isPlaying,
-                // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
-                // 就成了「从别处飞过来」，几乎只留淡入才自然
-                animateOnChange: true,
-                transitionDuration: const Duration(milliseconds: 300),
-                transitionScale: 1.04,
+              // Hero：打开正在播放页时封面从这里飞大、返回时飞回来。
+              // 插值用普通 RectTween：`MaterialRectArcTween` 是四个角各自沿
+              // 弧线挪，56px 飞到 340px 这种尺寸差会让宽高速度错开，
+              // 中途变成竖长条；RectTween 是中心+尺寸线性，全程保持正方形
+              child: Hero(
+                tag: coverHeroTag,
+                createRectTween: (Rect? begin, Rect? end) =>
+                    RectTween(begin: begin, end: end),
+                child: AlbumCover(
+                  path: current?.coverPath,
+                  size: _coverSize,
+                  radius: 16,
+                  playing: widget.isPlaying,
+                  // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
+                  // 就成了「从别处飞过来」，几乎只留淡入才自然
+                  animateOnChange: true,
+                  transitionDuration: const Duration(milliseconds: 300),
+                  transitionScale: 1.04,
+                ),
               ),
             ),
             const SizedBox(width: 12),

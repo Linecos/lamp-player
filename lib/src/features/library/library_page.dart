@@ -30,6 +30,7 @@ import '../../app/app_lifecycle.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
 import '../player/now_playing_page.dart';
+import '../player/now_playing_route.dart';
 import '../player/queue_dialog.dart';
 import '../player/shortcuts.dart';
 import '../settings/shortcuts_page.dart';

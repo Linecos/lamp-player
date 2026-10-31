@@ -721,6 +721,15 @@ void main() {
     expect(at1920, lessThanOrEqualTo(480), reason: '留出歌词与阴影的空间');
   });
 
+  testWidgets('封面挂着 Hero，与播放条配对飞入 / 飞出', (WidgetTester tester) async {
+    await _pump(tester, data: _data());
+
+    final Hero hero = tester.widget<Hero>(
+      find.ancestor(of: find.byType(AlbumCover), matching: find.byType(Hero)),
+    );
+    expect(hero.tag, coverHeroTag);
+  });
+
   testWidgets('曲目信息压在封面上方，左对齐且随窗口内缩', (WidgetTester tester) async {
     for (final Size size in <Size>[
       const Size(1080, 720),
