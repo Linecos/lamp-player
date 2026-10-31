@@ -369,6 +369,44 @@ void main() {
     expect(opens, 1);
   });
 
+  testWidgets('整条播放条的空白处都能打开正在播放页', (WidgetTester tester) async {
+    int opens = 0;
+    int nexts = 0;
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      onNext: () => nexts += 1,
+      onOpenNowPlaying: () => opens += 1,
+    );
+
+    final Finder area = find.byKey(
+      const ValueKey<String>('player-bar-open-anywhere'),
+    );
+    expect(area, findsOneWidget);
+
+    final Rect box = tester.getRect(area);
+    final Rect slider = tester.getRect(find.byKey(_progressKey));
+
+    // 三处原本点不动的空白，从左到右覆盖整条：
+    // 左段歌词区、右段进度条上方的空隙、卡片右边缘的 14px 内边距
+    final List<Offset> blanks = <Offset>[
+      Offset(box.left + box.width * 0.36, box.center.dy),
+      Offset(slider.center.dx, box.top + 6),
+      Offset(box.right - 3, box.center.dy),
+    ];
+    for (final Offset spot in blanks) {
+      await tester.tapAt(spot);
+      await tester.pump();
+    }
+    expect(opens, blanks.length, reason: '左段留白、右段缝隙、内边距都应能打开');
+
+    // 按钮本身不被外层抢走：点「下一首」只切歌，不打开播放页
+    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.pump();
+    expect(nexts, 1);
+    expect(opens, blanks.length, reason: '点按钮不应顺带打开正在播放页');
+  });
+
   testWidgets('三键落在播放条中轴上', (WidgetTester tester) async {
     // 宽窗口和最小窗口（900 + 侧栏展开 → 618）都要居中
     for (final double width in <double>[1280, 618]) {
