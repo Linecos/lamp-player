@@ -91,6 +91,14 @@ Future<void> _pumpTitleBar(
   await tester.pump();
 }
 
+/// 按钮里那层圆形底的装饰（`AnimatedContainer` 的目标装饰）
+BoxDecoration _captionDecoration(WidgetTester tester, Finder button) {
+  final AnimatedContainer container = tester.widget<AnimatedContainer>(
+    find.descendant(of: button, matching: find.byType(AnimatedContainer)),
+  );
+  return container.decoration! as BoxDecoration;
+}
+
 void main() {
   testWidgets('标题栏保留拖动区与三个窗口按钮，应用名交给侧栏', (WidgetTester tester) async {
     await _pumpTitleBar(tester, FakeWindowControls());
@@ -100,6 +108,52 @@ void main() {
     expect(find.byKey(_minimizeKey), findsOneWidget);
     expect(find.byKey(_maximizeKey), findsOneWidget);
     expect(find.byKey(_closeKey), findsOneWidget);
+  });
+
+  testWidgets('窗口按钮悬停亮起圆形底，关闭键是红圆', (WidgetTester tester) async {
+    await _pumpTitleBar(tester, FakeWindowControls());
+
+    final Finder minimize = find.byKey(_minimizeKey);
+    final Finder maximize = find.byKey(_maximizeKey);
+    final Finder close = find.byKey(_closeKey);
+
+    // 静息时三处都是透明底，但圆底本身已经在位（尺寸恒定，位移不会跳）
+    for (final Finder button in <Finder>[minimize, maximize, close]) {
+      final BoxDecoration decoration = _captionDecoration(tester, button);
+      expect(decoration.shape, BoxShape.circle);
+      expect(decoration.color, Colors.transparent);
+      expect(
+        tester.getSize(
+          find.descendant(of: button, matching: find.byType(AnimatedContainer)),
+        ),
+        const Size(40, 40),
+      );
+    }
+
+    // 同一个鼠标指针依次移过两个按钮（重新 addPointer 会撞设备号）
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer();
+    addTearDown(mouse.removePointer);
+
+    Future<void> hover(Finder button) async {
+      await mouse.moveTo(tester.getCenter(button));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    // 悬停：圆形底亮起，和左上角「收起」按钮同一套视觉
+    await hover(maximize);
+    final BoxDecoration hovered = _captionDecoration(tester, maximize);
+    expect(hovered.shape, BoxShape.circle);
+    expect(hovered.color, isNot(Colors.transparent));
+
+    // 关闭键悬停变红圆（不再是整格红块）
+    await hover(close);
+    final BoxDecoration closing = _captionDecoration(tester, close);
+    expect(closing.shape, BoxShape.circle);
+    expect(closing.color, const Color(0xFFC42B1C));
   });
 
   testWidgets('overlay 模式下标题条浮在页面顶部', (WidgetTester tester) async {
