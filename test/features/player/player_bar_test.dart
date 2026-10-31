@@ -29,6 +29,13 @@ Finder _volumeIcon() => find.byWidgetPredicate(
           widget.icon == Icons.volume_off),
 );
 
+/// 把 [RectTween] 的 protected `lerp` 暴露出来给测试取值
+class _OpenRectTween extends RectTween {
+  _OpenRectTween({required super.begin, required super.end});
+
+  Rect lerpAt(double t) => lerp(t)!;
+}
+
 /// 鼠标移到音量图标上，把竖条浮层唤出来
 
 /// 在 [target] 上滚动鼠标滚轮（dy < 0 表示向上滚）
@@ -336,6 +343,34 @@ void main() {
       const ValueKey<String>('player-bar-open-now-playing'),
     );
     expect(tester.widget<InkWell>(cover).hoverColor, isNotNull);
+
+    // 封面挂着 Hero：打开正在播放页时从这里飞大，返回时飞回来
+    final Hero hero = tester.widget<Hero>(
+      find.ancestor(of: find.byType(AlbumCover), matching: find.byType(Hero)),
+    );
+    expect(hero.tag, coverHeroTag);
+
+    // 飞行插值要全程保持正方形。实际飞行是「播放条（左下 56²）→ 播放页封面
+    // （右上 340²）」，位置与尺寸同时差一个量级；`MaterialRectArcTween` 是
+    // 四个角各走各的弧线，位置差一大宽高速度就错开，实测中途会变成 276×172
+    // 的横长条、尺寸还一度超过终点。lerp 是 protected，包一层子类来取值
+    final Tween<Rect?> raw = hero.createRectTween!(
+      const Rect.fromLTWH(40, 600, 56, 56),
+      const Rect.fromLTWH(500, 80, 340, 340),
+    );
+    for (final double t in const <double>[0.25, 0.5, 0.75]) {
+      final Rect mid = _OpenRectTween(
+        begin: raw.begin!,
+        end: raw.end!,
+      ).lerpAt(t);
+      expect(
+        (mid.width - mid.height).abs(),
+        lessThan(0.5),
+        reason: 't=$t 时宽 ${mid.width} 高 ${mid.height}，飞行中不能变形',
+      );
+      expect(mid.width, greaterThan(56), reason: '尺寸要单调变大');
+      expect(mid.width, lessThan(340), reason: '尺寸要单调变大');
+    }
 
     final Material surface = tester.widget<Material>(
       find.ancestor(of: cover, matching: find.byType(Material)).first,

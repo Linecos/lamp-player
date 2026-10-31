@@ -225,7 +225,7 @@ extension _PlaybackSection on _LibraryPageState {
     );
     return Navigator.of(context)
         .push(
-          MaterialPageRoute<void>(
+          NowPlayingPageRoute(
             builder: (BuildContext context) => NowPlayingPage(
               data: _nowPlaying,
               onTogglePlay: _togglePlayback,

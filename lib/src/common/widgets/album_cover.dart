@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import 'cover_shape.dart';
 
+/// 封面「飞入正在播放页」的 Hero tag：播放条与正在播放页两处必须一致。
+const String coverHeroTag = 'now-playing-cover';
+
 /// 专辑封面缩略图：有缓存文件就显示图片，否则回退到音符 / 播放中图标。
 ///
 /// 只接收文件路径，不依赖曲目模型，任何页面都能复用。
