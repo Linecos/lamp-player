@@ -134,6 +134,27 @@ void main() {
     expect(find.byType(ImageFiltered), findsNWidgets(5));
   });
 
+  testWidgets('未播放行的译文与正文一起模糊', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(1.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 5000, text: '第 0 行', translation: '译文 0'),
+        _line(start: 5000, end: 10000, text: '第 1 行', translation: '译文 1'),
+      ],
+      position: position,
+      playing: playing,
+    );
+
+    // 当前行（第 0 行）正文与译文都清晰；第 1 行的正文和译文各套一层模糊，
+    // 只糊正文时译文会孤零零地清楚着
+    expect(find.byType(ImageFiltered), findsNWidgets(2));
+  });
+
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
