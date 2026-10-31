@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:lamp_player/src/features/player/player_bar.dart';
+
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
@@ -177,4 +179,69 @@ void main() {
     expect(find.text('0 条播放记录'), findsOneWidget);
     expect(find.text('还没有播放记录'), findsOneWidget);
   });
+
+  testWidgets('正在播放页点歌手，退出播放页并进艺术家详情', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+    await _playAndOpenNowPlaying(tester);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pumpAndSettle();
+
+    // 播放页退掉，落在「艺术家」分区的详情里
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsNothing,
+    );
+    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.text('林间电台'), findsWidgets);
+    // 同一页里的另一位歌手不该出现在详情里
+    expect(find.text('海岸线'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('正在播放页点专辑，退出播放页并进专辑详情', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+    await _playAndOpenNowPlaying(tester);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-album')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsNothing,
+    );
+    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.text('夜之专辑'), findsWidgets);
+    expect(find.text('玻璃海'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+}
+
+/// 播一首并打开正在播放页：后面的跳转测试都从这一步开始
+Future<void> _playAndOpenNowPlaying(WidgetTester tester) async {
+  await tester.tap(find.text('夜航'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 50));
+
+  // 点播放条上的曲名（左段中央是播放键，别点正中）
+  await tester.tap(
+    find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+  );
+  await tester.pumpAndSettle();
+  expect(
+    find.byKey(const ValueKey<String>('now-playing-header')),
+    findsOneWidget,
+  );
 }
