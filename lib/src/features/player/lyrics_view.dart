@@ -23,6 +23,7 @@ class LyricsView extends StatefulWidget {
     required this.playing,
     required this.onSeek,
     this.edgeFadeBand = 0,
+    this.revealAlignment = 0.5,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -38,6 +39,12 @@ class LyricsView extends StatefulWidget {
   /// 底部必须淡干净的额外高度：正在播放页的频谱丝带压在歌词下层，
   /// 丝带有多高，底部淡出就要盖过它，滚下来的文字才不会糊在柱子上。
   final double edgeFadeBand;
+
+  /// 当前行停在视口的哪个位置（0 = 顶、1 = 底）。
+  ///
+  /// 正在播放页里歌词要和封面中心线对齐，封面在左栏上方、中心线通常高于歌词区
+  /// 中线，所以传一个小于 0.5 的值。
+  final double revealAlignment;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -310,22 +317,24 @@ class _LyricsViewState extends State<LyricsView> {
     );
   }
 
-  /// 当前行居中时屏幕上看得到哪一段行（含首尾）：从当前行往外扩，
-  /// 居中偏移差超过半个视口就算出屏
+  /// 当前行停在 [LyricsView.revealAlignment] 时屏幕上看得到哪一段行（含首尾）：
+  /// 从当前行往外扩，偏移差超过上/下半屏就算出屏
   (int, int) _visibleSpan(double anchorOffset) {
-    final double half = _scroll.position.viewportDimension / 2;
+    final double viewport = _scroll.position.viewportDimension;
+    final double up = viewport * widget.revealAlignment;
+    final double down = viewport * (1 - widget.revealAlignment);
     int top = _active;
     int bottom = _active;
     while (top > 0) {
       final double offset = _revealOffset(top - 1);
-      if (offset.isNaN || (anchorOffset - offset).abs() > half) {
+      if (offset.isNaN || (anchorOffset - offset).abs() > up) {
         break;
       }
       top -= 1;
     }
     while (bottom < widget.lines.length - 1) {
       final double offset = _revealOffset(bottom + 1);
-      if (offset.isNaN || (offset - anchorOffset).abs() > half) {
+      if (offset.isNaN || (offset - anchorOffset).abs() > down) {
         break;
       }
       bottom += 1;
@@ -352,9 +361,13 @@ class _LyricsViewState extends State<LyricsView> {
       text.size.width,
       text.size.height,
     );
-    return RenderAbstractViewport.of(line)
-        .getOffsetToReveal(line, 0.5, rect: rect)
+    // getOffsetToReveal 按「目标矩形顶边」对齐，这里要的是正文**中心**落在
+    // 对齐线上，所以先取顶边贴顶的偏移，再自己挪半个正文高度
+    final double base = RenderAbstractViewport.of(line)
+        .getOffsetToReveal(line, 0, rect: rect)
         .offset;
+    final double viewport = _scroll.position.viewportDimension;
+    return base - viewport * widget.revealAlignment + rect.height / 2;
   }
 
   /// [descendant] 在 [ancestor] 里的排版偏移：只累加 parentData，不走
@@ -429,8 +442,15 @@ class _LyricsViewState extends State<LyricsView> {
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        // 上下留出半屏，首尾行也能滚到正中间
-        final double padding = math.max(24, constraints.maxHeight * 0.4);
+        // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
+        final double topPad = math.max(
+          24,
+          constraints.maxHeight * widget.revealAlignment,
+        );
+        final double bottomPad = math.max(
+          24,
+          constraints.maxHeight * (1 - widget.revealAlignment),
+        );
         // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
         // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
         // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
@@ -450,9 +470,11 @@ class _LyricsViewState extends State<LyricsView> {
                 // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
                 // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
                 physics: const BouncingScrollPhysics(),
-                padding: EdgeInsets.symmetric(
-                  vertical: padding,
-                  horizontal: 16,
+                padding: EdgeInsets.only(
+                  top: topPad,
+                  bottom: bottomPad,
+                  left: 16,
+                  right: 16,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

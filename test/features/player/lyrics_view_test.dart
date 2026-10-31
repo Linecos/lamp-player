@@ -27,6 +27,7 @@ Future<void> _pump(
   required ValueNotifier<bool> playing,
   ValueChanged<double>? onSeek,
   double band = 0,
+  double alignment = 0.5,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
   tester.view.devicePixelRatio = 1;
@@ -43,6 +44,7 @@ Future<void> _pump(
           playing: playing,
           onSeek: (double seconds) async => onSeek?.call(seconds),
           edgeFadeBand: band,
+          revealAlignment: alignment,
         ),
       ),
     ),
@@ -53,6 +55,36 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('当前行停在 revealAlignment 指定的高度', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 8; i += 1)
+          _line(start: i * 5000, end: i * 5000 + 5000, text: '第$i行'),
+      ],
+      position: position,
+      playing: playing,
+      alignment: 0.3,
+    );
+
+    final Rect viewport = tester.getRect(
+      find.byKey(const ValueKey<String>('lyrics-edge-fade')),
+    );
+    final Rect active = tester.getRect(
+      find.byKey(const ValueKey<String>('lyric-2')),
+    );
+    expect(
+      active.center.dy,
+      closeTo(viewport.top + viewport.height * 0.3, 8),
+      reason: '对齐线以上的空间按 revealAlignment 分配，不是永远居中',
+    );
+  });
+
   testWidgets('歌词固定白色并放大，当前行更实', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
