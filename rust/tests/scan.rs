@@ -17,6 +17,17 @@ use rust_lib_lamp_player::scanner;
 /// 曲库连接是进程内单例，涉及 DB 的用例必须串行
 static DB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// 拿锁，并把上一条用例可能留下的连接关掉。
+///
+/// 只拿锁不够：上一条用例要是没走到结尾的 `close_db()`（新增用例漏写、或中途
+/// panic），全局连接还停在上一个临时库上，下一条 `init_db` 会因为「路径不同」
+/// 直接失败——表现成随机挂某一条，CI 上偶发过一次。
+fn lock_db() -> std::sync::MutexGuard<'static, ()> {
+    let guard = DB_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let _ = db::close_db();
+    guard
+}
+
 /// 生成一个 0.5 秒、8kHz、单声道 16bit 的静音 WAV（lofty 能解析时长，无标签）
 fn write_wav(path: &Path, seconds: f32) {
     let sample_rate: u32 = 8_000;
