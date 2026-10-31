@@ -57,6 +57,7 @@ class SettingsView extends StatelessWidget {
     this.onFlowBackgroundChanged,
     this.circularCovers = false,
     this.onCircularCoversChanged,
+    this.bottomPadding = 16,
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
@@ -153,6 +154,10 @@ class SettingsView extends StatelessWidget {
   /// 封面是否显示成圆形
   final bool circularCovers;
   final ValueChanged<bool>? onCircularCoversChanged;
+
+  /// 列表底部留白。设置页被底部播放岛压住时由外部传入岛占用的高度，
+  /// 否则最后一栏（关于）会滚不进可视区。
+  final double bottomPadding;
 
   final bool scanning;
 
@@ -447,7 +452,7 @@ class SettingsView extends StatelessWidget {
 
     return ListView(
       // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
-      padding: const EdgeInsets.only(top: 4, right: 12, bottom: 16),
+      padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
       children: children,
     );
   }

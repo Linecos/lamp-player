@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/app/immersive_chrome.dart';
+import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
 import 'package:lamp_player/src/features/player/lyrics_view.dart';
@@ -89,6 +91,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
   VoidCallback? onToggleDesktopLyricLock,
+  ValueChanged<Track>? onOpenArtist,
+  ValueChanged<Track>? onOpenAlbum,
   ValueListenable<List<double>>? spectrum,
   WindowControls? windowControls,
   Size size = const Size(1280, 900),
@@ -120,6 +124,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onOpenEqualizer: onOpenEqualizer,
         onToggleDesktopLyrics: onToggleDesktopLyrics,
         onToggleDesktopLyricLock: onToggleDesktopLyricLock,
+        onOpenArtist: onOpenArtist,
+        onOpenAlbum: onOpenAlbum,
         spectrum: spectrum,
         windowControls: windowControls,
         lyricsLoader: (String path) async =>
@@ -145,9 +151,47 @@ void main() {
     await _pump(tester, data: _data());
 
     expect(find.text('夜航'), findsOneWidget);
-    expect(find.text('林间电台-夜之专辑'), findsOneWidget);
+    expect(find.text('林间电台'), findsOneWidget);
+    expect(find.text('夜之专辑'), findsOneWidget);
     expect(find.text('暂无歌词'), findsOneWidget);
     expect(find.text('把同名 .lrc 放到歌曲旁边即可显示'), findsOneWidget);
+  });
+
+  testWidgets('点歌手 / 专辑分别回调跳转', (WidgetTester tester) async {
+    final List<String> artists = <String>[];
+    final List<String> albums = <String>[];
+    await _pump(
+      tester,
+      data: _data(),
+      onOpenArtist: (Track track) => artists.add(track.title),
+      onOpenAlbum: (Track track) => albums.add(track.title),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pump();
+    expect(artists, <String>['夜航']);
+    expect(albums, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-album')));
+    await tester.pump();
+    expect(albums, <String>['夜航']);
+  });
+
+  testWidgets('没有专辑标签时只显示歌手，不渲染专辑链接', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      data: _data(
+        track: sampleTrack(title: '夜航', artist: '林间电台', album: null),
+      ),
+      onOpenArtist: (Track track) {},
+      onOpenAlbum: (Track track) {},
+    );
+
+    expect(find.text('林间电台'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-album')),
+      findsNothing,
+    );
   });
 
   testWidgets('底部控制区包含音量、播放模式与队列，封面与文字左对齐', (WidgetTester tester) async {
@@ -981,6 +1025,92 @@ void main() {
     await tester.pumpAndSettle();
     expect(controls.drags, 0);
     expect(controls.maximizes, 0);
+  });
+
+  testWidgets('收起一开始就把窗口按钮交还全局，不等页面销毁', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(() => pageOwnsWindowControls.value = false);
+
+    final ValueNotifier<NowPlayingData> notifier =
+        ValueNotifier<NowPlayingData>(_data());
+    addTearDown(notifier.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NowPlayingPage(
+                      data: notifier,
+                      onTogglePlay: () async {},
+                      onPrevious: () async {},
+                      onNext: () async {},
+                      onSeek: (_) async {},
+                      windowControls: _FakeWindowControls(),
+                      lyricsLoader: (String path) async => const TrackLyrics(
+                        lines: <LyricLine>[],
+                        plain: '',
+                        source: 'none',
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(pageOwnsWindowControls.value, isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('now-playing-collapse')),
+    );
+    await tester.pump();
+
+    // 关键：页面还在滑，但按钮已经交还给全局那层——等 dispose 才交还的话，
+    // 右上角会在整段收起动画里空着
+    expect(find.byType(NowPlayingPage), findsOneWidget);
+    expect(pageOwnsWindowControls.value, isFalse, reason: '收起一开始就要交还，不能等页面销毁');
+
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('播放页自带窗口按钮：固定白色 + 描影，并让全局那层让位', (WidgetTester tester) async {
+    addTearDown(() => pageOwnsWindowControls.value = false);
+    final _FakeWindowControls controls = _FakeWindowControls();
+    await _pump(tester, data: _data(), windowControls: controls);
+
+    final WindowButtons buttons = tester.widget<WindowButtons>(
+      find.byType(WindowButtons),
+    );
+    expect(buttons.foreground, Colors.white, reason: '取色背景上固定白色');
+    expect(buttons.castShadow, isTrue, reason: '渐变底需要描影兜底');
+    expect(pageOwnsWindowControls.value, isTrue, reason: '全局那层要让位');
+
+    // 按钮在页面里，跟着页面一起滑：和顶部的收起键同一条 48 高的横线
+    final Rect close = tester.getRect(
+      find.byKey(const ValueKey<String>('window-close')),
+    );
+    final Rect collapse = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-collapse')),
+    );
+    expect(close.center.dy, closeTo(collapse.center.dy, 1));
+    expect(
+      close.right,
+      closeTo(tester.view.physicalSize.width / tester.view.devicePixelRatio, 1),
+    );
   });
 }
 

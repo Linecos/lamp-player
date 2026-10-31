@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/immersive_chrome.dart';
+import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/ui_clock.dart';
@@ -91,10 +92,19 @@ class NowPlayingPage extends StatefulWidget {
     this.shortcuts = kDefaultShortcuts,
     this.onToggleDesktopLyrics,
     this.onToggleDesktopLyricLock,
+    this.onOpenArtist,
+    this.onOpenAlbum,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
+
+  /// 点歌手 / 专辑跳到曲库对应分区；为空时那一行退化成普通文本。
+  ///
+  /// 传整个 [Track] 而不是名字：专辑是按「歌手 + 专辑名」聚合的，
+  /// 聚合键怎么算属于曲库那边的规则，不该让本页去复制一份。
+  final ValueChanged<Track>? onOpenArtist;
+  final ValueChanged<Track>? onOpenAlbum;
 
   /// 开关桌面歌词；为空时不显示该按钮
   final VoidCallback? onToggleDesktopLyrics;
@@ -190,6 +200,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 
   /// 当前封面的取色结果；为空时背景用主题色兜底。
   List<Color>? _palette;
+
+  /// 当前路由的转场动画：收起时据此把窗口按钮交还给全局那层
+  Animation<double>? _routeAnimation;
 
   /// 播放进度（秒）：歌词视图拿它做插值，拖动预览不碰它。
   final ValueNotifier<double> _position = ValueNotifier<double>(0);
@@ -385,19 +398,47 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     widget.data.addListener(_onData);
     circularCovers.addListener(_syncCoverSpin);
     _onData();
+    _publishOwnChrome();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 本页背景固定为深色；浅色模式下窗口按钮需要改成浅色图标
-    forceLightWindowControls.value =
-        Theme.of(context).brightness == Brightness.light;
+    final Animation<double>? animation = ModalRoute.of(context)?.animation;
+    if (identical(animation, _routeAnimation)) {
+      return;
+    }
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _routeAnimation = animation;
+    _routeAnimation?.addStatusListener(_onRouteStatus);
+  }
+
+  /// 收起动画一开始就把窗口按钮交还给全局那层。
+  ///
+  /// 等页面 `dispose` 再交还就晚了：页面滑走的这 240ms 里，自己的按钮跟着
+  /// 页面往下走了、全局的却还没回来，右上角会空出一块，看起来像「收起后要
+  /// 愣一下，按钮才冒出来」。
+  void _onRouteStatus(AnimationStatus status) {
+    if (status == AnimationStatus.reverse) {
+      pageOwnsWindowControls.value = false;
+    }
+  }
+
+  /// 本页自己画窗口按钮，让全局那层让位——否则两套按钮会同时挂在右上角，
+  /// 而且全局那套在转场里纹丝不动，和滑上来的页面脱节。
+  void _publishOwnChrome() {
+    // 页面要一起滑进来，按钮得跟页面同层，不能用窗口外壳那层浮层
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        pageOwnsWindowControls.value = true;
+      }
+    });
   }
 
   @override
   void dispose() {
-    forceLightWindowControls.value = false;
+    _routeAnimation?.removeStatusListener(_onRouteStatus);
+    pageOwnsWindowControls.value = false;
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
     _stopSpin();
@@ -662,8 +703,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _header(BuildContext context) {
     return Padding(
       key: const ValueKey<String>('now-playing-header'),
-      // 贴住窗口顶端，中心 y≈24，与右侧窗口按钮（中心 y≈22）齐平
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      // 贴住窗口顶端，中心 y≈24；右边不留白，让三个按钮和全局那层的位置
+      // 逐像素对齐，转场时看着是「同一组按钮跟着页面走」
+      padding: const EdgeInsets.only(left: 8),
       child: SizedBox(
         height: 48,
         child: AnimatedBuilder(
@@ -711,6 +753,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                   child: const SizedBox.expand(),
                 ),
               ),
+              // 本页自己画窗口按钮：跟着页面一起滑进来 / 滑出去。背景是封面
+              // 取色的渐变，固定用白色字形 + 描影，任何封面上都读得出来。
+              if (widget.windowControls != null)
+                WindowButtons(
+                  controls: widget.windowControls!,
+                  foreground: Colors.white,
+                  castShadow: true,
+                ),
             ],
           ),
         ),
@@ -835,16 +885,51 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
-  /// 「歌手-专辑」合成一行；没有专辑时只显示歌手
-  String _artistAndAlbum(Track track) {
-    final String artist = trackArtist(track);
-    final String album = track.album ?? '';
-    return album.isEmpty ? artist : '$artist-$album';
+  /// 「歌手-专辑」一行：两段各自可点，分别跳曲库的艺术家 / 专辑详情。
+  ///
+  /// 分隔符与字号沿用原来那条合成文本，所以看起来和之前一模一样，
+  /// 只是鼠标移上去会变主题色加下划线——不这样根本看不出它能点。
+  Widget _metaLine(BuildContext context, Track track) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle style = (theme.textTheme.bodyLarge ?? const TextStyle())
+        .copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final String album = (track.album ?? '').trim();
+    final ValueChanged<Track>? openArtist = widget.onOpenArtist;
+    final ValueChanged<Track>? openAlbum = widget.onOpenAlbum;
+
+    return Row(
+      key: const ValueKey<String>('now-playing-meta'),
+      // 必须按内容收缩：Row 撑满整宽会把这一列一起撑宽，窄窗口里封面
+      // 会跟着横移半个屏（布局 golden 上直接能看出来）
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Flexible(
+          child: _MetaLink(
+            key: const ValueKey<String>('now-playing-artist'),
+            text: trackArtist(track),
+            style: style,
+            tooltip: '查看艺术家',
+            onTap: openArtist == null ? null : () => openArtist(track),
+          ),
+        ),
+        if (album.isNotEmpty) ...<Widget>[
+          Text('-', style: style),
+          Flexible(
+            child: _MetaLink(
+              key: const ValueKey<String>('now-playing-album'),
+              text: album,
+              style: style,
+              tooltip: '查看专辑',
+              onTap: openAlbum == null ? null : () => openAlbum(track),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _trackInfo(BuildContext context, Track track, double coverSize) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -867,14 +952,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              _artistAndAlbum(track),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
+            _metaLine(context, track),
           ],
         ),
         const SizedBox(height: 16),
@@ -891,67 +969,104 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       available.isFinite && available < coverSize
                       ? available
                       : coverSize;
-                  return ValueListenableBuilder<bool>(
-                    valueListenable: circularCovers,
-                    builder:
-                        (BuildContext context, bool circular, Widget? child) {
-                          return Container(
-                            decoration: BoxDecoration(
-                              // 圆形封面时阴影容器也要跟着圆：矩形阴影会在
-                              // 圆角外露出一圈方形的光晕
-                              shape: circular
-                                  ? BoxShape.circle
-                                  : BoxShape.rectangle,
-                              // 与卡片同级：336px 的大封面用 20 显得几乎是直角
-                              borderRadius: circular
-                                  ? null
-                                  : BorderRadius.circular(28),
-                              boxShadow: <BoxShadow>[
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.35),
-                                  blurRadius: 28,
-                                  spreadRadius: 2,
-                                  offset: const Offset(10, 12),
-                                ),
-                              ],
-                            ),
-                            child: child,
-                          );
-                        },
-                    // 旋转用「Transform 在上、RepaintBoundary 在下」：
-                    // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的光栅），
-                    // 反过来套一层边界就变成每帧把转过的封面重新光栅化一遍
-                    child: ValueListenableBuilder<double>(
-                      valueListenable: _coverTurns,
-                      // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                  // 大封面本体：Hero 子树与飞行 shuttle 共用同一份配置。
+                  // 收起时的目标在播放条，那边只有 56px 的小图，默认 shuttle
+                  // 会拿它放大，动画一开始就糊成一片；统一用这张大图，正反
+                  // 两个方向都清楚，形状也始终一致。
+                  final Widget cover = AlbumCover(
+                    path: track.coverPath,
+                    size: size,
+                    // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
+                    radius: 28,
+                    playing: playing,
+                    // 换歌时新封面收进来 + 淡入，别硬切
+                    animateOnChange: true,
+                  );
+                  // 阴影必须挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
+                  // 还杵在原地，收起过程中就是一团孤零零的暗斑跟着背景慢慢淡出
+                  Widget withShadow(Widget inner) {
+                    return ValueListenableBuilder<bool>(
+                      valueListenable: circularCovers,
                       builder:
-                          (BuildContext context, double turns, Widget? child) =>
-                              Transform.rotate(
-                                key: const ValueKey<String>(
-                                  'now-playing-cover-spin',
-                                ),
-                                angle: turns * math.pi * 2,
-                                child: child,
+                          (BuildContext context, bool circular, Widget? child) {
+                            return Container(
+                              decoration: BoxDecoration(
+                                // 圆形封面时阴影容器也要跟着圆：矩形阴影会在
+                                // 圆角外露出一圈方形的光晕
+                                shape: circular
+                                    ? BoxShape.circle
+                                    : BoxShape.rectangle,
+                                // 与卡片同级：336px 的大封面用 20 显得几乎是直角
+                                borderRadius: circular
+                                    ? null
+                                    : BorderRadius.circular(28),
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.35),
+                                    blurRadius: 28,
+                                    spreadRadius: 2,
+                                    offset: const Offset(10, 12),
+                                  ),
+                                ],
                               ),
-                      child: RepaintBoundary(
-                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件。
-                        // Hero 放在旋转外面，飞入 / 飞出时不跟着转。
-                        // 插值用 RectTween（中心 + 尺寸线性）：弧线 tween 是
-                        // 四个角各走各的弧线，尺寸差一个量级时中途会变竖长条
-                        child: Hero(
-                          tag: coverHeroTag,
-                          createRectTween: (Rect? begin, Rect? end) =>
-                              RectTween(begin: begin, end: end),
-                          child: AlbumCover(
-                            path: track.coverPath,
-                            size: size,
-                            // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                            radius: 28,
-                            playing: playing,
-                            // 换歌时新封面收进来 + 淡入，别硬切
-                            animateOnChange: true,
+                              child: child,
+                            );
+                          },
+                      child: inner,
+                    );
+                  }
+
+                  return Hero(
+                    tag: coverHeroTag,
+                    createRectTween: (Rect? begin, Rect? end) =>
+                        RectTween(begin: begin, end: end),
+                    // 正反两个方向都用播放页这张大图：收起时的目标在播放条，
+                    // 那边只有 56px 小图，默认 shuttle 拿它放大时一路发虚。
+                    //
+                    // 但**不要**带阴影：飞行中矩形的尺寸每帧都在变，
+                    // `blurRadius: 28` 的 boxShadow 等于每帧按新尺寸重做一遍
+                    // 高斯模糊，是转场掉帧最大的一笔开销。阴影留在页面里的
+                    // Hero 子树上（不飞行时是一次性栅格化）。
+                    //
+                    // 布局尺寸也固定成大图、靠 `FittedBox` 缩放：shuttle 拿到的是
+                    // 每帧都变的紧约束，直接铺进去等于每帧按新尺寸重新栅格化
+                    // 整张封面；固定尺寸后每帧只改一个缩放矩阵，纹理直接复用。
+                    flightShuttleBuilder:
+                        (
+                          BuildContext flightContext,
+                          Animation<double> animation,
+                          HeroFlightDirection direction,
+                          BuildContext fromHeroContext,
+                          BuildContext toHeroContext,
+                        ) => FittedBox(
+                          fit: BoxFit.fill,
+                          child: SizedBox(
+                            width: size,
+                            height: size,
+                            child: RepaintBoundary(child: cover),
                           ),
                         ),
+                    child: withShadow(
+                      // 旋转用「Transform 在上、RepaintBoundary 在下」：
+                      // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
+                      // 光栅），反过来套一层边界就每帧重新光栅化一遍
+                      ValueListenableBuilder<double>(
+                        valueListenable: _coverTurns,
+                        // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                        builder:
+                            (
+                              BuildContext context,
+                              double turns,
+                              Widget? child,
+                            ) => Transform.rotate(
+                              key: const ValueKey<String>(
+                                'now-playing-cover-spin',
+                              ),
+                              angle: turns * math.pi * 2,
+                              child: child,
+                            ),
+                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件
+                        child: RepaintBoundary(child: cover),
                       ),
                     ),
                   );
@@ -1372,6 +1487,71 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 }
 
 /// 输出设备按钮：点开弹窗列「系统默认 + 枚举到的设备」，当前项打勾。
+/// 曲目信息行里的可点文字（歌手 / 专辑）。
+///
+/// 悬停时变主题色 + 下划线、光标变手型；[onTap] 为空时退化成普通文本，
+/// 排版完全一致——能点与不能点只在鼠标移上去时才该有区别。
+class _MetaLink extends StatefulWidget {
+  const _MetaLink({
+    super.key,
+    required this.text,
+    required this.style,
+    this.tooltip,
+    this.onTap,
+  });
+
+  final String text;
+  final TextStyle style;
+  final String? tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  State<_MetaLink> createState() => _MetaLinkState();
+}
+
+class _MetaLinkState extends State<_MetaLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accent = Theme.of(context).colorScheme.primary;
+    final bool enabled = widget.onTap != null;
+    final Widget label = Text(
+      widget.text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: _hovered && enabled
+          ? widget.style.copyWith(
+              color: accent,
+              decoration: TextDecoration.underline,
+              decorationColor: accent,
+            )
+          : widget.style,
+    );
+    if (!enabled) {
+      return label;
+    }
+    final Widget link = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+      onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: label,
+      ),
+    );
+    final String? tooltip = widget.tooltip;
+    return tooltip == null
+        ? link
+        : Tooltip(
+            message: tooltip,
+            waitDuration: const Duration(milliseconds: 600),
+            child: link,
+          );
+  }
+}
+
 class _OutputDeviceButton extends StatelessWidget {
   const _OutputDeviceButton({
     required this.devices,

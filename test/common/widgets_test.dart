@@ -470,4 +470,64 @@ void main() {
       expect(ErrorRetry.describe(''), '未知错误');
     });
   });
+
+  group('AlbumCover 圆形裁剪', () {
+    testWidgets('被压成中间尺寸时仍按实际尺寸裁成正圆', (WidgetTester tester) async {
+      // Hero 飞行途中封面会被紧约束压到「播放条尺寸 → 播放页尺寸」之间，
+      // 半径如果按 widget.size / 2 算，中途就是一个圆角方块
+      circularCovers.value = true;
+      addTearDown(() => circularCovers.value = false);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 200,
+                height: 200,
+                child: AlbumCover(size: 56),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // 圆形用 ClipOval：飞行途中尺寸每帧都在变，椭圆裁剪天然跟着边界走，
+      // 不需要「按实际尺寸算半径」那种每帧重建的 LayoutBuilder
+      expect(
+        find.descendant(
+          of: find.byType(AlbumCover),
+          matching: find.byType(ClipOval),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('方形封面仍用组件传入的圆角', (WidgetTester tester) async {
+      circularCovers.value = false;
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 200,
+                height: 200,
+                child: AlbumCover(size: 56, radius: 16),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final ClipRRect clip = tester.widget<ClipRRect>(
+        find
+            .descendant(
+              of: find.byType(AlbumCover),
+              matching: find.byType(ClipRRect),
+            )
+            .first,
+      );
+      expect(clip.borderRadius, BorderRadius.circular(16));
+    });
+  });
 }

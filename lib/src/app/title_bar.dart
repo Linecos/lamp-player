@@ -15,7 +15,7 @@ import 'window_controls.dart';
 ///
 /// - 拖动 / 双击最大化：左侧整块空白区域
 /// - 右侧三个按钮不参与拖动
-class LampTitleBar extends StatefulWidget {
+class LampTitleBar extends StatelessWidget {
   const LampTitleBar({
     super.key,
     required this.controls,
@@ -36,7 +36,11 @@ class LampTitleBar extends StatefulWidget {
   final bool controlsOnly;
 
   /// 三个按钮的总宽度；页面顶栏据此预留右侧空间。
-  static const double controlsWidth = 46 * 3;
+  static const double controlsWidth = _captionWidth * 3;
+
+  /// 单个窗口按钮的宽度，与 ed1d197 那版一致（46 + 15px 字形）：
+  /// 那套尺寸在顶栏里最不起眼，也不会把搜索框往左挤
+  static const double _captionWidth = 46;
 
   /// 高度；[WindowChrome] 据此预留布局。
   /// 48 给顶栏里的搜索框和窗口按钮留出上下呼吸空间。
@@ -48,11 +52,102 @@ class LampTitleBar extends StatefulWidget {
   /// 页面顶部（y < 44）的按钮会被它整个吃掉点击。
   static const double defaultLeftInset = 160;
 
+  Future<void> _startDragging() async {
+    try {
+      await controls.startDragging();
+    } catch (_) {
+      // 忽略：拖不动总比崩了强
+    }
+  }
+
+  Future<void> _toggleMaximize() async {
+    try {
+      await controls.toggleMaximize();
+    } catch (_) {
+      // 同上
+    }
+  }
+
   @override
-  State<LampTitleBar> createState() => _LampTitleBarState();
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color background = this.background ?? scheme.surfaceContainerLow;
+
+    // 按钮颜色只跟主题深浅走：浅色模式纯黑、深色模式纯白。正在播放页那层
+    // 取色背景上的按钮由页面自己画（固定白色），这里不再按底色挑对比度。
+    final Color foreground = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
+
+    final Widget buttons = WindowButtons(
+      controls: controls,
+      foreground: foreground,
+    );
+
+    if (controlsOnly) {
+      return Material(
+        type: MaterialType.transparency,
+        child: SizedBox(height: height, width: controlsWidth, child: buttons),
+      );
+    }
+
+    // 用透明 Material + 分区 ColoredBox 而不是 Material(color:)：
+    // 不透明 Material 会把整条区域都当成实体吞掉点击，让位区就透不到页面。
+    return Material(
+      type: MaterialType.transparency,
+      child: SizedBox(
+        height: height,
+        child: Row(
+          children: <Widget>[
+            if (leftInset > 0) SizedBox(width: leftInset),
+            Expanded(
+              child: ColoredBox(
+                color: background,
+                child: GestureDetector(
+                  key: const ValueKey<String>('window-drag-area'),
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (_) => unawaited(_startDragging()),
+                  onDoubleTap: () => unawaited(_toggleMaximize()),
+                  child: Semantics(
+                    label: '窗口标题栏（可拖动）',
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ),
+            ),
+            ColoredBox(color: background, child: buttons),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _LampTitleBarState extends State<LampTitleBar> {
+/// 最小化 / 最大化（还原）/ 关闭三个按钮。
+///
+/// 标题栏和正在播放页共用这一份：播放页要把按钮连同页面一起滑进来，不能再
+/// 依赖 `MaterialApp.builder` 里那层固定在窗口右上角的浮层。
+class WindowButtons extends StatefulWidget {
+  const WindowButtons({
+    super.key,
+    required this.controls,
+    required this.foreground,
+    this.castShadow = false,
+  });
+
+  final WindowControls controls;
+
+  /// 字形颜色：浅色主题纯黑、深色主题纯白；取色背景上固定白色
+  final Color foreground;
+
+  /// 背后是封面取色渐变时给字形补一圈反向描影；纯色底上会糊，不要开
+  final bool castShadow;
+
+  @override
+  State<WindowButtons> createState() => _WindowButtonsState();
+}
+
+class _WindowButtonsState extends State<WindowButtons> {
   bool _maximized = false;
   StreamSubscription<bool>? _maximizeSub;
 
@@ -64,7 +159,7 @@ class _LampTitleBarState extends State<LampTitleBar> {
   }
 
   @override
-  void didUpdateWidget(LampTitleBar oldWidget) {
+  void didUpdateWidget(WindowButtons oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controls != widget.controls) {
       unawaited(_maximizeSub?.cancel());
@@ -129,91 +224,44 @@ class _LampTitleBarState extends State<LampTitleBar> {
     }
   }
 
-  Future<void> _startDragging() async {
-    try {
-      await widget.controls.startDragging();
-    } catch (_) {
-      // 同上
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final Color background = widget.background ?? scheme.surfaceContainerLow;
-
-    final Widget controls = ValueListenableBuilder<bool>(
-      valueListenable: forceLightWindowControls,
-      builder: (BuildContext context, bool light, Widget? child) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _CaptionButton(
-              key: const ValueKey<String>('window-minimize'),
-              glyph: WindowGlyph.minimize,
-              label: '最小化',
-              light: light,
-              onTap: () => unawaited(_minimize()),
-            ),
-            _CaptionButton(
-              key: const ValueKey<String>('window-maximize'),
-              glyph: _maximized ? WindowGlyph.restore : WindowGlyph.maximize,
-              label: _maximized ? '还原' : '最大化',
-              light: light,
-              onTap: () => unawaited(_toggleMaximize()),
-            ),
-            _CaptionButton(
-              key: const ValueKey<String>('window-close'),
-              glyph: WindowGlyph.close,
-              label: '关闭',
-              light: light,
-              danger: true,
-              onTap: () => unawaited(_close()),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (widget.controlsOnly) {
-      return Material(
-        type: MaterialType.transparency,
-        child: SizedBox(
-          height: LampTitleBar.height,
-          width: LampTitleBar.controlsWidth,
-          child: controls,
+    // 悬停蒙层从字形颜色的明暗反推：白字配白蒙层、黑字配深蒙层
+    final bool darkBackdrop = widget.foreground.computeLuminance() < 0.5
+        ? false
+        : true;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _CaptionButton(
+          key: const ValueKey<String>('window-minimize'),
+          glyph: WindowGlyph.minimize,
+          label: '最小化',
+          foreground: widget.foreground,
+          darkBackdrop: darkBackdrop,
+          needsHalo: widget.castShadow,
+          onTap: () => unawaited(_minimize()),
         ),
-      );
-    }
-
-    // 用透明 Material + 分区 ColoredBox 而不是 Material(color:)：
-    // 不透明 Material 会把整条区域都当成实体吞掉点击，让位区就透不到页面。
-    return Material(
-      type: MaterialType.transparency,
-      child: SizedBox(
-        height: LampTitleBar.height,
-        child: Row(
-          children: <Widget>[
-            if (widget.leftInset > 0) SizedBox(width: widget.leftInset),
-            Expanded(
-              child: ColoredBox(
-                color: background,
-                child: GestureDetector(
-                  key: const ValueKey<String>('window-drag-area'),
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: (_) => unawaited(_startDragging()),
-                  onDoubleTap: () => unawaited(_toggleMaximize()),
-                  child: Semantics(
-                    label: '窗口标题栏（可拖动）',
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-              ),
-            ),
-            ColoredBox(color: background, child: controls),
-          ],
+        _CaptionButton(
+          key: const ValueKey<String>('window-maximize'),
+          glyph: _maximized ? WindowGlyph.restore : WindowGlyph.maximize,
+          label: _maximized ? '还原' : '最大化',
+          foreground: widget.foreground,
+          darkBackdrop: darkBackdrop,
+          needsHalo: widget.castShadow,
+          onTap: () => unawaited(_toggleMaximize()),
         ),
-      ),
+        _CaptionButton(
+          key: const ValueKey<String>('window-close'),
+          glyph: WindowGlyph.close,
+          label: '关闭',
+          foreground: widget.foreground,
+          darkBackdrop: darkBackdrop,
+          needsHalo: widget.castShadow,
+          danger: true,
+          onTap: () => unawaited(_close()),
+        ),
+      ],
     );
   }
 }
@@ -221,61 +269,116 @@ class _LampTitleBarState extends State<LampTitleBar> {
 /// 自绘窗口按钮的图形类型。
 enum WindowGlyph { minimize, maximize, restore, close }
 
+/// 窗口按钮字形：按 20×20 设计稿画、实际按 15px 输出（描边等比缩到
+/// 1.2px），直角转折、平头端点。
+///
+/// 对齐 ZeroBit Player 那套线稿：一条细横线、四角折角、对角双箭头、叉。
+/// 早先用的是「圆角方框 + 圆头笔画 + 1.35 描边」，在 15px 下笔画几乎糊成一
+/// 小块，而且圆角方框看起来更像「复选框」而不是「整窗」。
 class _WindowGlyphPainter extends CustomPainter {
-  const _WindowGlyphPainter({required this.glyph, required this.color});
+  const _WindowGlyphPainter({
+    required this.glyph,
+    required this.color,
+    required this.shadowColor,
+  });
+
+  /// 设计稿边长，所有坐标都在这个尺度里写
+  static const double _design = 20;
+
+  /// 描边宽度：设计稿 20 里 1.6，约等于 ZeroBit 那套的 2/20
+  static const double _stroke = 1.6;
 
   final WindowGlyph glyph;
   final Color color;
 
+  /// 描影：白字形落在亮背景上、黑字形落在暗背景上，都靠它压住边界。正在播放
+  /// 页的底色是封面取色的渐变，局部亮局部暗，单靠字形颜色总有一处看不清。
+  final Color shadowColor;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
+    canvas.save();
+    canvas.scale(size.width / _design, size.height / _design);
+    // 描影只铺一层很淡的模糊：太厚会把 1.6 的细线糊成一条脏边
+    _paint(canvas, shadowColor, 1.0);
+    _paint(canvas, color, 0);
+    canvas.restore();
+  }
+
+  void _paint(Canvas canvas, Color color, double blur) {
+    final MaskFilter? mask = blur > 0
+        ? MaskFilter.blur(BlurStyle.normal, blur)
+        : null;
+    final Paint stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // 图形按 14×14 设计，按实际尺寸等比缩放
-    canvas.save();
-    canvas.scale(size.width / 14, size.height / 14);
-
+      ..strokeWidth = _stroke
+      ..strokeCap = StrokeCap.butt
+      ..strokeJoin = StrokeJoin.miter
+      ..maskFilter = mask;
     switch (glyph) {
       case WindowGlyph.minimize:
-        canvas.drawLine(const Offset(2, 7), const Offset(12, 7), paint);
+        // 一条细横线，几乎占满图标宽度（参考稿里比折角框还宽一点）
+        canvas.drawLine(const Offset(0.6, 10), const Offset(19.4, 10), stroke);
       case WindowGlyph.maximize:
-        // 四角括号，参考 Coriander 的全屏图标
-        final Path path = Path()
-          ..moveTo(2, 5)
-          ..lineTo(2, 2)
-          ..lineTo(5, 2)
-          ..moveTo(9, 2)
-          ..lineTo(12, 2)
-          ..lineTo(12, 5)
-          ..moveTo(12, 9)
-          ..lineTo(12, 12)
-          ..lineTo(9, 12)
-          ..moveTo(5, 12)
-          ..lineTo(2, 12)
-          ..lineTo(2, 9);
-        canvas.drawPath(path, paint);
+        // 四角折角：臂长 6，中间留空，比圆角方框更像「整窗」
+        canvas.drawPath(
+          Path()
+            ..moveTo(1, 7)
+            ..lineTo(1, 1)
+            ..lineTo(7, 1)
+            ..moveTo(13, 1)
+            ..lineTo(19, 1)
+            ..lineTo(19, 7)
+            ..moveTo(19, 13)
+            ..lineTo(19, 19)
+            ..lineTo(13, 19)
+            ..moveTo(7, 19)
+            ..lineTo(1, 19)
+            ..lineTo(1, 13),
+          stroke,
+        );
       case WindowGlyph.restore:
-        canvas.drawRect(const Rect.fromLTWH(2, 5, 7, 7), paint);
-        canvas.drawRect(const Rect.fromLTWH(5, 2, 7, 7), paint);
+        // 四角向内：折角的**拐点朝中心**、两臂伸向四角，和 maximize 正好相反。
+        // 之前用对角双箭头，和旁边两个「方框类」字形风格不搭，摆在一起很跳。
+        canvas.drawPath(
+          Path()
+            ..moveTo(1, 7)
+            ..lineTo(7, 7)
+            ..lineTo(7, 1)
+            ..moveTo(19, 7)
+            ..lineTo(13, 7)
+            ..lineTo(13, 1)
+            ..moveTo(1, 13)
+            ..lineTo(7, 13)
+            ..lineTo(7, 19)
+            ..moveTo(19, 13)
+            ..lineTo(13, 13)
+            ..lineTo(13, 19),
+          stroke,
+        );
       case WindowGlyph.close:
-        canvas.drawLine(const Offset(3, 3), const Offset(11, 11), paint);
-        canvas.drawLine(const Offset(11, 3), const Offset(3, 11), paint);
+        // 叉：边长 17，留出呼吸空间
+        canvas
+          ..drawLine(const Offset(1.5, 1.5), const Offset(18.5, 18.5), stroke)
+          ..drawLine(const Offset(18.5, 1.5), const Offset(1.5, 18.5), stroke);
     }
-    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _WindowGlyphPainter oldDelegate) {
-    return oldDelegate.glyph != glyph || oldDelegate.color != color;
+    return oldDelegate.glyph != glyph ||
+        oldDelegate.color != color ||
+        oldDelegate.shadowColor != shadowColor;
   }
 }
 
-/// Windows 风格窗口按钮：默认透明，悬停时高亮；关闭键悬停变红底白字。
+/// 窗口按钮：默认透明，悬停时亮起一个圆形底；关闭键悬停变红底白字。
+///
+/// 圆形底而不是整格方块：正在播放页左上角的「收起」是标准 `IconButton`，
+/// 悬停高亮就是圆的；右上角这三个原先是整块矩形，同一条顶栏里两种形状并
+/// 存，看着像两套控件。现在三个按钮各自在一个圆形底上悬停，点击热区仍是
+/// 各自的整格（46×48，贴着窗口边角也好按）。
 ///
 /// 这里刻意不用 `Tooltip`：标题栏挂在 `MaterialApp.builder` 上，位于
 /// Navigator 的 `Overlay` 之上，而 `Tooltip` 强依赖 Overlay 祖先。
@@ -286,7 +389,9 @@ class _CaptionButton extends StatefulWidget {
     required this.glyph,
     required this.label,
     required this.onTap,
-    this.light = false,
+    required this.foreground,
+    this.darkBackdrop = false,
+    this.needsHalo = false,
     this.danger = false,
   });
 
@@ -296,7 +401,16 @@ class _CaptionButton extends StatefulWidget {
   final String label;
 
   final VoidCallback onTap;
-  final bool light;
+
+  /// 字形颜色：由标题栏按背后的实际底色挑好，不再死跟主题
+  final Color foreground;
+
+  /// 底色偏深：悬停铺白色蒙层，否则铺深色蒙层
+  final bool darkBackdrop;
+
+  /// 背后是取色渐变：给字形补一圈反向描影，纯色底上不需要
+  final bool needsHalo;
+
   final bool danger;
 
   @override
@@ -306,45 +420,69 @@ class _CaptionButton extends StatefulWidget {
 class _CaptionButtonState extends State<_CaptionButton> {
   static const Color _closeHover = Color(0xFFC42B1C);
 
+  /// 每个按钮占的宽度；三个加起来就是 [LampTitleBar.controlsWidth]
+  static const double _slotWidth = LampTitleBar._captionWidth;
+
+  /// 悬停时圆形底的直径。与「收起」按钮的圆形高亮视觉大小对齐，
+  /// 比格子小一圈，相邻两个圆之间正好留出 6px 缝
+  static const double _hoverDiameter = 32;
+
   bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
     final bool highlight = _hovering;
-    final Color background = highlight
-        ? (widget.danger
-              ? _closeHover
-              : (widget.light
-                    ? Colors.white.withValues(alpha: 0.16)
-                    : scheme.surfaceContainerHighest))
-        : Colors.transparent;
+    final Color background = !highlight
+        ? Colors.transparent
+        : widget.danger
+        ? _closeHover
+        // 悬停底也从底色推导：浅底铺深色蒙层、深底铺白色蒙层，
+        // 否则浅底上白色蒙层等于没画
+        : (widget.darkBackdrop
+              ? Colors.white.withValues(alpha: 0.14)
+              : Colors.black.withValues(alpha: 0.06));
     final Color foreground = highlight && widget.danger
         ? Colors.white
-        : (widget.light ? Colors.white : scheme.onSurfaceVariant);
+        : widget.foreground;
+    // 描影与字形反向：只在取色背景上画，纯色主题底加了反而发糊
+    final Color shadow = !widget.needsHalo
+        ? Colors.transparent
+        : widget.foreground.computeLuminance() > 0.5
+        ? Colors.black.withValues(alpha: 0.32)
+        : Colors.white.withValues(alpha: 0.4);
 
     return Semantics(
       button: true,
       label: widget.label,
       child: MouseRegion(
-        cursor: SystemMouseCursors.basic,
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovering = true),
         onExit: (_) => setState(() => _hovering = false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            width: 46,
+          child: SizedBox(
+            width: _slotWidth,
             height: LampTitleBar.height,
-            color: background,
             child: Center(
-              child: CustomPaint(
-                key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
-                size: const Size(15, 15),
-                painter: _WindowGlyphPainter(
-                  glyph: widget.glyph,
-                  color: foreground,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: _hoverDiameter,
+                height: _hoverDiameter,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: background,
+                ),
+                child: Center(
+                  child: CustomPaint(
+                    key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
+                    size: const Size(15, 15),
+                    painter: _WindowGlyphPainter(
+                      glyph: widget.glyph,
+                      color: foreground,
+                      shadowColor: shadow,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -395,10 +533,16 @@ class WindowChrome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget titleBar = AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[immersiveMode, pointerNearTop]),
-      // 沉浸模式下窗口按钮跟着页面一起隐，指针靠近顶端才露出来
+      animation: Listenable.merge(<Listenable>[
+        immersiveMode,
+        pointerNearTop,
+        pageOwnsWindowControls,
+      ]),
+      // 两种隐藏：沉浸模式下指针离开顶部就隐；页面自带按钮时整层让位
       builder: (BuildContext context, Widget? child) {
-        final bool hidden = immersiveMode.value && !pointerNearTop.value;
+        final bool hidden =
+            pageOwnsWindowControls.value ||
+            (immersiveMode.value && !pointerNearTop.value);
         return IgnorePointer(
           ignoring: hidden,
           child: AnimatedOpacity(

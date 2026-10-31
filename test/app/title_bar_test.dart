@@ -74,10 +74,14 @@ const ValueKey<String> _dragKey = ValueKey<String>('window-drag-area');
 
 Future<void> _pumpTitleBar(
   WidgetTester tester,
-  FakeWindowControls controls,
-) async {
+  FakeWindowControls controls, {
+  bool dark = false,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
+      // 主题切换默认有 200ms 过渡，单次 pump 时 Theme.of 还是旧值
+      themeAnimationDuration: Duration.zero,
+      theme: ThemeData(brightness: dark ? Brightness.dark : Brightness.light),
       home: Scaffold(
         body: Column(
           children: <Widget>[
@@ -91,6 +95,14 @@ Future<void> _pumpTitleBar(
   await tester.pump();
 }
 
+/// 按钮里那层圆形底的装饰（`AnimatedContainer` 的目标装饰）
+BoxDecoration _captionDecoration(WidgetTester tester, Finder button) {
+  final AnimatedContainer container = tester.widget<AnimatedContainer>(
+    find.descendant(of: button, matching: find.byType(AnimatedContainer)),
+  );
+  return container.decoration! as BoxDecoration;
+}
+
 void main() {
   testWidgets('标题栏保留拖动区与三个窗口按钮，应用名交给侧栏', (WidgetTester tester) async {
     await _pumpTitleBar(tester, FakeWindowControls());
@@ -100,6 +112,52 @@ void main() {
     expect(find.byKey(_minimizeKey), findsOneWidget);
     expect(find.byKey(_maximizeKey), findsOneWidget);
     expect(find.byKey(_closeKey), findsOneWidget);
+  });
+
+  testWidgets('窗口按钮悬停亮起圆形底，关闭键是红圆', (WidgetTester tester) async {
+    await _pumpTitleBar(tester, FakeWindowControls());
+
+    final Finder minimize = find.byKey(_minimizeKey);
+    final Finder maximize = find.byKey(_maximizeKey);
+    final Finder close = find.byKey(_closeKey);
+
+    // 静息时三处都是透明底，但圆底本身已经在位（尺寸恒定，位移不会跳）
+    for (final Finder button in <Finder>[minimize, maximize, close]) {
+      final BoxDecoration decoration = _captionDecoration(tester, button);
+      expect(decoration.shape, BoxShape.circle);
+      expect(decoration.color, Colors.transparent);
+      expect(
+        tester.getSize(
+          find.descendant(of: button, matching: find.byType(AnimatedContainer)),
+        ),
+        const Size(32, 32),
+      );
+    }
+
+    // 同一个鼠标指针依次移过两个按钮（重新 addPointer 会撞设备号）
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer();
+    addTearDown(mouse.removePointer);
+
+    Future<void> hover(Finder button) async {
+      await mouse.moveTo(tester.getCenter(button));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    // 悬停：圆形底亮起，和左上角「收起」按钮同一套视觉
+    await hover(maximize);
+    final BoxDecoration hovered = _captionDecoration(tester, maximize);
+    expect(hovered.shape, BoxShape.circle);
+    expect(hovered.color, isNot(Colors.transparent));
+
+    // 关闭键悬停变红圆（不再是整格红块）
+    await hover(close);
+    final BoxDecoration closing = _captionDecoration(tester, close);
+    expect(closing.shape, BoxShape.circle);
+    expect(closing.color, const Color(0xFFC42B1C));
   });
 
   testWidgets('overlay 模式下标题条浮在页面顶部', (WidgetTester tester) async {
@@ -337,5 +395,36 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+  });
+
+  group('按钮颜色只跟主题深浅走', () {
+    testWidgets('浅色模式纯黑、深色模式纯白', (WidgetTester tester) async {
+      await _pumpTitleBar(tester, FakeWindowControls());
+      expect(
+        tester.widget<WindowButtons>(find.byType(WindowButtons)).foreground,
+        Colors.black,
+        reason: '浅色模式用黑字形，不再按底色算对比度',
+      );
+
+      await _pumpTitleBar(tester, FakeWindowControls(), dark: true);
+      expect(
+        tester.widget<WindowButtons>(find.byType(WindowButtons)).foreground,
+        Colors.white,
+      );
+    });
+
+    testWidgets('按钮组不再受取色底色影响', (WidgetTester tester) async {
+      // 以前这里会按 windowControlsBackdrop 的亮度挑白 / 黑；播放页自带按钮后
+      // 这条通道已经删掉，取色背景上的按钮固定白色
+      await _pumpTitleBar(tester, FakeWindowControls(), dark: true);
+      expect(
+        find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is WindowButtons && widget.castShadow == true,
+        ),
+        findsNothing,
+        reason: '标题栏在纯色底上，不应开描影',
+      );
+    });
   });
 }
