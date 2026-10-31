@@ -74,10 +74,14 @@ const ValueKey<String> _dragKey = ValueKey<String>('window-drag-area');
 
 Future<void> _pumpTitleBar(
   WidgetTester tester,
-  FakeWindowControls controls,
-) async {
+  FakeWindowControls controls, {
+  bool dark = false,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
+      // 主题切换默认有 200ms 过渡，单次 pump 时 Theme.of 还是旧值
+      themeAnimationDuration: Duration.zero,
+      theme: ThemeData(brightness: dark ? Brightness.dark : Brightness.light),
       home: Scaffold(
         body: Column(
           children: <Widget>[
@@ -391,5 +395,36 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+  });
+
+  group('按钮颜色只跟主题深浅走', () {
+    testWidgets('浅色模式纯黑、深色模式纯白', (WidgetTester tester) async {
+      await _pumpTitleBar(tester, FakeWindowControls());
+      expect(
+        tester.widget<WindowButtons>(find.byType(WindowButtons)).foreground,
+        Colors.black,
+        reason: '浅色模式用黑字形，不再按底色算对比度',
+      );
+
+      await _pumpTitleBar(tester, FakeWindowControls(), dark: true);
+      expect(
+        tester.widget<WindowButtons>(find.byType(WindowButtons)).foreground,
+        Colors.white,
+      );
+    });
+
+    testWidgets('按钮组不再受取色底色影响', (WidgetTester tester) async {
+      // 以前这里会按 windowControlsBackdrop 的亮度挑白 / 黑；播放页自带按钮后
+      // 这条通道已经删掉，取色背景上的按钮固定白色
+      await _pumpTitleBar(tester, FakeWindowControls(), dark: true);
+      expect(
+        find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is WindowButtons && widget.castShadow == true,
+        ),
+        findsNothing,
+        reason: '标题栏在纯色底上，不应开描影',
+      );
+    });
   });
 }
