@@ -850,6 +850,18 @@ class _LyricLineView extends StatelessWidget {
         .where((String value) => value.isNotEmpty)
         .toList();
 
+    // 译文跟正文一起糊：只糊正文时，未播放的行会出现「上面一团虚、下面
+    // 一行清清楚楚」的割裂感，看着像漏处理
+    Widget soften(Widget child) {
+      if (blurSigma <= 0) {
+        return child;
+      }
+      return ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: child,
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => unawaited(onSeek(line.timeMs.toInt() / 1000)),
@@ -858,35 +870,26 @@ class _LyricLineView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            KeyedSubtree(
-              key: anchorKey,
-              child: blurSigma <= 0
-                  ? main
-                  : ImageFiltered(
-                      imageFilter: ui.ImageFilter.blur(
-                        sigmaX: blurSigma,
-                        sigmaY: blurSigma,
-                      ),
-                      child: main,
-                    ),
-            ),
+            KeyedSubtree(key: anchorKey, child: soften(main)),
             if (extras.isNotEmpty) const SizedBox(height: 3),
             for (final String extra in extras)
               Padding(
                 padding: const EdgeInsets.only(top: 1),
-                child: Text(
-                  extra,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    // 译文只比正文略小，避免层级断层
-                    fontSize: active
-                        ? (_hasCjk(extra) ? 23 : 21)
-                        : (_hasCjk(extra) ? 18 : 17),
-                    height: 1.4,
-                    color: Colors.white.withValues(
-                      alpha: active
-                          ? (_hasCjk(extra) ? 0.72 : 0.58)
-                          : (_hasCjk(extra) ? 0.34 : 0.24),
+                child: soften(
+                  Text(
+                    extra,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      // 译文只比正文略小，避免层级断层
+                      fontSize: active
+                          ? (_hasCjk(extra) ? 23 : 21)
+                          : (_hasCjk(extra) ? 18 : 17),
+                      height: 1.4,
+                      color: Colors.white.withValues(
+                        alpha: active
+                            ? (_hasCjk(extra) ? 0.72 : 0.58)
+                            : (_hasCjk(extra) ? 0.34 : 0.24),
+                      ),
                     ),
                   ),
                 ),
