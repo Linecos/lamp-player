@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/title_bar.dart';
+import 'lamp_brand_mark.dart';
 
 /// 主界面左侧导航分区。
 ///
@@ -179,15 +180,13 @@ class _RailBrand extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
-    // 应用图标本身：与 exe / 托盘同源（scripts/make_icon.py 生成）
-    final Widget mark = SizedBox(
-      key: const ValueKey<String>('rail-brand-mark'),
+    // 品牌标记：深色用与 exe / 托盘同源的位图，浅色换成透明底 + 琥珀色描边
+    // 的矢量版——那块深色底板在浅色侧栏里太扎眼
+    const Widget mark = SizedBox(
+      key: ValueKey<String>('rail-brand-mark'),
       width: 28,
       height: 28,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(9),
-        child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
-      ),
+      child: LampBrandMark(size: 28),
     );
 
     final Widget brandRow = SizedBox(

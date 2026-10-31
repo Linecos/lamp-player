@@ -22,7 +22,9 @@ void trackPointerNearTop(Offset localPosition) {
   }
 }
 
-/// 当前页面是否强制使用深色内容（例如正在播放页的固定封面背景）。
+/// 当前页面是否自带窗口按钮（正在播放页）。
 ///
-/// 窗口按钮画在页面之外，浅色模式下需要据此改用浅色图标。
-final ValueNotifier<bool> forceLightWindowControls = ValueNotifier<bool>(false);
+/// 窗口按钮原本固定画在 `MaterialApp.builder` 里，页面切换时纹丝不动；播放页
+/// 要把按钮连同页面一起滑进来，就自己画一份，这个开关让全局那层淡出，免得两
+/// 套按钮同时挂在右上角。
+final ValueNotifier<bool> pageOwnsWindowControls = ValueNotifier<bool>(false);
