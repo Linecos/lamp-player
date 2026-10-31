@@ -976,4 +976,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.seedColor, const Color(0xFF0A0B0C));
   });
+
+  testWidgets('底部留白按播放岛高度传入，关于一栏能滚出播放岛', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: const Scaffold(
+          body: SettingsView(
+            trackCount: 2,
+            engineAvailable: true,
+            // 曲库页传的就是 PlayerBar.occupiedHeight + 8
+            bottomPadding: 116,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final ListView list = tester.widget<ListView>(find.byType(ListView).first);
+    expect(list.padding, const EdgeInsets.only(top: 4, right: 12, bottom: 116));
+
+    // 滚到底：最后一块「关于」要落在播放岛上方，而不是被压住
+    await tester.drag(find.byType(ListView).first, const Offset(0, -4000));
+    await tester.pumpAndSettle();
+    final Rect about = tester.getRect(find.text('关于'));
+    expect(
+      about.bottom,
+      lessThan(
+        tester.view.physicalSize.height / tester.view.devicePixelRatio - 108,
+      ),
+    );
+  });
 }
