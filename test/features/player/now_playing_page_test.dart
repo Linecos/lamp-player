@@ -89,6 +89,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
   VoidCallback? onToggleDesktopLyricLock,
+  ValueChanged<Track>? onOpenArtist,
+  ValueChanged<Track>? onOpenAlbum,
   ValueListenable<List<double>>? spectrum,
   WindowControls? windowControls,
   Size size = const Size(1280, 900),
@@ -120,6 +122,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onOpenEqualizer: onOpenEqualizer,
         onToggleDesktopLyrics: onToggleDesktopLyrics,
         onToggleDesktopLyricLock: onToggleDesktopLyricLock,
+        onOpenArtist: onOpenArtist,
+        onOpenAlbum: onOpenAlbum,
         spectrum: spectrum,
         windowControls: windowControls,
         lyricsLoader: (String path) async =>
@@ -145,9 +149,47 @@ void main() {
     await _pump(tester, data: _data());
 
     expect(find.text('夜航'), findsOneWidget);
-    expect(find.text('林间电台-夜之专辑'), findsOneWidget);
+    expect(find.text('林间电台'), findsOneWidget);
+    expect(find.text('夜之专辑'), findsOneWidget);
     expect(find.text('暂无歌词'), findsOneWidget);
     expect(find.text('把同名 .lrc 放到歌曲旁边即可显示'), findsOneWidget);
+  });
+
+  testWidgets('点歌手 / 专辑分别回调跳转', (WidgetTester tester) async {
+    final List<String> artists = <String>[];
+    final List<String> albums = <String>[];
+    await _pump(
+      tester,
+      data: _data(),
+      onOpenArtist: (Track track) => artists.add(track.title),
+      onOpenAlbum: (Track track) => albums.add(track.title),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pump();
+    expect(artists, <String>['夜航']);
+    expect(albums, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-album')));
+    await tester.pump();
+    expect(albums, <String>['夜航']);
+  });
+
+  testWidgets('没有专辑标签时只显示歌手，不渲染专辑链接', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      data: _data(
+        track: sampleTrack(title: '夜航', artist: '林间电台', album: null),
+      ),
+      onOpenArtist: (Track track) {},
+      onOpenAlbum: (Track track) {},
+    );
+
+    expect(find.text('林间电台'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-album')),
+      findsNothing,
+    );
   });
 
   testWidgets('底部控制区包含音量、播放模式与队列，封面与文字左对齐', (WidgetTester tester) async {
