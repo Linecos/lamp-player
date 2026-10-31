@@ -91,10 +91,19 @@ class NowPlayingPage extends StatefulWidget {
     this.shortcuts = kDefaultShortcuts,
     this.onToggleDesktopLyrics,
     this.onToggleDesktopLyricLock,
+    this.onOpenArtist,
+    this.onOpenAlbum,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
+
+  /// 点歌手 / 专辑跳到曲库对应分区；为空时那一行退化成普通文本。
+  ///
+  /// 传整个 [Track] 而不是名字：专辑是按「歌手 + 专辑名」聚合的，
+  /// 聚合键怎么算属于曲库那边的规则，不该让本页去复制一份。
+  final ValueChanged<Track>? onOpenArtist;
+  final ValueChanged<Track>? onOpenAlbum;
 
   /// 开关桌面歌词；为空时不显示该按钮
   final VoidCallback? onToggleDesktopLyrics;
@@ -835,16 +844,51 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
-  /// 「歌手-专辑」合成一行；没有专辑时只显示歌手
-  String _artistAndAlbum(Track track) {
-    final String artist = trackArtist(track);
-    final String album = track.album ?? '';
-    return album.isEmpty ? artist : '$artist-$album';
+  /// 「歌手-专辑」一行：两段各自可点，分别跳曲库的艺术家 / 专辑详情。
+  ///
+  /// 分隔符与字号沿用原来那条合成文本，所以看起来和之前一模一样，
+  /// 只是鼠标移上去会变主题色加下划线——不这样根本看不出它能点。
+  Widget _metaLine(BuildContext context, Track track) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle style = (theme.textTheme.bodyLarge ?? const TextStyle())
+        .copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final String album = (track.album ?? '').trim();
+    final ValueChanged<Track>? openArtist = widget.onOpenArtist;
+    final ValueChanged<Track>? openAlbum = widget.onOpenAlbum;
+
+    return Row(
+      key: const ValueKey<String>('now-playing-meta'),
+      // 必须按内容收缩：Row 撑满整宽会把这一列一起撑宽，窄窗口里封面
+      // 会跟着横移半个屏（布局 golden 上直接能看出来）
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Flexible(
+          child: _MetaLink(
+            key: const ValueKey<String>('now-playing-artist'),
+            text: trackArtist(track),
+            style: style,
+            tooltip: '查看艺术家',
+            onTap: openArtist == null ? null : () => openArtist(track),
+          ),
+        ),
+        if (album.isNotEmpty) ...<Widget>[
+          Text('-', style: style),
+          Flexible(
+            child: _MetaLink(
+              key: const ValueKey<String>('now-playing-album'),
+              text: album,
+              style: style,
+              tooltip: '查看专辑',
+              onTap: openAlbum == null ? null : () => openAlbum(track),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _trackInfo(BuildContext context, Track track, double coverSize) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -867,14 +911,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              _artistAndAlbum(track),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
+            _metaLine(context, track),
           ],
         ),
         const SizedBox(height: 16),
@@ -1372,6 +1409,71 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 }
 
 /// 输出设备按钮：点开弹窗列「系统默认 + 枚举到的设备」，当前项打勾。
+/// 曲目信息行里的可点文字（歌手 / 专辑）。
+///
+/// 悬停时变主题色 + 下划线、光标变手型；[onTap] 为空时退化成普通文本，
+/// 排版完全一致——能点与不能点只在鼠标移上去时才该有区别。
+class _MetaLink extends StatefulWidget {
+  const _MetaLink({
+    super.key,
+    required this.text,
+    required this.style,
+    this.tooltip,
+    this.onTap,
+  });
+
+  final String text;
+  final TextStyle style;
+  final String? tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  State<_MetaLink> createState() => _MetaLinkState();
+}
+
+class _MetaLinkState extends State<_MetaLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accent = Theme.of(context).colorScheme.primary;
+    final bool enabled = widget.onTap != null;
+    final Widget label = Text(
+      widget.text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: _hovered && enabled
+          ? widget.style.copyWith(
+              color: accent,
+              decoration: TextDecoration.underline,
+              decorationColor: accent,
+            )
+          : widget.style,
+    );
+    if (!enabled) {
+      return label;
+    }
+    final Widget link = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+      onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: label,
+      ),
+    );
+    final String? tooltip = widget.tooltip;
+    return tooltip == null
+        ? link
+        : Tooltip(
+            message: tooltip,
+            waitDuration: const Duration(milliseconds: 600),
+            child: link,
+          );
+  }
+}
+
 class _OutputDeviceButton extends StatelessWidget {
   const _OutputDeviceButton({
     required this.devices,
