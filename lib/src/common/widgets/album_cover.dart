@@ -208,25 +208,32 @@ class _AlbumCoverState extends State<AlbumCover>
     final String? outgoing = widget.animateOnChange ? _outgoing : null;
     final bool crossfading = widget.animateOnChange && _crossfading;
 
+    // 缩小过程中的封面会溢出边框，圆角裁剪必须在过渡层外面
+    final Widget content = SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: crossfading
+          ? _crossfade(context, shown, outgoing)
+          : _picture(context, shown, const ValueKey<String>('current')),
+    );
+
     return ValueListenableBuilder<bool>(
       valueListenable: circularCovers,
       // 只换圆角、不换子树：ValueListenableBuilder 重建的仍是同一个
       // ClipRRect，图片状态（已解码的那帧）不会被丢掉
       builder: (BuildContext context, bool circular, Widget? child) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(
-            circular ? widget.size / 2 : widget.radius,
-          ),
-          // 缩小过程中的封面会溢出边框，圆角裁剪必须在过渡层外面
-          child: SizedBox(
-            width: widget.size,
-            height: widget.size,
-            child: crossfading
-                ? _crossfade(context, shown, outgoing)
-                : _picture(context, shown, const ValueKey<String>('current')),
-          ),
-        );
+        if (!circular) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(widget.radius),
+            child: child,
+          );
+        }
+        // 用 ClipOval 而不是「按实际尺寸算半径的 ClipRRect」：飞行途中尺寸
+        // 每帧都在变，`LayoutBuilder` 会让整棵子树每帧重建 + 重排，而椭圆
+        // 裁剪天然跟着边界走，不需要知道具体尺寸。
+        return ClipOval(child: child);
       },
+      child: content,
     );
   }
 

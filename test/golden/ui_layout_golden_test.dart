@@ -12,6 +12,7 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
@@ -87,6 +88,29 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
+/// 播放页自己画窗口按钮，golden 里也要把它们带上，否则截图和真实界面差一截
+class _FakeWindowControls implements WindowControls {
+  const _FakeWindowControls();
+
+  @override
+  Stream<bool> get maximizeChanges => const Stream<bool>.empty();
+
+  @override
+  Future<bool> isMaximized() async => false;
+
+  @override
+  Future<void> minimize() async {}
+
+  @override
+  Future<bool> toggleMaximize() async => false;
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  Future<void> startDragging() async {}
+}
+
 Widget _nowPlaying(ValueListenable<List<double>> spectrum) {
   final ValueNotifier<NowPlayingData> data = ValueNotifier<NowPlayingData>(
     _data(),
@@ -103,6 +127,7 @@ Widget _nowPlaying(ValueListenable<List<double>> spectrum) {
     onShowQueue: () {},
     onCyclePlayMode: () {},
     spectrum: spectrum,
+    windowControls: const _FakeWindowControls(),
     lyricsLoader: (String path) async => _lyrics,
   );
 }
