@@ -275,7 +275,12 @@ class _WindowGlyphPainter extends CustomPainter {
   }
 }
 
-/// Windows 风格窗口按钮：默认透明，悬停时高亮；关闭键悬停变红底白字。
+/// 窗口按钮：默认透明，悬停时亮起一个圆形底；关闭键悬停变红底白字。
+///
+/// 圆形底而不是整格方块：正在播放页左上角的「收起」是标准 `IconButton`，
+/// 悬停高亮就是圆的；右上角这三个原先是 46×48 的整块矩形，同一条顶栏里
+/// 两种形状并存，看着像两套控件。现在三个按钮各自在一个圆形底上悬停，
+/// 点击热区仍是原来的 46×48（贴着窗口边角也好按）。
 ///
 /// 这里刻意不用 `Tooltip`：标题栏挂在 `MaterialApp.builder` 上，位于
 /// Navigator 的 `Overlay` 之上，而 `Tooltip` 强依赖 Overlay 祖先。
@@ -306,6 +311,13 @@ class _CaptionButton extends StatefulWidget {
 class _CaptionButtonState extends State<_CaptionButton> {
   static const Color _closeHover = Color(0xFFC42B1C);
 
+  /// 每个按钮占的宽度；三个加起来就是 [LampTitleBar.controlsWidth]
+  static const double _slotWidth = 46;
+
+  /// 悬停时圆形底的直径。与「收起」按钮的圆形高亮视觉大小对齐，
+  /// 比格子小一圈，相邻两个圆之间正好留出 6px 缝
+  static const double _hoverDiameter = 40;
+
   bool _hovering = false;
 
   @override
@@ -327,24 +339,33 @@ class _CaptionButtonState extends State<_CaptionButton> {
       button: true,
       label: widget.label,
       child: MouseRegion(
-        cursor: SystemMouseCursors.basic,
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovering = true),
         onExit: (_) => setState(() => _hovering = false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            width: 46,
+          child: SizedBox(
+            width: _slotWidth,
             height: LampTitleBar.height,
-            color: background,
             child: Center(
-              child: CustomPaint(
-                key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
-                size: const Size(15, 15),
-                painter: _WindowGlyphPainter(
-                  glyph: widget.glyph,
-                  color: foreground,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: _hoverDiameter,
+                height: _hoverDiameter,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: background,
+                ),
+                child: Center(
+                  child: CustomPaint(
+                    key: ValueKey<String>('window-glyph-${widget.glyph.name}'),
+                    size: const Size(15, 15),
+                    painter: _WindowGlyphPainter(
+                      glyph: widget.glyph,
+                      color: foreground,
+                    ),
+                  ),
                 ),
               ),
             ),
