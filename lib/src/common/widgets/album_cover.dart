@@ -208,32 +208,32 @@ class _AlbumCoverState extends State<AlbumCover>
     final String? outgoing = widget.animateOnChange ? _outgoing : null;
     final bool crossfading = widget.animateOnChange && _crossfading;
 
-    // 缩小过程中的封面会溢出边框，圆角裁剪必须在过渡层外面
-    final Widget content = SizedBox(
-      width: widget.size,
-      height: widget.size,
-      child: crossfading
-          ? _crossfade(context, shown, outgoing)
-          : _picture(context, shown, const ValueKey<String>('current')),
-    );
-
     return ValueListenableBuilder<bool>(
       valueListenable: circularCovers,
       // 只换圆角、不换子树：ValueListenableBuilder 重建的仍是同一个
       // ClipRRect，图片状态（已解码的那帧）不会被丢掉
       builder: (BuildContext context, bool circular, Widget? child) {
+        // 缩小过程中的封面会溢出边框，裁剪必须在过渡层外面
+        final Widget contents = SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: crossfading
+              ? _crossfade(context, shown, outgoing)
+              : _picture(context, shown, const ValueKey<String>('current')),
+        );
         if (!circular) {
           return ClipRRect(
             borderRadius: BorderRadius.circular(widget.radius),
-            child: child,
+            child: contents,
           );
         }
-        // 用 ClipOval 而不是「按实际尺寸算半径的 ClipRRect」：飞行途中尺寸
-        // 每帧都在变，`LayoutBuilder` 会让整棵子树每帧重建 + 重排，而椭圆
-        // 裁剪天然跟着边界走，不需要知道具体尺寸。
-        return ClipOval(child: child);
+        // 圆形要用 `ClipOval`，不能写成「半径 = size / 2」的 `ClipRRect`：
+        // Hero 飞行时封面会被塞进「动画尺寸」的紧约束（56 的封面铺到 340），
+        // 而 size 还是 56、半径算出来 28，画出来就是个 340 的圆角方块——
+        // 退出播放页时看到「圆封面变方」的就是这一帧。ClipOval 跟着实际尺寸走，
+        // 盒子被拉多大都是正圆。
+        return ClipOval(child: contents);
       },
-      child: content,
     );
   }
 

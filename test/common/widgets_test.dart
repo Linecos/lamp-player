@@ -154,12 +154,40 @@ void main() {
 
       circularCovers.value = true;
       await tester.pump();
-      expect(find.byType(ClipOval), findsOneWidget, reason: '圆形用椭圆裁剪');
+      // 圆形走 ClipOval：半径跟着实际盒子走，不依赖 size
+      expect(find.byType(ClipOval), findsOneWidget);
+      expect(find.byType(ClipRRect), findsNothing);
 
       circularCovers.value = false;
       await tester.pump();
-      expect(find.byType(ClipOval), findsNothing);
       expect(clipRadius().topLeft.x, 12);
+      expect(find.byType(ClipOval), findsNothing);
+    });
+
+    testWidgets('圆形封面被 Hero 拉大后仍是正圆，不是圆角方块', (WidgetTester tester) async {
+      // 复现飞行现场：Hero 把播放条那枚 56 的封面塞进「动画尺寸」的紧约束里。
+      // 旧实现按 size/2=28 算圆角，盒子被拉到 340 就成了圆角方块
+      addTearDown(() => circularCovers.value = false);
+      circularCovers.value = true;
+
+      await _pumpInScaffold(
+        tester,
+        const SizedBox(
+          width: 340,
+          height: 340,
+          child: AlbumCover(size: 56, radius: 16),
+        ),
+      );
+
+      final Finder oval = find.byType(ClipOval);
+      expect(oval, findsOneWidget);
+      expect(
+        tester.getSize(oval),
+        const Size(340, 340),
+        reason: '裁剪盒子跟着动画尺寸走，而不是 56',
+      );
+      // 圆角矩形的半径是按 56 算的，一旦出现就说明又退回到「小半径 + 大盒子」
+      expect(find.byType(ClipRRect), findsNothing);
     });
 
     group('换封面过渡', () {
