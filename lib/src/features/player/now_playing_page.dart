@@ -176,6 +176,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 封面不跟着上移
   static const double _infoRefillHeight = 19;
 
+  /// 信息块字号随封面缩放：封面等于这个尺寸时用主题原字号（≈1280 窗口）
+  static const double _infoFontReferenceCover = 342;
+
+  /// 缩放上下限：小窗口别小到读不清，大窗口也别让文字压过封面本身
+  static const double _infoFontMinScale = 0.72;
+  static const double _infoFontMaxScale = 1.25;
+
   /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
   static const double _infoBlockLift = 48;
@@ -930,30 +937,45 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 
   Widget _trackInfo(BuildContext context, Track track, double coverSize) {
     final ThemeData theme = Theme.of(context);
+    // 字号跟着封面走：窗口放大时封面会长，标题若还是主题原字号，看着就像
+    // 缩在角落里；反过来小窗口里文字相对封面又嫌太大。
+    //
+    // 用 `textScaler` 缩放整块，而不是逐个 `Text` 乘系数：以后往这块里
+    // 再加一行也不必记得一起改。系统无障碍缩放照旧乘上去，不覆盖用户设置。
+    final double scale = (coverSize / _infoFontReferenceCover).clamp(
+      _infoFontMinScale,
+      _infoFontMaxScale,
+    );
+    final TextScaler textScaler = TextScaler.linear(
+      MediaQuery.textScalerOf(context).scale(1) * scale,
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         // 曲目信息压在封面上面（对齐参考布局）：先读完「在放什么」，再往下看封面
-        Column(
-          key: const ValueKey<String>('now-playing-info'),
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
-            const SizedBox(height: _infoRefillHeight),
-            Text(
-              track.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w600,
+        MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: Column(
+            key: const ValueKey<String>('now-playing-info'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
+              const SizedBox(height: _infoRefillHeight),
+              Text(
+                track.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            _metaLine(context, track),
-          ],
+              SizedBox(height: 6 * scale),
+              _metaLine(context, track),
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
