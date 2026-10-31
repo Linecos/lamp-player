@@ -155,49 +155,65 @@ class PlayerBar extends StatelessWidget {
       ),
       child: SizedBox(
         height: cardHeight,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: scheme.outlineVariant),
-            boxShadow: <BoxShadow>[
-              // 阴影向下收窄：offset 6 配 blur 18 会向上扩散 12px，
-              // 盖住列表最后一行的悬停高亮
-              BoxShadow(
-                color: scheme.shadow.withValues(alpha: 0.06),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+        // 整条播放条都能打开正在播放页，不只有左半段。
+        //
+        // 以前只有封面与曲名各自绑了 InkWell：左段的标题右侧 / 歌词区 /
+        // 频谱两侧、右段时间与按钮之间的缝隙、卡片左右 14px 内边距全是死区。
+        // 这里在卡片最外层兜一次底。按钮、滑块、InkWell 都在更深的层级，
+        // 会先赢得手势竞争，所以点击行为与悬停高亮都不变，外层只接住空白。
+        child: MouseRegion(
+          cursor: current == null
+              ? MouseCursor.defer
+              : SystemMouseCursors.click,
+          child: GestureDetector(
+            key: const ValueKey<String>('player-bar-open-anywhere'),
+            behavior: HitTestBehavior.opaque,
+            onTap: current == null ? null : onOpenNowPlaying,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(color: scheme.outlineVariant),
+                boxShadow: <BoxShadow>[
+                  // 阴影向下收窄：offset 6 配 blur 18 会向上扩散 12px，
+                  // 盖住列表最后一行的悬停高亮
+                  BoxShadow(
+                    color: scheme.shadow.withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-            ],
-          ),
-          // 底色在 Container 上，墨水层要单独垫一层透明 Material 才画得出来。
-          child: Material(
-            type: MaterialType.transparency,
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: _PlayerBarLeft(
-                    track: current,
-                    isPlaying: isPlaying,
-                    isAvailable: isAvailable,
-                    position: shown,
-                    lyricsLoader: lyricsLoader,
-                    onOpenNowPlaying: onOpenNowPlaying,
-                    spectrum: spectrum,
-                  ),
+              // 底色在 Container 上，墨水层要单独垫一层透明 Material 才画得出来。
+              child: Material(
+                type: MaterialType.transparency,
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: _PlayerBarLeft(
+                        track: current,
+                        isPlaying: isPlaying,
+                        isAvailable: isAvailable,
+                        position: shown,
+                        lyricsLoader: lyricsLoader,
+                        onOpenNowPlaying: onOpenNowPlaying,
+                        spectrum: spectrum,
+                      ),
+                    ),
+                    // 中段宽度固定、两侧 Expanded 等宽 → 三键落在整条中轴上
+                    _center(context, canControl: canControl),
+                    Expanded(
+                      child: _right(
+                        context,
+                        canControl: canControl,
+                        shown: shown,
+                        total: total,
+                      ),
+                    ),
+                  ],
                 ),
-                // 中段宽度固定、两侧 Expanded 等宽 → 三键落在整条中轴上
-                _center(context, canControl: canControl),
-                Expanded(
-                  child: _right(
-                    context,
-                    canControl: canControl,
-                    shown: shown,
-                    total: total,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
