@@ -7,7 +7,9 @@ import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
+import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
+import 'package:lamp_player/src/features/player/spectrum_controller.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/api/appearance.dart' as appearance;
 import 'package:lamp_player/src/rust/api/media.dart' as media;
@@ -139,6 +141,16 @@ Future<void> _runStartupError({String? title, required String message}) async {
 Future<void> _showWindow() async {
   try {
     await windowManager.show();
+    UiClock.resume(_hiddenReason);
+    // 先恢复动画，再抢焦点；窗口状态查询失败也不阻断焦点。
+    try {
+      if (!await windowManager.isMinimized()) {
+        UiClock.resume(_minimizedReason);
+      }
+    } catch (_) {
+      // 低频可见性对账会在下一轮修正。
+    }
+    _syncVisualActivity();
     await windowManager.focus();
   } catch (error) {
     debugPrint('显示窗口失败：$error');
@@ -221,6 +233,9 @@ Future<void> _setupWindow(WindowSnapshot state) async {
         }
         try {
           await windowManager.show();
+          UiClock.resume(_hiddenReason);
+          UiClock.resume(_minimizedReason);
+          _syncVisualActivity();
           await windowManager.focus();
         } catch (error) {
           debugPrint('显示窗口失败：$error');
@@ -260,6 +275,14 @@ Future<Offset?> _restorePosition(WindowSnapshot state) async {
   }
 }
 
+// 两个来源分别记账：关闭到托盘与最小化可能同时发生。
+const String _hiddenReason = 'hidden';
+const String _minimizedReason = 'minimized';
+
+void _syncVisualActivity() {
+  SpectrumController.instance.setSuspended(UiClock.isPaused);
+}
+
 /// 窗口生命周期：尺寸防抖落盘 + 关闭行为（隐藏到托盘 / 退出）。
 ///
 /// 尺寸变化后防抖落盘；最大化时只记住「最大化」标记，尺寸沿用上一次普通状态。
@@ -271,9 +294,67 @@ class _AppWindowListener with WindowListener {
   final TrayController _tray;
   Timer? _timer;
   bool _closing = false;
+  Timer? _visibilityTimer;
+  bool _checkingVisibility = false;
+  bool _visibilityDirty = false;
 
   void attach() {
     windowManager.addListener(this);
+    // window_manager 对全屏及最大化后恢复会漏报 minimize/restore；事件
+    // 负责即时响应，低频对账保证最终状态正确。
+    _visibilityTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(_checkVisibility()),
+    );
+    unawaited(_checkVisibility());
+  }
+
+  Future<void> _checkVisibility() async {
+    if (_closing) return;
+    if (_checkingVisibility) {
+      // 读取中恰好 show/restore，上一轮可能读到旧状态；收尾立即补对账。
+      _visibilityDirty = true;
+      return;
+    }
+    _checkingVisibility = true;
+    try {
+      final bool visible = await windowManager.isVisible();
+      final bool minimized = await windowManager.isMinimized();
+      if (visible) {
+        UiClock.resume(_hiddenReason);
+      } else {
+        UiClock.pause(_hiddenReason);
+      }
+      if (minimized) {
+        UiClock.pause(_minimizedReason);
+      } else {
+        UiClock.resume(_minimizedReason);
+      }
+      _syncVisualActivity();
+    } catch (_) {
+      // 插件尚未就绪时维持当前状态，不能误冻住界面。
+    } finally {
+      _checkingVisibility = false;
+      if (_visibilityDirty && !_closing) {
+        _visibilityDirty = false;
+        unawaited(_checkVisibility());
+      }
+    }
+  }
+
+  @override
+  void onWindowMinimize() {
+    UiClock.pause(_minimizedReason);
+    _syncVisualActivity();
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    if (eventName == 'hide') {
+      UiClock.pause(_hiddenReason);
+      _syncVisualActivity();
+    }
+    if (eventName == 'show') unawaited(_checkVisibility());
   }
 
   @override
@@ -283,13 +364,21 @@ class _AppWindowListener with WindowListener {
   void onWindowMoved() => _scheduleSave();
 
   @override
-  void onWindowMaximize() => _scheduleSave();
+  void onWindowMaximize() {
+    // 最大化后的最小化还原有时只发 maximize，不发 restore。
+    unawaited(_checkVisibility());
+    _scheduleSave();
+  }
 
   @override
   void onWindowUnmaximize() => _scheduleSave();
 
   @override
-  void onWindowRestore() => _scheduleSave();
+  void onWindowRestore() {
+    UiClock.resume(_minimizedReason);
+    _syncVisualActivity();
+    _scheduleSave();
+  }
 
   @override
   void onWindowClose() {
@@ -313,6 +402,8 @@ class _AppWindowListener with WindowListener {
       await _save();
       try {
         await windowManager.hide();
+        UiClock.pause(_hiddenReason);
+        _syncVisualActivity();
       } catch (error) {
         // 隐藏失败时不能把窗口留在「拦截关闭」状态，改为直接退出
         debugPrint('隐藏窗口失败，改为退出：$error');
@@ -323,6 +414,7 @@ class _AppWindowListener with WindowListener {
     }
 
     _closing = true;
+    _visibilityTimer?.cancel();
     _timer?.cancel();
     try {
       await _save().timeout(const Duration(milliseconds: 800));

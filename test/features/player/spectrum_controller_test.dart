@@ -150,6 +150,57 @@ void main() {
     });
   });
 
+  test('隐藏窗口时停采集，恢复后沿用订阅数重新开流', () {
+    fakeAsync((FakeAsync async) {
+      final _Source source = _Source();
+      final SpectrumController controller = SpectrumController.withSource(
+        source.open,
+      );
+      controller.attach();
+      async.flushMicrotasks();
+      source.last.add(_frame(0.6));
+      async.flushMicrotasks();
+      _tick(async);
+      expect(controller.bands.value, isNotEmpty);
+
+      controller.setSuspended(true);
+      async.flushMicrotasks();
+      expect(controller.isListening, isFalse);
+      expect(controller.bands.value, isEmpty);
+      async.elapse(const Duration(seconds: 3));
+      expect(source.count, 1, reason: '不可见期间不得继续 FFT 或重连');
+
+      controller.setSuspended(false);
+      async.flushMicrotasks();
+      expect(source.count, 2);
+      expect(controller.isListening, isTrue);
+      controller.detach();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('不可见时新增订阅不启动采集，恢复后只启动一次', () {
+    fakeAsync((FakeAsync async) {
+      final _Source source = _Source();
+      final SpectrumController controller = SpectrumController.withSource(
+        source.open,
+      );
+      controller.setSuspended(true);
+      controller.attach();
+      controller.attach();
+      async.elapse(const Duration(seconds: 3));
+      expect(source.count, 0);
+      controller.setSuspended(false);
+      async.flushMicrotasks();
+      expect(source.count, 1);
+      controller.detach();
+      expect(controller.isListening, isTrue);
+      controller.detach();
+      async.flushMicrotasks();
+      expect(controller.isListening, isFalse);
+    });
+  });
+
   test('重复 attach 只开一条流，最后一个 detach 才停', () {
     fakeAsync((FakeAsync async) {
       final _Source source = _Source();

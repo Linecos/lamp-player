@@ -9,6 +9,44 @@ import 'package:lamp_player/src/common/ui_clock.dart';
 /// 2. 三档在同一拍里通知完，不许各自起一个 `Timer.periodic`（相位错开会
 ///    实际要出 2~3 倍于 30fps 的帧）。
 void main() {
+  test('未启用过时钟就先隐藏，首次打开后时间从零附近开始', () {
+    fakeAsync((FakeAsync async) {
+      UiClock.pause('initial-hidden');
+      async.elapse(const Duration(seconds: 5));
+      UiClock.resume('initial-hidden');
+      expect(UiClock.slow.seconds, closeTo(0, 0.01));
+    });
+  });
+
+  test('不可见时停止通知，多个暂停来源都恢复后时间才继续走', () {
+    fakeAsync((FakeAsync async) {
+      int frames = 0;
+      void onFrame() => frames += 1;
+      UiClock.slow.addListener(onFrame);
+      addTearDown(() {
+        UiClock.slow.removeListener(onFrame);
+        UiClock.resume('hidden');
+        UiClock.resume('minimized');
+      });
+
+      async.elapse(const Duration(milliseconds: 66));
+      expect(frames, 1);
+      UiClock.pause('minimized');
+      final double frozen = UiClock.slow.seconds;
+      async.elapse(const Duration(seconds: 5));
+      UiClock.pause('hidden');
+      UiClock.resume('minimized');
+      async.elapse(const Duration(seconds: 5));
+      expect(frames, 1);
+      expect(UiClock.slow.seconds, frozen);
+
+      UiClock.resume('hidden');
+      async.elapse(const Duration(milliseconds: 66));
+      expect(frames, 2);
+      expect(UiClock.slow.seconds, closeTo(frozen + 0.066, 0.001));
+    });
+  });
+
   test('30/15 共用 33ms 定时器，加 60fps 档后压到 16ms，摘完即停', () {
     fakeAsync((FakeAsync async) {
       int normal = 0;

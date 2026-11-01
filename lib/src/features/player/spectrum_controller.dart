@@ -99,6 +99,20 @@ class SpectrumController {
   int _refs = 0;
   bool _polling = false;
   bool _sampling = false;
+  bool _suspended = false;
+
+  /// 窗口不可见时停止 FFT/桥接，保留订阅引用数；回来再开一条流。
+  /// 音频播放不受影响。
+  void setSuspended(bool value) {
+    if (_suspended == value) return;
+    _suspended = value;
+    if (value) {
+      _stop();
+    } else if (_refs > 0) {
+      _start();
+      _startWatchdog();
+    }
+  }
 
   /// 这一轮有没有收到过「有内容」的帧（全零不算）
   bool _sawSignal = false;
@@ -116,10 +130,10 @@ class SpectrumController {
     _refs += 1;
     // 不能只看 `_refs == 1`：流如果在上一次看的过程中挂掉过，
     // `_subscription` 已经是 null，但 `_refs` 还停在上一次的值上
-    if (_subscription == null && !_polling) {
+    if (!_suspended && _subscription == null && !_polling) {
       _start();
     }
-    _startWatchdog();
+    if (!_suspended) _startWatchdog();
   }
 
   /// 没人看了：停采集并把波形清空，下次开局不会先闪一帧旧数据
@@ -134,7 +148,7 @@ class SpectrumController {
   }
 
   void _start() {
-    if (_refs == 0) {
+    if (_refs == 0 || _suspended) {
       return;
     }
     _retryTimer?.cancel();
@@ -193,7 +207,7 @@ class SpectrumController {
   }
 
   void _startPolling() {
-    if (_polling || _refs == 0) {
+    if (_polling || _refs == 0 || _suspended) {
       return;
     }
     _polling = true;
@@ -214,7 +228,7 @@ class SpectrumController {
   }
 
   void _sampleOnce() {
-    if (_sampling || _refs == 0) {
+    if (_sampling || _refs == 0 || _suspended) {
       return;
     }
     _sampling = true;
@@ -234,7 +248,7 @@ class SpectrumController {
 
   /// 流断了：按退避重连，不清空已有数据（避免一帧闪没）
   void _onBroken() {
-    if (_refs == 0 || _polling) {
+    if (_refs == 0 || _polling || _suspended) {
       return;
     }
     final StreamSubscription<Float32List>? broken = _subscription;
@@ -254,7 +268,7 @@ class SpectrumController {
   }
 
   void _check() {
-    if (_refs == 0) {
+    if (_refs == 0 || _suspended) {
       return;
     }
     if (_polling) {
@@ -321,7 +335,7 @@ class SpectrumController {
   }
 
   void _onFrame(Float32List frame) {
-    if (frame.isEmpty || _refs == 0) {
+    if (frame.isEmpty || _refs == 0 || _suspended) {
       return;
     }
     _frames += 1;
