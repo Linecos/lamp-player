@@ -264,10 +264,10 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 正在播放页点歌手：退出播放页，切到「艺术家」分区并进该艺术家的详情。
-  void _openArtistFromNowPlaying(Track track) {
+  void _openArtistFromNowPlaying(Track track, String artist) {
     _jumpToDetail(
       section: LibrarySection.artists,
-      select: () => _selectedArtist = trackArtist(track),
+      select: () => _selectedArtist = artist,
     );
   }
 

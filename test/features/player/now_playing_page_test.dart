@@ -91,7 +91,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
   VoidCallback? onToggleDesktopLyricLock,
-  ValueChanged<Track>? onOpenArtist,
+  void Function(Track track, String artist)? onOpenArtist,
   ValueChanged<Track>? onOpenAlbum,
   ValueListenable<List<double>>? spectrum,
   WindowControls? windowControls,
@@ -197,18 +197,97 @@ void main() {
     await _pump(
       tester,
       data: _data(),
-      onOpenArtist: (Track track) => artists.add(track.title),
+      onOpenArtist: (Track track, String artist) =>
+          artists.add('${track.title}/$artist'),
       onOpenAlbum: (Track track) => albums.add(track.title),
     );
 
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
     await tester.pump();
-    expect(artists, <String>['夜航']);
+    expect(artists, <String>['夜航/林间电台']);
     expect(albums, isEmpty);
 
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-album')));
     await tester.pump();
     expect(albums, <String>['夜航']);
+  });
+
+  testWidgets('单艺术家点歌手直接跳，不弹窗', (WidgetTester tester) async {
+    final List<String> opened = <String>[];
+    await _pump(
+      tester,
+      data: _data(),
+      onOpenArtist: (Track track, String artist) => opened.add(artist),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('artist-picker-dialog')),
+      findsNothing,
+    );
+    expect(opened, <String>['林间电台']);
+  });
+
+  testWidgets('多艺术家时点歌手先弹窗选一位，再跳选中的那位', (WidgetTester tester) async {
+    final List<String> opened = <String>[];
+    await _pump(
+      tester,
+      data: _data(
+        track: sampleTrack(
+          title: 'Love Me Not',
+          artist: 'Bao The Whale/Overspace',
+          album: '夜之专辑',
+        ),
+      ),
+      onOpenArtist: (Track track, String artist) => opened.add(artist),
+    );
+
+    // 整串照旧显示，让人看得出这里不止一位
+    expect(find.text('Bao The Whale/Overspace'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('artist-picker-dialog')),
+      findsOneWidget,
+    );
+    expect(opened, isEmpty, reason: '还没选就不该跳走');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-picker-Overspace')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(opened, <String>['Overspace']);
+    expect(
+      find.byKey(const ValueKey<String>('artist-picker-dialog')),
+      findsNothing,
+      reason: '选完要关窗',
+    );
+  });
+
+  testWidgets('多艺术家弹窗直接关掉时不跳转', (WidgetTester tester) async {
+    final List<String> opened = <String>[];
+    await _pump(
+      tester,
+      data: _data(
+        track: sampleTrack(
+          title: 'Love Me Not',
+          artist: 'Bao The Whale/Overspace',
+        ),
+      ),
+      onOpenArtist: (Track track, String artist) => opened.add(artist),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+
+    expect(opened, isEmpty);
   });
 
   testWidgets('没有专辑标签时只显示歌手，不渲染专辑链接', (WidgetTester tester) async {
@@ -217,7 +296,7 @@ void main() {
       data: _data(
         track: sampleTrack(title: '夜航', artist: '林间电台', album: null),
       ),
-      onOpenArtist: (Track track) {},
+      onOpenArtist: (Track track, String artist) {},
       onOpenAlbum: (Track track) {},
     );
 
@@ -806,6 +885,47 @@ void main() {
       find.ancestor(of: find.byType(AlbumCover), matching: find.byType(Hero)),
     );
     expect(hero.tag, coverHeroTag);
+
+    // 两个方向都返回裸 shuttle：交接进度按目标页动画算，pop 时目标页停在
+    // 最后一帧，套上淡出就是 1% 透明（整段飞行消失）；而任何 `Opacity` 都会让
+    // Impeller 下推透明度给带模糊的阴影、断言后逐帧退回 saveLayer
+    final BuildContext context = tester.element(find.byType(AlbumCover));
+    final Widget pushed = hero.flightShuttleBuilder!(
+      context,
+      const AlwaysStoppedAnimation<double>(0.5),
+      HeroFlightDirection.push,
+      context,
+      context,
+    );
+    final Widget popped = hero.flightShuttleBuilder!(
+      context,
+      const AlwaysStoppedAnimation<double>(0.5),
+      HeroFlightDirection.pop,
+      context,
+      context,
+    );
+    expect(pushed, isNot(isA<FadeTransition>()), reason: '不要额外的透明度层');
+    expect(popped, isNot(isA<FadeTransition>()));
+    expect(hero.placeholderBuilder, isNull, reason: '占位不要包 opacity，落地才不会重建');
+
+    // Hero 外面必须有一层绘制边界，而且边界要比封面大一圈（包住阴影外溢）：
+    // 落地把占位换回子树时 markNeedsPaint 会爬到最近的边界，没有边界就等于
+    // 整页重画（全屏流光背景 + 歌词全在里面），窗口越大越卡
+    final double coverSide = tester.getSize(find.byType(AlbumCover)).width;
+    // 取离 Hero 最近的那层（外层可能还有框架自己的边界）
+    final RenderBox heroBox = tester
+        .renderObjectList<RenderBox>(
+          find.ancestor(
+            of: find.byType(Hero),
+            matching: find.byType(RepaintBoundary),
+          ),
+        )
+        .first;
+    expect(
+      heroBox.size.width,
+      closeTo(coverSide + CoverShadow.spread * 2, 0.5),
+      reason: '边界要包住阴影外溢，否则阴影被裁掉一圈',
+    );
   });
 
   testWidgets('曲目信息压在封面上方，左对齐且随窗口内缩', (WidgetTester tester) async {
@@ -858,13 +978,14 @@ void main() {
     await _pump(tester, data: _data());
 
     BoxDecoration shadowDecoration() {
-      final Finder container = find.byWidgetPredicate(
+      // 阴影现在是独立一层的 DecoratedBox（和封面分开，落地那帧不用重做模糊）
+      final Finder box = find.byWidgetPredicate(
         (Widget widget) =>
-            widget is Container &&
+            widget is DecoratedBox &&
             widget.decoration is BoxDecoration &&
-            (widget.decoration! as BoxDecoration).boxShadow != null,
+            (widget.decoration as BoxDecoration).boxShadow != null,
       );
-      return tester.widget<Container>(container).decoration! as BoxDecoration;
+      return tester.widget<DecoratedBox>(box.first).decoration as BoxDecoration;
     }
 
     expect(shadowDecoration().shape, BoxShape.rectangle);

@@ -39,6 +39,46 @@ String trackAlbum(Track track) {
   return album == null || album.isEmpty ? unknownAlbum : album;
 }
 
+/// 缩写型名字（全大写字母 / 数字，两个字符以内）：`AC`、`DC`、`X`
+final RegExp _abbreviation = RegExp(r'^[A-Z0-9]+$');
+
+/// 拆分多艺术家：标签里用 `/` 隔开的多位艺术家
+/// （`Bao The Whale/Overspace`）。
+///
+/// 只认 `/`。`&`、`,`、`;` 在乐队名里太常见（Simon & Garfunkel、
+/// Earth, Wind & Fire），按它们拆会把名字拆坏。
+///
+/// 反过来 `AC/DC` 这种缩写型名字会被 `/` 误伤，所以加一条：拆出来的每段
+/// 都只有两个字符以内、且全是字母数字时，当作一个整体不动。
+///
+/// 返回的列表至少有一项；顺序按标签里的出现顺序，重复的去掉。
+List<String> splitTrackArtists(Track track) {
+  final String whole = trackArtist(track);
+  if (!whole.contains('/')) {
+    return <String>[whole];
+  }
+  final List<String> parts = <String>[];
+  for (final String raw in whole.split('/')) {
+    final String name = raw.trim();
+    if (name.isNotEmpty && !parts.contains(name)) {
+      parts.add(name);
+    }
+  }
+  if (parts.isEmpty) {
+    return <String>[whole];
+  }
+  if (parts.length == 1) {
+    // `A / ` 这种尾巴带分隔符的脏标签：只留真正那一段
+    return parts;
+  }
+  if (parts.every(
+    (String part) => part.length <= 2 && _abbreviation.hasMatch(part),
+  )) {
+    return <String>[whole];
+  }
+  return parts;
+}
+
 /// 专辑聚合键：同一位艺术家的同名专辑算一张
 String albumGroupKey(Track track) =>
     '${trackArtist(track)}\u0000${trackAlbum(track)}';
@@ -100,10 +140,15 @@ List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
 }
 
 /// 按艺术家聚合（只读展示用）
+///
+/// 多艺术家曲目（`A/B`）会同时出现在 A 和 B 两个组里——艺术家分区里两位
+/// 都得有自己的入口，否则从播放页点 B 跳过来会找不到人。
 List<ArtistGroup> groupTracksByArtist(Iterable<Track> tracks) {
   final Map<String, List<Track>> buckets = <String, List<Track>>{};
   for (final Track track in tracks) {
-    buckets.putIfAbsent(trackArtist(track), () => <Track>[]).add(track);
+    for (final String name in splitTrackArtists(track)) {
+      buckets.putIfAbsent(name, () => <Track>[]).add(track);
+    }
   }
   final List<ArtistGroup> groups = buckets.entries
       .map(
