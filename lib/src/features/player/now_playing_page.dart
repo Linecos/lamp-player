@@ -1004,75 +1004,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     // 换歌时新封面收进来 + 淡入，别硬切
                     animateOnChange: true,
                   );
-                  // 阴影必须挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
-                  // 还杵在原地，收起过程中就是一团孤零零的暗斑跟着背景慢慢淡出
-                  Widget withShadow(Widget inner) {
-                    return ValueListenableBuilder<bool>(
-                      valueListenable: circularCovers,
-                      builder:
-                          (BuildContext context, bool circular, Widget? child) {
-                            return Container(
-                              decoration: BoxDecoration(
-                                // 圆形封面时阴影容器也要跟着圆：矩形阴影会在
-                                // 圆角外露出一圈方形的光晕
-                                shape: circular
-                                    ? BoxShape.circle
-                                    : BoxShape.rectangle,
-                                // 与卡片同级：336px 的大封面用 20 显得几乎是直角
-                                borderRadius: circular
-                                    ? null
-                                    : BorderRadius.circular(28),
-                                boxShadow: <BoxShadow>[
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.35),
-                                    blurRadius: 28,
-                                    spreadRadius: 2,
-                                    offset: const Offset(10, 12),
-                                  ),
-                                ],
-                              ),
-                              child: child,
-                            );
-                          },
-                      child: inner,
-                    );
-                  }
-
                   return Hero(
                     tag: coverHeroTag,
                     createRectTween: (Rect? begin, Rect? end) =>
                         RectTween(begin: begin, end: end),
-                    // 正反两个方向都用播放页这张大图：收起时的目标在播放条，
-                    // 那边只有 56px 小图，默认 shuttle 拿它放大时一路发虚。
-                    //
-                    // 但**不要**带阴影：飞行中矩形的尺寸每帧都在变，
-                    // `blurRadius: 28` 的 boxShadow 等于每帧按新尺寸重做一遍
-                    // 高斯模糊，是转场掉帧最大的一笔开销。阴影留在页面里的
-                    // Hero 子树上（不飞行时是一次性栅格化）。
-                    //
-                    // 布局尺寸也固定成大图、靠 `FittedBox` 缩放：shuttle 拿到的是
-                    // 每帧都变的紧约束，直接铺进去等于每帧按新尺寸重新栅格化
-                    // 整张封面；固定尺寸后每帧只改一个缩放矩阵，纹理直接复用。
-                    flightShuttleBuilder:
-                        (
-                          BuildContext flightContext,
-                          Animation<double> animation,
-                          HeroFlightDirection direction,
-                          BuildContext fromHeroContext,
-                          BuildContext toHeroContext,
-                        ) => FittedBox(
-                          fit: BoxFit.fill,
-                          child: SizedBox(
-                            width: size,
-                            height: size,
-                            child: RepaintBoundary(child: cover),
-                          ),
-                        ),
-                    child: withShadow(
+                    // 飞行时的 shuttle 见 [coverFlightShuttle]：正反两个方向都用
+                    // 这张大图，并且阴影跟着封面一起飞（只在页面那棵子树上挂
+                    // 阴影的话，落地那一帧才会冒出来）
+                    flightShuttleBuilder: (_, _, _, _, _) =>
+                        coverFlightShuttle(size: size, cover: cover),
+                    // 阴影挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
+                    // 还杵在原地
+                    child: CoverShadow(
+                      radius: 28,
                       // 旋转用「Transform 在上、RepaintBoundary 在下」：
                       // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
                       // 光栅），反过来套一层边界就每帧重新光栅化一遍
-                      ValueListenableBuilder<double>(
+                      child: ValueListenableBuilder<double>(
                         valueListenable: _coverTurns,
                         // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
                         builder:
