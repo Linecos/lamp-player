@@ -7,6 +7,7 @@ import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
+import 'package:lamp_player/src/common/memory_log.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
 import 'package:lamp_player/src/features/player/spectrum_controller.dart';
@@ -87,6 +88,8 @@ Future<void> main() async {
   _AppWindowListener(windowStore, lifecycle, tray).attach();
   _watchActivationRequests();
 
+  // `--dart-define=LAMP_MEM_LOG=true` 才真正开始打点
+  startMemoryLog();
   runApp(
     LampApp(themeController: theme, lifecycle: lifecycle, trayController: tray),
   );

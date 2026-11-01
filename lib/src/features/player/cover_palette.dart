@@ -15,6 +15,9 @@ abstract final class CoverPaletteCache {
   static final LinkedHashMap<String, List<Color>> _cache =
       LinkedHashMap<String, List<Color>>();
 
+  /// 当前缓存了多少条（内存日志用）
+  static int get length => _cache.length;
+
   static Future<List<Color>?> load(String? path) async {
     if (path == null || path.isEmpty) {
       return null;
