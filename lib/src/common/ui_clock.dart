@@ -55,8 +55,38 @@ class UiClock extends ChangeNotifier {
   /// 当前周期里跳了几拍：各档按拍数取模通知
   static int _ticks = 0;
 
-  /// 时钟启动以来的秒数：动画相位用它算，别自己再攒一份时间。
-  double get seconds => clock.now().difference(_epoch).inMicroseconds / 1000000;
+  /// 多个不可见来源不能互相覆盖（最小化后又隐藏到托盘）。
+  static final Set<Object> _pauseReasons = <Object>{};
+  static DateTime? _pausedAt;
+  static Duration _pausedDuration = Duration.zero;
+
+  static bool get isPaused => _pauseReasons.isNotEmpty;
+
+  /// 时钟启动以来的可见秒数：隐藏期间冻结相位，恢复后不跳帧。
+  double get seconds =>
+      ((_pausedAt ?? clock.now()).difference(_epoch) - _pausedDuration)
+          .inMicroseconds /
+      1000000;
+
+  /// 窗口隐藏时停止所有装饰动画的节拍，不影响播放引擎。
+  static void pause(Object reason) {
+    if (!_pauseReasons.add(reason) || _pauseReasons.length != 1) return;
+    // _epoch 是惰性静态字段；首次停表前就要确定零点，避免先隐藏
+    // 很久才打开页面时 seconds 从负值开始。
+    final DateTime now = clock.now();
+    _pausedAt = now.isBefore(_epoch) ? _epoch : now;
+    _timer?.cancel();
+    _timer = null;
+    _armed = null;
+    _ticks = 0;
+  }
+
+  static void resume(Object reason) {
+    if (!_pauseReasons.remove(reason) || _pauseReasons.isNotEmpty) return;
+    _pausedDuration += clock.now().difference(_pausedAt!);
+    _pausedAt = null;
+    instance._arm();
+  }
 
   bool get _hasAnyListener =>
       instance.hasListeners || slow.hasListeners || fast.hasListeners;
@@ -65,6 +95,7 @@ class UiClock extends ChangeNotifier {
   Duration get _wantedInterval => fast.hasListeners ? fastInterval : interval;
 
   void _arm() {
+    if (_pauseReasons.isNotEmpty) return;
     final Duration want = _wantedInterval;
     if (_armed == want && _timer != null) {
       return;
