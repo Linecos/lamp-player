@@ -415,21 +415,51 @@ class CoverShadow extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: circularCovers,
       builder: (BuildContext context, bool circular, Widget? child) {
-        return Container(
-          decoration: BoxDecoration(
-            shape: circular ? BoxShape.circle : BoxShape.rectangle,
-            // 与封面自身的圆角一致，否则角上会露一圈光晕
-            borderRadius: circular ? null : BorderRadius.circular(radius),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 28,
-                spreadRadius: 2,
-                offset: const Offset(10, 12),
+        return Stack(
+          // 阴影本来就画在封面外面，硬裁会把四边切掉
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            // 阴影单独一层。`Container(decoration)` 把阴影和内容绑在同一个
+            // RenderObject 上：Hero 落地、换歌这类「内容换了」的时刻会把阴影
+            // 一起标脏，于是要重做一次 28px 高斯模糊。分成独立图层后，只要
+            // 尺寸和圆角没变就复用已经光栅化的那一层。
+            //
+            // 这一层必须**比封面大一圈**（每边 [CoverShadow.spread]）：
+            // `RepaintBoundary` 的边界就是它的光栅范围，用 `Positioned.fill`
+            // 铺满封面的话，模糊到封面外的那圈尾巴会被齐边裁掉。飞行时
+            // 的 shuttle 是留了余量的，于是落地那一帧阴影突然收窄一圈，
+            // 看着就是「最后卡一下 / 闪一下」——两边必须按同一尺寸画
+            Positioned(
+              left: -CoverShadow.spread,
+              top: -CoverShadow.spread,
+              right: -CoverShadow.spread,
+              bottom: -CoverShadow.spread,
+              child: RepaintBoundary(
+                child: Padding(
+                  padding: const EdgeInsets.all(CoverShadow.spread),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: circular ? BoxShape.circle : BoxShape.rectangle,
+                      // 与封面自身的圆角一致，否则角上会露一圈光晕
+                      borderRadius: circular
+                          ? null
+                          : BorderRadius.circular(radius),
+                      boxShadow: const <BoxShadow>[
+                        BoxShadow(
+                          // Colors.black.withValues(alpha: 0.35)
+                          color: Color(0x59000000),
+                          blurRadius: 28,
+                          spreadRadius: 2,
+                          offset: Offset(10, 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ],
-          ),
-          child: child,
+            ),
+            child ?? const SizedBox.shrink(),
+          ],
         );
       },
       child: child,

@@ -17,7 +17,8 @@ import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../theme/app_theme.dart';
-import '../library/library_sort.dart' show trackArtist;
+import '../library/library_sort.dart' show splitTrackArtists, trackArtist;
+import 'artist_picker_dialog.dart';
 import 'cover_palette.dart';
 import 'lyrics_view.dart';
 import 'output_device_dialog.dart';
@@ -103,7 +104,10 @@ class NowPlayingPage extends StatefulWidget {
   ///
   /// 传整个 [Track] 而不是名字：专辑是按「歌手 + 专辑名」聚合的，
   /// 聚合键怎么算属于曲库那边的规则，不该让本页去复制一份。
-  final ValueChanged<Track>? onOpenArtist;
+  ///
+  /// 艺术家多带一个名字参数：标签里用 `/` 隔开多位时（`A/B`），点一下没法
+  /// 决定去哪位，本页先弹窗让用户选，再把选中的那位传出去。
+  final void Function(Track track, String artist)? onOpenArtist;
   final ValueChanged<Track>? onOpenAlbum;
 
   /// 开关桌面歌词；为空时不显示该按钮
@@ -892,17 +896,43 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  /// 点艺术家：只有一位就直接跳，多位先弹窗让用户选一位。
+  Future<void> _openArtist(
+    BuildContext context,
+    Track track,
+    List<String> artists,
+    void Function(Track, String) open,
+  ) async {
+    if (artists.length <= 1) {
+      open(track, artists.isEmpty ? trackArtist(track) : artists.first);
+      return;
+    }
+    final String? picked = await showArtistPickerDialog(
+      context,
+      artists: artists,
+    );
+    // 弹窗期间可能已经把播放页退掉了（比如又点了别处），别再去动曲库状态
+    if (picked == null || !mounted) {
+      return;
+    }
+    open(track, picked);
+  }
+
   /// 「歌手-专辑」一行：两段各自可点，分别跳曲库的艺术家 / 专辑详情。
   ///
   /// 分隔符与字号沿用原来那条合成文本，所以看起来和之前一模一样，
   /// 只是鼠标移上去会变主题色加下划线——不这样根本看不出它能点。
+  ///
+  /// 艺术家是多位时（标签里用 `/` 隔开）先弹窗选一位：直接跳的话只会落到
+  /// 「A/B」这个并不存在的合体艺术家上。
   Widget _metaLine(BuildContext context, Track track) {
     final ThemeData theme = Theme.of(context);
     final TextStyle style = (theme.textTheme.bodyLarge ?? const TextStyle())
         .copyWith(color: theme.colorScheme.onSurfaceVariant);
     final String album = (track.album ?? '').trim();
-    final ValueChanged<Track>? openArtist = widget.onOpenArtist;
+    final void Function(Track, String)? openArtist = widget.onOpenArtist;
     final ValueChanged<Track>? openAlbum = widget.onOpenAlbum;
+    final List<String> artists = splitTrackArtists(track);
 
     return Row(
       key: const ValueKey<String>('now-playing-meta'),
@@ -915,8 +945,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             key: const ValueKey<String>('now-playing-artist'),
             text: trackArtist(track),
             style: style,
-            tooltip: '查看艺术家',
-            onTap: openArtist == null ? null : () => openArtist(track),
+            tooltip: artists.length > 1 ? '选择要查看的艺术家' : '查看艺术家',
+            onTap: openArtist == null
+                ? null
+                : () => unawaited(
+                    _openArtist(context, track, artists, openArtist),
+                  ),
           ),
         ),
         if (album.isNotEmpty) ...<Widget>[
@@ -1004,39 +1038,64 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     // 换歌时新封面收进来 + 淡入，别硬切
                     animateOnChange: true,
                   );
-                  return Hero(
-                    tag: coverHeroTag,
-                    createRectTween: (Rect? begin, Rect? end) =>
-                        RectTween(begin: begin, end: end),
-                    // 飞行时的 shuttle 见 [coverFlightShuttle]：正反两个方向都用
-                    // 这张大图，并且阴影跟着封面一起飞（只在页面那棵子树上挂
-                    // 阴影的话，落地那一帧才会冒出来）
-                    flightShuttleBuilder: (_, _, _, _, _) =>
-                        coverFlightShuttle(size: size, cover: cover),
-                    // 阴影挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
-                    // 还杵在原地
-                    child: CoverShadow(
-                      radius: 28,
-                      // 旋转用「Transform 在上、RepaintBoundary 在下」：
-                      // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
-                      // 光栅），反过来套一层边界就每帧重新光栅化一遍
-                      child: ValueListenableBuilder<double>(
-                        valueListenable: _coverTurns,
-                        // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
-                        builder:
-                            (
-                              BuildContext context,
-                              double turns,
-                              Widget? child,
-                            ) => Transform.rotate(
-                              key: const ValueKey<String>(
-                                'now-playing-cover-spin',
+                  // 只扩「绘制边界」，不改布局占位：Hero 落地那一帧会把占位
+                  // 换回真实子树，`markNeedsPaint` 会一路爬到最近的边界。这一块
+                  // 原来没有任何边界，最近的边界在整页之外，于是落地时整页重画
+                  // 一次——全屏流光背景、歌词全在里面重画，窗口越大越明显。
+                  // 外面这层 `SizedBox` + `OverflowBox` 让边界按「封面 + 阴影
+                  // 外溢」铺开，布局占位仍是封面大小，封面位置也不动
+                  return SizedBox(
+                    width: size,
+                    height: size,
+                    child: OverflowBox(
+                      minWidth: size + CoverShadow.spread * 2,
+                      maxWidth: size + CoverShadow.spread * 2,
+                      minHeight: size + CoverShadow.spread * 2,
+                      maxHeight: size + CoverShadow.spread * 2,
+                      child: RepaintBoundary(
+                        child: Center(
+                          child: Hero(
+                            tag: coverHeroTag,
+                            createRectTween: (Rect? begin, Rect? end) =>
+                                RectTween(begin: begin, end: end),
+                            // 飞行时的 shuttle 见 [coverFlightShuttle]：正反两个方向都用
+                            // 这张大图，并且阴影跟着封面一起飞（只在页面那棵子树上挂
+                            // 阴影的话，落地那一帧才会冒出来）。
+                            //
+                            // 这里刻意**不做任何淡入淡出**：Impeller 会把 `Opacity` 的
+                            // 透明度下推给绘制内容，遇到底层带模糊的（我们那圈 28px 阴影）
+                            // 就直接断言失败并退回 saveLayer——每帧一次。之前为了让收尾
+                            // 「平滑」加的交叉淡化，反而让转场最后几帧全走这条慢路径
+                            flightShuttleBuilder: (_, _, _, _, _) =>
+                                coverFlightShuttle(size: size, cover: cover),
+                            // 阴影挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
+                            // 还杵在原地
+                            child: CoverShadow(
+                              radius: 28,
+                              // 旋转用「Transform 在上、RepaintBoundary 在下」：
+                              // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
+                              // 光栅），反过来套一层边界就每帧重新光栅化一遍
+                              child: ValueListenableBuilder<double>(
+                                valueListenable: _coverTurns,
+                                // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
+                                builder:
+                                    (
+                                      BuildContext context,
+                                      double turns,
+                                      Widget? child,
+                                    ) => Transform.rotate(
+                                      key: const ValueKey<String>(
+                                        'now-playing-cover-spin',
+                                      ),
+                                      angle: turns * math.pi * 2,
+                                      child: child,
+                                    ),
+                                // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件
+                                child: RepaintBoundary(child: cover),
                               ),
-                              angle: turns * math.pi * 2,
-                              child: child,
                             ),
-                        // 封面自己一层：转起来只动矩阵，不重画歌词 / 控件
-                        child: RepaintBoundary(child: cover),
+                          ),
+                        ),
                       ),
                     ),
                   );

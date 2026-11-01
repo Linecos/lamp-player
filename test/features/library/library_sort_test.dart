@@ -124,6 +124,65 @@ void main() {
     });
   });
 
+  group('多艺术家', () {
+    test('按 / 拆开，顺序保留、首尾空格去掉、重复的去掉', () {
+      final Track track = sampleTrack(
+        title: 'Love Me Not',
+        artist: ' Bao The Whale / Overspace / Bao The Whale ',
+      );
+
+      expect(trackArtist(track), 'Bao The Whale / Overspace / Bao The Whale');
+      expect(splitTrackArtists(track), <String>['Bao The Whale', 'Overspace']);
+    });
+
+    test('没有分隔符或只有一段时原样返回', () {
+      expect(
+        splitTrackArtists(sampleTrack(title: 'x', artist: '林间电台')),
+        <String>['林间电台'],
+      );
+      expect(
+        splitTrackArtists(sampleTrack(title: 'x', artist: 'A / ')),
+        <String>['A'],
+      );
+      expect(splitTrackArtists(sampleTrack(title: 'x', artist: '  ')), <String>[
+        unknownArtist,
+      ]);
+    });
+
+    test('AC/DC 这类缩写名不拆', () {
+      expect(
+        splitTrackArtists(sampleTrack(title: 'x', artist: 'AC/DC')),
+        <String>['AC/DC'],
+      );
+      expect(
+        splitTrackArtists(sampleTrack(title: 'x', artist: '王菲/那英')),
+        <String>['王菲', '那英'],
+        reason: '中文两字名不该被缩写规则挡住',
+      );
+    });
+
+    test('多艺术家曲目同时归到两位艺术家下', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: 'Love Me Not', artist: 'Bao The Whale/Overspace'),
+        sampleTrack(title: '独唱', artist: 'Overspace'),
+      ];
+
+      final List<ArtistGroup> groups = groupTracksByArtist(tracks);
+
+      expect(groups.map((ArtistGroup g) => g.name), <String>[
+        'Bao The Whale',
+        'Overspace',
+      ]);
+      expect(groups.first.trackCount, 1);
+      expect(groups.last.trackCount, 2, reason: 'Overspace 既有合唱也有独唱');
+      expect(
+        groups.any((ArtistGroup g) => g.name.contains('/')),
+        isFalse,
+        reason: '不该再留下「A/B」这种合体艺术家',
+      );
+    });
+  });
+
   group('聚合', () {
     test('按艺术家聚合，统计专辑数与曲目数', () {
       final List<Track> tracks = <Track>[

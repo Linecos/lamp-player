@@ -350,10 +350,24 @@ void main() {
     );
     expect(hero.tag, coverHeroTag);
 
+    // 不在飞行期间给封面套 `Opacity`：Impeller 会把透明度下推给绘制内容，
+    // 碰到底层带模糊的直接断言失败并逐帧退回 saveLayer
+    expect(hero.placeholderBuilder, isNull);
+
+    // Hero 外面要有绘制边界：起飞 / 落地把占位换回封面时，脏区只到这一小块，
+    // 不会把整个播放条拖着重画
+    expect(
+      find.ancestor(
+        of: find.byType(Hero),
+        matching: find.byType(RepaintBoundary),
+      ),
+      findsWidgets,
+    );
+
     // 飞行插值要全程保持正方形。实际飞行是「播放条（左下 56²）→ 播放页封面
     // （右上 340²）」，位置与尺寸同时差一个量级；`MaterialRectArcTween` 是
     // 四个角各走各的弧线，位置差一大宽高速度就错开，实测中途会变成 276×172
-    // 的横长条、尺寸还一度超过终点。lerp 是 protected，包一层子类来取值
+    // 的横长条。lerp 是 protected，包一层子类来取值
     final Tween<Rect?> raw = hero.createRectTween!(
       const Rect.fromLTWH(40, 600, 56, 56),
       const Rect.fromLTWH(500, 80, 340, 340),

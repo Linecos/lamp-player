@@ -7,6 +7,7 @@ import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
+import 'package:lamp_player/src/common/frame_log.dart';
 import 'package:lamp_player/src/common/memory_log.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
@@ -90,6 +91,8 @@ Future<void> main() async {
 
   // `--dart-define=LAMP_MEM_LOG=true` 才真正开始打点
   startMemoryLog();
+  // 掉帧日志：`--dart-define=LAMP_FRAME_LOG=true`，只打超 20ms 的长帧
+  startFrameLog();
   runApp(
     LampApp(themeController: theme, lifecycle: lifecycle, trayController: tray),
   );
