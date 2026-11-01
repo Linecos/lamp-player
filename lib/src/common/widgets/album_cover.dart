@@ -389,3 +389,91 @@ class _CoverImageState extends State<_CoverImage> {
     );
   }
 }
+
+/// 大封面的投影。
+///
+/// 正在播放页的封面本体与它的 Hero 飞行 shuttle 共用这一份配置：两边必须
+/// 逐像素一致，否则飞行落地的那一帧阴影会「跳」一下。
+///
+/// 圆角跟随 [circularCovers]：圆形封面时阴影容器也要跟着圆，矩形阴影会在
+/// 圆角外露出一圈方形的光晕。
+class CoverShadow extends StatelessWidget {
+  const CoverShadow({super.key, required this.radius, required this.child});
+
+  /// 阴影在封面之外还占多大。
+  ///
+  /// `blurRadius: 28`（σ≈16.6）的可见尾巴约 3σ，加上 `spreadRadius: 2` 与
+  /// `offset(10, 12)`，64 能把整个人影包进来。Hero 飞行时靠它给阴影留地方：
+  /// 边界盒小于这笔外扩，模糊的尾巴会被 RepaintBoundary 裁掉。
+  static const double spread = 64;
+
+  final double radius;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: circularCovers,
+      builder: (BuildContext context, bool circular, Widget? child) {
+        return Container(
+          decoration: BoxDecoration(
+            shape: circular ? BoxShape.circle : BoxShape.rectangle,
+            // 与封面自身的圆角一致，否则角上会露一圈光晕
+            borderRadius: circular ? null : BorderRadius.circular(radius),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 28,
+                spreadRadius: 2,
+                offset: const Offset(10, 12),
+              ),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// 封面 Hero 飞行时的 shuttle。
+///
+/// 正反两个方向都用播放页那张大图：收起时的目标在播放条，那边只有 56px 小图，
+/// 默认 shuttle 拿它放大时一路发虚。
+///
+/// 阴影要**跟着一起飞**。Hero 飞行时两端子树都会换成占位 SizedBox，阴影只挂在
+/// 页面那棵子树上的话，整个飞行过程里画面上没有一圈暗边，落地那一帧才由页面
+/// 补出来——看起来就是「封面先飞过去，再原地长出阴影」。
+///
+/// 代价要控住：飞行框的边长每帧都在变，把阴影直接铺进去等于每帧按新尺寸重做
+/// 一次 28px 高斯模糊。所以按大图尺寸备一份「带阴影的封面」，外面套固定尺寸的
+/// `RepaintBoundary`，每帧只改一个缩放矩阵。
+Widget coverFlightShuttle({required double size, required Widget cover}) {
+  return LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) {
+      final double side = constraints.biggest.shortestSide;
+      final double scale = size <= 0 || side <= 0 ? 1 : side / size;
+      return OverflowBox(
+        alignment: Alignment.center,
+        maxWidth: double.infinity,
+        maxHeight: double.infinity,
+        // 缩放围着盒子中心走，而封面在盒子正中，于是封面正好铺满飞行框、
+        // 阴影溢出到框外，落点与页面那棵子树逐像素对齐
+        child: Transform.scale(
+          scale: scale,
+          child: SizedBox(
+            width: size + CoverShadow.spread * 2,
+            height: size + CoverShadow.spread * 2,
+            child: RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.all(CoverShadow.spread),
+                child: CoverShadow(radius: 28, child: cover),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}

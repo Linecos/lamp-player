@@ -79,3 +79,25 @@
 - 以上为 release 数据；debug 构建下冷扫描约 11.5 秒、`allTracks` 约 95 ms，
   不作为验收口径
 - 10k 曲库放在仓库外的 `D:\lamp-perf-library`，不进入版本库
+
+## 帧耗时类测量的前提（2026-11-01 踩到过）
+
+用 `FrameTiming`（`tool/hero_flight_bench.dart` 之类）量渲染开销时，**窗口必须在前台**：
+窗口被遮挡或最小化时 Windows 不合成，`rasterDuration` 会给出 0.3 ms 这种「好看但没有
+意义」的数字，据此下结论会南辕北辙。基准脚本自己的启动段要抢前台：
+
+```dart
+await windowManager.waitUntilReadyToShow(options, () async {
+  await windowManager.show();
+  await windowManager.focus();
+  await windowManager.setAlwaysOnTop(true);
+});
+```
+
+`flutter run` 拉起的窗口不一定会被系统切到前台，`--release` 下尤其容易被忽略。
+
+配套结论：**封面 Hero 飞行带阴影与不带阴影的 raster 在同一量级**（均 0.3 ms、P95 0.4，
+240 Hz 屏）。这份基准是裸页面（只有两个大方块，没有歌词 / 频谱 / 流光背景），绝对值不能
+拿去和整页数字比，只用于比较两组之间的差额：阴影在 shuttle 里按固定尺寸光栅化一次、
+之后每帧只改 `Transform` 矩阵，所以「boxShadow 每帧重做高斯模糊」的代价只在
+「每帧按新尺寸重画」时才存在，固定尺寸缩放几乎不花钱。
