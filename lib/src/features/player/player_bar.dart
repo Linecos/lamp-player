@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show PointerEnterEvent, PointerExitEvent;
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
@@ -10,16 +10,11 @@ import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
-import '../../rust/api/lyrics.dart';
-import 'spectrum_bars.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
-import 'lyrics_view.dart';
+import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
-
-/// 加载一首曲目的歌词；不注入时播放条不显示歌词预览。
-typedef TrackLyricsLoader = Future<TrackLyrics> Function(String path);
 
 /// 请播放条把音量浮层弹出来一下。
 ///
@@ -32,7 +27,7 @@ class VolumePanelPeek extends ChangeNotifier {
 
 /// 底部播放条：曲目信息、上一首 / 播放暂停 / 下一首、进度、音量与队列入口。
 ///
-/// 布局是经典三段式：左「封面 + 曲名（+ 当前歌词）」与右「时间 + 进度 +
+/// 布局是经典三段式：左「封面 + 曲名 / 迷你频谱」与右「时间 + 进度 +
 /// 模式 + 音量」各占 flex 1（等宽），中间是三键 —— 两侧等宽，播放键才真正
 /// 落在整条播放条的中轴上。
 ///
@@ -76,7 +71,6 @@ class PlayerBar extends StatelessWidget {
     this.shuffle = false,
     this.onCyclePlayMode,
     this.onOpenNowPlaying,
-    this.lyricsLoader,
     this.spectrum,
     this.volumePanelPeek,
   });
@@ -86,9 +80,6 @@ class PlayerBar extends StatelessWidget {
 
   /// 键盘调音量时用来弹出音量浮层；不传则只有悬停才显示
   final VolumePanelPeek? volumePanelPeek;
-
-  /// 当前曲目的歌词来源；不传时左段只显示曲名 / 艺术家
-  final TrackLyricsLoader? lyricsLoader;
 
   final Track? track;
   final bool isPlaying;
@@ -157,7 +148,7 @@ class PlayerBar extends StatelessWidget {
         height: cardHeight,
         // 整条播放条都能打开正在播放页，不只有左半段。
         //
-        // 以前只有封面与曲名各自绑了 InkWell：左段的标题右侧 / 歌词区 /
+        // 以前只有封面与曲名各自绑了 InkWell：左段的标题右侧 / 频谱区 /
         // 频谱两侧、右段时间与按钮之间的缝隙、卡片左右 14px 内边距全是死区。
         // 这里在卡片最外层兜一次底。按钮、滑块、InkWell 都在更深的层级，
         // 会先赢得手势竞争，所以点击行为与悬停高亮都不变，外层只接住空白。
@@ -195,8 +186,6 @@ class PlayerBar extends StatelessWidget {
                         track: current,
                         isPlaying: isPlaying,
                         isAvailable: isAvailable,
-                        position: shown,
-                        lyricsLoader: lyricsLoader,
                         onOpenNowPlaying: onOpenNowPlaying,
                         spectrum: spectrum,
                       ),
@@ -340,17 +329,16 @@ class PlayerBar extends StatelessWidget {
   }
 }
 
-/// 左段：封面 + 曲名 / 艺术家，宽窗口时再补一句当前歌词。
+/// 左段：封面 + 曲名 / 艺术家，右侧是迷你频谱。
 ///
-/// 歌词单独做成 `StatefulWidget`：播放位置每几百毫秒推一次，只有这里需要按
-/// 位置重算当前行，没必要把三键 / 进度 / 音量一起卷进重建。
-class _PlayerBarLeft extends StatefulWidget {
+/// 这里原来还有一句「当前歌词」预览，占掉一半宽度。歌词在正在播放页有整屏
+/// 可以看，播放条上那半行字既挤、又只在换行时闪一下；去掉之后这块宽度给了
+/// 频谱——同样是「正在放什么」，但它是连续的，不跳字。
+class _PlayerBarLeft extends StatelessWidget {
   const _PlayerBarLeft({
     required this.track,
     required this.isPlaying,
     required this.isAvailable,
-    required this.position,
-    required this.lyricsLoader,
     required this.onOpenNowPlaying,
     this.spectrum,
   });
@@ -362,146 +350,37 @@ class _PlayerBarLeft extends StatefulWidget {
   final bool isPlaying;
   final bool isAvailable;
 
-  /// 当前播放位置（秒），用来定位歌词行
-  final double position;
-
-  final TrackLyricsLoader? lyricsLoader;
   final VoidCallback? onOpenNowPlaying;
 
-  @override
-  State<_PlayerBarLeft> createState() => _PlayerBarLeftState();
-}
-
-class _PlayerBarLeftState extends State<_PlayerBarLeft> {
-  /// 切歌会来回切（上一首 / 下一首），缓存最近几首的歌词免得重复解析
-  static const int _cacheLimit = 8;
-
-  /// 歌词够宽才占位：再窄曲名和歌词会互相挤到只剩几个字
-  static const double _lyricMinWidth = 340;
-
-  /// 封面边长：算曲名最大宽度时要用
+  /// 封面边长
   static const double _coverSize = 56;
 
-  final Map<String, TrackLyrics> _cache = <String, TrackLyrics>{};
+  /// 频谱至少要有这么宽才画：再窄曲名会被挤成几个字，柱子也连成一条线
+  static const double _spectrumMinWidth = 340;
 
-  TrackLyrics? _lyrics;
-
-  /// 已经发起过加载的曲目，避免每次位置刷新都重新读一遍
-  String? _loadedPath;
-
-  /// 递增令牌：切歌后旧的加载结果直接丢掉
-  int _request = 0;
-
-  /// 读失败过的曲目 → 何时允许再试。
-  ///
-  /// 以前失败后 `_loadedPath` 还留着，同一首歌（只要不切歌）就再也不会重试，
-  /// 播放条会一直空白——文件被占用一次就够了。这里给失败留一个冷却窗口，
-  /// 到点后由下一次 widget 更新重新发起请求。
-  final Map<String, DateTime> _retryAfter = <String, DateTime>{};
-
-  /// 失败后的冷却时长：太短会对着坏文件反复解析，太长等于不重试
-  static const Duration _retryDelay = Duration(seconds: 30);
-
-  @override
-  void initState() {
-    super.initState();
-    _syncTrack();
-  }
-
-  @override
-  void didUpdateWidget(covariant _PlayerBarLeft oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 路径没变也可能需要重试（上一轮读失败过），所以这里不做短路：
-    // `_syncTrack` 内部只有一次字符串比较，命中了才真的读歌词
-    _syncTrack();
-  }
-
-  void _syncTrack() {
-    final String? path = widget.track?.path;
-    if (path == null) {
-      // 停止 / 清空队列：别把上一首的歌词留在播放条上
-      _request += 1;
-      _loadedPath = null;
-      _lyrics = null;
-      return;
-    }
-    if (path == _loadedPath) {
-      return;
-    }
-    final DateTime? retryAt = _retryAfter[path];
-    if (retryAt != null) {
-      if (clock.now().isBefore(retryAt)) {
-        return;
-      }
-      // 冷却到点：清掉标记，重新走一遍加载
-      _retryAfter.remove(path);
-    }
-    _loadedPath = path;
-    _request += 1;
-    final TrackLyrics? cached = _cache.remove(path);
-    if (cached != null) {
-      // 命中缓存：重新插回队尾，保持 LRU 顺序
-      _cache[path] = cached;
-      _lyrics = cached;
-      return;
-    }
-    _lyrics = null;
-    final TrackLyricsLoader? loader = widget.lyricsLoader;
-    if (loader != null) {
-      unawaited(_load(loader, path, _request));
-    }
-  }
-
-  Future<void> _load(TrackLyricsLoader loader, String path, int token) async {
-    TrackLyrics? result;
-    try {
-      result = await loader(path);
-    } catch (error) {
-      // 歌词缺失不该影响播放：读失败就当这首没有歌词。
-      // 但要把「已加载」标记清掉，否则这首直到切歌都不会再试一次。
-      debugPrint('读取播放条歌词失败：$error');
-      if (mounted && token == _request) {
-        _loadedPath = null;
-        _retryAfter[path] = clock.now().add(_retryDelay);
-      }
-      return;
-    }
-    if (!mounted || token != _request) {
-      return;
-    }
-    _cache[path] = result;
-    while (_cache.length > _cacheLimit) {
-      _cache.remove(_cache.keys.first);
-    }
-    setState(() => _lyrics = result);
-  }
-
-  /// 当前应显示的歌词：间奏空行往前找最近一句有字的，避免预览闪成空白
-  String _currentLyric() {
-    final List<LyricLine> lines = _lyrics?.lines ?? const <LyricLine>[];
-    int index = lyricIndexAt(lines, widget.position);
-    while (index >= 0 && lines[index].text.trim().isEmpty) {
-      index -= 1;
-    }
-    return index < 0 ? '' : lines[index].text.trim();
-  }
+  /// 频谱宽度上限：再宽就成了半条播放条，和「迷你」两字不搭
+  static const double _spectrumMaxWidth = 240;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final Track? current = widget.track;
+    final Track? current = track;
     final String subtitle = current != null
         ? trackArtist(current)
-        : (widget.isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
+        : (isAvailable ? '从曲库中选一首开始' : '播放引擎不可用');
+    final ValueListenable<List<double>>? bands = spectrum;
 
+    // widthFactor: 1 —— 让曲名这块按文字宽度收缩，而不是撑满整行：
+    // 撑满的话右侧会留一大片空白，频谱被顶到最右边，看着像贴着播放键
     final Widget titleBlock = Align(
       alignment: Alignment.centerLeft,
+      widthFactor: 1,
       child: InkWell(
         key: const ValueKey<String>('player-bar-open-now-playing-title'),
         borderRadius: BorderRadius.circular(12),
         hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-        onTap: current == null ? null : widget.onOpenNowPlaying,
+        onTap: current == null ? null : onOpenNowPlaying,
         // Align 让高亮收缩到文字块大小，而不是整行高度
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -532,13 +411,20 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final bool showLyric =
-            (_lyrics?.lines.isNotEmpty ?? false) &&
-            constraints.maxWidth >= _lyricMinWidth;
+        final double width = constraints.maxWidth;
+        final bool showSpectrum = bands != null && width >= _spectrumMinWidth;
+        // 频谱宽度：窗口很宽时也封顶，否则会拉成半条播放条，「迷你」就没了
+        final double barsWidth = math.min(_spectrumMaxWidth, width * 0.45);
+        // 曲名宽度上限：把封面、两侧间距、频谱和频谱两侧各 12 的留白都扣掉，
+        // 长标题在这之前就省略，免得把频谱挤扁
+        final double titleMax = math.max(
+          0,
+          width - _coverSize - 12 - 12 - barsWidth - 24,
+        );
 
         return Row(
           children: <Widget>[
-            // 封面可点：打开正在播放页（歌词 / 大封面）
+            // 封面可点：打开正在播放页（大封面 / 歌词）
             // 高亮只包封面本身：把 12px 间距放进 InkWell 会让高亮比封面
             // 宽出一截，看起来和封面错位
             ValueListenableBuilder<bool>(
@@ -551,7 +437,7 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
                     circular ? _coverSize / 2 : 16,
                   ),
                   hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-                  onTap: current == null ? null : widget.onOpenNowPlaying,
+                  onTap: current == null ? null : onOpenNowPlaying,
                   child: child,
                 );
               },
@@ -560,7 +446,7 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
               // 弧线挪，56px 飞到 340px 这种尺寸差会让宽高速度错开，
               // 中途变成竖长条；RectTween 是中心+尺寸线性，全程保持正方形。
               // 外面套一层边界：起飞 / 落地把占位换回封面时，脏区只到这一小块，
-              // 不会把整个播放条（歌词预览、按钮）一起拖着重画
+              // 不会把整个播放条（频谱、按钮）一起拖着重画
               child: RepaintBoundary(
                 child: Hero(
                   tag: coverHeroTag,
@@ -570,7 +456,7 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
                     path: current?.coverPath,
                     size: _coverSize,
                     radius: 16,
-                    playing: widget.isPlaying,
+                    playing: isPlaying,
                     // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
                     // 就成了「从别处飞过来」，几乎只留淡入才自然
                     animateOnChange: true,
@@ -581,82 +467,42 @@ class _PlayerBarLeftState extends State<_PlayerBarLeft> {
               ),
             ),
             const SizedBox(width: 12),
-            // 曲名与歌词各占一半：歌词区域宽度固定，换歌时居中位置不会跟着
-            // 标题长短左右跳
-            Expanded(child: titleBlock),
-            if (showLyric) ...<Widget>[
+            if (showSpectrum) ...<Widget>[
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: titleMax),
+                child: titleBlock,
+              ),
               const SizedBox(width: 12),
-              Expanded(child: _LyricPreview(text: _currentLyric())),
-            ],
-            // 迷你频谱：贴着左段右缘；宽度不够时不画，免得挤成一条竖线
-            if (widget.spectrum != null &&
-                constraints.maxWidth >= 280) ...<Widget>[
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 46,
-                child: SpectrumBars(
-                  key: const ValueKey<String>('player-bar-spectrum'),
-                  bands: widget.spectrum!,
-                  height: 22,
-                  barWidth: 3,
-                  gap: 2,
-                  barCount: 8,
-                  minBar: 1,
+              // 频谱放在「曲名之后」剩下的整块空白正中间：两侧留白相等，
+              // 才不会像被播放键挤在右边缘（原来按对半分，左边空一大片）
+              Expanded(
+                child: Center(
+                  child: SizedBox(
+                    width: barsWidth,
+                    height: 24,
+                    child: SpectrumBars(
+                      key: const ValueKey<String>('player-bar-spectrum'),
+                      bands: bands,
+                      height: 24,
+                      barWidth: 3,
+                      gap: 3,
+                      // 铺满这块：柱子按可用宽度均分，24 段全用上
+                      stretch: true,
+                      minBar: 2,
+                    ),
+                  ),
                 ),
               ),
-            ],
+            ] else
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: titleBlock,
+                ),
+              ),
           ],
         );
       },
-    );
-  }
-}
-
-/// 播放条上的一句歌词：换行时淡入 + 上滑
-class _LyricPreview extends StatelessWidget {
-  const _LyricPreview({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return SizedBox(
-      key: const ValueKey<String>('player-bar-lyric'),
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 240),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.35),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            ),
-          );
-        },
-        // 与展开页一致：歌词居中。Stack 的每个子项（新行 / 旧行）各自居中，
-        // 换行时两行不会互相顶到左边
-        layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
-          alignment: Alignment.center,
-          children: <Widget>[...previous, ?current],
-        ),
-        child: Text(
-          text,
-          // 空串也要换 key：间奏时切到空白，再切回来才重新淡入
-          key: ValueKey<String>(text),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(color: scheme.primary),
-        ),
-      ),
     );
   }
 }

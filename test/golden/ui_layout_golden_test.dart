@@ -171,7 +171,6 @@ void main() {
               volume: 0.7,
               repeat: LoopMode.all,
               spectrum: spectrum,
-              lyricsLoader: (String path) async => _lyrics,
               onPlayPause: () {},
               onPrevious: () {},
               onNext: () {},

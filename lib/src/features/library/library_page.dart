@@ -83,7 +83,6 @@ class LibraryPage extends StatefulWidget {
     this.appLifecycle,
     this.windowControls,
     this.trayController,
-    this.lyricsLoader,
     this.spectrum,
     this.musicTagLauncher,
     this.shortcuts = kDefaultShortcuts,
@@ -122,9 +121,6 @@ class LibraryPage extends StatefulWidget {
 
   /// 托盘：把播放控制绑上去，关窗后在托盘菜单里也能暂停 / 切歌
   final TrayController? trayController;
-
-  /// 播放条左侧的歌词来源；不传则播放条不显示歌词（测试默认走这条）
-  final TrackLyricsLoader? lyricsLoader;
 
   /// 频谱数据源；不传则不画频谱，也不会去订阅引擎流（测试默认走这条）
   final ValueListenable<List<double>>? spectrum;
@@ -1284,7 +1280,6 @@ class _LibraryPageState extends State<LibraryPage>
       shuffle: _queue.shuffle,
       onCyclePlayMode: _cyclePlayMode,
       onOpenNowPlaying: () => unawaited(_openNowPlaying()),
-      lyricsLoader: widget.lyricsLoader,
     );
   }
 
