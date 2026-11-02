@@ -80,6 +80,55 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('刚启动未播放时进度条也能拖，按播放从拖到的位置继续', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    // 上次退出时停在第 40 秒：启动只是把曲目和位置摆回来，引擎还是 stopped
+    final FakeSessionStore store = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        coverBackfillAttempted: true,
+        lastTrackPath: '/music/夜航.mp3',
+        lastPositionSecs: 40,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: store,
+    );
+
+    final Finder progress = find.byKey(
+      const ValueKey<String>('player-progress'),
+    );
+    final Slider slider = tester.widget<Slider>(
+      find.descendant(of: progress, matching: find.byType(Slider)),
+    );
+    expect(slider.onChanged, isNotNull, reason: '还没起播时进度条也不该变灰、拖不动');
+
+    await tester.drag(progress, const Offset(160, 0));
+    await tester.pump();
+
+    expect(playback.seekCalls, isEmpty, reason: '引擎里还没加载曲目，这时只攒续播点，不真的 seek');
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.seekCalls, hasLength(1));
+    expect(
+      playback.seekCalls.single,
+      greaterThan(40),
+      reason: '从拖到的位置起播，而不是回到开头',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('播放成功会写入播放历史', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

@@ -1309,7 +1309,10 @@ class _LibraryPageState extends State<LibraryPage>
       track: _currentTrack,
       isPlaying: progress.playing,
       isAvailable: _isAvailable,
-      canSeek: !_isStopped,
+      // 有曲目就允许拖：停止态下拖动只是先攒一个「续播点」，按播放时从
+      // 那里开始（见 `_deferSeek`）。刚启动时引擎还是 stopped，进度条不该
+      // 因此变灰、拖不动
+      canSeek: _currentTrack != null,
       position: progress.position,
       duration: progress.duration,
       volume: volume,
