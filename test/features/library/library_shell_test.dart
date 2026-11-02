@@ -128,6 +128,33 @@ void main() {
     expect(tester.getSize(rail).width, LibraryRail.collapsedWidth);
   });
 
+  testWidgets('切换分区是淡入 + 轻微上浮，不是硬切', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+    );
+    // tap 之后的那一帧才在 post-frame 里启动过渡
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final Finder fade = find.byKey(const ValueKey<String>('section-fade'));
+    final double early = tester.widget<FadeTransition>(fade).opacity.value;
+    expect(early, lessThan(1), reason: '第一帧就该是正在淡入的半透明');
+    expect(
+      early,
+      greaterThanOrEqualTo(0.3),
+      reason: '起点不能是全透明：那样会先闪一下空背景，比没有动画更突兀',
+    );
+
+    await tester.pump(const Duration(milliseconds: 60));
+    final double later = tester.widget<FadeTransition>(fade).opacity.value;
+    expect(later, greaterThan(early), reason: '要逐帧变清楚');
+
+    await tester.pumpAndSettle();
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
+  });
+
   testWidgets('收起侧边栏后只显示图标，并与折叠按钮对齐', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
