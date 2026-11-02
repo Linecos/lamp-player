@@ -36,6 +36,8 @@ import '../player/shortcuts.dart';
 import '../settings/shortcuts_page.dart';
 import '../player/smtc_bridge.dart';
 import '../player/spectrum_controller.dart';
+import '../settings/listening_stats_repository.dart';
+import '../settings/listening_stats_view.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
 import 'drop_import.dart';
@@ -84,6 +86,7 @@ class LibraryPage extends StatefulWidget {
     this.windowControls,
     this.trayController,
     this.spectrum,
+    this.statsRepository,
     this.musicTagLauncher,
     this.shortcuts = kDefaultShortcuts,
     this.prefetchReplayGain = true,
@@ -124,6 +127,9 @@ class LibraryPage extends StatefulWidget {
 
   /// 频谱数据源；不传则不画频谱，也不会去订阅引擎流（测试默认走这条）
   final ValueListenable<List<double>>? spectrum;
+
+  /// 听歌统计的数据源；不传则统计子界面自己走 Rust，测试注入假实现
+  final ListeningStatsRepository? statsRepository;
 
   /// 启动后是否在后台补算曲库缺失的 ReplayGain。
   ///
@@ -298,6 +304,12 @@ class _LibraryPageState extends State<LibraryPage>
   bool _spectrumActive = false;
   bool _playlistTracksLoading = false;
   Object? _playlistTracksError;
+
+  /// 设置分区里是否正开着「听歌统计」子界面。
+  ///
+  /// 只在打开时构建它（关掉即销毁）：统计要查四次库、还要铺一年热力图，
+  /// 没进来没必要留着。
+  bool _settingsStatsOpen = false;
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -1137,11 +1149,14 @@ class _LibraryPageState extends State<LibraryPage>
       // 不应把用户困在歌单 / 艺术家 / 专辑详情里。
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
-          _selectedAlbumKey != null) {
+          _selectedAlbumKey != null ||
+          _settingsStatsOpen) {
         _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
+          // 再点一次「设置」= 从统计退回设置列表
+          _settingsStatsOpen = false;
         });
       }
       _clearSelection();
@@ -1151,6 +1166,9 @@ class _LibraryPageState extends State<LibraryPage>
     // 高亮走独立通知器，所以这一帧整页不重建。
     _section = section;
     _sectionNotifier.value = section;
+    // 离开设置就收起统计子页：下次进来是设置列表，统计的列表与热力图也不
+    // 必留在 Offstage 里占着内存
+    _settingsStatsOpen = false;
     _saveSessionNow();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 期间用户又点了别的分区：让最后一次点击自己走完切换

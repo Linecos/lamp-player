@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
-import 'package:lamp_player/src/features/settings/listening_stats_page.dart';
+import 'package:lamp_player/src/features/settings/listening_stats_view.dart';
 import 'package:lamp_player/src/features/settings/listening_stats_repository.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -81,10 +81,13 @@ Future<void> _pump(
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.light(AppTheme.defaultSeed),
-      home: ListeningStatsPage(
-        repository: repository,
-        onPlayTrack: onPlayTrack,
-        onOpenArtist: onOpenArtist,
+      home: Scaffold(
+        body: ListeningStatsView(
+          repository: repository,
+          onPlayTrack: onPlayTrack,
+          onOpenArtist: onOpenArtist,
+          onBack: () {},
+        ),
       ),
     ),
   );
@@ -263,7 +266,7 @@ void main() {
     final List<FractionallySizedBox> bars = tester
         .widgetList<FractionallySizedBox>(
           find.descendant(
-            of: find.byType(ListeningStatsPage),
+            of: find.byType(ListeningStatsView),
             matching: find.byType(FractionallySizedBox),
           ),
         )
@@ -457,6 +460,6 @@ void main() {
     );
     expect(size.width, 56);
     expect(size.height, 56, reason: '默认 BackButton 只有 48，不好点');
-    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.byTooltip('返回设置'), findsOneWidget);
   });
 }

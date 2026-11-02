@@ -6,6 +6,7 @@ import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/music_tag.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
+import 'package:lamp_player/src/features/settings/listening_stats_repository.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -26,6 +27,7 @@ Future<FakeLibraryRepository> pumpLibrary(
   AppLifecycle? lifecycle,
   WindowControls? windowControls,
   MusicTagLauncher? musicTagLauncher,
+  ListeningStatsRepository? statsRepository,
   Size viewSize = const Size(1280, 800),
   bool prefetchReplayGain = true,
   void Function(FakeLibraryRepository repo)? configure,
@@ -56,6 +58,7 @@ Future<FakeLibraryRepository> pumpLibrary(
         appLifecycle: lifecycle,
         windowControls: windowControls,
         musicTagLauncher: musicTagLauncher,
+        statsRepository: statsRepository,
         prefetchReplayGain: prefetchReplayGain,
       ),
     ),

@@ -5,6 +5,10 @@ import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
+import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/features/settings/listening_stats_repository.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/features/settings/listening_stats_view.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 
 import '../../support/fake_library.dart';
@@ -27,6 +31,76 @@ void main() {
     await tester.drag(find.byType(SettingsView), const Offset(0, -700));
     await tester.pumpAndSettle();
     expect(find.text('跟随系统'), findsOneWidget);
+  });
+
+  testWidgets('听歌统计是设置里的子界面：侧栏与播放岛仍在，可退回列表', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      statsRepository: _FakeStatsRepository(),
+    );
+    await openSettings(tester);
+
+    await tester.tap(find.text('听歌统计'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ListeningStatsView), findsOneWidget);
+    expect(find.text('累计听歌'), findsOneWidget, reason: '统计内容真的加载了');
+    expect(find.byType(LibraryRail), findsOneWidget, reason: '左侧栏还在');
+    expect(find.byType(PlayerBar), findsOneWidget, reason: '底部播放岛还在');
+    expect(find.text('常听歌曲'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('stats-back')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ListeningStatsView), findsNothing);
+    expect(find.text('曲目数量'), findsOneWidget, reason: '回到设置列表');
+    expect(find.byType(LibraryRail), findsOneWidget);
+  });
+
+  testWidgets('打开统计是淡入过渡，不是硬切换', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      statsRepository: _FakeStatsRepository(),
+    );
+    await openSettings(tester);
+
+    await tester.tap(find.text('听歌统计'));
+    await tester.pump();
+
+    // 过渡的第一帧：新旧两份都在（旧的正在淡出）
+    expect(find.byType(ListeningStatsView), findsOneWidget);
+    expect(find.text('曲目数量'), findsOneWidget, reason: '设置列表正在淡出');
+
+    await tester.pumpAndSettle();
+
+    // 结束后只剩统计，淡出的那份被丢掉
+    expect(find.byType(ListeningStatsView), findsOneWidget);
+    expect(find.text('曲目数量'), findsNothing);
+  });
+
+  testWidgets('离开设置分区后再回来，统计子界面已经收起', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      statsRepository: _FakeStatsRepository(),
+    );
+    await openSettings(tester);
+    await tester.tap(find.text('听歌统计'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ListeningStatsView), findsOneWidget);
+
+    // 切到音乐分区再切回来：子界面不该还开着（也不该继续占着内存）
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
+    );
+    await tester.pumpAndSettle();
+    await openSettings(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ListeningStatsView), findsNothing);
+    expect(find.text('曲目数量'), findsOneWidget);
   });
 
   testWidgets('设置页列出已添加目录，可重新扫描', (WidgetTester tester) async {
@@ -417,4 +491,27 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+}
+
+/// 统计子界面的假数据源：只给最小可用的一份，够断言「内容真的渲染了」
+class _FakeStatsRepository implements ListeningStatsRepository {
+  @override
+  Future<PlayStats> playStats() async => const PlayStats(
+    totalSeconds: 3600,
+    totalPlays: 12,
+    trackCount: 3,
+    activeDays: 1,
+  );
+
+  @override
+  Future<List<TrackPlayStat>> topTracks({int limit = 100}) async =>
+      <TrackPlayStat>[TrackPlayStat(track: sampleTrack(title: '夜航'), plays: 5)];
+
+  @override
+  Future<List<ArtistPlayStat>> topArtists({int limit = 100}) async =>
+      <ArtistPlayStat>[ArtistPlayStat(artist: '林间电台', plays: 5, trackCount: 1)];
+
+  @override
+  Future<List<DailyPlaytime>> dailyPlaytime(int sinceDay) async =>
+      const <DailyPlaytime>[];
 }

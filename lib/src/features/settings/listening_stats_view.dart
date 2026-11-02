@@ -11,12 +11,17 @@ import 'listening_stats_repository.dart';
 ///
 /// 时长与热力图只统计有 `play_sessions` 记录的部分（schema v4 之后），
 /// 次数沿用 `play_history.play_count`，包含更早的历史。
-class ListeningStatsPage extends StatefulWidget {
-  const ListeningStatsPage({
+///
+/// 这是**设置分区里的子界面**，不是独立路由：左侧栏和底部播放岛都还在。
+/// 打开时才创建（关闭即销毁），所以进来才查库、离开不留后台开销。
+class ListeningStatsView extends StatefulWidget {
+  const ListeningStatsView({
     super.key,
     this.repository,
     this.onPlayTrack,
     this.onOpenArtist,
+    this.onBack,
+    this.bottomPadding = 24,
   });
 
   /// 数据源；不传则走 Rust，测试注入假实现。
@@ -28,11 +33,17 @@ class ListeningStatsPage extends StatefulWidget {
   /// 点排行里的艺术家（已拆好的单个名字）：跳到曲库的艺术家详情
   final ValueChanged<String>? onOpenArtist;
 
+  /// 返回设置列表；为空时不画返回键（测试直接泵这个视图）
+  final VoidCallback? onBack;
+
+  /// 列表底部留白：播放岛是浮层，滚到底得让得开
+  final double bottomPadding;
+
   @override
-  State<ListeningStatsPage> createState() => _ListeningStatsPageState();
+  State<ListeningStatsView> createState() => _ListeningStatsViewState();
 }
 
-class _ListeningStatsPageState extends State<ListeningStatsPage> {
+class _ListeningStatsViewState extends State<ListeningStatsView> {
   /// 一次取满一年：热力图显示多少周由窗口宽度决定，改窗口不必重新查库
   /// （一年也就 371 行，代价可以忽略）
   static const int _maxWeeks = 53;
@@ -71,41 +82,60 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
 
-    return Scaffold(
-      backgroundColor: scheme.surfaceContainerLow,
-      appBar: AppBar(
-        // 默认 BackButton 只有 48×48，改成 56 更好点；图标与位置不变
-        leading: IconButton(
-          key: const ValueKey<String>('stats-back'),
-          onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.arrow_back),
-          tooltip: '返回',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 56, height: 56),
+    final VoidCallback? back = widget.onBack;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            // 与原来一样留 56 的点击区：返回是这个子界面唯一的出口
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: IconButton(
+                key: const ValueKey<String>('stats-back'),
+                onPressed: back,
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '返回设置',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 56,
+                  height: 56,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '听歌统计',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
-        leadingWidth: 56,
-        title: const Text('听歌统计'),
-        backgroundColor: scheme.surfaceContainerLow,
-      ),
-      body: FutureBuilder<_StatsBundle>(
-        future: _future,
-        builder: (BuildContext context, AsyncSnapshot<_StatsBundle> snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const LoadingState(message: '正在统计…');
-          }
-          if (snapshot.hasError) {
-            return ErrorRetry(
-              title: '统计读取失败',
-              error: snapshot.error!,
-              onRetry: _reload,
-            );
-          }
-          final _StatsBundle bundle = snapshot.data!;
-          return _buildBody(context, bundle);
-        },
-      ),
+        Expanded(
+          child: FutureBuilder<_StatsBundle>(
+            future: _future,
+            builder:
+                (BuildContext context, AsyncSnapshot<_StatsBundle> snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const LoadingState(message: '正在统计…');
+                  }
+                  if (snapshot.hasError) {
+                    return ErrorRetry(
+                      title: '统计读取失败',
+                      error: snapshot.error!,
+                      onRetry: _reload,
+                    );
+                  }
+                  final _StatsBundle bundle = snapshot.data!;
+                  return _buildBody(context, bundle);
+                },
+          ),
+        ),
+      ],
     );
   }
 
@@ -118,12 +148,11 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
         // 宽窗口把总览与热力图并排：热力图能铺满一整年，页面也不会被拉成
         // 一条长卷；窄窗口仍上下堆叠
         final bool sideBySide = constraints.maxWidth >= 1040;
-        // 卡片内宽：页面左右 16 内边距，卡片自身左右 20 内边距
-        const double pagePadding = 32;
+        // 横向内边距由分区容器给（16），这里只剩卡片自身的左右 20
         const double cardPadding = 40;
         final double heatmapWidth = sideBySide
-            ? constraints.maxWidth - pagePadding - 340 - 16 - cardPadding
-            : constraints.maxWidth - pagePadding - cardPadding;
+            ? constraints.maxWidth - 340 - 16 - cardPadding
+            : constraints.maxWidth - cardPadding;
         final Widget overview = _overview(context, bundle.stats, bundle.daily);
         final Widget heatmap = _heatmapCard(
           context,
@@ -154,12 +183,9 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
 
         return CustomScrollView(
           slivers: <Widget>[
+            SliverToBoxAdapter(child: head),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              sliver: SliverToBoxAdapter(child: head),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: <Widget>[
@@ -179,7 +205,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
               ),
             ),
             ..._rankingSlivers(bundle),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            SliverToBoxAdapter(child: SizedBox(height: widget.bottomPadding)),
           ],
         );
       },
@@ -917,7 +943,8 @@ class _RankTile extends StatelessWidget {
     final double share = (plays / maxPlays).clamp(0.0, 1.0);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      // 左右不缩进：外层分区容器已经有 16，排行榜行要跟卡片同宽
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
         color: Colors.transparent,
         child: Stack(

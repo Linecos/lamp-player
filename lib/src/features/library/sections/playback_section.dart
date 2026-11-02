@@ -271,13 +271,17 @@ extension _PlaybackSection on _LibraryPageState {
     );
   }
 
-  /// 听歌统计点艺术家：退出统计页，切到「艺术家」分区并进这位的详情。
+  /// 听歌统计点艺术家：切到「艺术家」分区并进这位的详情。
   ///
   /// 统计页给的已经是拆好的单个名字（合唱标签在那里就拆成两位了），
   /// 这里直接当聚合键用，不再过一遍拆分。
+  ///
+  /// 不用 pop：统计现在是设置分区里的子界面、没有独立路由，`maybePop` 会把
+  /// 整个曲库页弹掉。收起子页由 `_selectSection` 换分区时顺手完成。
   void _openArtistFromStats(String artist) {
     _jumpToDetail(
       section: LibrarySection.artists,
+      pop: false,
       select: () => _selectedArtist = artist,
     );
   }
@@ -301,8 +305,11 @@ extension _PlaybackSection on _LibraryPageState {
   void _jumpToDetail({
     required LibrarySection section,
     required VoidCallback select,
+    bool pop = true,
   }) {
-    Navigator.of(context).maybePop();
+    if (pop) {
+      Navigator.of(context).maybePop();
+    }
     _clearSearch();
     _clearSelection();
     _selectSection(section);

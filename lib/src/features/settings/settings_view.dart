@@ -18,8 +18,6 @@ import '../player/equalizer_dialog.dart';
 import '../player/shortcuts.dart';
 
 import 'hidden_tracks_view.dart';
-import 'listening_stats_page.dart';
-import 'listening_stats_repository.dart';
 import 'theme_controller.dart';
 
 /// 设置页骨架。
@@ -31,7 +29,7 @@ class SettingsView extends StatelessWidget {
     super.key,
     required this.trackCount,
     required this.engineAvailable,
-    this.statsRepository,
+    this.onOpenStats,
     this.onPlayStatsTrack,
     this.onOpenStatsArtist,
     this.exclusive = false,
@@ -82,8 +80,8 @@ class SettingsView extends StatelessWidget {
   final int trackCount;
   final bool engineAvailable;
 
-  /// 听歌统计的数据源；不传则统计页自己走 Rust，测试注入假实现
-  final ListeningStatsRepository? statsRepository;
+  /// 打开「听歌统计」：它是设置分区里的子界面，具体切换由分区容器负责
+  final VoidCallback? onOpenStats;
 
   /// 统计页点歌曲：整份榜单当队列播出去；为空则行不可点
   final void Function(List<Track> queue, Track track)? onPlayStatsTrack;
@@ -240,7 +238,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.insights_outlined,
         title: '听歌统计',
         subtitle: '累计时长、播放次数排行与每日热力图',
-        onTap: () => _openStats(context),
+        onTap: onOpenStats,
       ),
       _ActionRow(
         icon: Icons.create_new_folder_outlined,
@@ -496,18 +494,6 @@ class SettingsView extends StatelessWidget {
     return showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) => const _HiddenTracksDialog(),
-    );
-  }
-
-  void _openStats(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ListeningStatsPage(
-          repository: statsRepository,
-          onPlayTrack: onPlayStatsTrack,
-          onOpenArtist: onOpenStatsArtist,
-        ),
-      ),
     );
   }
 
