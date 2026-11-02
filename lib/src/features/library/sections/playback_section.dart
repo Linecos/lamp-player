@@ -852,24 +852,47 @@ extension _PlaybackSection on _LibraryPageState {
 
   Future<void> _onSeekEnd(double seconds) async {
     _seeking = false;
-    // 已停止（播完 / 未开始）时不要 seek：位置会改变但播放键会从头重播，
-    // 等于白拖。滑块此时本身就是禁用的，这里再兜一层。
-    final bool canSeek = _isAvailable && !_isStopped;
-    if (canSeek) {
-      await _seekTo(seconds);
+    if (_currentTrack != null && _isAvailable) {
+      if (_isStopped) {
+        // 停止态（还没起播 / 播完）引擎里没有加载曲目，seek 无处可去；
+        // 但用户拖这一下不该白费——记成续播点，按播放时从这里开始
+        _deferSeek(seconds);
+      } else {
+        await _seekTo(seconds);
+      }
     }
     if (_isPlaying && _positionTimer == null) {
       _startPositionPolling();
     }
   }
 
+  /// 停止态下把拖到的位置记成续播点。
+  ///
+  /// 起播走的是 `_startCurrent(startAt: _pendingResumePosition ?? 0)`，所以只要
+  /// 这里写进去，播放键按下时就会从这个位置开始，而不是从头。
+  /// 1 秒以内当作「从头」，免得手一抖落个 0.4 秒的续播点。
+  void _deferSeek(double seconds) {
+    final double target = seconds.clamp(
+      0.0,
+      _duration > 0 ? _duration : seconds,
+    );
+    _pendingResumePosition = target > 1 ? target : null;
+    _position = target;
+    _publishProgress();
+  }
+
   /// 键盘快进 / 快退 5 秒
   Future<void> _seekBy(double delta) async {
-    if (_currentTrack == null || !_isAvailable || _isStopped) {
+    if (_currentTrack == null || !_isAvailable) {
       return;
     }
     final double maxPosition = _duration > 0 ? _duration : _position + delta;
     final double target = (_position + delta).clamp(0.0, maxPosition);
+    if (_isStopped) {
+      // 还没起播：同样只是在攒续播点（见 [_deferSeek]）
+      _deferSeek(target);
+      return;
+    }
     await _seekTo(target);
   }
 

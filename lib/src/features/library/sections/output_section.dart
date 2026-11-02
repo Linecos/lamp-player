@@ -366,9 +366,10 @@ extension _OutputSection on _LibraryPageState {
     _albumGroups = groupTracksByAlbum(_tracks);
   }
 
-  /// 引擎是否处于停止态（未播放、已播完、或引擎不可用）。
+  /// 引擎是否处于停止态（还没起播 / 已播完 / 引擎不可用）。
   ///
-  /// 停止态下滑块要禁用：此时 seek 虽然能成功，但播放键会从头重播。
+  /// 注意：停止态**不再禁用**进度条。拖动会先记成续播点（`_deferSeek`），
+  /// 按播放时从那里开始，所以「拖了白拖」的前提已经不成立了。
   bool get _isStopped {
     try {
       return _playback.state == rust.PlaybackState.stopped;
