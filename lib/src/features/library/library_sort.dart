@@ -52,8 +52,18 @@ final RegExp _abbreviation = RegExp(r'^[A-Z0-9]+$');
 /// 都只有两个字符以内、且全是字母数字时，当作一个整体不动。
 ///
 /// 返回的列表至少有一项；顺序按标签里的出现顺序，重复的去掉。
-List<String> splitTrackArtists(Track track) {
-  final String whole = trackArtist(track);
+List<String> splitTrackArtists(Track track) =>
+    splitArtistTag(trackArtist(track));
+
+/// 拆一个艺术家标签字符串：规则与 [splitTrackArtists] 完全一致。
+///
+/// 统计页拿到的是 SQL 聚合过的原始标签（`A/B` 一行），没有 `Track` 可传，
+/// 所以把规则放在这里共用一份，别在两处各写一遍。
+List<String> splitArtistTag(String tag) {
+  final String whole = tag.trim();
+  if (whole.isEmpty) {
+    return <String>[unknownArtist];
+  }
   if (!whole.contains('/')) {
     return <String>[whole];
   }

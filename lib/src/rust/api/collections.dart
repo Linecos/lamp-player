@@ -160,6 +160,13 @@ Future<PlayStats> playStats() =>
 Future<List<TrackPlayStat>> topTracks({required int limit}) =>
     RustLib.instance.api.crateApiCollectionsTopTracks(limit: limit);
 
+/// 艺术家播放排行，`limit` 截断到 `1..=100`；次数相同按最近播放时间排。
+///
+/// 按标签原样（`t.artist`）分组：合唱曲的 `A/B` 会单独占一行，界面层再拆开并按人
+/// 合并。封面取这位艺术家播得最多的那首（相关子查询，表很小，代价可忽略）。
+Future<List<ArtistPlayStat>> topArtists({required int limit}) =>
+    RustLib.instance.api.crateApiCollectionsTopArtists(limit: limit);
+
 /// 自 `since_day` 起每天的播放时长，只返回有记录的天。
 ///
 /// 不做「补齐空白天」——补零是展示层的事，Rust 只吐真实数据。

@@ -178,6 +178,7 @@
 | `record_play_time(path: String, day: i32, seconds: i64) -> Result<()>` | `Future<void> recordPlayTime({required String path, required int day, required PlatformInt64 seconds})` | 已实现 |
 | `play_stats() -> Result<PlayStats>` | `Future<PlayStats> playStats()` | 已实现 |
 | `top_tracks(limit: i32) -> Result<Vec<TrackPlayStat>>` | `Future<List<TrackPlayStat>> topTracks({required int limit})` | 已实现 |
+| `top_artists(limit: i32) -> Result<Vec<ArtistPlayStat>>` | `Future<List<ArtistPlayStat>> topArtists({required int limit})` | 已实现 |
 | `daily_playtime(since_day: i32) -> Result<Vec<DailyPlaytime>>` | `Future<List<DailyPlaytime>> dailyPlaytime({required int sinceDay})` | 已实现 |
 
 语义补充：
@@ -211,6 +212,9 @@
   （包含更早历史，两者口径不同，页面会说明）。
   `top_tracks` 按 `play_count` 倒序、`limit` 截断到 `1..=100`；`daily_playtime` 只返回有记录的
   天，不补零，补零是展示层的事。时长也通过外键 `ON DELETE CASCADE` 跟着曲目清理。
+  `top_artists` 按标签原样（`t.artist`）分组聚合，`limit` 同样截断到 `1..=100`；合唱标签
+  `A/B` 会单独占一行，**拆分与按人合并交给展示层**（`splitArtistTag`），拆法只有一份。
+  它返回的 `cover_path` 是这位艺术家播得最多的那首的封面（空字符串按没有处理）。
 - **时长上报时机**：Dart 侧按轮询增量累计（只认 0 < delta < 3 秒，seek 跳变与切歌跨度不计入），
   攒到 15 秒或遇到暂停 / 切歌 / 播完 / 停止 / 退出时写库，不逐拍写。
 - **路径合并**（`merge_track_path`）：同一文件的不同字面路径（大小写 / 分隔符）合并时，

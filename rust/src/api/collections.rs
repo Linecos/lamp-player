@@ -10,7 +10,9 @@
 //! - 历史按曲目去重，重复播放只更新最近时间并累加 `play_count`。
 
 use crate::api::db::{row_to_track, with_conn};
-use crate::api::model::{DailyPlaytime, PlayStats, Playlist, Track, TrackPlayStat};
+use crate::api::model::{
+    ArtistPlayStat, DailyPlaytime, PlayStats, Playlist, Track, TrackPlayStat,
+};
 use anyhow::{bail, Context};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -592,6 +594,47 @@ pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
             Ok(TrackPlayStat {
                 track: row_to_track(row)?,
                 plays: row.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+}
+
+/// 艺术家播放排行，`limit` 截断到 `1..=100`；次数相同按最近播放时间排。
+///
+/// 按标签原样（`t.artist`）分组：合唱曲的 `A/B` 会单独占一行，界面层再拆开并按人
+/// 合并。封面取这位艺术家播得最多的那首（相关子查询，表很小，代价可忽略）。
+pub fn top_artists(limit: i32) -> anyhow::Result<Vec<ArtistPlayStat>> {
+    with_conn(|conn| {
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT COALESCE(t.artist, '') AS artist_name,
+                   SUM(h.play_count) AS plays,
+                   COUNT(*) AS tracks,
+                   (SELECT t2.cover_path
+                      FROM play_history h2
+                      JOIN tracks t2 ON t2.path = h2.track_path
+                     WHERE t2.artist IS t.artist
+                       AND h2.play_count > 0
+                       AND t2.hidden = 0
+                       AND t2.cover_path IS NOT NULL
+                       AND t2.cover_path <> ''
+                     ORDER BY h2.play_count DESC
+                     LIMIT 1) AS cover_path
+            FROM play_history h
+            JOIN tracks t ON t.path = h.track_path
+            WHERE h.play_count > 0 AND t.hidden = 0
+            GROUP BY t.artist
+            ORDER BY plays DESC, MAX(h.last_played_at) DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit.clamp(1, 100)], |row| {
+            Ok(ArtistPlayStat {
+                artist: row.get(0)?,
+                plays: row.get(1)?,
+                track_count: row.get(2)?,
+                cover_path: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

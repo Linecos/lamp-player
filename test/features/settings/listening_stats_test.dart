@@ -17,12 +17,14 @@ class _FakeStatsRepository implements ListeningStatsRepository {
       activeDays: 0,
     ),
     this.top = const <TrackPlayStat>[],
+    this.artists = const <ArtistPlayStat>[],
     this.daily = const <DailyPlaytime>[],
     this.error,
   });
 
   PlayStats stats;
   List<TrackPlayStat> top;
+  List<ArtistPlayStat> artists;
   List<DailyPlaytime> daily;
   Object? error;
 
@@ -44,6 +46,14 @@ class _FakeStatsRepository implements ListeningStatsRepository {
       throw error!;
     }
     return top;
+  }
+
+  @override
+  Future<List<ArtistPlayStat>> topArtists({int limit = 100}) async {
+    if (error != null) {
+      throw error!;
+    }
+    return artists;
   }
 
   @override
@@ -325,6 +335,57 @@ void main() {
       closeTo(overview.bottom, 0.5),
       reason: '热力图比总览矮的时候不能让它自己短一截，否则卡片下方空一块',
     );
+  });
+
+  testWidgets('默认看歌曲排行，切到艺术家后换成艺术家列表', (WidgetTester tester) async {
+    final _FakeStatsRepository repository = _FakeStatsRepository(
+      top: <TrackPlayStat>[
+        TrackPlayStat(track: sampleTrack(title: '夜航'), plays: 12),
+      ],
+      artists: <ArtistPlayStat>[
+        const ArtistPlayStat(
+          artist: 'Bao The Whale/Overspace',
+          plays: 62,
+          trackCount: 3,
+        ),
+        const ArtistPlayStat(artist: '林间电台', plays: 40, trackCount: 5),
+      ],
+    );
+
+    await _pump(tester, repository);
+
+    expect(find.text('常听歌曲'), findsOneWidget);
+    expect(find.text('常听艺术家'), findsOneWidget);
+    expect(find.text('夜航'), findsOneWidget, reason: '默认是歌曲排行');
+    expect(find.text('最多 100 首'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('rank-tab-artists')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('夜航'), findsNothing, reason: '切走之后歌曲列表不再渲染');
+    expect(find.text('最多 100 位'), findsOneWidget);
+    // 合唱标签拆成两位，播放次数各自算满
+    expect(find.text('Bao The Whale'), findsOneWidget);
+    expect(find.text('Overspace'), findsOneWidget);
+    expect(find.text('62 次'), findsNWidgets(2));
+    expect(find.text('听过 3 首'), findsNWidgets(2));
+    expect(find.text('林间电台'), findsOneWidget);
+    expect(find.text('听过 5 首'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('rank-tab-songs')));
+    await tester.pumpAndSettle();
+    expect(find.text('夜航'), findsOneWidget, reason: '切回来还在，不用重新加载');
+    expect(find.text('Bao The Whale'), findsNothing);
+  });
+
+  testWidgets('没有艺术家记录时给出空状态', (WidgetTester tester) async {
+    await _pump(tester, _FakeStatsRepository());
+
+    await tester.tap(find.byKey(const ValueKey<String>('rank-tab-artists')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('还没有艺术家记录'), findsOneWidget);
+    expect(find.text('还没有播放记录'), findsNothing);
   });
 
   testWidgets('返回按钮热区放大到 56×56', (WidgetTester tester) async {

@@ -7,7 +7,46 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+
+/// 某位艺术家的累计播放次数（排行榜用）。
+///
+/// `artist` 是标签里的原始字符串：`A/B` 这种合唱标签由界面层再拆分、按人合并，
+/// 拆法属于展示规则，不在 SQL 里复制一份。
+class ArtistPlayStat {
+  final String artist;
+  final PlatformInt64 plays;
+
+  /// 这个标签下听过多少首
+  final PlatformInt64 trackCount;
+
+  /// 他播得最多的那首的封面，用来当头像；没有封面是 None
+  final String? coverPath;
+
+  const ArtistPlayStat({
+    required this.artist,
+    required this.plays,
+    required this.trackCount,
+    this.coverPath,
+  });
+
+  @override
+  int get hashCode =>
+      artist.hashCode ^
+      plays.hashCode ^
+      trackCount.hashCode ^
+      coverPath.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ArtistPlayStat &&
+          runtimeType == other.runtimeType &&
+          artist == other.artist &&
+          plays == other.plays &&
+          trackCount == other.trackCount &&
+          coverPath == other.coverPath;
+}
 
 /// 某一天的播放时长。
 class DailyPlaytime {

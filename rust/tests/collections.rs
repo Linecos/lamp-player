@@ -392,6 +392,44 @@ fn play_time_accumulates_per_day_and_ranks_tracks() {
 }
 
 #[test]
+fn top_artists_groups_by_tag_and_keeps_cover() {
+    let (_lock, dir) = begin("topartists");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+
+    let mut tracks = vec![
+        track("/music/a1.mp3", "A1"),
+        track("/music/a2.mp3", "A2"),
+        track("/music/b1.mp3", "B1"),
+    ];
+    tracks[2].artist = Some("另一位".to_string());
+    // 封面来自这位艺术家播得最多的那首
+    tracks[0].cover_path = Some("/covers/a1.png".to_string());
+    db::upsert_tracks(tracks).expect("写入曲目");
+
+    collections::record_play("/music/a1.mp3".to_string()).expect("A1");
+    collections::record_play("/music/a1.mp3".to_string()).expect("A1 再播");
+    collections::record_play("/music/a2.mp3".to_string()).expect("A2");
+    collections::record_play("/music/b1.mp3".to_string()).expect("B1");
+
+    let artists = collections::top_artists(100).expect("艺术家排行");
+    assert_eq!(artists.len(), 2, "按标签分组");
+    assert_eq!(artists[0].artist, "测试歌手");
+    assert_eq!(artists[0].plays, 3, "同一艺术家的曲目次数要合并");
+    assert_eq!(artists[0].track_count, 2);
+    assert_eq!(
+        artists[0].cover_path.as_deref(),
+        Some("/covers/a1.png"),
+        "封面取播得最多的那首"
+    );
+    assert_eq!(artists[1].artist, "另一位");
+    assert_eq!(artists[1].plays, 1);
+    assert_eq!(artists[1].cover_path, None, "没有封面就是 None");
+
+    let capped = collections::top_artists(0).expect("limit 截断");
+    assert_eq!(capped.len(), 1, "limit 最小按 1 处理");
+}
+
+#[test]
 fn deleting_track_cascades_playlist_favorites_and_history() {
     let (_lock, dir) = begin("cascade");
     let music = dir.0.join("music");

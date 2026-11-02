@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/common.dart';
 import '../../rust/api/model.dart';
+import '../library/library_sort.dart' show splitArtistTag;
 import 'listening_stats_repository.dart';
 
 /// 听歌统计：累计时长、播放次数排行、每日热力图。
@@ -29,6 +30,9 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
       widget.repository ?? const RustListeningStatsRepository();
   late Future<_StatsBundle> _future = _load();
 
+  /// 下半部分看哪一套排行
+  RankTab _tab = RankTab.songs;
+
   Future<_StatsBundle> _load() async {
     final DateTime start = _heatmapStart(DateTime.now(), _maxWeeks);
     // 三个查询互不依赖，并行发起；用 record 的 wait 保证任一失败都会被捕获，
@@ -36,13 +40,15 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
     final (
       PlayStats stats,
       List<TrackPlayStat> top,
+      List<ArtistPlayStat> artists,
       List<DailyPlaytime> daily,
     ) = await (
       _repository.playStats(),
       _repository.topTracks(),
+      _repository.topArtists(),
       _repository.dailyPlaytime(_dayKey(start)),
     ).wait;
-    return _StatsBundle(stats: stats, top: top, daily: daily);
+    return _StatsBundle(stats: stats, top: top, artists: artists, daily: daily);
   }
 
   void _reload() {
@@ -146,15 +152,13 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: <Widget>[
-                    Text(
-                      '播放排行',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    _RankTabs(
+                      selected: _tab,
+                      onChanged: (RankTab tab) => setState(() => _tab = tab),
                     ),
-                    const SizedBox(width: 8),
+                    const Spacer(),
                     Text(
-                      '最多 100 首',
+                      _tab == RankTab.songs ? '最多 100 首' : '最多 100 位',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -163,26 +167,7 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
                 ),
               ),
             ),
-            if (bundle.top.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: EmptyState(
-                    icon: Icons.bar_chart,
-                    title: '还没有播放记录',
-                    message: '播放几首歌之后，这里会按次数排出你最常听的曲目。',
-                  ),
-                ),
-              )
-            else
-              SliverList.builder(
-                itemCount: bundle.top.length,
-                itemBuilder: (BuildContext context, int index) => _RankRow(
-                  rank: index + 1,
-                  stat: bundle.top[index],
-                  maxPlays: _maxPlays(bundle.top),
-                ),
-              ),
+            ..._rankingSlivers(bundle),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         );
@@ -190,10 +175,106 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
     );
   }
 
-  static int _maxPlays(List<TrackPlayStat> top) {
+  /// 排行榜的两套列表：常听歌曲 / 常听艺术家
+  List<Widget> _rankingSlivers(_StatsBundle bundle) {
+    if (_tab == RankTab.songs) {
+      if (bundle.top.isEmpty) {
+        return <Widget>[
+          _emptyRank(
+            icon: Icons.bar_chart,
+            title: '还没有播放记录',
+            message: '播放几首歌之后，这里会按次数排出你最常听的曲目。',
+          ),
+        ];
+      }
+      final int most = _maxPlays(
+        bundle.top.map((TrackPlayStat stat) => stat.plays.toInt()),
+      );
+      return <Widget>[
+        SliverList.builder(
+          itemCount: bundle.top.length,
+          itemBuilder: (BuildContext context, int index) => _RankRow(
+            rank: index + 1,
+            stat: bundle.top[index],
+            maxPlays: most,
+          ),
+        ),
+      ];
+    }
+
+    final List<_ArtistEntry> artists = _mergeArtists(bundle.artists);
+    if (artists.isEmpty) {
+      return <Widget>[
+        _emptyRank(
+          icon: Icons.person_outline,
+          title: '还没有艺术家记录',
+          message: '播放几首歌之后，这里会按艺术家排出你听得最多的名单。',
+        ),
+      ];
+    }
+    final int most = _maxPlays(
+      artists.map((_ArtistEntry entry) => entry.plays),
+    );
+    return <Widget>[
+      SliverList.builder(
+        itemCount: artists.length,
+        itemBuilder: (BuildContext context, int index) => _ArtistRankRow(
+          rank: index + 1,
+          entry: artists[index],
+          maxPlays: most,
+        ),
+      ),
+    ];
+  }
+
+  static Widget _emptyRank({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: EmptyState(icon: icon, title: title, message: message),
+      ),
+    );
+  }
+
+  /// 把 SQL 的「标签原样」拆开、按人合并。
+  ///
+  /// 合唱曲（`A/B`）的播放次数会同时计入两位，和曲库「艺术家」分区的口径一致；
+  /// 封面取他播放最多的那张（raw 已按次数倒序，第一次见到即最能代表）。
+  static List<_ArtistEntry> _mergeArtists(List<ArtistPlayStat> raw) {
+    final Map<String, _ArtistEntry> byName = <String, _ArtistEntry>{};
+    for (final ArtistPlayStat stat in raw) {
+      // 空字符串是「没有封面」，交出去会让后面的候选盖不上
+      final String? cover = (stat.coverPath ?? '').isEmpty
+          ? null
+          : stat.coverPath;
+      for (final String name in splitArtistTag(stat.artist)) {
+        final _ArtistEntry? existing = byName[name];
+        if (existing == null) {
+          byName[name] = _ArtistEntry(
+            name: name,
+            plays: stat.plays.toInt(),
+            trackCount: stat.trackCount.toInt(),
+            coverPath: cover,
+          );
+        } else {
+          existing.plays += stat.plays.toInt();
+          existing.trackCount += stat.trackCount.toInt();
+          existing.coverPath ??= cover;
+        }
+      }
+    }
+    final List<_ArtistEntry> merged = byName.values.toList()
+      ..sort((_ArtistEntry a, _ArtistEntry b) => b.plays.compareTo(a.plays));
+    return merged.take(100).toList();
+  }
+
+  static int _maxPlays(Iterable<int> values) {
     int most = 1;
-    for (final TrackPlayStat stat in top) {
-      final int plays = stat.plays.toInt();
+    for (final int plays in values) {
       if (plays > most) {
         most = plays;
       }
@@ -466,12 +547,29 @@ class _StatsBundle {
   const _StatsBundle({
     required this.stats,
     required this.top,
+    required this.artists,
     required this.daily,
   });
 
   final PlayStats stats;
   final List<TrackPlayStat> top;
+  final List<ArtistPlayStat> artists;
   final List<DailyPlaytime> daily;
+}
+
+/// 合并后的艺术家排行项（一行）
+class _ArtistEntry {
+  _ArtistEntry({
+    required this.name,
+    required this.plays,
+    required this.trackCount,
+    this.coverPath,
+  });
+
+  final String name;
+  int plays;
+  int trackCount;
+  String? coverPath;
 }
 
 class _Metric extends StatelessWidget {
@@ -674,27 +772,117 @@ class _HeatCell extends StatelessWidget {
   }
 }
 
-class _RankRow extends StatelessWidget {
-  const _RankRow({
+/// 排行榜的两套视图
+enum RankTab {
+  songs('常听歌曲', Icons.library_music_outlined),
+  artists('常听艺术家', Icons.person_outline);
+
+  const RankTab(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
+}
+
+/// 分段切换：外框一个圆角胶囊，选中那段描边 + 主题色底
+class _RankTabs extends StatelessWidget {
+  const _RankTabs({required this.selected, required this.onChanged});
+
+  final RankTab selected;
+  final ValueChanged<RankTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        // 用比页面底色亮一档的「轨道」色：只靠描边的话，未选中那段在深色
+        // 主题下几乎看不见，整块读起来像只有一个按钮
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final RankTab tab in RankTab.values) _tab(context, tab),
+        ],
+      ),
+    );
+  }
+
+  Widget _tab(BuildContext context, RankTab tab) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool active = tab == selected;
+    final Color foreground = active ? scheme.primary : scheme.onSurfaceVariant;
+
+    return InkWell(
+      key: ValueKey<String>('rank-tab-${tab.name}'),
+      borderRadius: BorderRadius.circular(11),
+      onTap: active ? null : () => onChanged(tab),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primary.withValues(alpha: 0.14)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: active
+                ? scheme.primary.withValues(alpha: 0.55)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(tab.icon, size: 16, color: foreground),
+            const SizedBox(width: 6),
+            Text(
+              tab.label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: foreground,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 排行行：序号 + 头像 + 标题/副标题 + 次数，背后一条占比条。
+///
+/// 歌曲和艺术家只差头像形状与副标题，其余共用，免得两份排版各改各的。
+class _RankTile extends StatelessWidget {
+  const _RankTile({
     required this.rank,
-    required this.stat,
+    required this.avatar,
+    required this.title,
+    required this.subtitle,
+    required this.plays,
     required this.maxPlays,
   });
 
   final int rank;
-  final TrackPlayStat stat;
+  final Widget avatar;
+  final String title;
+  final String subtitle;
 
-  /// 榜首的播放次数：用来算每行的占比条长度
+  /// 这一行自己的播放次数与榜首的次数（用来算占比条）
+  final int plays;
   final int maxPlays;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final Track track = stat.track;
     final bool top3 = rank <= 3;
-
-    final double share = (stat.plays.toInt() / maxPlays).clamp(0.0, 1.0);
+    final double share = (plays / maxPlays).clamp(0.0, 1.0);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -702,7 +890,7 @@ class _RankRow extends StatelessWidget {
         color: Colors.transparent,
         child: Stack(
           children: <Widget>[
-            // 占比条：一眼看出这首比下一首多听了多少，也把宽窗口下右侧那一大片
+            // 占比条：一眼看出这行比下面多听了多少，也把宽窗口下右侧那一大片
             // 空白填上（原来只有一个小「N 次」孤零零飘在右边缘）
             Positioned.fill(
               child: FractionallySizedBox(
@@ -732,20 +920,20 @@ class _RankRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  AlbumCover(path: track.coverPath, size: 40, radius: 12),
+                  avatar,
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          track.title,
+                          title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyLarge,
                         ),
                         Text(
-                          _subtitleOf(track),
+                          subtitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -759,7 +947,7 @@ class _RankRow extends StatelessWidget {
                   SizedBox(
                     width: 76,
                     child: Text(
-                      '${stat.plays} 次',
+                      '$plays 次',
                       textAlign: TextAlign.right,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -776,11 +964,66 @@ class _RankRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RankRow extends StatelessWidget {
+  const _RankRow({
+    required this.rank,
+    required this.stat,
+    required this.maxPlays,
+  });
+
+  final int rank;
+  final TrackPlayStat stat;
+
+  /// 榜首的播放次数：用来算每行的占比条长度
+  final int maxPlays;
+
+  @override
+  Widget build(BuildContext context) {
+    final Track track = stat.track;
+    return _RankTile(
+      rank: rank,
+      avatar: AlbumCover(path: track.coverPath, size: 40, radius: 12),
+      title: track.title,
+      subtitle: _subtitleOf(track),
+      plays: stat.plays.toInt(),
+      maxPlays: maxPlays,
+    );
+  }
 
   static String _subtitleOf(Track track) {
     final String artist = track.artist ?? '未知艺术家';
     final String? album = track.album;
     return album == null ? artist : '$artist · $album';
+  }
+}
+
+class _ArtistRankRow extends StatelessWidget {
+  const _ArtistRankRow({
+    required this.rank,
+    required this.entry,
+    required this.maxPlays,
+  });
+
+  final int rank;
+  final _ArtistEntry entry;
+  final int maxPlays;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RankTile(
+      rank: rank,
+      // 头像用他播得最多的那张封面，裁成圆的：一排方形专辑图里，圆形一眼
+      // 就能区分「这是人不是歌」
+      avatar: ClipOval(
+        child: AlbumCover(path: entry.coverPath, size: 40, radius: 20),
+      ),
+      title: entry.name,
+      subtitle: '听过 ${entry.trackCount} 首',
+      plays: entry.plays,
+      maxPlays: maxPlays,
+    );
   }
 }
 
