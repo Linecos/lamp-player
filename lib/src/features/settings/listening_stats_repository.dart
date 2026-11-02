@@ -11,6 +11,9 @@ abstract interface class ListeningStatsRepository {
   /// 播放次数排行，最多 100 首
   Future<List<TrackPlayStat>> topTracks({int limit = 100});
 
+  /// 艺术家播放排行，最多 100 位；`artist` 是标签原样（`A/B` 会单独一行）
+  Future<List<ArtistPlayStat>> topArtists({int limit = 100});
+
   /// 自 [sinceDay]（`yyyyMMdd`）起每天的播放秒数，只含有记录的天
   Future<List<DailyPlaytime>> dailyPlaytime(int sinceDay);
 }
@@ -24,6 +27,10 @@ class RustListeningStatsRepository implements ListeningStatsRepository {
   @override
   Future<List<TrackPlayStat>> topTracks({int limit = 100}) =>
       collections.topTracks(limit: limit);
+
+  @override
+  Future<List<ArtistPlayStat>> topArtists({int limit = 100}) =>
+      collections.topArtists(limit: limit);
 
   @override
   Future<List<DailyPlaytime>> dailyPlaytime(int sinceDay) =>

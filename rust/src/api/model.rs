@@ -52,6 +52,20 @@ pub struct TrackPlayStat {
     pub plays: i64,
 }
 
+/// 某位艺术家的累计播放次数（排行榜用）。
+///
+/// `artist` 是标签里的原始字符串：`A/B` 这种合唱标签由界面层再拆分、按人合并，
+/// 拆法属于展示规则，不在 SQL 里复制一份。
+#[derive(Clone, Debug)]
+pub struct ArtistPlayStat {
+    pub artist: String,
+    pub plays: i64,
+    /// 这个标签下听过多少首
+    pub track_count: i64,
+    /// 他播得最多的那首的封面，用来当头像；没有封面是 None
+    pub cover_path: Option<String>,
+}
+
 /// 某一天的播放时长。
 #[derive(Clone, Debug)]
 pub struct DailyPlaytime {
