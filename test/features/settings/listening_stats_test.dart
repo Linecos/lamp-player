@@ -225,11 +225,22 @@ void main() {
 
     await _pump(tester, repository);
 
+    // 按 key 取值再比：'本周' 和 '本月' 在月初可能刚好相等，用文本唯一性
+    // 断言会在跨月那几天偶发失败
+    String metricValue(String key) {
+      final Finder metric = find.byKey(ValueKey<String>(key));
+      return tester
+          .widget<Text>(
+            find.descendant(of: metric, matching: find.byType(Text)).first,
+          )
+          .data!;
+    }
+
+    expect(metricValue('stats-week'), '1.7 小时', reason: '近 7 天合计 6000 秒');
+    expect(metricValue('stats-streak'), '3 天', reason: '今天起连听三天');
     expect(find.text('本周'), findsOneWidget);
-    expect(find.text('1.7 小时'), findsOneWidget, reason: '近 7 天合计 6000 秒');
-    expect(find.text('连续听歌'), findsOneWidget);
-    expect(find.text('3 天'), findsOneWidget, reason: '今天起连听三天');
     expect(find.text('本月'), findsOneWidget);
+    expect(find.text('连续听歌'), findsOneWidget);
     expect(repository.loadCalls, 1, reason: '不再为近期指标多查一次库');
   });
 

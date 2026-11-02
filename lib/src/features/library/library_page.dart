@@ -240,9 +240,32 @@ class _LibraryPageState extends State<LibraryPage>
   /// 切换分区时的淡入：只对新内容做不透明度合成，成本接近零
   late final AnimationController _sectionFade = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 130),
+    duration: const Duration(milliseconds: 200),
     value: 1,
   );
+
+  /// 淡入用的缓出曲线：线性淡入在开头「亮起来」得太生硬
+  late final Animation<double> _sectionFadeCurve = CurvedAnimation(
+    parent: _sectionFade,
+    curve: Curves.easeOutCubic,
+  );
+
+  /// 不透明度从 0.35 起而不是 0：切过去的第一帧若是全透明，会先闪一下
+  /// 空背景再长出来，那一下比没有动画还突兀
+  late final Animation<double> _sectionOpacity = Tween<double>(
+    begin: 0.35,
+    end: 1,
+  ).animate(_sectionFadeCurve);
+
+  /// 新分区从下方 8px 浮上来一点点。
+  ///
+  /// 纯淡入读起来还是「闪一下」：内容从空白里长出来没有任何方向感。加一点
+  /// 上浮就有了「翻页」的感觉；位移只作用在内容区的绘制层上（下面已经有
+  /// RepaintBoundary），逐帧只改矩阵，不重画。
+  late final Animation<Offset> _sectionSlide = Tween<Offset>(
+    begin: const Offset(0, 0.012),
+    end: Offset.zero,
+  ).animate(_sectionFadeCurve);
   bool _railExpanded = true;
   LibrarySort _sort = LibrarySort.library;
 
@@ -917,11 +940,17 @@ class _LibraryPageState extends State<LibraryPage>
                                         0,
                                       ),
                                       child: FadeTransition(
+                                        key: const ValueKey<String>(
+                                          'section-fade',
+                                        ),
                                         // 只做淡入：交叉淡变会让两份全屏列表
                                         // 同时布局 + 逐帧重绘，切换必掉帧；
                                         // 旧内容立即移除、新内容淡入，观感更利落
-                                        opacity: _sectionFade,
-                                        child: _buildSectionsHost(context),
+                                        opacity: _sectionOpacity,
+                                        child: SlideTransition(
+                                          position: _sectionSlide,
+                                          child: _buildSectionsHost(context),
+                                        ),
                                       ),
                                     ),
                                   ),

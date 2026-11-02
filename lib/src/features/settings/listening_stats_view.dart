@@ -392,16 +392,22 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
             Row(
               children: <Widget>[
                 _Metric(
+                  key: const ValueKey<String>('stats-week'),
                   label: '本周',
                   value: _formatCompactSpan(recent.weekSeconds),
                 ),
                 _MetricDivider(color: scheme.outlineVariant),
                 _Metric(
+                  key: const ValueKey<String>('stats-month'),
                   label: '本月',
                   value: _formatCompactSpan(recent.monthSeconds),
                 ),
                 _MetricDivider(color: scheme.outlineVariant),
-                _Metric(label: '连续听歌', value: '${recent.streakDays} 天'),
+                _Metric(
+                  key: const ValueKey<String>('stats-streak'),
+                  label: '连续听歌',
+                  value: '${recent.streakDays} 天',
+                ),
               ],
             ),
           ],
@@ -627,7 +633,7 @@ class _ArtistEntry {
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
+  const _Metric({super.key, required this.label, required this.value});
 
   final String label;
   final String value;
