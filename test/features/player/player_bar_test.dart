@@ -1,11 +1,11 @@
-import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
-import 'package:lamp_player/src/rust/api/lyrics.dart';
+import 'package:lamp_player/src/features/player/spectrum_bars.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
@@ -80,7 +80,7 @@ Future<void> _pumpBar(
   LoopMode repeat = LoopMode.off,
   bool shuffle = false,
   VoidCallback? onOpenNowPlaying,
-  TrackLyricsLoader? lyricsLoader,
+  ValueListenable<List<double>>? spectrum,
 }) async {
   tester.view.physicalSize = Size(width, 600);
   tester.view.devicePixelRatio = 1;
@@ -113,7 +113,7 @@ Future<void> _pumpBar(
             repeat: repeat,
             shuffle: shuffle,
             onOpenNowPlaying: onOpenNowPlaying,
-            lyricsLoader: lyricsLoader,
+            spectrum: spectrum,
           ),
         ),
       ),
@@ -538,220 +538,92 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  group('播放条歌词', () {
-    // 左段在 1280 窗口约 444、900 + 侧栏展开时约 223：前者放得下歌词，
+  group('播放条频谱', () {
+    // 左段在 1280 窗口约 554、900 + 侧栏展开时约 223：前者放得下频谱，
     // 后者只够曲名
-    testWidgets('宽窗口在曲名右侧显示当前歌词行', (WidgetTester tester) async {
+    testWidgets('宽窗口下频谱接在曲名右侧，占满腾出的那块', (WidgetTester tester) async {
+      final ValueNotifier<List<double>> bands = ValueNotifier<List<double>>(
+        List<double>.generate(24, (int i) => 0.3 + (i % 5) * 0.1),
+      );
+      addTearDown(bands.dispose);
+
       await _pumpBar(
         tester,
         track: sampleTrack(title: '夜航'),
-        position: 12,
-        lyricsLoader: (String path) async =>
-            _lyrics(<(int, String)>[(0, '第一句'), (10000, '第二句')]),
+        spectrum: bands,
       );
-      await tester.pump();
 
-      expect(find.byKey(_lyricKey), findsOneWidget);
-      expect(find.text('第二句'), findsOneWidget);
-      expect(find.text('第一句'), findsNothing, reason: '只显示当前行');
-      // 与展开页一致：歌词在曲名右侧那一块里居中
-      final Rect area = tester.getRect(find.byKey(_lyricKey));
-      final Rect line = tester.getRect(find.text('第二句'));
-      expect(area.width, greaterThan(line.width), reason: '歌词区域应比文字宽');
-      expect(line.center.dx, closeTo(area.center.dx, 1), reason: '歌词要居中，不能左对齐');
+      final Finder spectrum = find.byKey(_spectrumKey);
+      expect(spectrum, findsOneWidget);
+      // 歌词预览已经去掉，这块位置只留给频谱
+      expect(
+        find.byKey(const ValueKey<String>('player-bar-lyric')),
+        findsNothing,
+      );
+
+      final Rect bars = tester.getRect(spectrum);
+      final Rect title = tester.getRect(
+        find.byKey(const ValueKey<String>('player-bar-open-now-playing-title')),
+      );
+      expect(bars.center.dx, greaterThan(title.center.dx), reason: '频谱在曲名右侧');
+      expect(bars.height, 24);
+      expect(
+        bars.width,
+        greaterThan(150),
+        reason: '要占满空出来的那半块，而不是原来 46px 的小窄条',
+      );
+      expect(
+        tester.widget<SpectrumBars>(spectrum).stretch,
+        isTrue,
+        reason: '铺满模式：柱子按可用宽度均分，24 段全用上',
+      );
+
+      // 两侧留白要相当：左边距 = 曲名文字到频谱，右边距 = 频谱到三键。
+      // 按固定对半分的时候频谱被顶到右缘（左 170 / 右 25），看着像贴着
+      // 播放键，这条就是防它回去
+      final Rect prev = tester.getRect(
+        find.ancestor(
+          of: find.byIcon(Icons.skip_previous),
+          matching: find.byType(IconButton),
+        ),
+      );
+      final double leftGap = bars.left - title.right;
+      final double rightGap = prev.left - bars.right;
+      expect(
+        (leftGap - rightGap).abs(),
+        lessThan(20),
+        reason: '左 $leftGap / 右 $rightGap，频谱要在空白里居中',
+      );
     });
 
-    testWidgets('播放位置推进时切到下一行', (WidgetTester tester) async {
-      Future<TrackLyrics> loader(String path) async =>
-          _lyrics(<(int, String)>[(0, '第一句'), (10000, '第二句')]);
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: loader,
+    testWidgets('窄窗口不画频谱，曲名占满整块', (WidgetTester tester) async {
+      final ValueNotifier<List<double>> bands = ValueNotifier<List<double>>(
+        List<double>.filled(24, 0.5),
       );
-      await tester.pump();
-      expect(find.text('第一句'), findsOneWidget);
+      addTearDown(bands.dispose);
 
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        position: 30,
-        lyricsLoader: loader,
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.text('第二句'), findsOneWidget);
-      expect(find.text('第一句'), findsNothing, reason: '旧行淡出后应被移除');
-    });
-
-    testWidgets('间奏空行沿用上一句，不闪成空白', (WidgetTester tester) async {
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        position: 14,
-        lyricsLoader: (String path) async =>
-            _lyrics(<(int, String)>[(0, '有词的一句'), (10000, '   ')]),
-      );
-      await tester.pump();
-
-      expect(find.text('有词的一句'), findsOneWidget);
-    });
-
-    testWidgets('窄窗口不占位：曲名独占整段', (WidgetTester tester) async {
+      // 900 窗口 + 侧栏展开：播放条约 618，左段只剩两百多
       await _pumpBar(
         tester,
         track: sampleTrack(title: '夜航'),
         width: 618,
-        lyricsLoader: (String path) async =>
-            _lyrics(<(int, String)>[(0, '第一句')]),
+        spectrum: bands,
       );
-      await tester.pump();
 
-      expect(find.byKey(_lyricKey), findsNothing);
-      expect(find.text('第一句'), findsNothing);
-    });
-
-    testWidgets('没有歌词时不占位，也不抛异常', (WidgetTester tester) async {
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: (String path) async =>
-            const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
-      );
-      await tester.pump();
-
+      expect(find.byKey(_spectrumKey), findsNothing);
       expect(tester.takeException(), isNull);
-      expect(find.byKey(_lyricKey), findsNothing);
     });
 
-    testWidgets('歌词读失败后冷却结束会重试，不会一直空白', (WidgetTester tester) async {
-      int attempts = 0;
-      Future<TrackLyrics> loader(String path) async {
-        attempts += 1;
-        if (attempts == 1) {
-          throw StateError('文件被占用');
-        }
-        return _lyrics(<(int, String)>[(0, '补上的一句')]);
-      }
+    testWidgets('没有频谱数据源时不占位', (WidgetTester tester) async {
+      await _pumpBar(tester, track: sampleTrack(title: '夜航'));
 
-      DateTime now = DateTime(2026, 1, 1, 12);
-      await withClock(Clock(() => now), () async {
-        await _pumpBar(
-          tester,
-          track: sampleTrack(title: '夜航'),
-          lyricsLoader: loader,
-        );
-        await tester.pump();
-        expect(attempts, 1);
-        expect(find.byKey(_lyricKey), findsNothing, reason: '第一次读失败');
-
-        // 冷却窗口内：同一首再刷新也不重试，避免对着坏文件反复解析
-        await _pumpBar(
-          tester,
-          track: sampleTrack(title: '夜航'),
-          lyricsLoader: loader,
-        );
-        await tester.pump();
-        expect(attempts, 1, reason: '冷却中不该重试');
-
-        // 过了冷却：下一次刷新重试并显示歌词
-        now = now.add(const Duration(seconds: 31));
-        await _pumpBar(
-          tester,
-          track: sampleTrack(title: '夜航'),
-          lyricsLoader: loader,
-        );
-        await tester.pump();
-        expect(attempts, 2, reason: '冷却结束后要再给一次机会');
-        expect(find.text('补上的一句'), findsOneWidget);
-      });
-    });
-
-    testWidgets('歌词读取失败按没有歌词处理', (WidgetTester tester) async {
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: (String path) async => throw StateError('读不到'),
+      expect(find.byKey(_spectrumKey), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('player-bar-spectrum')),
+        findsNothing,
       );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byKey(_lyricKey), findsNothing);
-    });
-
-    testWidgets('清空当前曲目后不残留上一首的歌词', (WidgetTester tester) async {
-      Future<TrackLyrics> loader(String path) async =>
-          _lyrics(<(int, String)>[(0, '第一句')]);
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: loader,
-      );
-      await tester.pump();
-      expect(find.byKey(_lyricKey), findsOneWidget);
-
-      // 播放队列清空 / 停止后 track 变 null，歌词不能留在播放条上
-      await _pumpBar(tester, lyricsLoader: loader);
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.byKey(_lyricKey), findsNothing);
-      expect(find.text('第一句'), findsNothing);
-    });
-
-    testWidgets('切歌重新读歌词，切回来命中缓存', (WidgetTester tester) async {
-      final List<String> calls = <String>[];
-      Future<TrackLyrics> loader(String path) async {
-        calls.add(path);
-        return _lyrics(<(int, String)>[
-          (0, path.contains('夜航') ? '夜航的词' : '归途的词'),
-        ]);
-      }
-
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: loader,
-      );
-      await tester.pump();
-      expect(find.text('夜航的词'), findsOneWidget);
-
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '归途'),
-        lyricsLoader: loader,
-      );
-      await tester.pump();
-      expect(find.text('归途的词'), findsOneWidget);
-      expect(calls, <String>['/music/夜航.mp3', '/music/归途.mp3']);
-
-      await _pumpBar(
-        tester,
-        track: sampleTrack(title: '夜航'),
-        lyricsLoader: loader,
-      );
-      await tester.pump();
-      expect(find.text('夜航的词'), findsOneWidget);
-      expect(calls, hasLength(2), reason: '第二遍走缓存，不再读文件');
     });
   });
 }
 
-const ValueKey<String> _lyricKey = ValueKey<String>('player-bar-lyric');
-
-/// 造一份行级歌词；每行给 1 秒时长，够 `lyricIndexAt` 定位
-TrackLyrics _lyrics(List<(int, String)> entries) {
-  return TrackLyrics(
-    lines: <LyricLine>[
-      for (final (int ms, String text) in entries)
-        LyricLine(
-          timeMs: ms,
-          endMs: ms + 1000,
-          text: text,
-          words: const <LyricWord>[],
-          translation: '',
-        ),
-    ],
-    plain: '',
-    source: 'sidecar',
-  );
-}
+const ValueKey<String> _spectrumKey = ValueKey<String>('player-bar-spectrum');
