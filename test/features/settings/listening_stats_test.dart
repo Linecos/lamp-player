@@ -70,6 +70,8 @@ Future<void> _pump(
   WidgetTester tester,
   ListeningStatsRepository repository, {
   Size size = const Size(900, 1200),
+  void Function(List<Track> queue, Track track)? onPlayTrack,
+  ValueChanged<String>? onOpenArtist,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -79,7 +81,11 @@ Future<void> _pump(
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.light(AppTheme.defaultSeed),
-      home: ListeningStatsPage(repository: repository),
+      home: ListeningStatsPage(
+        repository: repository,
+        onPlayTrack: onPlayTrack,
+        onOpenArtist: onOpenArtist,
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -386,6 +392,61 @@ void main() {
 
     expect(find.text('还没有艺术家记录'), findsOneWidget);
     expect(find.text('还没有播放记录'), findsNothing);
+  });
+
+  testWidgets('点排行里的歌：整份榜单当队列，从这首开始', (WidgetTester tester) async {
+    final Track a = sampleTrack(title: '夜航');
+    final Track b = sampleTrack(title: '潮汐');
+    final _FakeStatsRepository repository = _FakeStatsRepository(
+      top: <TrackPlayStat>[
+        TrackPlayStat(track: a, plays: 12),
+        TrackPlayStat(track: b, plays: 3),
+      ],
+    );
+    List<Track>? queue;
+    Track? played;
+
+    await _pump(
+      tester,
+      repository,
+      onPlayTrack: (List<Track> tracks, Track track) {
+        queue = tracks;
+        played = track;
+      },
+    );
+
+    await tester.tap(find.byKey(ValueKey<String>('rank-song-${b.path}')));
+    await tester.pumpAndSettle();
+
+    expect(played?.title, '潮汐');
+    expect(queue?.map((Track track) => track.title).toList(), <String>[
+      '夜航',
+      '潮汐',
+    ], reason: '队列是整份榜单，接着往下听就是榜上的下一首');
+  });
+
+  testWidgets('点艺术家行：把拆好的名字传出去', (WidgetTester tester) async {
+    final _FakeStatsRepository repository = _FakeStatsRepository(
+      artists: <ArtistPlayStat>[
+        const ArtistPlayStat(
+          artist: 'Bao The Whale/Overspace',
+          plays: 62,
+          trackCount: 3,
+        ),
+      ],
+    );
+    final List<String> opened = <String>[];
+
+    await _pump(tester, repository, onOpenArtist: opened.add);
+    await tester.tap(find.byKey(const ValueKey<String>('rank-tab-artists')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('rank-artist-Overspace')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(opened, <String>['Overspace'], reason: '合唱标签已经拆开，传的是单个名字');
   });
 
   testWidgets('返回按钮热区放大到 56×56', (WidgetTester tester) async {

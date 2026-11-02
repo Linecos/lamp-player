@@ -12,10 +12,21 @@ import 'listening_stats_repository.dart';
 /// 时长与热力图只统计有 `play_sessions` 记录的部分（schema v4 之后），
 /// 次数沿用 `play_history.play_count`，包含更早的历史。
 class ListeningStatsPage extends StatefulWidget {
-  const ListeningStatsPage({super.key, this.repository});
+  const ListeningStatsPage({
+    super.key,
+    this.repository,
+    this.onPlayTrack,
+    this.onOpenArtist,
+  });
 
   /// 数据源；不传则走 Rust，测试注入假实现。
   final ListeningStatsRepository? repository;
+
+  /// 点排行里的歌：整份榜单当播放队列传出去，点了哪首就从哪首开始
+  final void Function(List<Track> queue, Track track)? onPlayTrack;
+
+  /// 点排行里的艺术家（已拆好的单个名字）：跳到曲库的艺术家详情
+  final ValueChanged<String>? onOpenArtist;
 
   @override
   State<ListeningStatsPage> createState() => _ListeningStatsPageState();
@@ -193,11 +204,21 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
       return <Widget>[
         SliverList.builder(
           itemCount: bundle.top.length,
-          itemBuilder: (BuildContext context, int index) => _RankRow(
-            rank: index + 1,
-            stat: bundle.top[index],
-            maxPlays: most,
-          ),
+          itemBuilder: (BuildContext context, int index) {
+            final TrackPlayStat stat = bundle.top[index];
+            return _RankRow(
+              key: ValueKey<String>('rank-song-${stat.track.path}'),
+              rank: index + 1,
+              stat: stat,
+              maxPlays: most,
+              // 点一行就播这首，队列是整份榜单：接着往下听到的就是榜上下一首
+              onTap: widget.onPlayTrack == null
+                  ? null
+                  : () => widget.onPlayTrack!(<Track>[
+                      for (final TrackPlayStat item in bundle.top) item.track,
+                    ], stat.track),
+            );
+          },
         ),
       ];
     }
@@ -218,11 +239,18 @@ class _ListeningStatsPageState extends State<ListeningStatsPage> {
     return <Widget>[
       SliverList.builder(
         itemCount: artists.length,
-        itemBuilder: (BuildContext context, int index) => _ArtistRankRow(
-          rank: index + 1,
-          entry: artists[index],
-          maxPlays: most,
-        ),
+        itemBuilder: (BuildContext context, int index) {
+          final _ArtistEntry entry = artists[index];
+          return _ArtistRankRow(
+            key: ValueKey<String>('rank-artist-${entry.name}'),
+            rank: index + 1,
+            entry: entry,
+            maxPlays: most,
+            onTap: widget.onOpenArtist == null
+                ? null
+                : () => widget.onOpenArtist!(entry.name),
+          );
+        },
       ),
     ];
   }
@@ -866,6 +894,7 @@ class _RankTile extends StatelessWidget {
     required this.subtitle,
     required this.plays,
     required this.maxPlays,
+    this.onTap,
   });
 
   final int rank;
@@ -876,6 +905,9 @@ class _RankTile extends StatelessWidget {
   /// 这一行自己的播放次数与榜首的次数（用来算占比条）
   final int plays;
   final int maxPlays;
+
+  /// 点这一行做什么；为空时整行不可点（测试里不注入回调）
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -959,6 +991,18 @@ class _RankTile extends StatelessWidget {
                 ],
               ),
             ),
+            // 墨水层铺在最上面：占比条画在内容之下，InkWell 放更深处的话
+            // 悬停高亮会被那条背景挡住
+            Positioned.fill(
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  onTap: onTap,
+                  borderRadius: BorderRadius.circular(14),
+                  hoverColor: scheme.onSurface.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -968,9 +1012,11 @@ class _RankTile extends StatelessWidget {
 
 class _RankRow extends StatelessWidget {
   const _RankRow({
+    super.key,
     required this.rank,
     required this.stat,
     required this.maxPlays,
+    this.onTap,
   });
 
   final int rank;
@@ -978,6 +1024,8 @@ class _RankRow extends StatelessWidget {
 
   /// 榜首的播放次数：用来算每行的占比条长度
   final int maxPlays;
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -989,6 +1037,7 @@ class _RankRow extends StatelessWidget {
       subtitle: _subtitleOf(track),
       plays: stat.plays.toInt(),
       maxPlays: maxPlays,
+      onTap: onTap,
     );
   }
 
@@ -1001,14 +1050,17 @@ class _RankRow extends StatelessWidget {
 
 class _ArtistRankRow extends StatelessWidget {
   const _ArtistRankRow({
+    super.key,
     required this.rank,
     required this.entry,
     required this.maxPlays,
+    this.onTap,
   });
 
   final int rank;
   final _ArtistEntry entry;
   final int maxPlays;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1023,6 +1075,7 @@ class _ArtistRankRow extends StatelessWidget {
       subtitle: '听过 ${entry.trackCount} 首',
       plays: entry.plays,
       maxPlays: maxPlays,
+      onTap: onTap,
     );
   }
 }

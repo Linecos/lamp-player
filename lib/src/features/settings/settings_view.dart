@@ -9,6 +9,7 @@ import '../../app/app_version.dart';
 import '../../common/common.dart';
 import '../../rust/api/db.dart' as db;
 import '../../rust/api/player.dart' as rust;
+import '../../rust/api/model.dart' show Track;
 import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
 import '../library/library_revision.dart';
@@ -31,6 +32,8 @@ class SettingsView extends StatelessWidget {
     required this.trackCount,
     required this.engineAvailable,
     this.statsRepository,
+    this.onPlayStatsTrack,
+    this.onOpenStatsArtist,
     this.exclusive = false,
     this.exclusiveActive = false,
     this.switchingOutput = false,
@@ -81,6 +84,12 @@ class SettingsView extends StatelessWidget {
 
   /// 听歌统计的数据源；不传则统计页自己走 Rust，测试注入假实现
   final ListeningStatsRepository? statsRepository;
+
+  /// 统计页点歌曲：整份榜单当队列播出去；为空则行不可点
+  final void Function(List<Track> queue, Track track)? onPlayStatsTrack;
+
+  /// 统计页点艺术家：跳到曲库的艺术家详情；为空则行不可点
+  final ValueChanged<String>? onOpenStatsArtist;
 
   /// 是否请求 WASAPI 独占输出（用户偏好）
   final bool exclusive;
@@ -493,7 +502,11 @@ class SettingsView extends StatelessWidget {
   void _openStats(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ListeningStatsPage(repository: statsRepository),
+        builder: (_) => ListeningStatsPage(
+          repository: statsRepository,
+          onPlayTrack: onPlayStatsTrack,
+          onOpenArtist: onOpenStatsArtist,
+        ),
       ),
     );
   }
