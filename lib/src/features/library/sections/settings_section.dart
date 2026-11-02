@@ -20,6 +20,10 @@ extension _SettingsSection on _LibraryPageState {
         Expanded(
           child: SettingsView(
             trackCount: _tracks.length,
+            // 统计页点歌：整份榜单当队列播出去；点艺术家：跳去对应的详情
+            onPlayStatsTrack: (List<Track> queue, Track track) =>
+                unawaited(_playFrom(queue, track)),
+            onOpenStatsArtist: _openArtistFromStats,
             engineAvailable: _isAvailable,
             exclusive: _exclusive,
             exclusiveActive: _playback.isExclusive,

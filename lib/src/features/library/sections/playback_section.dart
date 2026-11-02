@@ -271,6 +271,17 @@ extension _PlaybackSection on _LibraryPageState {
     );
   }
 
+  /// 听歌统计点艺术家：退出统计页，切到「艺术家」分区并进这位的详情。
+  ///
+  /// 统计页给的已经是拆好的单个名字（合唱标签在那里就拆成两位了），
+  /// 这里直接当聚合键用，不再过一遍拆分。
+  void _openArtistFromStats(String artist) {
+    _jumpToDetail(
+      section: LibrarySection.artists,
+      select: () => _selectedArtist = artist,
+    );
+  }
+
   /// 正在播放页点专辑：同上，按「歌手 + 专辑名」的聚合键进专辑详情。
   void _openAlbumFromNowPlaying(Track track) {
     _jumpToDetail(
