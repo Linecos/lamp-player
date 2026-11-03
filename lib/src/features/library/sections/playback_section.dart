@@ -879,6 +879,11 @@ extension _PlaybackSection on _LibraryPageState {
     _pendingResumePosition = target > 1 ? target : null;
     _position = target;
     _publishProgress();
+    // 立刻落盘：会话里存的 `lastPositionSecs` 就是 `_position`，不写的话这个
+    // 续播点只活在内存里，关掉再开又回到上次保存的位置。走 400ms 合并窗口，
+    // 键盘连按不会每下都写一次盘；真在这 400ms 内退出，dispose 里还有一次
+    // 立即保存兜底。
+    _scheduleSessionSave();
   }
 
   /// 键盘快进 / 快退 5 秒
