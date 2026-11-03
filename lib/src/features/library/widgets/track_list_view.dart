@@ -58,6 +58,7 @@ class TrackListView extends StatefulWidget {
     this.selectedPaths = const <String>{},
     this.onSelect,
     this.onReorder,
+    this.controller,
   });
 
   final List<Track> tracks;
@@ -66,6 +67,9 @@ class TrackListView extends StatefulWidget {
 
   /// 滚动位置用的 key；不同分区传不同值，切页 / 重启后回到原位置。
   final Key? storageKey;
+
+  /// 外部滚动控制（用于「定位正在播放」）；不传则由列表自己管
+  final ScrollController? controller;
 
   /// 提供后在行尾显示「更多」菜单，用于从歌单移除等操作。
   final ValueChanged<Track>? onRemove;
@@ -160,6 +164,7 @@ class _TrackListViewState extends State<TrackListView> {
           child: onReorder == null
               ? ListView.builder(
                   key: storageKey,
+                  controller: widget.controller,
                   itemCount: tracks.length,
                   itemExtent: 56,
                   // 列表铺到窗口底，行可以从播放岛下面穿过；留白保证滚到底时
@@ -173,6 +178,7 @@ class _TrackListViewState extends State<TrackListView> {
               // 可拖拽排序：行自己带 key，拖拽把手只在行尾，点击仍然是播放
               : ReorderableListView.builder(
                   key: storageKey,
+                  scrollController: widget.controller,
                   itemCount: tracks.length,
                   itemExtent: 56,
                   buildDefaultDragHandles: false,

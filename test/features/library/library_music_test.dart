@@ -75,6 +75,40 @@ void main() {
     expect(find.text('回来的'), findsOneWidget, reason: '恢复的曲子要立刻出现在列表里');
   });
 
+  testWidgets('定位按钮：无播放时禁用，播放后能滚回当前曲目', (WidgetTester tester) async {
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) =>
+          sampleTrack(title: '曲目 $index', path: '/music/track_$index.mp3'),
+    );
+    await pumpLibrary(tester, tracks: tracks);
+
+    final Finder locate = find.byKey(
+      const ValueKey<String>('music-locate-current'),
+    );
+    expect(locate, findsNothing, reason: '没有正在播放的曲目时不显示悬浮按钮');
+
+    // 播放第一首，再把列表拖到底
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+    expect(locate, findsOneWidget);
+
+    final Finder list = find.byKey(
+      const PageStorageKey<String>('tracks:music'),
+    );
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = tester.widget<ListView>(list).controller!.offset;
+    expect(before, greaterThan(200), reason: '先滚到下面才有意义');
+
+    await tester.tap(locate);
+    await tester.pumpAndSettle();
+
+    final double after = tester.widget<ListView>(list).controller!.offset;
+    expect(after, lessThan(before), reason: '定位后应往上滚回当前曲目');
+    expect(after, lessThan(80), reason: '第一首在列表顶部');
+  });
+
   testWidgets('空曲库展示空态', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: const <Track>[]);
 
