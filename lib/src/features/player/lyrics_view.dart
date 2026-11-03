@@ -9,8 +9,9 @@ import 'package:flutter/rendering.dart';
 
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
+import 'lyric_alignment.dart';
 
-/// 歌词视图：居中、当前行逐字染色、上下淡出。
+/// 歌词视图：当前行逐字染色、上下淡出。
 ///
 /// 进度只从 [position] 拿（播放服务每 500ms 推一次），行内用 [UiClock] 插值到
 /// 30fps，逐字染色才不会一顿一顿。整列歌词一次性建好（一首歌通常 < 200 行），
@@ -24,6 +25,7 @@ class LyricsView extends StatefulWidget {
     required this.onSeek,
     this.edgeFadeBand = 0,
     this.revealAlignment = 0.5,
+    this.alignment = LyricAlignment.center,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -45,6 +47,9 @@ class LyricsView extends StatefulWidget {
   /// 正在播放页里歌词要和封面中心线对齐，封面在左栏上方、中心线通常高于歌词区
   /// 中线，所以传一个小于 0.5 的值。
   final double revealAlignment;
+
+  /// 歌词的水平对齐方式；垂直居中逻辑与它无关
+  final LyricAlignment alignment;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -118,6 +123,19 @@ const Curve _jumpCurve = Curves.easeInOutCubic;
 const double _fadeRampRatio = 0.2;
 const double _fadeRampMin = 56;
 const double _fadeRampMax = 110;
+
+/// 歌词区左右内边距（滚动视图）
+const double _scrollPaddingX = 16;
+
+/// 每行左右内边距
+const double _linePaddingX = 12;
+
+/// 歌词正文的最大宽度：固定列宽（不跟最长一行走），放不下的行折行。
+///
+/// 640 在 28px 字号下约 22 个汉字 / 45 个西文字符，绝大多数歌词一行装得下；
+/// 三种对齐都只在这个块里进行，块本身居中——直接对齐到歌词区两边的话，整首
+/// 歌词会贴到一侧，另一侧空一大片。
+const double _lyricBlockWidth = 640;
 
 class _LyricsViewState extends State<LyricsView> {
   final ScrollController _scroll = ScrollController();
@@ -451,6 +469,12 @@ class _LyricsViewState extends State<LyricsView> {
           24,
           constraints.maxHeight * (1 - widget.revealAlignment),
         );
+        // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
+        // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
+        final double band = math.min(
+          _lyricBlockWidth,
+          math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
+        );
         // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
         // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
         // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
@@ -473,27 +497,33 @@ class _LyricsViewState extends State<LyricsView> {
                 padding: EdgeInsets.only(
                   top: topPad,
                   bottom: bottomPad,
-                  left: 16,
-                  right: 16,
+                  left: _scrollPaddingX,
+                  right: _scrollPaddingX,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    for (int i = 0; i < widget.lines.length; i += 1)
-                      _SpringLyricLine(
-                        key: ValueKey<String>('lyric-$i'),
-                        index: i,
-                        lineKey: _lineKeys[i],
-                        anchorKey: _keys[i],
-                        jump: _jump,
-                        line: widget.lines[i],
-                        active: i == _active,
-                        distance: _active < 0 ? i : (i - _active).abs(),
-                        position: _smooth,
-                        textTheme: theme.textTheme,
-                        onSeek: widget.onSeek,
-                      ),
-                  ],
+                child: Center(
+                  child: SizedBox(
+                    width: band,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        for (int i = 0; i < widget.lines.length; i += 1)
+                          _SpringLyricLine(
+                            key: ValueKey<String>('lyric-$i'),
+                            index: i,
+                            lineKey: _lineKeys[i],
+                            anchorKey: _keys[i],
+                            jump: _jump,
+                            line: widget.lines[i],
+                            active: i == _active,
+                            distance: _active < 0 ? i : (i - _active).abs(),
+                            position: _smooth,
+                            textTheme: theme.textTheme,
+                            alignment: widget.alignment,
+                            onSeek: widget.onSeek,
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -602,6 +632,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.distance,
     required this.position,
     required this.textTheme,
+    required this.alignment,
     required this.onSeek,
   });
 
@@ -619,6 +650,7 @@ class _SpringLyricLine extends StatefulWidget {
   final int distance;
   final ValueListenable<double> position;
   final TextTheme textTheme;
+  final LyricAlignment alignment;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -732,6 +764,7 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
         distance: widget.distance,
         position: widget.position,
         textTheme: widget.textTheme,
+        alignment: widget.alignment,
         onSeek: widget.onSeek,
       ),
     );
@@ -762,6 +795,7 @@ class _LyricLineView extends StatelessWidget {
     required this.distance,
     required this.position,
     required this.textTheme,
+    required this.alignment,
     required this.onSeek,
   });
 
@@ -774,6 +808,9 @@ class _LyricLineView extends StatelessWidget {
   final int distance;
   final ValueListenable<double> position;
   final TextTheme textTheme;
+
+  /// 水平对齐方式：正文、译文、逐字染色层必须一致，否则当前行会歪
+  final LyricAlignment alignment;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -805,7 +842,7 @@ class _LyricLineView extends StatelessWidget {
     if (interlude) {
       main = Text(
         '♪',
-        textAlign: TextAlign.center,
+        textAlign: alignment.textAlign,
         style: style.copyWith(
           color: active ? activeColor : dim,
           fontSize: active ? 24 : 18,
@@ -820,11 +857,12 @@ class _LyricLineView extends StatelessWidget {
         style: style,
         baseColor: white.withValues(alpha: 0.42),
         highlightColor: white,
+        alignment: alignment,
       );
     } else {
       main = Text(
         line.text,
-        textAlign: TextAlign.center,
+        textAlign: alignment.textAlign,
         style: style.copyWith(color: active ? activeColor : dim),
       );
     }
@@ -862,33 +900,44 @@ class _LyricLineView extends StatelessWidget {
       );
     }
 
+    // 整块按对齐方式推到位。只改 TextAlign 不够：短行时 Text 的宽度就是文字
+    // 自身宽度，它在 Column 里本来就贴着中线摆，文字对齐方式无从发挥
+    Widget place(Widget child) =>
+        Align(alignment: alignment.blockAlignment, child: child);
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => unawaited(onSeek(line.timeMs.toInt() / 1000)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+        padding: const EdgeInsets.symmetric(
+          vertical: 9,
+          horizontal: _linePaddingX,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            KeyedSubtree(key: anchorKey, child: soften(main)),
+            // 模糊层要贴着文字：套在外面的话，整行宽（可能上千像素）都要糊一遍
+            KeyedSubtree(key: anchorKey, child: place(soften(main))),
             if (extras.isNotEmpty) const SizedBox(height: 3),
             for (final String extra in extras)
               Padding(
                 padding: const EdgeInsets.only(top: 1),
-                child: soften(
-                  Text(
-                    extra,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      // 译文只比正文略小，避免层级断层
-                      fontSize: active
-                          ? (_hasCjk(extra) ? 23 : 21)
-                          : (_hasCjk(extra) ? 18 : 17),
-                      height: 1.4,
-                      color: Colors.white.withValues(
-                        alpha: active
-                            ? (_hasCjk(extra) ? 0.72 : 0.58)
-                            : (_hasCjk(extra) ? 0.34 : 0.24),
+                child: place(
+                  soften(
+                    Text(
+                      extra,
+                      textAlign: alignment.textAlign,
+                      style: TextStyle(
+                        // 译文只比正文略小，避免层级断层
+                        fontSize: active
+                            ? (_hasCjk(extra) ? 23 : 21)
+                            : (_hasCjk(extra) ? 18 : 17),
+                        height: 1.4,
+                        color: Colors.white.withValues(
+                          alpha: active
+                              ? (_hasCjk(extra) ? 0.72 : 0.58)
+                              : (_hasCjk(extra) ? 0.34 : 0.24),
+                        ),
                       ),
                     ),
                   ),
@@ -922,6 +971,7 @@ class _KaraokeText extends StatefulWidget {
     required this.style,
     required this.baseColor,
     required this.highlightColor,
+    required this.alignment,
   });
 
   final String text;
@@ -931,6 +981,7 @@ class _KaraokeText extends StatefulWidget {
   final TextStyle style;
   final Color baseColor;
   final Color highlightColor;
+  final LyricAlignment alignment;
 
   @override
   State<_KaraokeText> createState() => _KaraokeTextState();
@@ -947,11 +998,14 @@ class _KaraokeTextState extends State<_KaraokeText> {
   double _width = -1;
   String? _text;
   TextStyle? _style;
+  LyricAlignment? _alignment;
 
   @override
   void didUpdateWidget(_KaraokeText oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text || oldWidget.style != widget.style) {
+    if (oldWidget.text != widget.text ||
+        oldWidget.style != widget.style ||
+        oldWidget.alignment != widget.alignment) {
       _width = -1;
     }
   }
@@ -963,14 +1017,18 @@ class _KaraokeTextState extends State<_KaraokeText> {
     super.dispose();
   }
 
-  /// 排版并量出每个字的矩形；只在文本 / 样式 / 宽度变化时重算
+  /// 排版并量出每个字的矩形；只在文本 / 样式 / 对齐 / 宽度变化时重算
   void _layout(double width) {
-    if (_width == width && _text == widget.text && _style == widget.style) {
+    if (_width == width &&
+        _text == widget.text &&
+        _style == widget.style &&
+        _alignment == widget.alignment) {
       return;
     }
     _width = width;
     _text = widget.text;
     _style = widget.style;
+    _alignment = widget.alignment;
 
     _base?.dispose();
     _highlight?.dispose();
@@ -1010,7 +1068,8 @@ class _KaraokeTextState extends State<_KaraokeText> {
         style: widget.style.copyWith(color: color),
       ),
       textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
+      // 折行后的每一行按对齐方式摆；单行时宽度就是文字宽度，由外层 Align 摆位
+      textAlign: widget.alignment.textAlign,
     )..layout(maxWidth: width);
   }
 

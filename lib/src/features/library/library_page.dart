@@ -30,6 +30,7 @@ import '../player/player_bar.dart';
 import '../../app/app_lifecycle.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
+import '../player/lyric_alignment.dart';
 import '../player/now_playing_page.dart';
 import '../player/now_playing_route.dart';
 import '../player/queue_dialog.dart';
@@ -436,6 +437,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 封面是否显示成圆形（设置里的开关，默认关）
   bool _circularCovers = false;
 
+  /// 正在播放页歌词的水平对齐（居中 / 左 / 右），按钮点一下循环。
+  ///
+  /// 用通知器而不是普通字段：正在播放页是独立路由，只在 push 时构建一次，
+  /// 曲库页 setState 不会重建它；走通知器就只重画歌词那一块
+  final ValueNotifier<LyricAlignment> _lyricAlignment =
+      ValueNotifier<LyricAlignment>(LyricAlignment.center);
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -645,6 +653,7 @@ class _LibraryPageState extends State<LibraryPage>
     _nowPlaying.dispose();
     _volumeNotifier.dispose();
     _volumePeek.dispose();
+    _lyricAlignment.dispose();
     super.dispose();
   }
 
@@ -696,6 +705,7 @@ class _LibraryPageState extends State<LibraryPage>
       _desktopLyricLocked = snapshot.desktopLyricLocked;
       _flowBackground = snapshot.flowBackground;
       _circularCovers = snapshot.circularCovers;
+      _lyricAlignment.value = snapshot.lyricAlignment;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
       circularCovers.value = snapshot.circularCovers;
@@ -824,6 +834,7 @@ class _LibraryPageState extends State<LibraryPage>
       desktopLyricLocked: _desktopLyricLocked,
       flowBackground: _flowBackground,
       circularCovers: _circularCovers,
+      lyricAlignment: _lyricAlignment.value,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
     //
@@ -1002,6 +1013,12 @@ class _LibraryPageState extends State<LibraryPage>
     _update(() => _circularCovers = value);
     // 所有 AlbumCover 都订阅这个通知器，改完立刻生效，不必整页重建
     circularCovers.value = value;
+    _saveSessionNow();
+  }
+
+  /// 歌词对齐切到下一档（居中 → 左 → 右 → 居中）
+  void _cycleLyricAlignment() {
+    _lyricAlignment.value = _lyricAlignment.value.next;
     _saveSessionNow();
   }
 

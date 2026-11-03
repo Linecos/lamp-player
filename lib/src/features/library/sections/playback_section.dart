@@ -327,6 +327,9 @@ extension _PlaybackSection on _LibraryPageState {
               onOpenArtist: _openArtistFromNowPlaying,
               onOpenAlbum: _openAlbumFromNowPlaying,
               animateBackground: _flowBackground,
+              // 歌词对齐走通知器：改完只重画歌词，不必重建整页
+              lyricAlignment: _lyricAlignment,
+              onCycleLyricAlignment: _cycleLyricAlignment,
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
               shortcuts: _shortcuts,

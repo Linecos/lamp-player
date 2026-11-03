@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/player/lyric_alignment.dart';
 import 'package:lamp_player/src/features/player/lyrics_view.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -28,6 +29,7 @@ Future<void> _pump(
   ValueChanged<double>? onSeek,
   double band = 0,
   double alignment = 0.5,
+  LyricAlignment lyricAlign = LyricAlignment.center,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
   tester.view.devicePixelRatio = 1;
@@ -45,6 +47,7 @@ Future<void> _pump(
           onSeek: (double seconds) async => onSeek?.call(seconds),
           edgeFadeBand: band,
           revealAlignment: alignment,
+          alignment: lyricAlign,
         ),
       ),
     ),
@@ -83,6 +86,119 @@ void main() {
       closeTo(viewport.top + viewport.height * 0.3, 8),
       reason: '对齐线以上的空间按 revealAlignment 分配，不是永远居中',
     );
+  });
+
+  testWidgets('对齐方式把整行推到左 / 中 / 右', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12.5);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 8; i += 1)
+        _line(start: i * 5000, end: i * 5000 + 5000, text: '第$i行'),
+    ];
+
+    Future<Rect> rectFor(LyricAlignment value) async {
+      await _pump(
+        tester,
+        lines: lines,
+        position: position,
+        playing: playing,
+        lyricAlign: value,
+      );
+      return tester.getRect(find.text('第2行'));
+    }
+
+    // 歌词区宽 900：外层左右各 16，留给文字的是 868；正文列固定 640 并居中，
+    // 所以列的范围是 130~770，再各减去每行的 12 内边距 → 142 / 758
+    final Rect left = await rectFor(LyricAlignment.left);
+    final Rect center = await rectFor(LyricAlignment.center);
+    final Rect right = await rectFor(LyricAlignment.right);
+
+    expect(left.left, closeTo(142, 0.5), reason: '左对齐落在正文列的左边，不是贴住歌词区');
+    expect(center.center.dx, closeTo(450, 0.5), reason: '默认居中');
+    expect(right.right, closeTo(758, 0.5));
+    expect(
+      center.center.dx,
+      closeTo((left.left + right.right) / 2, 0.5),
+      reason: '三种对齐都绕同一个列中线，切换时整块不该往一侧跑',
+    );
+  });
+
+  testWidgets('超过列宽的一行折行，三种对齐的折法一致', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0.5);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    // 60 个汉字：22px 下约 1320 宽，必然要折成两行以上
+    final String longLine = '长' * 60;
+    final List<LyricLine> lines = <LyricLine>[
+      _line(start: 0, end: 5000, text: longLine),
+      _line(start: 5000, end: 9000, text: '短行'),
+    ];
+
+    Future<Rect> rectFor(LyricAlignment value) async {
+      await _pump(
+        tester,
+        lines: lines,
+        position: position,
+        playing: playing,
+        lyricAlign: value,
+      );
+      return tester.getRect(find.text(longLine));
+    }
+
+    final Rect center = await rectFor(LyricAlignment.center);
+    final Rect left = await rectFor(LyricAlignment.left);
+
+    expect(center.width, closeTo(616, 0.5), reason: '折到列宽为止（640 - 两侧 12）');
+    expect(center.height, greaterThan(60), reason: '这么长的行必须折行');
+    expect(left.height, center.height, reason: '对齐方式不该改变折行结果');
+  });
+
+  testWidgets('逐字染色的当前行跟着一起对齐', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(6.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      _line(start: 0, end: 5000, text: '第一行'),
+      _line(
+        start: 5000,
+        end: 10000,
+        text: '逐字一行',
+        words: const <LyricWord>[
+          LyricWord(timeMs: 5000, text: '逐字'),
+          LyricWord(timeMs: 7000, text: '一行'),
+        ],
+      ),
+    ];
+
+    // 逐字层用自绘，文字位置只能在画笔里看；量它的容器（Semantics 那一层）
+    Future<Rect> blockFor(LyricAlignment value) async {
+      await _pump(
+        tester,
+        lines: lines,
+        position: position,
+        playing: playing,
+        lyricAlign: value,
+      );
+      return tester.getRect(
+        find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is Semantics && widget.properties.label == '逐字一行',
+        ),
+      );
+    }
+
+    final Rect left = await blockFor(LyricAlignment.left);
+    final Rect right = await blockFor(LyricAlignment.right);
+
+    expect(left.left, closeTo(142, 0.5), reason: '逐字行也要贴着同一列，不能和别的行错位');
+    expect(right.right, closeTo(758, 0.5));
   });
 
   testWidgets('歌词固定白色并放大，当前行更实', (WidgetTester tester) async {
