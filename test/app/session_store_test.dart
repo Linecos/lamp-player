@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
+import 'package:lamp_player/src/features/player/lyric_alignment.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -126,6 +127,32 @@ void main() {
 
     await store.save(const SessionSnapshot(circularCovers: false));
     expect((await store.load()).circularCovers, isFalse);
+  });
+
+  test('歌词对齐方式可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    expect(
+      (await store.load()).lyricAlignment,
+      LyricAlignment.center,
+      reason: '没有存档时默认居中',
+    );
+
+    await store.save(
+      const SessionSnapshot(lyricAlignment: LyricAlignment.right),
+    );
+    expect((await store.load()).lyricAlignment, LyricAlignment.right);
+  });
+
+  test('认不出的歌词对齐方式回落到居中', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'flutter.${PrefsSessionStore.lyricAlignmentKey}': 'diagonal',
+    });
+    expect(
+      (await const PrefsSessionStore().load()).lyricAlignment,
+      LyricAlignment.center,
+    );
   });
 
   test('独占输出偏好可以存取', () async {

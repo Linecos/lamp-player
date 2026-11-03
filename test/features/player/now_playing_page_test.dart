@@ -10,6 +10,7 @@ import 'package:lamp_player/src/app/immersive_chrome.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
+import 'package:lamp_player/src/features/player/lyric_alignment.dart';
 import 'package:lamp_player/src/features/player/lyrics_view.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
@@ -95,6 +96,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueChanged<Track>? onOpenAlbum,
   ValueListenable<List<double>>? spectrum,
   WindowControls? windowControls,
+  ValueListenable<LyricAlignment>? lyricAlignment,
+  VoidCallback? onCycleLyricAlignment,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -128,6 +131,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onOpenAlbum: onOpenAlbum,
         spectrum: spectrum,
         windowControls: windowControls,
+        lyricAlignment: lyricAlignment,
+        onCycleLyricAlignment: onCycleLyricAlignment,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -482,6 +487,53 @@ void main() {
     await tester.tap(button);
     await tester.pump();
     expect(taps, 1);
+  });
+
+  testWidgets('歌词对齐按钮画当前对齐，点一下回调切换', (WidgetTester tester) async {
+    int cycles = 0;
+    final ValueNotifier<LyricAlignment> alignment =
+        ValueNotifier<LyricAlignment>(LyricAlignment.center);
+    addTearDown(alignment.dispose);
+    await _pump(
+      tester,
+      data: _data(),
+      lyrics: _timed(),
+      lyricAlignment: alignment,
+      onCycleLyricAlignment: () => cycles += 1,
+    );
+
+    final Finder button = find.byKey(
+      const ValueKey<String>('now-playing-lyric-align'),
+    );
+    expect(button, findsOneWidget);
+    expect(
+      find.descendant(
+        of: button,
+        matching: find.byIcon(Icons.format_align_center),
+      ),
+      findsOneWidget,
+    );
+
+    alignment.value = LyricAlignment.right;
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: button,
+        matching: find.byIcon(Icons.format_align_right),
+      ),
+      findsOneWidget,
+      reason: '按钮要跟着当前对齐换图标',
+    );
+    expect(find.byTooltip('歌词对齐：右对齐（点击切换）'), findsOneWidget);
+    expect(
+      tester.widget<LyricsView>(find.byType(LyricsView)).alignment,
+      LyricAlignment.right,
+      reason: '对齐要真的传到歌词视图，否则按钮只是换了个图标',
+    );
+
+    await tester.tap(button);
+    await tester.pump();
+    expect(cycles, 1);
   });
 
   testWidgets('锁定开关只在桌面歌词打开时出现，锁定后是实心锁', (WidgetTester tester) async {
@@ -1065,6 +1117,41 @@ void main() {
     expect(info.bottom, lessThanOrEqualTo(cover.top), reason: '信息块在封面上方');
     expect(cover.left, greaterThan(100), reason: '不能还挤在角落（旧值 74）');
     expect(cover.bottom, lessThan(bars.top), reason: '往下挪之后，封面不能压在频谱丝带上');
+  });
+
+  testWidgets('最小窗口下开满底部按钮也不溢出', (WidgetTester tester) async {
+    // 底部左侧那一串图标一字排开，900 宽是最挤的情况：设备、均衡器、桌面歌词、
+    // 锁定、歌词对齐全都亮着，两侧各占一半宽度
+    final ValueNotifier<List<rust.PlayerDevice>> devices =
+        ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[
+          rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
+        ]);
+    final ValueNotifier<int> selected = ValueNotifier<int>(-1);
+    final ValueNotifier<LyricAlignment> alignment =
+        ValueNotifier<LyricAlignment>(LyricAlignment.center);
+    addTearDown(devices.dispose);
+    addTearDown(selected.dispose);
+    addTearDown(alignment.dispose);
+
+    await _pump(
+      tester,
+      data: _data(desktopLyrics: true),
+      devices: devices,
+      selectedDevice: selected,
+      onSelectDevice: (_) {},
+      onOpenEqualizer: () {},
+      onToggleDesktopLyrics: () {},
+      onToggleDesktopLyricLock: () {},
+      lyricAlignment: alignment,
+      onCycleLyricAlignment: () {},
+      size: const Size(900, 560),
+    );
+
+    expect(tester.takeException(), isNull, reason: '最小窗口下按钮不该挤到溢出');
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-lyric-align')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {

@@ -20,6 +20,7 @@ import '../../theme/app_theme.dart';
 import '../library/library_sort.dart' show splitTrackArtists, trackArtist;
 import 'artist_picker_dialog.dart';
 import 'cover_palette.dart';
+import 'lyric_alignment.dart';
 import 'lyrics_view.dart';
 import 'output_device_dialog.dart';
 import 'playback_mode.dart';
@@ -95,6 +96,8 @@ class NowPlayingPage extends StatefulWidget {
     this.onToggleDesktopLyricLock,
     this.onOpenArtist,
     this.onOpenAlbum,
+    this.lyricAlignment,
+    this.onCycleLyricAlignment,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -118,6 +121,12 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 频谱数据：传了才在歌词下层铺一条全宽音频丝带
   final ValueListenable<List<double>>? spectrum;
+
+  /// 歌词的水平对齐；为空时一律居中
+  final ValueListenable<LyricAlignment>? lyricAlignment;
+
+  /// 切换歌词对齐（居中 → 左 → 右）；为空时不显示该按钮
+  final VoidCallback? onCycleLyricAlignment;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
@@ -1109,6 +1118,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   Widget _lyricsView(BuildContext context, {double revealAlignment = 0.5}) {
+    // 对齐方式只影响歌词这一块：用通知器驱动，切换时不必重建整页
+    return ValueListenableBuilder<LyricAlignment>(
+      valueListenable: _lyricAlignmentListenable,
+      builder:
+          (BuildContext context, LyricAlignment alignment, Widget? child) =>
+              _buildLyrics(
+                context,
+                alignment: alignment,
+                revealAlignment: revealAlignment,
+              ),
+    );
+  }
+
+  Widget _buildLyrics(
+    BuildContext context, {
+    required LyricAlignment alignment,
+    required double revealAlignment,
+  }) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final lyrics_api.TrackLyrics? lyrics = _lyrics;
@@ -1144,6 +1171,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         child: Text(
           lyrics.plain,
+          textAlign: alignment.textAlign,
           style: theme.textTheme.bodyLarge?.copyWith(height: 1.7),
         ),
       );
@@ -1160,8 +1188,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           ? 0
           : _spectrumBottom + _spectrumHeight,
       revealAlignment: revealAlignment,
+      alignment: alignment,
     );
   }
+
+  /// 外部没传就用「永远居中」，让本页可以单独使用（测试 / golden）
+  ValueListenable<LyricAlignment> get _lyricAlignmentListenable =>
+      widget.lyricAlignment ??
+      const AlwaysStoppedAnimation<LyricAlignment>(LyricAlignment.center);
 
   /// 沉浸模式下把两侧控件淡出。
   ///
@@ -1391,110 +1425,142 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         alignment: Alignment.centerLeft,
                         child: Padding(
                           padding: const EdgeInsets.only(left: 24),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              IconButton(
-                                key: const ValueKey<String>('now-playing-mode'),
-                                tooltip:
-                                    '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
-                                onPressed: ready
-                                    ? widget.onCyclePlayMode
-                                    : null,
-                                icon: Icon(
-                                  playbackModeIcon(data.repeat, data.shuffle),
-                                  size: 24,
-                                  color:
-                                      playbackModeActive(
-                                        data.repeat,
-                                        data.shuffle,
-                                      )
-                                      ? scheme.primary
-                                      : scheme.onSurfaceVariant,
-                                ),
-                              ),
-                              IconButton(
-                                key: const ValueKey<String>(
-                                  'now-playing-queue',
-                                ),
-                                tooltip: '播放队列',
-                                onPressed: ready ? widget.onShowQueue : null,
-                                icon: const Icon(Icons.queue_music, size: 24),
-                              ),
-                              if (widget.onSelectDevice != null)
-                                _OutputDeviceButton(
-                                  devices: widget.devices,
-                                  selected: widget.selectedDevice,
-                                  onSelect: widget.onSelectDevice!,
-                                  onToast: _showToast,
-                                ),
-                              IconButton(
-                                key: const ValueKey<String>(
-                                  'now-playing-sleep',
-                                ),
-                                tooltip: _sleepTooltip,
-                                padding: EdgeInsets.zero,
-                                // 秒表比月亮更能表达「倒计时到点暂停」
-                                onPressed: () => unawaited(_openSleepTimer()),
-                                icon: Icon(
-                                  Icons.timer_outlined,
-                                  size: 24,
-                                  color: _sleepUntil != null
-                                      ? scheme.primary
-                                      : scheme.onSurfaceVariant,
-                                ),
-                              ),
-                              if (widget.onOpenEqualizer != null)
+                          // 这一串图标加起来会顶出窄窗口的可用宽度（900 宽、桌面歌词
+                          // 打开时实测溢出 33px）。整串等比缩一点，比裁掉按钮好
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
                                 IconButton(
                                   key: const ValueKey<String>(
-                                    'now-playing-equalizer',
+                                    'now-playing-mode',
                                   ),
-                                  tooltip: '均衡器',
-                                  onPressed: widget.onOpenEqualizer,
-                                  icon: const Icon(Icons.equalizer, size: 24),
-                                ),
-                              if (widget.onToggleDesktopLyrics != null)
-                                IconButton(
-                                  key: const ValueKey<String>(
-                                    'now-playing-desktop-lyrics',
-                                  ),
-                                  tooltip: data.desktopLyrics
-                                      ? '关闭桌面歌词'
-                                      : '桌面歌词',
-                                  onPressed: widget.onToggleDesktopLyrics,
+                                  tooltip:
+                                      '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
+                                  onPressed: ready
+                                      ? widget.onCyclePlayMode
+                                      : null,
                                   icon: Icon(
-                                    data.desktopLyrics
-                                        ? Icons.subtitles
-                                        : Icons.subtitles_outlined,
+                                    playbackModeIcon(data.repeat, data.shuffle),
                                     size: 24,
-                                    color: data.desktopLyrics
+                                    color:
+                                        playbackModeActive(
+                                          data.repeat,
+                                          data.shuffle,
+                                        )
                                         ? scheme.primary
                                         : scheme.onSurfaceVariant,
                                   ),
                                 ),
-                              // 锁定后桌面歌词窗口鼠标穿透，点不到也拖不动，
-                              // 这个开关是唯一的解锁入口，所以常驻在歌词按钮旁边
-                              if (widget.onToggleDesktopLyricLock != null &&
-                                  data.desktopLyrics)
                                 IconButton(
                                   key: const ValueKey<String>(
-                                    'now-playing-desktop-lyrics-lock',
+                                    'now-playing-queue',
                                   ),
-                                  tooltip: data.desktopLyricLocked
-                                      ? '解锁桌面歌词'
-                                      : '锁定桌面歌词（鼠标穿透）',
-                                  onPressed: widget.onToggleDesktopLyricLock,
+                                  tooltip: '播放队列',
+                                  onPressed: ready ? widget.onShowQueue : null,
+                                  icon: const Icon(Icons.queue_music, size: 24),
+                                ),
+                                if (widget.onSelectDevice != null)
+                                  _OutputDeviceButton(
+                                    devices: widget.devices,
+                                    selected: widget.selectedDevice,
+                                    onSelect: widget.onSelectDevice!,
+                                    onToast: _showToast,
+                                  ),
+                                IconButton(
+                                  key: const ValueKey<String>(
+                                    'now-playing-sleep',
+                                  ),
+                                  tooltip: _sleepTooltip,
+                                  padding: EdgeInsets.zero,
+                                  // 秒表比月亮更能表达「倒计时到点暂停」
+                                  onPressed: () => unawaited(_openSleepTimer()),
                                   icon: Icon(
-                                    data.desktopLyricLocked
-                                        ? Icons.lock
-                                        : Icons.lock_open,
+                                    Icons.timer_outlined,
                                     size: 24,
-                                    color: data.desktopLyricLocked
+                                    color: _sleepUntil != null
                                         ? scheme.primary
                                         : scheme.onSurfaceVariant,
                                   ),
                                 ),
-                            ],
+                                if (widget.onOpenEqualizer != null)
+                                  IconButton(
+                                    key: const ValueKey<String>(
+                                      'now-playing-equalizer',
+                                    ),
+                                    tooltip: '均衡器',
+                                    onPressed: widget.onOpenEqualizer,
+                                    icon: const Icon(Icons.equalizer, size: 24),
+                                  ),
+                                if (widget.onCycleLyricAlignment != null)
+                                  // 图标本身就画着当前对齐，tooltip 再报一次名字
+                                  ValueListenableBuilder<LyricAlignment>(
+                                    valueListenable: _lyricAlignmentListenable,
+                                    builder:
+                                        (
+                                          BuildContext context,
+                                          LyricAlignment alignment,
+                                          Widget? child,
+                                        ) => IconButton(
+                                          key: const ValueKey<String>(
+                                            'now-playing-lyric-align',
+                                          ),
+                                          tooltip:
+                                              '歌词对齐：${alignment.label}（点击切换）',
+                                          onPressed:
+                                              widget.onCycleLyricAlignment,
+                                          icon: Icon(
+                                            alignment.icon,
+                                            size: 24,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                  ),
+                                if (widget.onToggleDesktopLyrics != null)
+                                  IconButton(
+                                    key: const ValueKey<String>(
+                                      'now-playing-desktop-lyrics',
+                                    ),
+                                    tooltip: data.desktopLyrics
+                                        ? '关闭桌面歌词'
+                                        : '桌面歌词',
+                                    onPressed: widget.onToggleDesktopLyrics,
+                                    icon: Icon(
+                                      data.desktopLyrics
+                                          ? Icons.subtitles
+                                          : Icons.subtitles_outlined,
+                                      size: 24,
+                                      color: data.desktopLyrics
+                                          ? scheme.primary
+                                          : scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                // 锁定后桌面歌词窗口鼠标穿透，点不到也拖不动，
+                                // 这个开关是唯一的解锁入口，所以常驻在歌词按钮旁边
+                                if (widget.onToggleDesktopLyricLock != null &&
+                                    data.desktopLyrics)
+                                  IconButton(
+                                    key: const ValueKey<String>(
+                                      'now-playing-desktop-lyrics-lock',
+                                    ),
+                                    tooltip: data.desktopLyricLocked
+                                        ? '解锁桌面歌词'
+                                        : '锁定桌面歌词（鼠标穿透）',
+                                    onPressed: widget.onToggleDesktopLyricLock,
+                                    icon: Icon(
+                                      data.desktopLyricLocked
+                                          ? Icons.lock
+                                          : Icons.lock_open,
+                                      size: 24,
+                                      color: data.desktopLyricLocked
+                                          ? scheme.primary
+                                          : scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
