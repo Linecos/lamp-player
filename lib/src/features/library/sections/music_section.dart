@@ -66,14 +66,6 @@ extension _MusicSection on _LibraryPageState {
               ),
             ),
             _buildSelectionHeaderSlot(context),
-            IconButton(
-              key: const ValueKey<String>('music-locate-current'),
-              tooltip: '定位正在播放',
-              onPressed: _currentTrack == null
-                  ? null
-                  : () => _locateCurrentTrack(),
-              icon: const Icon(Icons.my_location, size: 20),
-            ),
             FilledButton.tonalIcon(
               onPressed: visible.isEmpty || _searching
                   ? null
