@@ -532,6 +532,33 @@ class FakePlaybackService implements PlaybackService {
     current = rust.PlaybackState.playing;
   }
 
+  /// 启动预加载过的路径（不计入 [playedPaths]：预加载不是「播放」）
+  final List<String> preloadedPaths = <String>[];
+
+  @override
+  Future<void> preload(
+    String path, {
+    double replayGainDb = 0,
+    double positionSecs = 0,
+  }) async {
+    final Object? error = playError;
+    if (error != null) {
+      throw error;
+    }
+    if (failingPaths.contains(path)) {
+      throw StateError('无法播放: $path');
+    }
+    final Object? seekErr = seekError;
+    if (positionSecs > 0 && seekErr != null) {
+      // 与真实实现一致：定不到位置就把预加载整个撤掉，交回上层走老路
+      current = rust.PlaybackState.stopped;
+      throw seekErr;
+    }
+    preloadedPaths.add(path);
+    this.positionSecs = positionSecs;
+    current = rust.PlaybackState.paused;
+  }
+
   @override
   Future<double> analyzeReplayGain(String path) async {
     final Object? error = analyzeError;

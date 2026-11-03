@@ -64,11 +64,7 @@ extension _PlaybackSection on _LibraryPageState {
       // 会话缓存）随 play 一起下发；还没有增益就先按 0 播——现场分析要全曲
       // 解码 1~2 秒，等它算完再 play 界面早就切歌了，中途改音量又会先响一下。
       // 算出的值写回曲库，下次起播直接带上。
-      final double gain = !_replayGain
-          ? 0
-          : track.replayGain != 0
-          ? track.replayGain
-          : (_autoGains[track.path] ?? 0);
+      final double gain = _gainFor(track);
       await _playback.play(track.path, replayGainDb: gain);
       // 桌面歌词要实时跟上，歌词跟着曲目一起换
       unawaited(_loadLyrics(track.path));
@@ -115,6 +111,86 @@ extension _PlaybackSection on _LibraryPageState {
       unawaited(_autoGain(track.path));
     }
     return true;
+  }
+
+  /// 起播时下发给引擎的 ReplayGain 增益（dB）。
+  ///
+  /// 开关关掉就是 0；开着时优先用标签里的值，其次用后台补算后缓存的，
+  /// 都没有就按 0 起播、之后再补算——现场分析要全曲解码，等不起。
+  double _gainFor(Track track) {
+    if (!_replayGain) {
+      return 0;
+    }
+    if (track.replayGain != 0) {
+      return track.replayGain;
+    }
+    return _autoGains[track.path] ?? 0;
+  }
+
+  /* ------------------------------------------------------ 启动预加载 */
+
+  /// 启动时把上次的曲目预先装进引擎并暂停。
+  ///
+  /// 好处是引擎不再是 `stopped`：进度条天然可拖、拖动走的是真 seek，不用
+  /// 「续播点」在界面上补偿。代价是启动多打开一次文件、多占一路 channel。
+  ///
+  /// 触发点有两个——`_restoreLastTrack` 读完会话、`_applyStartupAudio` 把
+  /// 输出设备准备好。谁后到谁真正干活，先到的那个直接返回。
+  void _maybePreloadRestoredTrack() {
+    if (_preloadAttempted || !_isAvailable || !_startupAudioApplied) {
+      return;
+    }
+    if (_currentTrack == null) {
+      return;
+    }
+    _preloadAttempted = true;
+    // 走播放命令串行链：预加载跑在 play → pause → seek 中间时，用户按播放
+    // 会抢在 pause 之前进来，`resume` 刚生效就被预加载按回去。排在链尾后，
+    // 用户的命令一定在预加载结束之后才执行。
+    unawaited(_serial(_preloadRestoredTrack));
+  }
+
+  Future<void> _preloadRestoredTrack() async {
+    final Track? track = _currentTrack;
+    if (track == null) {
+      return;
+    }
+    final double startAt = _pendingResumePosition ?? 0;
+    // 打开文件到能 seek 的耗时：这一步是整个方案的代价所在，
+    // `--dart-define=LAMP_FRAME_LOG=true` 时打一行，方便对着实测量
+    final Stopwatch? watch = frameLogEnabled ? (Stopwatch()..start()) : null;
+    try {
+      // 装进引擎的那一瞬是真的在推流，先把音量压到 0，暂停之后再还原
+      await _playback.setVolume(0);
+      await _playback.preload(
+        track.path,
+        replayGainDb: _gainFor(track),
+        positionSecs: startAt,
+      );
+      await _playback.setVolume(volumeToAmplitude(_volume));
+    } catch (error) {
+      // 预加载失败不该影响使用：引擎已回到 stopped，按播放时仍走老路
+      debugPrint('预加载上次曲目失败：$error');
+      if (watch != null) {
+        debugPrint('[preload] 失败，耗时 ${watch.elapsedMilliseconds} ms');
+      }
+      try {
+        await _playback.setVolume(volumeToAmplitude(_volume));
+      } catch (_) {
+        // 音量还原失败只能等用户下一次调音量
+      }
+      return;
+    }
+    if (watch != null) {
+      debugPrint('[preload] 上次曲目装进引擎 ${watch.elapsedMilliseconds} ms');
+    }
+    if (!mounted) {
+      return;
+    }
+    // 位置已经在引擎里了：留着续播点只会让「退回 stopped」的路径再 seek 一次
+    _pendingResumePosition = null;
+    // 与真实起播保持一致：正在播放页要能直接看到这首歌的歌词
+    unawaited(_loadLyrics(track.path));
   }
 
   /* --------------------------------------------------- 系统媒体控制 */
@@ -842,6 +918,9 @@ extension _PlaybackSection on _LibraryPageState {
       }
       _position = seconds;
       _publishProgress();
+      // 拖动位置也要落盘：暂停着拖几下就退出，重启该停在新位置而不是旧位置。
+      // 走 400ms 合并窗口，键盘连按快进不会每下都写一次盘。
+      _scheduleSessionSave();
     } catch (error) {
       if (!mounted) {
         return;

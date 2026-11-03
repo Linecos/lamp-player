@@ -15,6 +15,7 @@ import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../app/tray_controller.dart';
 import '../../common/common.dart';
+import '../../common/frame_log.dart';
 import '../../common/text/pinyin_key.dart';
 import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
@@ -496,6 +497,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 启动时的音频初始化：音量、输出偏好、均衡器。只做一次。
   bool _startupAudioApplied = false;
 
+  /// 启动预加载是否已经尝试过（成功失败都算，只试一次）。
+  ///
+  /// 放在这里而不是 `playback_section` 的 extension 里：Dart 的 extension
+  /// 不允许声明实例字段。
+  bool _preloadAttempted = false;
+
   void _applyStartupAudio(bool exclusive) {
     _startupAudioApplied = true;
     unawaited(_applyVolume(_volume));
@@ -506,6 +513,9 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_applyCrossfade());
     // 引擎已就绪：把曲库里缺的 ReplayGain 补算出来，别等第一首歌点了才开始算
     unawaited(_warmAutoGains());
+    // 输出设备 / 独占模式定下来之后再预加载：这两样切换都会重开当前曲目，
+    // 提前装进去等于白装一次
+    _maybePreloadRestoredTrack();
   }
 
   /// Windows 路径大小写与分隔符不敏感：回车恢复上次曲目、
@@ -695,6 +705,7 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _restoreLastTrack(snapshot);
+    _maybePreloadRestoredTrack();
     unawaited(_restoreDesktopLyrics());
 
     unawaited(_refreshFavoritePaths());
