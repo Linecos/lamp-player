@@ -17,11 +17,17 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-/// 44.1 kHz 单声道 3 秒静音 WAV：设备多为 48 kHz，正好走一遍 bassmix 重采样
+/// 44.1 kHz 单声道 16 bit 静音 WAV：设备多为 48 kHz，正好走一遍 bassmix 重采样
 fn write_wav(path: &PathBuf, secs: u32) {
-    let sample_rate: u32 = 44100;
+    write_wav_ex(path, secs, 44_100, 1);
+}
+
+/// 指定采样率与声道的静音 WAV。
+///
+/// 真实音乐基本都是立体声：单声道可能绕过源流到混音流之间的声道映射，
+/// 单独跑一条立体声用例才接近用户实际听到的那条路。
+fn write_wav_ex(path: &PathBuf, secs: u32, sample_rate: u32, channels: u16) {
     let bits: u16 = 16;
-    let channels: u16 = 1;
     let data_len = sample_rate * secs * u32::from(bits / 8) * u32::from(channels);
 
     let mut buf = Vec::with_capacity(44 + data_len as usize);
@@ -70,7 +76,8 @@ fn exclusive_output_chain() {
     assert!(info.contains("WASAPI 独占"), "输出信息应说明独占：{info}");
 
     let wav = std::env::temp_dir().join("lamp_player_exclusive.wav");
-    write_wav(&wav, 3);
+    // 立体声：单声道素材可能绕过一条声道映射，测不到真实音乐那条路
+    write_wav_ex(&wav, 3, 44_100, 2);
     let path = wav.to_string_lossy().to_string();
 
     player_play(path.clone(), 0.0).expect("独占模式下播放应成功");
@@ -94,6 +101,7 @@ fn exclusive_output_chain() {
     let pos_end = player_position().expect("读取结束位置");
     let elapsed = rate_start.elapsed().as_secs_f64();
     let rate = (pos_end - pos_start) / elapsed;
+    eprintln!("独占实测播放速率 {rate:.3}x（1.0 = 正常；1.088 = 按 48k 读 44.1k 素材）");
     assert!(
         (rate - 1.0).abs() < 0.05,
         "独占模式播放速率应接近 1.0，实际 {rate:.3}（源流未经过混音流重采样？）"
