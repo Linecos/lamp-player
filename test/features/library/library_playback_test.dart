@@ -129,6 +129,71 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('停止态拖动产生的续播点会写进会话，重启后从那里继续', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    final FakeSessionStore store = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        coverBackfillAttempted: true,
+        lastTrackPath: '/music/夜航.mp3',
+        lastPositionSecs: 40,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: store,
+    );
+
+    // 直接给秒数而不是拖动像素：滑块宽度随窗口变，拖 160px 会一路顶到曲尾，
+    // 断言就成了「顶到 180 也算过」，测不出到底存的是不是拖到的那个点
+    final Slider slider = tester.widget<Slider>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('player-progress')),
+        matching: find.byType(Slider),
+      ),
+    );
+    slider.onChangeEnd!(120);
+    // 落盘走 400ms 合并窗口
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    expect(playback.seekCalls, isEmpty, reason: '停止态不该真去 seek');
+    expect(playback.playedPaths, isEmpty, reason: '拖动不等于起播');
+    expect(
+      store.snapshot.lastPositionSecs,
+      120.0,
+      reason: '续播点要落盘，否则关掉再开又回到上次保存的位置',
+    );
+
+    // 关掉再开一遍：先卸掉整棵树，否则同类型同位置的 widget 会复用同一个
+    // State，走的还是内存里的值，测不出「重启」
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    final FakePlaybackService second = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: second,
+      sessionStore: store,
+    );
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(second.playedPaths, <String>['/music/夜航.mp3']);
+    expect(second.seekCalls.single, 120.0, reason: '重启后从落盘的续播点起播');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('播放成功会写入播放历史', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
