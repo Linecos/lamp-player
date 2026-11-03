@@ -155,6 +155,19 @@ void main() {
     );
   });
 
+  test('译文显示开关可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    expect((await store.load()).showTranslation, isTrue, reason: '没有存档时默认显示译文');
+
+    await store.save(const SessionSnapshot(showTranslation: false));
+    expect((await store.load()).showTranslation, isFalse);
+
+    await store.save(const SessionSnapshot(showTranslation: true));
+    expect((await store.load()).showTranslation, isTrue);
+  });
+
   test('独占输出偏好可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();

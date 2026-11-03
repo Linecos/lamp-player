@@ -444,6 +444,9 @@ class _LibraryPageState extends State<LibraryPage>
   final ValueNotifier<LyricAlignment> _lyricAlignment =
       ValueNotifier<LyricAlignment>(LyricAlignment.center);
 
+  /// 正在播放页是否显示译文 / 罗马音；同样走通知器，切换只重画歌词
+  final ValueNotifier<bool> _showTranslation = ValueNotifier<bool>(true);
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -654,6 +657,7 @@ class _LibraryPageState extends State<LibraryPage>
     _volumeNotifier.dispose();
     _volumePeek.dispose();
     _lyricAlignment.dispose();
+    _showTranslation.dispose();
     super.dispose();
   }
 
@@ -706,6 +710,7 @@ class _LibraryPageState extends State<LibraryPage>
       _flowBackground = snapshot.flowBackground;
       _circularCovers = snapshot.circularCovers;
       _lyricAlignment.value = snapshot.lyricAlignment;
+      _showTranslation.value = snapshot.showTranslation;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
       circularCovers.value = snapshot.circularCovers;
@@ -835,6 +840,7 @@ class _LibraryPageState extends State<LibraryPage>
       flowBackground: _flowBackground,
       circularCovers: _circularCovers,
       lyricAlignment: _lyricAlignment.value,
+      showTranslation: _showTranslation.value,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
     //
@@ -1019,6 +1025,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 歌词对齐切到下一档（居中 → 左 → 右 → 居中）
   void _cycleLyricAlignment() {
     _lyricAlignment.value = _lyricAlignment.value.next;
+    _saveSessionNow();
+  }
+
+  /// 显示 / 隐藏译文：歌词那边用弹簧折叠，整列跟着弹，不必整页重建
+  void _toggleTranslation() {
+    _showTranslation.value = !_showTranslation.value;
     _saveSessionNow();
   }
 

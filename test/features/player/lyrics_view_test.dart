@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/lyric_alignment.dart';
@@ -30,6 +32,7 @@ Future<void> _pump(
   double band = 0,
   double alignment = 0.5,
   LyricAlignment lyricAlign = LyricAlignment.center,
+  bool showTranslation = true,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
   tester.view.devicePixelRatio = 1;
@@ -48,6 +51,7 @@ Future<void> _pump(
           edgeFadeBand: band,
           revealAlignment: alignment,
           alignment: lyricAlign,
+          showTranslation: showTranslation,
         ),
       ),
     ),
@@ -397,6 +401,199 @@ void main() {
     expect(latin / body, greaterThan(0.7), reason: '罗马音不能比正文小太多');
     expect(cjk / body, greaterThan(0.75), reason: '译文不能比正文小太多');
     expect(cjk, lessThan(body), reason: '译文仍需略小于正文');
+  });
+
+  testWidgets('关掉译文时译文块不占高度', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0.5);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    /// 译文块外面那层裁切框：高度 0 就表示它没占位置
+    double blockHeight(String text) => tester
+        .getSize(
+          find
+              .ancestor(of: find.text(text), matching: find.byType(ClipRect))
+              .first,
+        )
+        .height;
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 5000, text: '第一行', translation: 'first line'),
+        _line(start: 5000, end: 9000, text: '第二行', translation: 'second line'),
+      ],
+      position: position,
+      playing: playing,
+      showTranslation: false,
+    );
+
+    expect(blockHeight('first line'), 0, reason: '收起时不该占任何高度');
+    expect(blockHeight('second line'), 0);
+    expect(find.text('第一行'), findsOneWidget, reason: '正文照旧');
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 5000, text: '第一行', translation: 'first line'),
+        _line(start: 5000, end: 9000, text: '第二行', translation: 'second line'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    for (int i = 0; i < 40; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(blockHeight('first line'), greaterThan(10), reason: '打开后要占回高度');
+  });
+
+  testWidgets('切换译文时译文块不重建（结构不随进度变化）', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 6; i += 1)
+        _line(
+          start: i * 5000,
+          end: i * 5000 + 5000,
+          text: '第$i行',
+          translation: 'line $i',
+        ),
+    ];
+
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: false,
+    );
+    for (int i = 0; i < 30; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final Element before = tester.element(find.text('line 0'));
+
+    await _pump(tester, lines: lines, position: position, playing: playing);
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(
+      identical(tester.element(find.text('line 0')), before),
+      isTrue,
+      reason: '展开的第一帧就换掉控件结构的话，带 key 的子级会被重挂，看着闪一下',
+    );
+  });
+
+  testWidgets('切换译文：整列缓出收放，当前行一帧都不动', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 6; i += 1)
+        _line(
+          start: i * 5000,
+          end: i * 5000 + 5000,
+          text: '第$i行',
+          translation: 'line $i',
+        ),
+    ];
+
+    await _pump(tester, lines: lines, position: position, playing: playing);
+    final double activeBefore = tester.getRect(find.text('第2行')).center.dy;
+    final double belowBefore = tester.getRect(find.text('第4行')).center.dy;
+
+    // 同一棵树里换 prop，state 复用才会走 didUpdateWidget 的过渡
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: false,
+    );
+
+    double maxDrift = 0;
+    double belowMid = belowBefore;
+    for (int i = 0; i < 8; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      maxDrift = math.max(
+        maxDrift,
+        (tester.getRect(find.text('第2行')).center.dy - activeBefore).abs(),
+      );
+      belowMid = tester.getRect(find.text('第4行')).center.dy;
+    }
+
+    // 收起过程中下面的行应该已经往上走，但还没到位
+    expect(belowMid, lessThan(belowBefore), reason: '下面的行跟着往上收');
+    expect(
+      maxDrift,
+      lessThan(1),
+      reason: '补偿量按同一条曲线算，当前行一帧都不该动（旧实现会先跳 33px 再爬回来）',
+    );
+
+    // 逐帧走完动画（真实运行就是 16ms 一帧）
+    for (int i = 0; i < 40; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump();
+
+    expect(
+      tester
+          .getSize(
+            find
+                .ancestor(
+                  of: find.text('line 0'),
+                  matching: find.byType(ClipRect),
+                )
+                .first,
+          )
+          .height,
+      0,
+      reason: '收完之后译文不占高度',
+    );
+    expect(
+      (tester.getRect(find.text('第2行')).center.dy - activeBefore).abs(),
+      lessThan(1),
+      reason: '收完仍停在原来的位置',
+    );
+    final double belowCollapsed = tester.getRect(find.text('第4行')).center.dy;
+    expect(belowCollapsed, lessThan(belowBefore), reason: '整列确实变短了');
+
+    // 再打开：译文长回来，下面的行被顶回去，当前行照样不动
+    await _pump(tester, lines: lines, position: position, playing: playing);
+    double maxDriftBack = 0;
+    for (int i = 0; i < 40; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      maxDriftBack = math.max(
+        maxDriftBack,
+        (tester.getRect(find.text('第2行')).center.dy - activeBefore).abs(),
+      );
+    }
+    await tester.pump();
+
+    expect(
+      tester
+          .getSize(
+            find
+                .ancestor(
+                  of: find.text('line 0'),
+                  matching: find.byType(ClipRect),
+                )
+                .first,
+          )
+          .height,
+      greaterThan(10),
+      reason: '展开后译文回来',
+    );
+    expect(
+      tester.getRect(find.text('第4行')).center.dy,
+      greaterThan(belowCollapsed),
+      reason: '展开把下面的行顶回去',
+    );
+    expect(maxDriftBack, lessThan(1), reason: '展开方向同样一帧都不动');
   });
 
   testWidgets('点击歌词行按该行时间跳转', (WidgetTester tester) async {
