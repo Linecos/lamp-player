@@ -468,12 +468,14 @@ extension _PlaylistsSection on _LibraryPageState {
             ),
             const Spacer(),
             OutlinedButton.icon(
+              style: _headerButtonStyle(),
               onPressed: () => unawaited(_importPlaylist()),
               icon: const Icon(Icons.file_open_outlined),
               label: const Text('导入歌单'),
             ),
             const SizedBox(width: 8),
             FilledButton.icon(
+              style: _headerButtonStyle(),
               onPressed: () => unawaited(_createPlaylist()),
               icon: const Icon(Icons.add),
               label: const Text('新建歌单'),
@@ -601,6 +603,7 @@ extension _PlaylistsSection on _LibraryPageState {
                       runSpacing: 8,
                       children: <Widget>[
                         FilledButton.icon(
+                          style: _headerButtonStyle(),
                           onPressed: _playlistTracks.isEmpty
                               ? null
                               : () => unawaited(_playAll(_playlistTracks)),
@@ -608,24 +611,29 @@ extension _PlaylistsSection on _LibraryPageState {
                           label: const Text('播放全部'),
                         ),
                         FilledButton.tonalIcon(
+                          style: _headerButtonStyle(),
                           onPressed: () =>
                               unawaited(_addTracksToPlaylist(playlist)),
                           icon: const Icon(Icons.add),
                           label: const Text('添加音乐'),
                         ),
                         OutlinedButton.icon(
+                          style: _headerButtonStyle(),
                           onPressed: () => unawaited(_exportPlaylist(playlist)),
                           icon: const Icon(Icons.ios_share),
                           label: const Text('导出'),
                         ),
                         OutlinedButton.icon(
+                          style: _headerButtonStyle(),
                           onPressed: () => unawaited(_renamePlaylist(playlist)),
                           icon: const Icon(Icons.edit_outlined),
                           label: const Text('重命名'),
                         ),
                         OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: scheme.error,
+                          style: _headerButtonStyle().copyWith(
+                            foregroundColor: WidgetStatePropertyAll<Color>(
+                              scheme.error,
+                            ),
                           ),
                           onPressed: () => unawaited(_deletePlaylist(playlist)),
                           icon: const Icon(Icons.delete_outline),
@@ -669,6 +677,8 @@ extension _PlaylistsSection on _LibraryPageState {
       );
     }
     return TrackListView(
+      controller: _playlistScroll,
+      flashPath: _flashTrackPath,
       tracks: _playlistTracks,
       storageKey: PageStorageKey<String>('tracks:playlist:${playlist.id}'),
       playingPath: _currentTrack?.path,

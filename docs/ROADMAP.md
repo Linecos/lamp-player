@@ -38,7 +38,8 @@
 | 播放成功后记录历史 + 自然播完自动下一首 | Dart `features/library` | 小 | 已完成（`PlaybackQueue` 接管切歌） |
 | 播放队列：顺序 / 随机 / 列表循环 / 单曲循环、上一首历史、队列面板 | Dart `features/player` | 中 | 已完成（`playback_queue.dart` + `queue_dialog.dart`） |
 | 播放全部（曲库 / 搜索 / 收藏 / 历史 / 歌单 / 艺术家 / 专辑） | Dart `features/library` | 小 | 已完成 |
-| 快捷键（空格 / Ctrl+方向键 / Ctrl+M / Ctrl+F / Esc / 媒体键） | Dart `features/library` | 小 | 已完成（搜索框内不劫持输入） |
+| 快捷键（空格 / Ctrl+方向键 / Ctrl+M / Ctrl+F / Ctrl+L / Esc / 媒体键） | Dart `features/library` | 小 | 已完成（搜索框内不劫持输入） |
+| 定位正在播放（音乐 / 收藏 / 历史 / 歌单列表，行短暂高亮） | Dart `features/library` | 小 | 已完成（`TrackListView.controller` + `TrackListView.rowExtent`） |
 | 会话恢复（音量、上次曲目与进度、循环 / 随机、分区、侧栏、窗口尺寸） | Dart `app/` + `features/library` | 中 | 已完成（`shared_preferences`） |
 | 专辑封面：提取内嵌图、按内容哈希缓存、列表 / 播放条展示 | Rust `scanner.rs` + Dart `common/widgets` | 中 | 已完成（schema v3，`covers/` 缓存） |
 | 进度拖动、音量滑块（接 `player_seek` / `player_set_volume`） | Dart `features/player` | 小 | 已完成（进度拖动 + 音量滑块的合并节流） |
