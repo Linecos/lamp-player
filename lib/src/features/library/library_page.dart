@@ -1018,10 +1018,11 @@ class _LibraryPageState extends State<LibraryPage>
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: _locateCurrentTrack,
+          // 比播放岛的播放按钮（40）小一号，弱化存在感
           child: SizedBox(
-            width: 48,
-            height: 48,
-            child: Icon(Icons.my_location, size: 22, color: scheme.onPrimary),
+            width: 34,
+            height: 34,
+            child: Icon(Icons.my_location, size: 19, color: scheme.onPrimary),
           ),
         ),
       ),
