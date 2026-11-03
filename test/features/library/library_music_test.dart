@@ -86,17 +86,12 @@ void main() {
     final Finder locate = find.byKey(
       const ValueKey<String>('music-locate-current'),
     );
-    expect(locate, findsOneWidget);
-    expect(
-      tester.widget<IconButton>(locate).onPressed,
-      isNull,
-      reason: '没有正在播放的曲目时应禁用',
-    );
+    expect(locate, findsNothing, reason: '没有正在播放的曲目时不显示悬浮按钮');
 
     // 播放第一首，再把列表拖到底
     await tester.tap(find.text('曲目 0'));
     await tester.pumpAndSettle();
-    expect(tester.widget<IconButton>(locate).onPressed, isNotNull);
+    expect(locate, findsOneWidget);
 
     final Finder list = find.byKey(
       const PageStorageKey<String>('tracks:music'),
