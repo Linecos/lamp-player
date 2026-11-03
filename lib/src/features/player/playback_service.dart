@@ -14,6 +14,21 @@ abstract interface class PlaybackService {
   /// 播放 [path]；[replayGainDb] 为曲目标签里的 ReplayGain 增益（0 = 不归一）
   Future<void> play(String path, {double replayGainDb = 0});
 
+  /// 把 [path] 装进引擎、定位到 [positionSecs]，然后**停在暂停态**。
+  ///
+  /// 与 [play] 的区别只有「装完不开始走」：启动时用它把上次的曲目先备好，
+  /// 引擎状态就是 `paused` 而不是 `stopped`。这样进度条天然可拖、拖动是真
+  /// 的 seek，不必再靠「续播点」在界面上补偿。
+  ///
+  /// 实现内部会短暂起播再立刻暂停，调用方若担心漏音，可以先把音量压到 0。
+  /// 定位失败时实现需要把预加载整个撤掉（回到 stopped）再抛错，调用方据此
+  /// 退回「按播放时才加载」的老路径。
+  Future<void> preload(
+    String path, {
+    double replayGainDb = 0,
+    double positionSecs = 0,
+  });
+
   /// 分析 [path] 的整曲响度，返回 ReplayGain 建议增益（dB）。
   ///
   /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需 1~2 秒）；
@@ -100,6 +115,26 @@ class RustPlaybackService implements PlaybackService {
   @override
   Future<void> play(String path, {double replayGainDb = 0}) =>
       rust.playerPlay(path: path, replayGainDb: replayGainDb);
+
+  @override
+  Future<void> preload(
+    String path, {
+    double replayGainDb = 0,
+    double positionSecs = 0,
+  }) async {
+    await rust.playerPlay(path: path, replayGainDb: replayGainDb);
+    await rust.playerPause();
+    if (positionSecs > 0) {
+      try {
+        await rust.playerSeek(positionSecs: positionSecs);
+      } catch (_) {
+        // 装进去了却定不到位置：留着只会让用户按播放时从 0 开始。
+        // 停掉、退回 stopped，让上层走「按播放时重新加载 + seek」那条老路。
+        await rust.playerStop();
+        rethrow;
+      }
+    }
+  }
 
   @override
   Future<double> analyzeReplayGain(String path) =>

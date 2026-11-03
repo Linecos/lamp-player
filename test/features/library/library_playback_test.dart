@@ -80,12 +80,12 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('刚启动未播放时进度条也能拖，按播放从拖到的位置继续', (WidgetTester tester) async {
+  testWidgets('启动时预加载上次曲目，进度条可拖且拖动是真 seek', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
     );
-    // 上次退出时停在第 40 秒：启动只是把曲目和位置摆回来，引擎还是 stopped
+    // 上次退出时停在第 40 秒：启动后引擎里就该有一首装好、定位到 40 的曲目
     final FakeSessionStore store = FakeSessionStore(
       snapshot: const SessionSnapshot(
         coverBackfillAttempted: true,
@@ -100,36 +100,38 @@ void main() {
       sessionStore: store,
     );
 
+    expect(playback.preloadedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.current, rust.PlaybackState.paused, reason: '装进引擎但停在暂停态');
+    expect(playback.positionSecs, 40, reason: '预加载直接定位到上次位置');
+    expect(playback.playedPaths, isEmpty, reason: '预加载不是播放，不该进播放历史');
+
     final Finder progress = find.byKey(
       const ValueKey<String>('player-progress'),
     );
     final Slider slider = tester.widget<Slider>(
       find.descendant(of: progress, matching: find.byType(Slider)),
     );
-    expect(slider.onChanged, isNotNull, reason: '还没起播时进度条也不该变灰、拖不动');
+    expect(slider.onChanged, isNotNull, reason: '引擎里有曲目，进度条不该变灰');
 
-    await tester.drag(progress, const Offset(160, 0));
+    slider.onChangeEnd!(120);
     await tester.pump();
 
-    expect(playback.seekCalls, isEmpty, reason: '引擎里还没加载曲目，这时只攒续播点，不真的 seek');
+    expect(playback.seekCalls, <double>[
+      120.0,
+    ], reason: '引擎里已经有曲目了，拖动就是真 seek，不用攒续播点');
 
     await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
-    expect(playback.seekCalls, hasLength(1));
-    expect(
-      playback.seekCalls.single,
-      greaterThan(40),
-      reason: '从拖到的位置起播，而不是回到开头',
-    );
+    expect(playback.resumeCalls, 1, reason: '引擎停在位置上，按播放直接继续');
+    expect(playback.playedPaths, isEmpty, reason: '不需要重新加载曲目');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
 
-  testWidgets('停止态拖动产生的续播点会写进会话，重启后从那里继续', (WidgetTester tester) async {
+  testWidgets('暂停态拖到的位置会落盘，重启后仍停在那里', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
@@ -161,12 +163,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
 
-    expect(playback.seekCalls, isEmpty, reason: '停止态不该真去 seek');
     expect(playback.playedPaths, isEmpty, reason: '拖动不等于起播');
     expect(
       store.snapshot.lastPositionSecs,
       120.0,
-      reason: '续播点要落盘，否则关掉再开又回到上次保存的位置',
+      reason: '拖到的位置要落盘，否则关掉再开又回到上次保存的位置',
     );
 
     // 关掉再开一遍：先卸掉整棵树，否则同类型同位置的 widget 会复用同一个
@@ -183,12 +184,15 @@ void main() {
       playback: second,
       sessionStore: store,
     );
+
+    expect(second.preloadedPaths, <String>['/music/夜航.mp3']);
+    expect(second.positionSecs, 120.0, reason: '重启后预加载直接落在落盘的位置');
+
     await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(second.playedPaths, <String>['/music/夜航.mp3']);
-    expect(second.seekCalls.single, 120.0, reason: '重启后从落盘的续播点起播');
+    expect(second.resumeCalls, 1, reason: '从预加载停住的位置接着播');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
@@ -575,6 +579,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('00:42'), findsOneWidget);
+    // 引擎里已经装好并停在 42 秒处
+    expect(playback.preloadedPaths, <String>['/music/潮汐.mp3']);
+    expect(playback.current, rust.PlaybackState.paused);
+    expect(playback.positionSecs, 42);
 
     await tester.tap(
       find.descendant(
@@ -585,8 +593,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(playback.playedPaths.single, '/music/潮汐.mp3');
-    expect(playback.seekCalls, contains(42.0), reason: '应从上次位置继续');
+    expect(playback.resumeCalls, 1, reason: '从上次位置继续，不需要重新加载');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

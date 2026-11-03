@@ -272,7 +272,7 @@ enum WindowGlyph { minimize, maximize, restore, close }
 /// 窗口按钮字形：按 20×20 设计稿画、实际按 15px 输出（描边等比缩到
 /// 1.2px），直角转折、平头端点。
 ///
-/// 对齐 ZeroBit Player 那套线稿：一条细横线、四角折角、对角双箭头、叉。
+/// 线稿：一条细横线、四角折角、对角双箭头、叉。
 /// 早先用的是「圆角方框 + 圆头笔画 + 1.35 描边」，在 15px 下笔画几乎糊成一
 /// 小块，而且圆角方框看起来更像「复选框」而不是「整窗」。
 class _WindowGlyphPainter extends CustomPainter {
@@ -285,7 +285,7 @@ class _WindowGlyphPainter extends CustomPainter {
   /// 设计稿边长，所有坐标都在这个尺度里写
   static const double _design = 20;
 
-  /// 描边宽度：设计稿 20 里 1.6，约等于 ZeroBit 那套的 2/20
+  /// 描边宽度：设计稿 20 里 1.6（即 2/20）
   static const double _stroke = 1.6;
 
   final WindowGlyph glyph;
