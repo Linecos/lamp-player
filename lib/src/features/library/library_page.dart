@@ -193,6 +193,17 @@ class _LibraryPageState extends State<LibraryPage>
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
+  /// 页面级焦点节点：快捷键挂在页面内部的 `CallbackShortcuts` 上，
+  /// 焦点必须留在这一层，按键才会往下派发（见 [_releaseSearchFocus]）
+  final FocusNode _pageFocus = FocusNode(debugLabel: 'library-page');
+
+  /// 搜索框此刻是否有焦点。
+  ///
+  /// 快捷键绑定要跟着它变：`CallbackShortcuts` 一旦命中就把事件标成**已处理**，
+  /// 空格 / 方向键就再也到不了输入框——表现就是「输入框打不出空格」。所以输入
+  /// 期间干脆不绑这些键，而不是绑了之后再在回调里判断要不要执行。
+  bool _searchFocused = false;
+
   /// 播放队列：曲目顺序、循环 / 随机、上一首历史都在里面
   final PlaybackQueue _queue = PlaybackQueue();
 
@@ -546,6 +557,7 @@ class _LibraryPageState extends State<LibraryPage>
   @override
   void initState() {
     super.initState();
+    _searchFocus.addListener(_onSearchFocusChanged);
     // 引擎探测要 spawn 引擎线程并等就绪，音频子系统异常时会阻塞好几秒；
     // 放在首帧之后做，界面先按可用渲染，探测结果再回填
     unawaited(_probeAvailability());
@@ -650,7 +662,9 @@ class _LibraryPageState extends State<LibraryPage>
       ?..removeListener(_onLifecycleChanged)
       ..clearBeforeExit(_exitHook);
     unawaited(_media.dispose());
+    _searchFocus.removeListener(_onSearchFocusChanged);
     _searchFocus.dispose();
+    _pageFocus.dispose();
     _searchController.dispose();
     _progress.dispose();
     _nowPlaying.dispose();
@@ -891,13 +905,21 @@ class _LibraryPageState extends State<LibraryPage>
           ShortcutAction.mediaNext: () => unawaited(_next()),
           ShortcutAction.mediaPrevious: () => unawaited(_previous()),
         };
+    // 输入框有焦点时不绑会抢输入的键（见 [_searchFocused]）
+    final Map<ShortcutAction, VoidCallback> activeHandlers = _searchFocused
+        ? <ShortcutAction, VoidCallback>{
+            for (final ShortcutAction action in _typingSafeActions)
+              if (handlers[action] != null) action: handlers[action]!,
+          }
+        : handlers;
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        ...shortcutBindings(handlers, bindings: _shortcuts),
+        ...shortcutBindings(activeHandlers, bindings: _shortcuts),
         const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
             _handleEscape,
       },
       child: Focus(
+        focusNode: _pageFocus,
         autofocus: true,
         child: Scaffold(
           backgroundColor: scheme.surfaceContainerLow,
@@ -1074,8 +1096,18 @@ class _LibraryPageState extends State<LibraryPage>
     if (_query.isNotEmpty) {
       _clearSearch();
     } else {
-      _searchFocus.unfocus();
+      _releaseSearchFocus();
     }
+  }
+
+  /// 搜索框失焦后把键盘焦点交还页面。
+  ///
+  /// `unfocus()` 默认把焦点退给最近的 `FocusScope`（就是路由那一层），而快捷键
+  /// 的 `CallbackShortcuts` 挂在页面里面：焦点落在 scope 上，按键不会再往下派发，
+  /// 表现就是「用过一次搜索框之后快捷键全哑了」。所以这里显式把焦点要回页面。
+  void _releaseSearchFocus() {
+    _searchFocus.unfocus();
+    _pageFocus.requestFocus();
   }
 
   /// 焦点在搜索框时，空格 / 方向键留给文本编辑，不触发播放控制。
@@ -1095,6 +1127,22 @@ class _LibraryPageState extends State<LibraryPage>
     }
     unawaited(_togglePlayback());
   }
+
+  void _onSearchFocusChanged() {
+    if (_searchFocus.hasFocus == _searchFocused) {
+      return;
+    }
+    setState(() => _searchFocused = _searchFocus.hasFocus);
+  }
+
+  /// 输入框有焦点时仍然保留的动作：媒体键不会打出字符，聚焦搜索本身也无害。
+  /// 其余（空格 / ←→ / Ctrl+←→ / Ctrl+↑↓）都要让给文本编辑。
+  static const Set<ShortcutAction> _typingSafeActions = <ShortcutAction>{
+    ShortcutAction.focusSearch,
+    ShortcutAction.mediaTogglePlay,
+    ShortcutAction.mediaNext,
+    ShortcutAction.mediaPrevious,
+  };
 
   Future<void> _startWindowDrag() async {
     try {
@@ -1169,6 +1217,9 @@ class _LibraryPageState extends State<LibraryPage>
     return TextField(
       controller: _searchController,
       focusNode: _searchFocus,
+      // 默认的 onTapOutside 只做 unfocus，会把焦点丢给路由 scope（见
+      // [_releaseSearchFocus]），所以这里自己接管
+      onTapOutside: (PointerDownEvent _) => _releaseSearchFocus(),
       onChanged: _onSearchChanged,
       textAlignVertical: TextAlignVertical.center,
       style: theme.textTheme.bodyMedium,
