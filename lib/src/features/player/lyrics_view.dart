@@ -26,6 +26,7 @@ class LyricsView extends StatefulWidget {
     this.edgeFadeBand = 0,
     this.revealAlignment = 0.5,
     this.alignment = LyricAlignment.center,
+    this.showTranslation = true,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -50,6 +51,12 @@ class LyricsView extends StatefulWidget {
 
   /// 歌词的水平对齐方式；垂直居中逻辑与它无关
   final LyricAlignment alignment;
+
+  /// 是否显示译文 / 罗马音。
+  ///
+  /// 切换时不是直接摘掉，而是让每行的译文块按弹簧折叠 / 展开，整列歌词跟着
+  /// 一起弹——直接换掉的话下面的行会「啪」地跳一下。
+  final bool showTranslation;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -137,8 +144,25 @@ const double _linePaddingX = 12;
 /// 歌词会贴到一侧，另一侧空一大片。
 const double _lyricBlockWidth = 640;
 
-class _LyricsViewState extends State<LyricsView> {
+class _LyricsViewState extends State<LyricsView>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
+
+  /// 译文的展开进度：1 = 展开、0 = 收起。
+  ///
+  /// 用 300ms 缓出（和 `AnimatedSize` 一个手感）：弹簧那种过冲会让整列来回
+  /// 鼓一下，看着反而乱。展开 / 收起时整列的高度变化是线性的（高度乘的就是
+  /// 这个值），所以滚动能按同一条曲线精确补上，不必逐帧去追。
+  late final AnimationController _translation;
+
+  /// 切换开始时的滚动偏移与进度，以及要补的总距离。
+  ///
+  /// 译文块的高度恒等于「自然高度 × 进度」，所以当前行上面那一截内容的高度
+  /// 也是进度的线性函数：补偿量 = 上面那些译文块的自然高度之和 × 进度变化量。
+  /// 这样滚动和布局走的是同一条直线，抹掉整段动画里的相对位移。
+  double _translationAnchor = double.nan;
+  double _translationStart = 1;
+  double _translationSpan = 0;
 
   /// 插值后的进度：每帧更新，只被当前行监听
   final ValueNotifier<double> _smooth = ValueNotifier<double>(0);
@@ -165,6 +189,9 @@ class _LyricsViewState extends State<LyricsView> {
   /// `getOffsetToReveal` 会把弹簧位移一起算进去，目标位置就跟着弹簧飘了
   late List<GlobalKey> _lineKeys;
 
+  /// 每行译文块的 key：量它的**自然高度**（不受折叠进度影响），用来算补偿量
+  late List<GlobalKey> _translationKeys;
+
   /// 换行信号：整列已经 `jumpTo` 到位，各行按这个 `deltaY` 把自己推回去再弹回
   final ValueNotifier<_LineJump> _jump = ValueNotifier<_LineJump>(
     _LineJump.none,
@@ -183,8 +210,16 @@ class _LyricsViewState extends State<LyricsView> {
   @override
   void initState() {
     super.initState();
+    _translation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: widget.showTranslation ? 1 : 0,
+    );
+    _translation.addListener(_followTranslation);
+    _translation.addStatusListener(_onTranslationStatus);
     _keys = _buildKeys();
     _lineKeys = _buildKeys();
+    _translationKeys = _buildKeys();
     _base = widget.position.value;
     _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
@@ -201,9 +236,13 @@ class _LyricsViewState extends State<LyricsView> {
   @override
   void didUpdateWidget(LyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.showTranslation != widget.showTranslation) {
+      _animateTranslation();
+    }
     if (!identical(oldWidget.lines, widget.lines)) {
       _keys = _buildKeys();
       _lineKeys = _buildKeys();
+      _translationKeys = _buildKeys();
       _active = -1;
       _smooth.value = _base;
       _active = _indexAt(_base);
@@ -234,7 +273,80 @@ class _LyricsViewState extends State<LyricsView> {
     _scroll.dispose();
     _smooth.dispose();
     _jump.dispose();
+    _translation.dispose();
     super.dispose();
+  }
+
+  /// 折叠 / 展开译文：先量出要补多少滚动，再让两者走同一条曲线
+  void _animateTranslation() {
+    _rebaseTranslation();
+    _translation.animateTo(
+      widget.showTranslation ? 1 : 0,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// 以「当前滚动位置 + 当前进度」为起点重算补偿
+  void _rebaseTranslation() {
+    _translationAnchor = _scroll.hasClients
+        ? _scroll.position.pixels
+        : double.nan;
+    _translationStart = _translation.value;
+    _translationSpan = _translationHeightAbove();
+  }
+
+  /// 当前行上面那些译文块的自然高度之和（不受折叠进度影响）
+  double _translationHeightAbove() {
+    if (_active <= 0) {
+      return 0;
+    }
+    double sum = 0;
+    for (int i = 0; i < _active && i < _translationKeys.length; i += 1) {
+      final RenderObject? box = _translationKeys[i].currentContext
+          ?.findRenderObject();
+      if (box is RenderBox && box.attached && box.hasSize) {
+        sum += box.size.height;
+      }
+    }
+    return sum;
+  }
+
+  /// 收放结束时按最终布局再钉一次：逐帧补偿用的是上一帧的布局，跑完总会剩
+  /// 下最后一帧那点残余，不收尾的话当前行会一直偏着
+  void _onTranslationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed &&
+        status != AnimationStatus.dismissed) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _followTranslation();
+      }
+    });
+  }
+
+  /// 按动画进度补滚动，把当前行钉在原地。
+  ///
+  /// 补偿量是进度的一次函数，用同一个进度直接算，不必逐帧去量布局——那样
+  /// 永远慢一帧，第一帧那下大位移补不上，看着就是当前行先跳一下再慢慢爬回来。
+  void _followTranslation() {
+    if (_userScrolling ||
+        _active < 0 ||
+        !_scroll.hasClients ||
+        _translationAnchor.isNaN) {
+      return;
+    }
+    final ScrollPosition position = _scroll.position;
+    final double target =
+        _translationAnchor +
+        _translationSpan * (_translation.value - _translationStart);
+    final double clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((clamped - position.pixels).abs() > 0.5) {
+      position.jumpTo(clamped);
+    }
   }
 
   List<GlobalKey> _buildKeys() =>
@@ -282,6 +394,14 @@ class _LyricsViewState extends State<LyricsView> {
       return;
     }
     setState(() => _active = next);
+    // 切换中途换行的话，等这一帧跳完再按新布局重算补偿起点，别拿旧锚点继续补
+    if (_translation.isAnimating) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _translation.isAnimating) {
+          _rebaseTranslation();
+        }
+      });
+    }
     if (_userScrolling) {
       // 用户还在拖：先别抢，松手 3 秒后再跟回来（见 [_onScrollNotification]）
       return;
@@ -512,6 +632,7 @@ class _LyricsViewState extends State<LyricsView> {
                             index: i,
                             lineKey: _lineKeys[i],
                             anchorKey: _keys[i],
+                            translationKey: _translationKeys[i],
                             jump: _jump,
                             line: widget.lines[i],
                             active: i == _active,
@@ -519,6 +640,7 @@ class _LyricsViewState extends State<LyricsView> {
                             position: _smooth,
                             textTheme: theme.textTheme,
                             alignment: widget.alignment,
+                            translation: _translation,
                             onSeek: widget.onSeek,
                           ),
                       ],
@@ -626,6 +748,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.index,
     required this.lineKey,
     required this.anchorKey,
+    required this.translationKey,
     required this.jump,
     required this.line,
     required this.active,
@@ -633,6 +756,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.position,
     required this.textTheme,
     required this.alignment,
+    required this.translation,
     required this.onSeek,
   });
 
@@ -644,6 +768,9 @@ class _SpringLyricLine extends StatefulWidget {
   /// 挂在正文上：居中以正文为准，译文不会把当前行顶偏
   final GlobalKey anchorKey;
 
+  /// 挂在译文块上：量它的自然高度，算收起 / 展开时该补多少滚动
+  final GlobalKey translationKey;
+
   final ValueListenable<_LineJump> jump;
   final lyrics_api.LyricLine line;
   final bool active;
@@ -651,6 +778,9 @@ class _SpringLyricLine extends StatefulWidget {
   final ValueListenable<double> position;
   final TextTheme textTheme;
   final LyricAlignment alignment;
+
+  /// 译文的展开进度（1 = 展开，0 = 收起）
+  final ValueListenable<double> translation;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -759,12 +889,14 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
     final Widget content = RepaintBoundary(
       child: _LyricLineView(
         anchorKey: widget.anchorKey,
+        translationKey: widget.translationKey,
         line: widget.line,
         active: widget.active,
         distance: widget.distance,
         position: widget.position,
         textTheme: widget.textTheme,
         alignment: widget.alignment,
+        translation: widget.translation,
         onSeek: widget.onSeek,
       ),
     );
@@ -790,17 +922,22 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
 class _LyricLineView extends StatelessWidget {
   const _LyricLineView({
     required this.anchorKey,
+    required this.translationKey,
     required this.line,
     required this.active,
     required this.distance,
     required this.position,
     required this.textTheme,
     required this.alignment,
+    required this.translation,
     required this.onSeek,
   });
 
   /// 滚动居中的锚点：挂在正文上，译文不会把当前行顶偏
   final GlobalKey anchorKey;
+
+  /// 译文块的 key：量自然高度用
+  final GlobalKey translationKey;
   final lyrics_api.LyricLine line;
   final bool active;
 
@@ -811,6 +948,9 @@ class _LyricLineView extends StatelessWidget {
 
   /// 水平对齐方式：正文、译文、逐字染色层必须一致，否则当前行会歪
   final LyricAlignment alignment;
+
+  /// 译文的展开进度（1 = 展开，0 = 收起），由整列共用同一个弹簧
+  final ValueListenable<double> translation;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -918,29 +1058,39 @@ class _LyricLineView extends StatelessWidget {
           children: <Widget>[
             // 模糊层要贴着文字：套在外面的话，整行宽（可能上千像素）都要糊一遍
             KeyedSubtree(key: anchorKey, child: place(soften(main))),
-            if (extras.isNotEmpty) const SizedBox(height: 3),
-            for (final String extra in extras)
-              Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: place(
-                  soften(
-                    Text(
-                      extra,
-                      textAlign: alignment.textAlign,
-                      style: TextStyle(
-                        // 译文只比正文略小，避免层级断层
-                        fontSize: active
-                            ? (_hasCjk(extra) ? 23 : 21)
-                            : (_hasCjk(extra) ? 18 : 17),
-                        height: 1.4,
-                        color: Colors.white.withValues(
-                          alpha: active
-                              ? (_hasCjk(extra) ? 0.72 : 0.58)
-                              : (_hasCjk(extra) ? 0.34 : 0.24),
+            if (extras.isNotEmpty)
+              _TranslationBody(
+                progress: translation,
+                child: Column(
+                  key: translationKey,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const SizedBox(height: 3),
+                    for (final String extra in extras)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: place(
+                          soften(
+                            Text(
+                              extra,
+                              textAlign: alignment.textAlign,
+                              style: TextStyle(
+                                // 译文只比正文略小，避免层级断层
+                                fontSize: active
+                                    ? (_hasCjk(extra) ? 23 : 21)
+                                    : (_hasCjk(extra) ? 18 : 17),
+                                height: 1.4,
+                                color: Colors.white.withValues(
+                                  alpha: active
+                                      ? (_hasCjk(extra) ? 0.72 : 0.58)
+                                      : (_hasCjk(extra) ? 0.34 : 0.24),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                  ],
                 ),
               ),
           ],
@@ -954,6 +1104,46 @@ class _LyricLineView extends StatelessWidget {
   );
 
   static bool _hasCjk(String text) => _cjk.hasMatch(text);
+}
+
+/// 译文 / 罗马音那一块，按整列共享的进度展开 / 收起。
+///
+/// 高度乘进度、从下沿裁掉（文字本身不会被压扁），和 `AnimatedSize` 的
+/// `clipBehavior` 一个道理。子级一直留在树上——收起时它的自然高度还要用来
+/// 算滚动补偿量，摘掉就量不到了。
+/// 不叠 `Opacity`：这里面的文字压着模糊层，加透明度会逐帧退回 saveLayer。
+class _TranslationBody extends StatelessWidget {
+  const _TranslationBody({required this.progress, required this.child});
+
+  /// 1 = 完全展开，0 = 收起
+  final ValueListenable<double> progress;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: progress,
+      // 树结构自始至终不变：结构一变（多一层 / 少一层），带 GlobalKey 的子级
+      // 会被重新挂载，第一帧容易闪一下。收起时靠 opacity 0 直接跳过绘制，
+      // 展开后 opacity 1 也不建图层，只有过渡那 300ms 会多一层。
+      builder: (BuildContext context, double value, Widget? child) {
+        final double factor = value.clamp(0.0, 1.0);
+        return Opacity(
+          // 按进度平方淡出：淡得比缩得快，等裁切边切到字中间时文字已经几乎
+          // 透明，看不出这是一条硬边。不裁又不行——译文会压到下一行字上。
+          opacity: factor * factor,
+          child: ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: factor,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
 }
 
 /// 逐字染色：底层是暗色整行，上层是同一位置的高亮整行，按已唱进度裁切。

@@ -98,6 +98,8 @@ class NowPlayingPage extends StatefulWidget {
     this.onOpenAlbum,
     this.lyricAlignment,
     this.onCycleLyricAlignment,
+    this.showTranslation,
+    this.onToggleTranslation,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -127,6 +129,12 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 切换歌词对齐（居中 → 左 → 右）；为空时不显示该按钮
   final VoidCallback? onCycleLyricAlignment;
+
+  /// 是否显示译文 / 罗马音；为空时一律显示
+  final ValueListenable<bool>? showTranslation;
+
+  /// 显示 / 隐藏译文；为空时不显示该按钮
+  final VoidCallback? onToggleTranslation;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
@@ -1118,15 +1126,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   Widget _lyricsView(BuildContext context, {double revealAlignment = 0.5}) {
-    // 对齐方式只影响歌词这一块：用通知器驱动，切换时不必重建整页
+    // 对齐 / 译文开关只影响歌词这一块：用通知器驱动，切换时不必重建整页
     return ValueListenableBuilder<LyricAlignment>(
       valueListenable: _lyricAlignmentListenable,
       builder:
           (BuildContext context, LyricAlignment alignment, Widget? child) =>
-              _buildLyrics(
-                context,
-                alignment: alignment,
-                revealAlignment: revealAlignment,
+              ValueListenableBuilder<bool>(
+                valueListenable: _showTranslationListenable,
+                builder:
+                    (
+                      BuildContext context,
+                      bool showTranslation,
+                      Widget? child,
+                    ) => _buildLyrics(
+                      context,
+                      alignment: alignment,
+                      showTranslation: showTranslation,
+                      revealAlignment: revealAlignment,
+                    ),
               ),
     );
   }
@@ -1134,6 +1151,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _buildLyrics(
     BuildContext context, {
     required LyricAlignment alignment,
+    required bool showTranslation,
     required double revealAlignment,
   }) {
     final ThemeData theme = Theme.of(context);
@@ -1189,6 +1207,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           : _spectrumBottom + _spectrumHeight,
       revealAlignment: revealAlignment,
       alignment: alignment,
+      showTranslation: showTranslation,
     );
   }
 
@@ -1196,6 +1215,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   ValueListenable<LyricAlignment> get _lyricAlignmentListenable =>
       widget.lyricAlignment ??
       const AlwaysStoppedAnimation<LyricAlignment>(LyricAlignment.center);
+
+  /// 外部没传就默认显示译文
+  ValueListenable<bool> get _showTranslationListenable =>
+      widget.showTranslation ?? const AlwaysStoppedAnimation<bool>(true);
 
   /// 沉浸模式下把两侧控件淡出。
   ///
@@ -1493,6 +1516,29 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                     tooltip: '均衡器',
                                     onPressed: widget.onOpenEqualizer,
                                     icon: const Icon(Icons.equalizer, size: 24),
+                                  ),
+                                if (widget.onToggleTranslation != null)
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _showTranslationListenable,
+                                    builder:
+                                        (
+                                          BuildContext context,
+                                          bool shown,
+                                          Widget? child,
+                                        ) => IconButton(
+                                          key: const ValueKey<String>(
+                                            'now-playing-translation',
+                                          ),
+                                          tooltip: shown ? '隐藏译文' : '显示译文',
+                                          onPressed: widget.onToggleTranslation,
+                                          icon: Icon(
+                                            Icons.translate,
+                                            size: 24,
+                                            color: shown
+                                                ? scheme.primary
+                                                : scheme.onSurfaceVariant,
+                                          ),
+                                        ),
                                   ),
                                 if (widget.onCycleLyricAlignment != null)
                                   // 图标本身就画着当前对齐，tooltip 再报一次名字

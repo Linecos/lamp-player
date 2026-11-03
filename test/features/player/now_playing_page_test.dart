@@ -98,6 +98,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   WindowControls? windowControls,
   ValueListenable<LyricAlignment>? lyricAlignment,
   VoidCallback? onCycleLyricAlignment,
+  ValueListenable<bool>? showTranslation,
+  VoidCallback? onToggleTranslation,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -133,6 +135,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         windowControls: windowControls,
         lyricAlignment: lyricAlignment,
         onCycleLyricAlignment: onCycleLyricAlignment,
+        showTranslation: showTranslation,
+        onToggleTranslation: onToggleTranslation,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
@@ -534,6 +538,42 @@ void main() {
     await tester.tap(button);
     await tester.pump();
     expect(cycles, 1);
+  });
+
+  testWidgets('译文按钮按当前状态换提示，点一下回调切换', (WidgetTester tester) async {
+    int toggles = 0;
+    final ValueNotifier<bool> shown = ValueNotifier<bool>(true);
+    addTearDown(shown.dispose);
+    await _pump(
+      tester,
+      data: _data(),
+      lyrics: _timed(),
+      showTranslation: shown,
+      onToggleTranslation: () => toggles += 1,
+    );
+
+    final Finder button = find.byKey(
+      const ValueKey<String>('now-playing-translation'),
+    );
+    expect(button, findsOneWidget);
+    expect(find.byTooltip('隐藏译文'), findsOneWidget);
+    expect(
+      tester.widget<LyricsView>(find.byType(LyricsView)).showTranslation,
+      isTrue,
+    );
+
+    shown.value = false;
+    await tester.pump();
+    expect(find.byTooltip('显示译文'), findsOneWidget);
+    expect(
+      tester.widget<LyricsView>(find.byType(LyricsView)).showTranslation,
+      isFalse,
+      reason: '开关要真的传到歌词，否则按钮只是换了个提示',
+    );
+
+    await tester.tap(button);
+    await tester.pump();
+    expect(toggles, 1);
   });
 
   testWidgets('锁定开关只在桌面歌词打开时出现，锁定后是实心锁', (WidgetTester tester) async {
@@ -1129,9 +1169,11 @@ void main() {
     final ValueNotifier<int> selected = ValueNotifier<int>(-1);
     final ValueNotifier<LyricAlignment> alignment =
         ValueNotifier<LyricAlignment>(LyricAlignment.center);
+    final ValueNotifier<bool> shown = ValueNotifier<bool>(true);
     addTearDown(devices.dispose);
     addTearDown(selected.dispose);
     addTearDown(alignment.dispose);
+    addTearDown(shown.dispose);
 
     await _pump(
       tester,
@@ -1144,6 +1186,8 @@ void main() {
       onToggleDesktopLyricLock: () {},
       lyricAlignment: alignment,
       onCycleLyricAlignment: () {},
+      showTranslation: shown,
+      onToggleTranslation: () {},
       size: const Size(900, 560),
     );
 

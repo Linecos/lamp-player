@@ -39,6 +39,7 @@ class SessionSnapshot {
     this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
     this.desktopLyricLocked = false,
     this.lyricAlignment = LyricAlignment.center,
+    this.showTranslation = true,
   });
 
   final double volume;
@@ -101,6 +102,9 @@ class SessionSnapshot {
   /// 正在播放页歌词的水平对齐方式
   final LyricAlignment lyricAlignment;
 
+  /// 正在播放页是否显示译文 / 罗马音
+  final bool showTranslation;
+
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
 
@@ -144,6 +148,7 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
   static const String lyricAlignmentKey = 'ui_lyric_alignment';
+  static const String showTranslationKey = 'ui_lyric_translation';
 
   /// 桌面歌词字号的默认值与范围（与 `rust/src/desktop_lyrics.rs` 保持一致）
   static const int desktopLyricFontSizeDefault = 27;
@@ -214,6 +219,7 @@ class PrefsSessionStore implements SessionStore {
         lyricAlignment: LyricAlignment.parse(
           prefs.getString(lyricAlignmentKey),
         ),
+        showTranslation: prefs.getBool(showTranslationKey) ?? true,
         sort: _parseSort(prefs.getString(sortKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
@@ -285,6 +291,7 @@ class PrefsSessionStore implements SessionStore {
       );
       await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
       await prefs.setString(lyricAlignmentKey, snapshot.lyricAlignment.name);
+      await prefs.setBool(showTranslationKey, snapshot.showTranslation);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(
         coverBackfillAttemptedKey,
