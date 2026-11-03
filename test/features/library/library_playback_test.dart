@@ -355,6 +355,55 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('搜索框有焦点时空格让给输入，退出后再恢复', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    final int pausesBefore = playback.pauseCalls;
+
+    // 光标进搜索框
+    await _pressWithCtrl(tester, LogicalKeyboardKey.keyF);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+      isTrue,
+    );
+
+    // 空格必须从绑定表里摘掉：CallbackShortcuts 一旦命中就把事件标成已处理，
+    // 输入框就永远收不到空格（用户看到的就是「打不出空格」）
+    final CallbackShortcuts shortcuts = tester.widget<CallbackShortcuts>(
+      find.byType(CallbackShortcuts).first,
+    );
+    expect(
+      shortcuts.bindings.keys.whereType<SingleActivator>().any(
+        (SingleActivator activator) =>
+            activator.trigger == LogicalKeyboardKey.space,
+      ),
+      isFalse,
+      reason: '输入期间不该再绑空格',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(playback.pauseCalls, pausesBefore, reason: '输入中的空格不能再触发暂停');
+
+    // 离开输入框，快捷键恢复
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(playback.pauseCalls, pausesBefore + 1, reason: '退出搜索后空格应该又能暂停');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('方向键快进快退，Ctrl+左右切歌，Ctrl+上下调音量', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
