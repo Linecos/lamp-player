@@ -10,9 +10,7 @@
 //! - 历史按曲目去重，重复播放只更新最近时间并累加 `play_count`。
 
 use crate::api::db::{row_to_track, with_conn};
-use crate::api::model::{
-    ArtistPlayStat, DailyPlaytime, PlayStats, Playlist, Track, TrackPlayStat,
-};
+use crate::api::model::{ArtistPlayStat, DailyPlaytime, PlayStats, Playlist, Track, TrackPlayStat};
 use anyhow::{bail, Context};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
