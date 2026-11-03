@@ -93,6 +93,7 @@ extension _HistorySection on _LibraryPageState {
             ),
             _buildSelectionHeaderSlot(context),
             FilledButton.tonalIcon(
+              style: _headerButtonStyle(),
               onPressed: visible.isEmpty
                   ? null
                   : () => unawaited(_playAll(visible)),
@@ -101,7 +102,9 @@ extension _HistorySection on _LibraryPageState {
             ),
             const SizedBox(width: 8),
             OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
+              style: _headerButtonStyle().copyWith(
+                foregroundColor: WidgetStatePropertyAll<Color>(scheme.error),
+              ),
               onPressed: _historyTracks.isEmpty
                   ? null
                   : () => unawaited(_clearHistory()),
@@ -151,6 +154,8 @@ extension _HistorySection on _LibraryPageState {
       return _searchEmptyState('没有找到匹配的记录');
     }
     return TrackListView(
+      controller: _historyScroll,
+      flashPath: _flashTrackPath,
       tracks: visible,
       storageKey: const PageStorageKey<String>('tracks:history'),
       playingPath: _currentTrack?.path,

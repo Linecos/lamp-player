@@ -107,6 +107,7 @@ extension _FavoritesSection on _LibraryPageState {
             ),
             _buildSelectionHeaderSlot(context),
             FilledButton.tonalIcon(
+              style: _headerButtonStyle(),
               onPressed: visible.isEmpty
                   ? null
                   : () => unawaited(_playAll(visible)),
@@ -156,6 +157,8 @@ extension _FavoritesSection on _LibraryPageState {
       return _searchEmptyState('没有找到匹配的收藏');
     }
     return TrackListView(
+      controller: _favoritesScroll,
+      flashPath: _flashTrackPath,
       tracks: visible,
       storageKey: const PageStorageKey<String>('tracks:favorites'),
       playingPath: _currentTrack?.path,

@@ -26,6 +26,7 @@ enum ShortcutAction {
   volumeDown('音量 -5%'),
   toggleMute('静音切换'),
   focusSearch('聚焦搜索'),
+  locateCurrent('定位正在播放'),
   mediaTogglePlay('播放 / 暂停（媒体键）'),
   mediaNext('下一首（媒体键）'),
   mediaPrevious('上一首（媒体键）');
@@ -103,6 +104,14 @@ const List<ShortcutBinding> kDefaultShortcuts = <ShortcutBinding>[
     ShortcutAction.focusSearch,
     SingleActivator(
       LogicalKeyboardKey.keyF,
+      control: true,
+      includeRepeats: false,
+    ),
+  ),
+  ShortcutBinding(
+    ShortcutAction.locateCurrent,
+    SingleActivator(
+      LogicalKeyboardKey.keyL,
       control: true,
       includeRepeats: false,
     ),

@@ -42,6 +42,9 @@ class PlayerBar extends StatelessWidget {
   /// 卡片底部外边距：岛贴窗口底，留一点呼吸空间。
   static const double cardBottomMargin = 12;
 
+  /// 卡片左右外边距。岛外框比卡片本身宽这么多，对齐岛边缘的东西要减掉它。
+  static const double cardSidePadding = 16;
+
   /// 岛在窗口底部占用的总高度。
   ///
   /// 曲库页的列表把底部留白设成它 + 8：列表可以一直滚到岛下面（悬浮感），
@@ -139,9 +142,9 @@ class PlayerBar extends StatelessWidget {
       // margin 必须放在外层：直接给 Container.margin 时，Column 的 loose
       // 约束会让 Row 先按整宽布局、再加 margin 外扩，右侧会被裁掉 16px
       padding: const EdgeInsets.fromLTRB(
-        16,
+        cardSidePadding,
         cardTopPadding,
-        16,
+        cardSidePadding,
         cardBottomMargin,
       ),
       child: SizedBox(

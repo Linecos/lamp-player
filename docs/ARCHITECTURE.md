@@ -134,9 +134,11 @@ Dart: 播放成功后 recordPlay(path) + 写入会话快照
 ```
 LibraryPage 根部：CallbackShortcuts + Focus(autofocus)
   空格 → 播放 / 暂停；Ctrl+←/→ → 上一首 / 下一首；←/→ → ±5 秒
-  Ctrl+↑/↓ → 音量 ±5%；Ctrl+M → 静音；Ctrl+F → 聚焦搜索；Esc → 清空搜索 / 退出搜索框
-  媒体键（播放暂停 / 下一首 / 上一首）同义
-搜索框聚焦时 _unlessTyping / _handleSpace 直接返回，空格与方向键留给文本编辑。
+  Ctrl+↑/↓ → 音量 ±5%；Ctrl+M → 静音；Ctrl+F → 聚焦搜索；Ctrl+L → 定位正在播放
+  Esc → 清空搜索 / 退出搜索框；媒体键（播放暂停 / 下一首 / 上一首）同义
+搜索框聚焦时这些键**根本不绑定**（`CallbackShortcuts` 命中即标记已处理，绑了就会
+把空格从输入框里抢走）；失焦时 `_releaseSearchFocus()` 把键盘焦点交还页面，
+否则 `unfocus()` 会把焦点退给路由的 FocusScope，按键不再派发给页面、快捷键全哑。
 ```
 
 **会话与窗口状态**

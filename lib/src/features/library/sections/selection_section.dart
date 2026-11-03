@@ -212,20 +212,21 @@ extension _SelectionSection on _LibraryPageState {
               ),
               const SizedBox(width: 8),
               TextButton(
+                style: _headerButtonStyle(),
                 onPressed: visible.isEmpty ? null : _toggleSelectAll,
                 child: Text(allSelected ? '取消全选' : '全选'),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: '播放所选',
                 onPressed: enabled ? () => unawaited(_playSelected()) : null,
                 icon: const Icon(Icons.play_arrow),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: '加入队列',
                 onPressed: enabled ? _enqueueSelected : null,
                 icon: const Icon(Icons.queue_music),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: _selectionAllFavored ? '取消收藏所选' : '收藏所选',
                 onPressed: enabled
                     ? () => unawaited(_favoriteSelected())
@@ -234,21 +235,21 @@ extension _SelectionSection on _LibraryPageState {
                   _selectionAllFavored ? Icons.favorite : Icons.favorite_border,
                 ),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: '加入歌单',
                 onPressed: enabled
                     ? () => unawaited(_addSelectedToPlaylist())
                     : null,
                 icon: const Icon(Icons.playlist_add),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: '计算 ReplayGain',
                 onPressed: enabled
                     ? () => unawaited(_computeReplayGainForSelected())
                     : null,
                 icon: const Icon(Icons.graphic_eq),
               ),
-              IconButton(
+              _headerIconButton(
                 tooltip: _selectionInPlaylist ? '从歌单移除' : '隐藏所选',
                 onPressed: enabled ? () => unawaited(_removeSelected()) : null,
                 icon: Icon(

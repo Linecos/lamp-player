@@ -121,6 +121,7 @@ extension _ArtistsSection on _LibraryPageState {
                       ),
                     const SizedBox(height: 16),
                     FilledButton.tonalIcon(
+                      style: _headerButtonStyle(),
                       onPressed: () => unawaited(_playAll(group.tracks)),
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('播放全部'),

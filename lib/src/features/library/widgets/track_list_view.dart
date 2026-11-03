@@ -59,7 +59,11 @@ class TrackListView extends StatefulWidget {
     this.onSelect,
     this.onReorder,
     this.controller,
+    this.flashPath,
   });
+
+  /// 行高。定位正在播放要用它算目标偏移，别再各处写 56
+  static const double rowExtent = 56;
 
   final List<Track> tracks;
   final ValueChanged<Track> onPlay;
@@ -70,6 +74,9 @@ class TrackListView extends StatefulWidget {
 
   /// 外部滚动控制（用于「定位正在播放」）；不传则由列表自己管
   final ScrollController? controller;
+
+  /// 需要短暂强调的那一行（定位完成后用它给个视觉落点）
+  final String? flashPath;
 
   /// 提供后在行尾显示「更多」菜单，用于从歌单移除等操作。
   final ValueChanged<Track>? onRemove;
@@ -166,7 +173,7 @@ class _TrackListViewState extends State<TrackListView> {
                   key: storageKey,
                   controller: widget.controller,
                   itemCount: tracks.length,
-                  itemExtent: 56,
+                  itemExtent: TrackListView.rowExtent,
                   // 列表铺到窗口底，行可以从播放岛下面穿过；留白保证滚到底时
                   // 最后一行停在岛上方，悬停高亮的圆角也不会被压住
                   padding: const EdgeInsets.only(
@@ -180,7 +187,7 @@ class _TrackListViewState extends State<TrackListView> {
                   key: storageKey,
                   scrollController: widget.controller,
                   itemCount: tracks.length,
-                  itemExtent: 56,
+                  itemExtent: TrackListView.rowExtent,
                   buildDefaultDragHandles: false,
                   padding: const EdgeInsets.only(
                     bottom: PlayerBar.occupiedHeight + 8,
@@ -213,6 +220,7 @@ class _TrackListViewState extends State<TrackListView> {
       track: track,
       index: index,
       playing: track.path == playingPath,
+      flash: track.path == widget.flashPath,
       showArtist: showArtist,
       showAlbum: showAlbum,
       selectionMode: selectionMode,
@@ -302,6 +310,7 @@ class _TrackRow extends StatelessWidget {
     required this.track,
     required this.index,
     required this.playing,
+    required this.flash,
     required this.showArtist,
     required this.showAlbum,
     required this.onPlay,
@@ -318,6 +327,9 @@ class _TrackRow extends StatelessWidget {
   final Track track;
   final int index;
   final bool playing;
+
+  /// 刚被「定位」到的那一行：短暂强调一下，否则目标本来就在屏幕中间时毫无反馈
+  final bool flash;
   final bool showArtist;
   final bool showAlbum;
   final VoidCallback onPlay;
@@ -452,141 +464,154 @@ class _TrackRow extends StatelessWidget {
                   _showContextMenu(context, details.globalPosition),
                 ),
           hoverColor: scheme.surfaceContainerHigh,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: <Widget>[
-                if (selectionMode)
-                  SizedBox(
-                    width: 40,
-                    child: Checkbox(
-                      key: ValueKey<String>('track-select-${track.path}'),
-                      value: selected,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onChanged: onSelect == null
-                          ? null
-                          : (_) => onSelect!(track, toggle: true, range: false),
-                    ),
-                  ),
-                SizedBox(
-                  width: 32,
-                  child: Center(
-                    child: playing
-                        ? Icon(
-                            Icons.graphic_eq,
-                            size: 18,
-                            color: scheme.primary,
-                          )
-                        : Text('${index + 1}', style: meta),
-                  ),
-                ),
-                AlbumCover(
-                  path: track.coverPath,
-                  size: 40,
-                  radius: 12,
-                  playing: playing,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 5,
-                  child: Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: playing ? scheme.primary : scheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (showArtist) const SizedBox(width: 16),
-                if (showArtist)
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      trackArtist(track),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: secondary,
-                    ),
-                  ),
-                if (showAlbum) const SizedBox(width: 16),
-                if (showAlbum)
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      trackAlbum(track),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: secondary,
-                    ),
-                  ),
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 64,
-                  child: Text(
-                    formatDuration(track.durationSecs),
-                    textAlign: TextAlign.right,
-                    style: meta,
-                  ),
-                ),
-                if (onToggleFavorite != null)
-                  SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: IconButton(
-                      tooltip: favored ? '取消收藏' : '收藏',
-                      padding: EdgeInsets.zero,
-                      iconSize: 20,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 40,
-                        height: 40,
+          // 定位后的强调：淡入，被清掉时同一条曲线淡回去。包在 InkWell 里面，
+          // 墨迹仍然画在它下面（底色是半透明的，看不出来）
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              color: flash
+                  ? scheme.primary.withValues(alpha: 0.18)
+                  : Colors.transparent,
+              borderRadius: radius,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                children: <Widget>[
+                  if (selectionMode)
+                    SizedBox(
+                      width: 40,
+                      child: Checkbox(
+                        key: ValueKey<String>('track-select-${track.path}'),
+                        value: selected,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged: onSelect == null
+                            ? null
+                            : (_) =>
+                                  onSelect!(track, toggle: true, range: false),
                       ),
-                      onPressed: onToggleFavorite,
-                      icon: Icon(
-                        favored ? Icons.favorite : Icons.favorite_border,
-                        color: favored
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant,
+                    ),
+                  SizedBox(
+                    width: 32,
+                    child: Center(
+                      child: playing
+                          ? Icon(
+                              Icons.graphic_eq,
+                              size: 18,
+                              color: scheme.primary,
+                            )
+                          : Text('${index + 1}', style: meta),
+                    ),
+                  ),
+                  AlbumCover(
+                    path: track.coverPath,
+                    size: 40,
+                    radius: 12,
+                    playing: playing,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: playing ? scheme.primary : scheme.onSurface,
                       ),
                     ),
                   ),
-                if (dragIndex != null)
+                  if (showArtist) const SizedBox(width: 16),
+                  if (showArtist)
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        trackArtist(track),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: secondary,
+                      ),
+                    ),
+                  if (showAlbum) const SizedBox(width: 16),
+                  if (showAlbum)
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        trackAlbum(track),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: secondary,
+                      ),
+                    ),
+                  const SizedBox(width: 16),
                   SizedBox(
-                    width: 36,
-                    height: 40,
-                    child: ReorderableDragStartListener(
-                      index: dragIndex!,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.grab,
-                        child: Icon(
-                          Icons.drag_indicator,
-                          size: 20,
-                          color: scheme.onSurfaceVariant,
+                    width: 64,
+                    child: Text(
+                      formatDuration(track.durationSecs),
+                      textAlign: TextAlign.right,
+                      style: meta,
+                    ),
+                  ),
+                  if (onToggleFavorite != null)
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: IconButton(
+                        tooltip: favored ? '取消收藏' : '收藏',
+                        padding: EdgeInsets.zero,
+                        iconSize: 20,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        onPressed: onToggleFavorite,
+                        icon: Icon(
+                          favored ? Icons.favorite : Icons.favorite_border,
+                          color: favored
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
                         ),
                       ),
                     ),
-                  ),
-                if (onRemove != null)
-                  SizedBox(
-                    width: 40,
-                    child: PopupMenuButton<String>(
-                      tooltip: '更多操作',
-                      icon: Icon(
-                        Icons.more_vert,
-                        size: 20,
-                        color: scheme.onSurfaceVariant,
+                  if (dragIndex != null)
+                    SizedBox(
+                      width: 36,
+                      height: 40,
+                      child: ReorderableDragStartListener(
+                        index: dragIndex!,
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.grab,
+                          child: Icon(
+                            Icons.drag_indicator,
+                            size: 20,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
                       ),
-                      onSelected: (_) => onRemove!(),
-                      itemBuilder: (BuildContext context) =>
-                          <PopupMenuEntry<String>>[
-                            const PopupMenuItem<String>(
-                              value: 'remove',
-                              child: Text('从歌单中移除'),
-                            ),
-                          ],
                     ),
-                  ),
-              ],
+                  if (onRemove != null)
+                    SizedBox(
+                      width: 40,
+                      child: PopupMenuButton<String>(
+                        tooltip: '更多操作',
+                        icon: Icon(
+                          Icons.more_vert,
+                          size: 20,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        onSelected: (_) => onRemove!(),
+                        itemBuilder: (BuildContext context) =>
+                            <PopupMenuEntry<String>>[
+                              const PopupMenuItem<String>(
+                                value: 'remove',
+                                child: Text('从歌单中移除'),
+                              ),
+                            ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

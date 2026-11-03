@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -83,9 +84,7 @@ void main() {
     );
     await pumpLibrary(tester, tracks: tracks);
 
-    final Finder locate = find.byKey(
-      const ValueKey<String>('music-locate-current'),
-    );
+    final Finder locate = find.byKey(const ValueKey<String>('locate-current'));
     expect(locate, findsNothing, reason: '没有正在播放的曲目时不显示悬浮按钮');
 
     // 播放第一首，再把列表拖到底
@@ -107,6 +106,166 @@ void main() {
     final double after = tester.widget<ListView>(list).controller!.offset;
     expect(after, lessThan(before), reason: '定位后应往上滚回当前曲目');
     expect(after, lessThan(80), reason: '第一首在列表顶部');
+  });
+
+  testWidgets('定位按钮的右边界和播放岛右边界对齐', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
+
+    final Finder button = find.byKey(const ValueKey<String>('locate-current'));
+    expect(button, findsOneWidget);
+
+    final Rect btn = tester.getRect(button);
+    // 岛的卡片本体（不含外框那圈 16 的内边距）才是肉眼看到的「岛右边缘」
+    final Rect card = tester.getRect(
+      find.byKey(const ValueKey<String>('player-bar-open-anywhere')),
+    );
+    expect(
+      btn.right,
+      closeTo(card.right, 0.5),
+      reason: '按钮右边界要压在卡片右边缘上；对齐外框会多出 16px 悬在岛外面',
+    );
+    expect(btn.bottom, lessThan(card.top), reason: '按钮浮在岛上，不压岛');
+  });
+
+  testWidgets('Windows 的紧凑密度下，排序按钮和「播放全部」一样高', (WidgetTester tester) async {
+    // 主题用的是 VisualDensity.adaptivePlatformDensity：桌面平台取 compact，
+    // 会把按钮的 minimumSize 高度再削 8（40 → 32）。排序那颗胶囊是手写的
+    // Container(height: 40)，不受密度影响，于是真机上就一高一矮。
+    // 测试默认跑在 android（standard），不切平台根本测不出这个差异。
+    // 这变量必须在测试体结束前还原，放 addTearDown 会被框架判成「改了没还」
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await pumpLibrary(tester, tracks: twoTracks());
+
+      final Rect playAll = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('播放全部'),
+              matching: find.byType(FilledButton),
+            )
+            .first,
+      );
+      final Rect pill = tester.getRect(
+        find
+            .ancestor(
+              of: find.textContaining('排序：'),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+
+      expect(playAll.height, 40, reason: '桌面密度下别被 compact 削成 32');
+      expect(pill.height, 40, reason: '排序胶囊本来就是 40');
+      expect(
+        playAll.top,
+        closeTo(pill.top, 0.5),
+        reason: '同一行的两个控件要顶边对齐，不然看着一高一矮',
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('定位：Ctrl+L 也能触发，目标行短暂高亮', (WidgetTester tester) async {
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) =>
+          sampleTrack(title: '曲目 $index', path: '/music/track_$index.mp3'),
+    );
+    await pumpLibrary(tester, tracks: tracks);
+
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+
+    final Finder list = find.byKey(
+      const PageStorageKey<String>('tracks:music'),
+    );
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = tester.widget<ListView>(list).controller!.offset;
+    expect(before, greaterThan(200));
+
+    // 快捷键与按钮走同一条路径
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ListView>(list).controller!.offset,
+      lessThan(before),
+      reason: 'Ctrl+L 应把列表滚回当前曲目',
+    );
+
+    /// 目标行外面那层强调容器（静止时是透明）
+    Color flashColor() {
+      final BoxDecoration decoration =
+          tester
+                  .widget<AnimatedContainer>(
+                    find
+                        .ancestor(
+                          of: find.text('曲目 0'),
+                          matching: find.byType(AnimatedContainer),
+                        )
+                        .first,
+                  )
+                  .decoration!
+              as BoxDecoration;
+      return decoration.color!;
+    }
+
+    expect(flashColor().a, greaterThan(0), reason: '定位后目标行要亮一下');
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(flashColor().a, 0, reason: '短暂高亮后自动熄灭');
+  });
+
+  testWidgets('收藏分区也能定位正在播放的曲目', (WidgetTester tester) async {
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) =>
+          sampleTrack(title: '曲目 $index', path: '/music/track_$index.mp3'),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: tracks,
+      seed: (FakeLibraryRepository repo) async {
+        await repo.setFavorites(
+          tracks.map((Track track) => track.path).toList(),
+          true,
+        );
+      },
+    );
+
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+    await openFavorites(tester);
+
+    final Finder list = find.byKey(
+      const PageStorageKey<String>('tracks:favorites'),
+    );
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = tester.widget<ListView>(list).controller!.offset;
+    expect(before, greaterThan(200));
+
+    final Finder locate = find.byKey(const ValueKey<String>('locate-current'));
+    expect(locate, findsOneWidget, reason: '收藏分区也该有定位按钮');
+
+    await tester.tap(locate);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ListView>(list).controller!.offset,
+      lessThan(before),
+      reason: '收藏分区的列表要滚回当前曲目',
+    );
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('空曲库展示空态', (WidgetTester tester) async {
