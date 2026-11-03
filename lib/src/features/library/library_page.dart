@@ -430,6 +430,9 @@ class _LibraryPageState extends State<LibraryPage>
   String? _lyricsPath;
   String _desktopLine = '';
 
+  /// 音乐列表的滚动控制：「定位正在播放」要按行高算目标偏移
+  final ScrollController _musicScroll = ScrollController();
+
   /// 正在播放页是否启用封面取色流光；关闭后只保留静态取色背景
   bool _flowBackground = true;
 
@@ -638,6 +641,7 @@ class _LibraryPageState extends State<LibraryPage>
     widget.appLifecycle
       ?..removeListener(_onLifecycleChanged)
       ..clearBeforeExit(_exitHook);
+    _musicScroll.dispose();
     unawaited(_media.dispose());
     _searchFocus.dispose();
     _searchController.dispose();

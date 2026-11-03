@@ -4,6 +4,42 @@ part of '../library_page.dart';
 ///
 /// 从 `_LibraryPageState` 拆出，仍直接读写页面状态：这一轮只做文件切分。
 extension _MusicSection on _LibraryPageState {
+  /// 滚动到正在播放的曲目：按固定行高把目标行放到可视区中间。
+  ///
+  /// 搜索 / 筛选状态下当前曲目可能不在列表里，这时只提示不动滚动条。
+  void _locateCurrentTrack() {
+    final Track? current = _currentTrack;
+    if (current == null) {
+      _showMessage('当前没有正在播放的曲目');
+      return;
+    }
+    final List<Track> visible = _query.isEmpty
+        ? _tracks
+        : (_results ?? const <Track>[]);
+    final int index = visible.indexWhere(
+      (Track track) => track.path == current.path,
+    );
+    if (index < 0) {
+      _showMessage('当前曲目不在列表里（可能被隐藏或不在筛选结果中）');
+      return;
+    }
+    if (!_musicScroll.hasClients) {
+      return;
+    }
+    const double rowExtent = 56;
+    final ScrollPosition position = _musicScroll.position;
+    final double target =
+        (index * rowExtent - (position.viewportDimension - rowExtent) / 2)
+            .clamp(0.0, position.maxScrollExtent);
+    unawaited(
+      _musicScroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
   Widget _buildMusicSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
@@ -30,6 +66,14 @@ extension _MusicSection on _LibraryPageState {
               ),
             ),
             _buildSelectionHeaderSlot(context),
+            IconButton(
+              key: const ValueKey<String>('music-locate-current'),
+              tooltip: '定位正在播放',
+              onPressed: _currentTrack == null
+                  ? null
+                  : () => _locateCurrentTrack(),
+              icon: const Icon(Icons.my_location, size: 20),
+            ),
             FilledButton.tonalIcon(
               onPressed: visible.isEmpty || _searching
                   ? null
@@ -125,6 +169,7 @@ extension _MusicSection on _LibraryPageState {
         );
       }
       return TrackListView(
+        controller: _musicScroll,
         tracks: _results!,
         storageKey: const PageStorageKey<String>('tracks:search'),
         playingPath: _currentTrack?.path,
@@ -171,6 +216,7 @@ extension _MusicSection on _LibraryPageState {
       );
     }
     return TrackListView(
+      controller: _musicScroll,
       tracks: _tracks,
       storageKey: const PageStorageKey<String>('tracks:music'),
       playingPath: _currentTrack?.path,
