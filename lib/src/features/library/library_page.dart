@@ -442,6 +442,9 @@ class _LibraryPageState extends State<LibraryPage>
   String? _lyricsPath;
   String _desktopLine = '';
 
+  /// 音乐列表的滚动控制：「定位正在播放」要按行高算目标偏移
+  final ScrollController _musicScroll = ScrollController();
+
   /// 正在播放页是否启用封面取色流光；关闭后只保留静态取色背景
   bool _flowBackground = true;
 
@@ -661,6 +664,7 @@ class _LibraryPageState extends State<LibraryPage>
     widget.appLifecycle
       ?..removeListener(_onLifecycleChanged)
       ..clearBeforeExit(_exitHook);
+    _musicScroll.dispose();
     unawaited(_media.dispose());
     _searchFocus.removeListener(_onSearchFocusChanged);
     _searchFocus.dispose();
@@ -1016,6 +1020,14 @@ class _LibraryPageState extends State<LibraryPage>
                                 bottom: 0,
                                 child: _buildPlayerIsland(),
                               ),
+                              // 定位正在播放：只有音乐分区、且确实有曲目在播时才浮出来
+                              if (_displayedSection == LibrarySection.music &&
+                                  _currentTrack != null)
+                                Positioned(
+                                  right: 24,
+                                  bottom: PlayerBar.occupiedHeight + 16,
+                                  child: _buildLocateButton(scheme),
+                                ),
                             ],
                           ),
                         ),
@@ -1026,6 +1038,30 @@ class _LibraryPageState extends State<LibraryPage>
                 if (_dragging) const _DropOverlay(),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 右下角的「定位正在播放」：圆形主色小块，浮在播放岛上方
+  Widget _buildLocateButton(ColorScheme scheme) {
+    return Tooltip(
+      message: '定位正在播放',
+      child: Material(
+        key: const ValueKey<String>('music-locate-current'),
+        color: scheme.primary,
+        shape: const CircleBorder(),
+        elevation: 6,
+        shadowColor: scheme.shadow,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: _locateCurrentTrack,
+          // 比播放岛的播放按钮（40）小一号，弱化存在感
+          child: SizedBox(
+            width: 34,
+            height: 34,
+            child: Icon(Icons.my_location, size: 19, color: scheme.onPrimary),
           ),
         ),
       ),
