@@ -26,6 +26,8 @@ pub struct Playlist {
     pub name: String,
     /// 曲目数
     pub track_count: i32,
+    /// 封面：取最新加入、且确实有封面的那首曲目的封面；空歌单或都没封面时是 None
+    pub cover_path: Option<String>,
     /// 创建时间戳（Unix 秒）
     pub created_at: i64,
     /// 最近一次改名 / 增删曲目的时间戳（Unix 秒）

@@ -30,6 +30,15 @@ const PLAYLIST_SELECT: &str = r#"
               FROM playlist_items i
               JOIN tracks t ON t.path = i.track_path
              WHERE i.playlist_id = p.id AND t.hidden = 0),
+           (SELECT t.cover_path
+              FROM playlist_items i
+              JOIN tracks t ON t.path = i.track_path
+             WHERE i.playlist_id = p.id
+               AND t.hidden = 0
+               AND t.cover_path <> ''
+             -- 同一秒内加进去的两首靠 rowid 定先后（added_at 只到秒）
+             ORDER BY i.added_at DESC, i.rowid DESC
+             LIMIT 1),
            p.created_at,
            p.updated_at
     FROM playlists p
@@ -40,8 +49,9 @@ fn row_to_playlist(row: &Row<'_>) -> rusqlite::Result<Playlist> {
         id: row.get(0)?,
         name: row.get(1)?,
         track_count: row.get(2)?,
-        created_at: row.get(3)?,
-        updated_at: row.get(4)?,
+        cover_path: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
     })
 }
 
