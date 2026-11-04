@@ -1224,19 +1224,31 @@ class _LibraryPageState extends State<LibraryPage>
       child: Semantics(
         button: true,
         label: '定位正在播放',
-        child: Material(
-          key: const ValueKey<String>('locate-current'),
-          color: scheme.primary,
-          shape: const CircleBorder(),
-          elevation: 4,
-          shadowColor: scheme.shadow,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: _locateCurrentTrack,
-            child: SizedBox(
-              width: 40,
-              height: 40,
-              child: Icon(Icons.my_location, size: 20, color: scheme.onPrimary),
+        // 占位保持 40 与列表头部其他控件同高（见 957f0b6 的对齐约定），
+        // 圆本身画 30，视觉上比播放按钮更低调
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Center(
+            child: Material(
+              key: const ValueKey<String>('locate-current'),
+              color: scheme.primary,
+              shape: const CircleBorder(),
+              elevation: 4,
+              shadowColor: scheme.shadow,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _locateCurrentTrack,
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: Icon(
+                    Icons.my_location,
+                    size: 15,
+                    color: scheme.onPrimary,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
