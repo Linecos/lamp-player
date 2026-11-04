@@ -158,6 +158,10 @@ extension _OutputSection on _LibraryPageState {
   /// 把当前进度写进 notifier，只刷新播放条。
   void _publishProgress() {
     _syncSpectrum();
+    // 记下「读到这一刻位置」的墙钟：桌面歌词靠它外推当前时刻，
+    // 换行不必等到下一次轮询（见 [_scheduleDesktopLyricSwitch]）
+    _lyricAnchorWall = DateTime.now();
+    _lyricAnchorPosition = _position;
     _progress.value = _PlaybackProgress(
       position: _position,
       duration: _duration,
@@ -176,6 +180,7 @@ extension _OutputSection on _LibraryPageState {
       desktopLyricLocked: _desktopLyricLocked,
     );
     _pushDesktopLyric();
+    _scheduleDesktopLyricSwitch();
     _syncTrayDesktopLyrics();
   }
 
@@ -208,10 +213,27 @@ extension _OutputSection on _LibraryPageState {
       }
       _lyrics = loaded;
       _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
     } catch (error) {
       // 没有歌词文件是常态，不该打扰用户
       debugPrint('读取歌词失败：$error');
     }
+  }
+
+  /// 桌面歌词眼下的播放位置（秒）。
+  ///
+  /// 引擎位置 500ms 才读一次，直接拿 `_position` 会慢半拍。播放中用「上次读到的
+  /// 位置 + 这段时间的墙钟差」外推：误差只剩 BASS 时钟与系统时钟的漂移，
+  /// 比等下一拍小一个量级；不在播放时 `_position` 就是准的。
+  double _desktopLyricPosition() {
+    final DateTime? anchor = _lyricAnchorWall;
+    if (!_isPlaying || anchor == null) {
+      return _position;
+    }
+    final double elapsed =
+        DateTime.now().difference(anchor).inMicroseconds / 1000000.0;
+    final double projected = _lyricAnchorPosition + elapsed;
+    return _duration > 0 ? projected.clamp(0.0, _duration) : projected;
   }
 
   /// 当前时间点对应的那行歌词；没歌词返回空串
@@ -220,15 +242,43 @@ extension _OutputSection on _LibraryPageState {
     if (lyrics == null || lyrics.lines.isEmpty) {
       return '';
     }
-    final int positionMs = (_position * 1000).round();
-    String line = '';
-    for (final lyrics_api.LyricLine item in lyrics.lines) {
-      if (item.timeMs > positionMs) {
-        break;
-      }
-      line = item.text;
+    final int positionMs = (_desktopLyricPosition() * 1000).round();
+    return desktopLineAt(lyrics, positionMs) ?? '';
+  }
+
+  /// 定一个「下一次换行」的定时器。
+  ///
+  /// 原来换行只能等 500ms 的位置轮询来发现，最多慢半拍。这里按歌词行的时间戳
+  /// 算出还有多久换行，到点再推一次：推送次数没变多（每行仍然只推一次），
+  /// 也不增加轮询频率、不触发任何重建。暂停 / 换曲 / 拖动都会经
+  /// [_publishProgress] 重排，旧定时器先撤掉。
+  void _scheduleDesktopLyricSwitch() {
+    _desktopLyricTimer?.cancel();
+    _desktopLyricTimer = null;
+    final lyrics_api.TrackLyrics? lyrics = _lyrics;
+    if (!_desktopLyrics ||
+        !_isPlaying ||
+        lyrics == null ||
+        lyrics.lines.isEmpty) {
+      return;
     }
-    return line;
+    final int nowMs = (_desktopLyricPosition() * 1000).round();
+    final int? nextMs = nextDesktopLineStart(lyrics, nowMs);
+    if (nextMs == null) {
+      // 已经是最后一行，等换曲 / 暂停时再重排
+      return;
+    }
+    // 上限 30 秒：歌词文件里偶见超大间隔，别让一个定时器悬太久，
+    // 否则暂停后要等很久才被下一拍撤掉
+    final int delayMs = (nextMs - nowMs).clamp(0, 30000);
+    _desktopLyricTimer = Timer(Duration(milliseconds: delayMs), () {
+      _desktopLyricTimer = null;
+      if (!mounted || !_desktopLyrics || !_isPlaying) {
+        return;
+      }
+      _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
+    });
   }
 
   /// 把当前行推给桌面歌词窗口；窗口没开就什么都不做
@@ -243,14 +293,174 @@ extension _OutputSection on _LibraryPageState {
       line = track == null ? '♪' : '♪ ${track.title}';
     }
     if (line == _desktopLine) {
+      _syncDesktopKaraoke();
       return;
     }
     _desktopLine = line;
+    // 换行时窗口那边会把逐字进度归零，所以要等这次 set_line 落地之后再推进度：
+    // 否则新行会暗着一直到下一次轮询（没有逐字的行会暗整整 500ms）
+    _stopKaraoke();
+    final String target = line;
     unawaited(
       desktop_lyrics
-          .desktopLyricsSetLine(line: line)
+          .desktopLyricsSetLine(line: target)
+          .then((_) {
+            if (mounted && _desktopLine == target) {
+              _syncDesktopKaraoke();
+            }
+          })
           .catchError((Object error) => debugPrint('更新桌面歌词失败：$error')),
     );
+  }
+
+  /* --------------------------------------------------- 桌面歌词逐字 */
+
+  /// 同步逐字进度：换行、暂停、拖动都会走到这里。
+  ///
+  /// 只有「桌面歌词开着 + 播放中 + 这一行确实带逐字时间轴」才起 30fps 的推进器；
+  /// 其余情况推一次整行亮（1）就停，和没有这个功能时完全一样。
+  void _syncDesktopKaraoke() {
+    if (!_desktopLyrics) {
+      _stopKaraoke();
+      return;
+    }
+    if (!_isPlaying) {
+      // 暂停：保留当前进度。推 0 或 1 都会让整行跳一下
+      _stopKaraoke();
+      return;
+    }
+    final lyrics_api.TrackLyrics? lyrics = _lyrics;
+    if (lyrics == null || lyrics.lines.isEmpty) {
+      _stopKaraoke();
+      _pushKaraokeRatio(1);
+      return;
+    }
+    final int positionMs = (_desktopLyricPosition() * 1000).round();
+    final int index = desktopLineIndexAt(lyrics, positionMs);
+    final lyrics_api.LyricLine? line = index < 0 ? null : lyrics.lines[index];
+    final List<lyrics_api.LyricWord> words =
+        line?.words ?? const <lyrics_api.LyricWord>[];
+    if (line == null || words.length < 2) {
+      // 没有逐字时间轴（或还没到第一行）：整行亮着
+      _karaokeLyrics = lyrics;
+      _karaokeLineIndex = index;
+      _karaokeTimes = null;
+      _karaokeWeights = null;
+      _stopKaraoke();
+      _pushKaraokeRatio(1);
+      return;
+    }
+    if (!identical(_karaokeLyrics, lyrics) || index != _karaokeLineIndex) {
+      _karaokeLyrics = lyrics;
+      _karaokeLineIndex = index;
+      _karaokeTimes = <int>[
+        for (final lyrics_api.LyricWord word in words) word.timeMs.toInt(),
+      ];
+      _karaokeWeights = _measureKaraokeWeights(line.text, words);
+      _karaokeEndMs = line.endMs.toInt();
+    }
+    final List<int>? times = _karaokeTimes;
+    final List<double>? weights = _karaokeWeights;
+    if (times == null || weights == null) {
+      return;
+    }
+    _pushKaraokeRatio(
+      karaokeFillRatio(
+        times: times,
+        weights: weights,
+        lineEndMs: _karaokeEndMs,
+        positionMs: positionMs.toDouble(),
+      ),
+    );
+    if (positionMs >= _karaokeEndMs) {
+      // 整行唱完：停在 1，别再白跑 30fps
+      _stopKaraoke();
+      return;
+    }
+    _karaokeTimer ??= Timer.periodic(
+      _LibraryPageState._karaokeInterval,
+      (_) => _tickKaraoke(),
+    );
+  }
+
+  /// 30fps 的逐字推进：只算一个比例推给窗口，不碰界面
+  void _tickKaraoke() {
+    final List<int>? times = _karaokeTimes;
+    final List<double>? weights = _karaokeWeights;
+    if (!_desktopLyrics || !_isPlaying || times == null || weights == null) {
+      _stopKaraoke();
+      return;
+    }
+    final int positionMs = (_desktopLyricPosition() * 1000).round();
+    _pushKaraokeRatio(
+      karaokeFillRatio(
+        times: times,
+        weights: weights,
+        lineEndMs: _karaokeEndMs,
+        positionMs: positionMs.toDouble(),
+      ),
+    );
+    if (positionMs >= _karaokeEndMs) {
+      _stopKaraoke();
+    }
+  }
+
+  void _stopKaraoke() {
+    _karaokeTimer?.cancel();
+    _karaokeTimer = null;
+  }
+
+  /// 推一次逐字进度。
+  ///
+  /// 这是同步 FFI：Rust 那边只写内存 + `PostMessage`，开销可以忽略；外面包一层
+  /// 兜底是为了「引擎已经关了 / 测试里没有原生库」时不要让 UI 侧抛异常。
+  void _pushKaraokeRatio(double ratio) {
+    try {
+      desktop_lyrics.desktopLyricsSetProgress(ratio: ratio);
+    } catch (error) {
+      debugPrint('更新桌面歌词逐字进度失败：$error');
+    }
+  }
+
+  /// 量出每个逐字片段占多宽。
+  ///
+  /// 只用来算「已唱部分占整行几成」，所以字体字号不必和桌面歌词完全一致——
+  /// 中文都是等宽块，比例基本一致；西文有细微差别，但决定点亮时刻的是时间轴。
+  List<double> _measureKaraokeWeights(
+    String text,
+    List<lyrics_api.LyricWord> words,
+  ) {
+    final TextPainter painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.w600,
+          height: 1.45,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final List<double> weights = <double>[];
+    int cursor = 0;
+    for (final lyrics_api.LyricWord word in words) {
+      final int start = text.indexOf(word.text, cursor);
+      if (start < 0) {
+        weights.add(0);
+        continue;
+      }
+      final int end = start + word.text.length;
+      double width = 0;
+      for (final TextBox box in painter.getBoxesForSelection(
+        TextSelection(baseOffset: start, extentOffset: end),
+      )) {
+        width += box.right - box.left;
+      }
+      weights.add(width);
+      cursor = end;
+    }
+    painter.dispose();
+    return weights;
   }
 
   /// 开关桌面歌词：窗口常驻，只切显示 / 隐藏
@@ -268,8 +478,11 @@ extension _OutputSection on _LibraryPageState {
         await desktop_lyrics.desktopLyricsShow();
         _desktopLine = '';
         _pushDesktopLyric();
+        _scheduleDesktopLyricSwitch();
       } else {
         await desktop_lyrics.desktopLyricsHide();
+        _desktopLyricTimer?.cancel();
+        _desktopLyricTimer = null;
       }
     } catch (error) {
       if (!mounted) {
@@ -340,6 +553,7 @@ extension _OutputSection on _LibraryPageState {
       await desktop_lyrics.desktopLyricsShow();
       _desktopLine = '';
       _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
     } catch (error) {
       debugPrint('恢复桌面歌词失败：$error');
     }
