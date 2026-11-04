@@ -190,6 +190,42 @@ fn favorites_are_idempotent_and_listed() {
 }
 
 #[test]
+fn playlist_cover_comes_from_the_latest_added_track_with_a_cover() {
+    let (_lock, dir) = begin("pl-cover");
+    db::init_db(dir.db_path()).expect("初始化曲库");
+    let mut tracks = vec![
+        track("/music/a.mp3", "A"),
+        track("/music/b.mp3", "B"),
+        track("/music/c.mp3", "C"),
+    ];
+    tracks[0].cover_path = Some("/covers/a.png".to_string());
+    tracks[1].cover_path = Some("/covers/b.png".to_string());
+    // C 没封面：最新加进来的它不该把封面顶掉
+    db::upsert_tracks(tracks).expect("写入曲目");
+
+    let playlist = collections::create_playlist("晨间".to_string()).expect("建歌单");
+    collections::add_track_to_playlist(playlist.id, "/music/a.mp3".to_string()).expect("加 A");
+    collections::add_track_to_playlist(playlist.id, "/music/b.mp3".to_string()).expect("加 B");
+    collections::add_track_to_playlist(playlist.id, "/music/c.mp3".to_string()).expect("加 C");
+
+    let listed = collections::list_playlists().expect("列歌单");
+    assert_eq!(
+        listed[0].cover_path.as_deref(),
+        Some("/covers/b.png"),
+        "取最新加入且有封面的那首"
+    );
+
+    // 空歌单没有封面
+    let empty = collections::create_playlist("空的".to_string()).expect("建空歌单");
+    let listed = collections::list_playlists().expect("列歌单");
+    let found = listed
+        .iter()
+        .find(|item| item.id == empty.id)
+        .expect("找到空歌单");
+    assert_eq!(found.cover_path, None);
+}
+
+#[test]
 fn batch_favorites_and_playlist_add_are_atomic() {
     let (_lock, dir) = begin("batch");
     seed(

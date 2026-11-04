@@ -402,9 +402,21 @@ class FakeLibraryRepository implements LibraryRepository {
     id: playlist.id,
     name: playlist.name,
     trackCount: playlist.paths.length,
+    coverPath: _latestPlaylistCover(playlist),
     createdAt: playlist.createdAt,
     updatedAt: playlist.updatedAt,
   );
+
+  /// 与 Rust 侧一致：最新加入、且确实有封面的那首
+  String? _latestPlaylistCover(_FakePlaylist playlist) {
+    for (final String path in playlist.paths.reversed) {
+      final String cover = _trackByPath(path)?.coverPath ?? '';
+      if (cover.isNotEmpty) {
+        return cover;
+      }
+    }
+    return null;
+  }
 }
 
 /// 内存版目录存储。

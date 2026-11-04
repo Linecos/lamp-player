@@ -439,6 +439,9 @@ class _LibraryPageState extends State<LibraryPage>
   int _desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault;
   bool _desktopLyricLocked = false;
 
+  /// 桌面歌词窗口上次的位置（屏幕坐标）；从没显示过时是 null
+  (int, int)? _desktopLyricWindow;
+
   /// 桌面歌词窗口按钮（上一首 / 播放暂停 / 下一首 / 关闭 / 字号 / 锁定）
   StreamSubscription<desktop_lyrics.DesktopLyricsCommand>? _lyricCommands;
 
@@ -764,6 +767,12 @@ class _LibraryPageState extends State<LibraryPage>
       _desktopLyrics = snapshot.desktopLyrics;
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
       _desktopLyricLocked = snapshot.desktopLyricLocked;
+      if (snapshot.desktopLyricX != null && snapshot.desktopLyricY != null) {
+        _desktopLyricWindow = (
+          snapshot.desktopLyricX!,
+          snapshot.desktopLyricY!,
+        );
+      }
       _flowBackground = snapshot.flowBackground;
       _circularCovers = snapshot.circularCovers;
       _lyricAlignment.value = snapshot.lyricAlignment;
@@ -871,6 +880,8 @@ class _LibraryPageState extends State<LibraryPage>
   final _SerialChain _favoriteChain = _SerialChain();
 
   Future<void> _saveSession() {
+    // 窗口位置不在 Dart 侧维护：拖动由系统处理，只能问窗口线程要
+    final (int, int)? lyricPosition = _currentDesktopLyricPosition();
     final SessionSnapshot snapshot = SessionSnapshot(
       volume: _volume,
       lastVolume: _lastVolume,
@@ -894,6 +905,8 @@ class _LibraryPageState extends State<LibraryPage>
       desktopLyrics: _desktopLyrics,
       desktopLyricFontSize: _desktopLyricFontSize,
       desktopLyricLocked: _desktopLyricLocked,
+      desktopLyricX: lyricPosition?.$1,
+      desktopLyricY: lyricPosition?.$2,
       flowBackground: _flowBackground,
       circularCovers: _circularCovers,
       lyricAlignment: _lyricAlignment.value,
