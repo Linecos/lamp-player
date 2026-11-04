@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -252,6 +253,97 @@ void main() {
     // 当前行之外的 5 行都带一点模糊：从相邻行就开始，一级一级往上加，
     // 不要「1 行全清、下一行直接糊掉」那种跳档
     expect(find.byType(ImageFiltered), findsNWidgets(5));
+  });
+
+  testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 6; i += 1)
+          _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
+
+    // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
+    await tester.drag(find.byType(LyricsView), const Offset(0, -140));
+    await tester.pump();
+    expect(
+      find.byType(ImageFiltered),
+      findsNothing,
+      reason: '滚动中不该再糊：一行都看不清，还每帧多跑一遍模糊光栅',
+    );
+
+    // 停手 3 秒后才跟回当前行，这时模糊也一起回来
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
+  });
+
+  testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 6; i += 1)
+          _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
+
+    // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
+    // 只靠滚动通知认不出「用户在滚」，得看指针信号
+    final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+    pointer.hover(tester.getCenter(find.byType(LyricsView)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, 90)));
+    await tester.pump();
+    expect(find.byType(ImageFiltered), findsNothing, reason: '滚轮滚出来的行也要看得清');
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
+  });
+
+  testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 6; i += 1)
+          _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
+
+    // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
+    position.value = 5.2;
+    for (int i = 0; i < 40; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(
+      find.byType(ImageFiltered),
+      findsNWidgets(5),
+      reason: '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰',
+    );
   });
 
   testWidgets('未播放行的译文与正文一起模糊', (WidgetTester tester) async {

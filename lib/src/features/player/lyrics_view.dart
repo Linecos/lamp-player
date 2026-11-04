@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
@@ -553,105 +554,135 @@ class _LyricsViewState extends State<LyricsView>
     if (notification is ScrollStartNotification &&
         !_driving &&
         notification.dragDetails != null) {
-      // 用户接管滚动：先别抢，停手 3 秒后再跟回当前行
-      _userScrolling = true;
-      _resumeTimer?.cancel();
+      _beginUserScroll(restartTimer: false);
     } else if (notification is ScrollEndNotification && _userScrolling) {
-      _resumeTimer?.cancel();
-      _resumeTimer = Timer(const Duration(seconds: 3), () {
-        if (!mounted) {
-          return;
-        }
-        _userScrolling = false;
-        if (_playing) {
-          _jumpToActive();
-        } else {
-          // 暂停中没有 tick，自己滑回去
-          _scrollToActive();
-        }
-      });
+      // 松手后给 3 秒观察时间，再跟回当前行
+      _restartResumeTimer();
     }
     return false;
+  }
+
+  /// 用户开始接管滚动（拖动列表 / 鼠标滚轮）。
+  ///
+  /// 两件事：暂停自动跟随（不然刚滚开就被拽回当前行），并临时关掉远处行的模糊
+  /// —— 滚动中一行都看不清，糊着只是白费光栅。上下的边界渐隐是外层遮罩，不受影响。
+  void _beginUserScroll({bool restartTimer = true}) {
+    // 旧的计时先作废：拖到一半被「停手 3 秒」拽回去会很突兀
+    _resumeTimer?.cancel();
+    if (!_userScrolling) {
+      setState(() => _userScrolling = true);
+    }
+    if (restartTimer) {
+      // 滚轮每来一格就往后推 3 秒；拖动要等松手（ScrollEnd）才开始计时
+      _restartResumeTimer();
+    }
+  }
+
+  /// 停手满 3 秒就交还控制权：跟回当前行，模糊一起回来
+  void _restartResumeTimer() {
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _userScrolling = false);
+      if (_playing) {
+        _jumpToActive();
+      } else {
+        // 暂停中没有 tick，自己滑回去
+        _scrollToActive();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
-        final double topPad = math.max(
-          24,
-          constraints.maxHeight * widget.revealAlignment,
-        );
-        final double bottomPad = math.max(
-          24,
-          constraints.maxHeight * (1 - widget.revealAlignment),
-        );
-        // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
-        // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
-        final double band = math.min(
-          _lyricBlockWidth,
-          math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
-        );
-        // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
-        // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
-        // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
-        return ShaderMask(
-          key: const ValueKey<String>('lyrics-edge-fade'),
-          blendMode: BlendMode.dstIn,
-          shaderCallback: _fadeShader,
-          // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
-          // 压着封面和文字的边缘很难看
-          child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context)
-                .copyWith(scrollbars: false),
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _onScrollNotification,
-              child: SingleChildScrollView(
-                controller: _scroll,
-                // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
-                // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
-                physics: const BouncingScrollPhysics(),
-                padding: EdgeInsets.only(
-                  top: topPad,
-                  bottom: bottomPad,
-                  left: _scrollPaddingX,
-                  right: _scrollPaddingX,
-                ),
-                child: Center(
-                  child: SizedBox(
-                    width: band,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        for (int i = 0; i < widget.lines.length; i += 1)
-                          _SpringLyricLine(
-                            key: ValueKey<String>('lyric-$i'),
-                            index: i,
-                            lineKey: _lineKeys[i],
-                            anchorKey: _keys[i],
-                            translationKey: _translationKeys[i],
-                            jump: _jump,
-                            line: widget.lines[i],
-                            active: i == _active,
-                            distance: _active < 0 ? i : (i - _active).abs(),
-                            position: _smooth,
-                            textTheme: theme.textTheme,
-                            alignment: widget.alignment,
-                            translation: _translation,
-                            onSeek: widget.onSeek,
-                          ),
-                      ],
+    return Listener(
+      // 鼠标滚轮 / 触摸板滚动不会带 dragDetails，光看滚动通知认不出「用户在滚」，
+      // 这里补一手指针信号：滚动时同样暂停自动跟随、并临时关掉远处的模糊
+      onPointerSignal: (PointerSignalEvent event) {
+        if (event is PointerScrollEvent) {
+          _beginUserScroll();
+        }
+      },
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
+          final double topPad = math.max(
+            24,
+            constraints.maxHeight * widget.revealAlignment,
+          );
+          final double bottomPad = math.max(
+            24,
+            constraints.maxHeight * (1 - widget.revealAlignment),
+          );
+          // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
+          // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
+          final double band = math.min(
+            _lyricBlockWidth,
+            math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
+          );
+          // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
+          // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
+          // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
+          return ShaderMask(
+            key: const ValueKey<String>('lyrics-edge-fade'),
+            blendMode: BlendMode.dstIn,
+            shaderCallback: _fadeShader,
+            // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
+            // 压着封面和文字的边缘很难看
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context)
+                  .copyWith(scrollbars: false),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScrollNotification,
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
+                  // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.only(
+                    top: topPad,
+                    bottom: bottomPad,
+                    left: _scrollPaddingX,
+                    right: _scrollPaddingX,
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: band,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          for (int i = 0; i < widget.lines.length; i += 1)
+                            _SpringLyricLine(
+                              key: ValueKey<String>('lyric-$i'),
+                              index: i,
+                              lineKey: _lineKeys[i],
+                              anchorKey: _keys[i],
+                              translationKey: _translationKeys[i],
+                              jump: _jump,
+                              line: widget.lines[i],
+                              active: i == _active,
+                              distance: _active < 0 ? i : (i - _active).abs(),
+                              position: _smooth,
+                              textTheme: theme.textTheme,
+                              alignment: widget.alignment,
+                              translation: _translation,
+                              blur: !_userScrolling,
+                              onSeek: widget.onSeek,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -757,6 +788,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.textTheme,
     required this.alignment,
     required this.translation,
+    required this.blur,
     required this.onSeek,
   });
 
@@ -781,6 +813,10 @@ class _SpringLyricLine extends StatefulWidget {
 
   /// 译文的展开进度（1 = 展开，0 = 收起）
   final ValueListenable<double> translation;
+
+  /// 是否给远处的行加模糊。用户正在拖动列表时传 false：
+  /// 滚动中一片糊没有信息量，还每帧都要多跑一遍光栅
+  final bool blur;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -897,6 +933,7 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
         textTheme: widget.textTheme,
         alignment: widget.alignment,
         translation: widget.translation,
+        blur: widget.blur,
         onSeek: widget.onSeek,
       ),
     );
@@ -930,6 +967,7 @@ class _LyricLineView extends StatelessWidget {
     required this.textTheme,
     required this.alignment,
     required this.translation,
+    required this.blur,
     required this.onSeek,
   });
 
@@ -951,6 +989,9 @@ class _LyricLineView extends StatelessWidget {
 
   /// 译文的展开进度（1 = 展开，0 = 收起），由整列共用同一个弹簧
   final ValueListenable<double> translation;
+
+  /// 是否给远处行加模糊；拖动列表期间会被关掉（见 [_LyricsViewState]）
+  final bool blur;
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -1013,14 +1054,19 @@ class _LyricLineView extends StatelessWidget {
     //
     // 从相邻一行就开始给一点糊，一级一级往上加：之前是 1 行全清、2 行直接
     // σ1.2，一格就跳过去，看着像被分成「清楚」和「不清楚」两半。
-    final double blurSigma = switch (distance) {
-      0 => 0,
-      1 => 0.5,
-      2 => 1.1,
-      3 => 1.8,
-      4 => 2.5,
-      _ => 3.2,
-    };
+    //
+    // 用户拖动列表时临时关掉：滚动中一片糊没有信息量，而且每一行都要多跑一遍
+    // 模糊光栅。上下的边界渐隐是外层遮罩，跟这里无关，照旧生效。
+    final double blurSigma = !blur
+        ? 0
+        : switch (distance) {
+            0 => 0,
+            1 => 0.5,
+            2 => 1.1,
+            3 => 1.8,
+            4 => 2.5,
+            _ => 3.2,
+          };
 
     final List<String> extras = line.translation
         .split('\n')
