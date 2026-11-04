@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`
 
 /// 当前平台是否支持桌面歌词（目前只有 Windows）
 bool desktopLyricsSupported() =>
@@ -37,6 +37,16 @@ Future<void> desktopLyricsHide() =>
 Future<void> desktopLyricsSetLine({required String line}) =>
     RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSetLine(line: line);
 
+/// 恢复窗口位置：窗口还没建也先记着，下次显示直接用它
+void desktopLyricsSetPosition({required int x, required int y}) => RustLib
+    .instance
+    .api
+    .crateApiDesktopLyricsDesktopLyricsSetPosition(x: x, y: y);
+
+/// 窗口当前的位置；没显示过（也没恢复过）时是 None
+DesktopLyricPosition? desktopLyricsPosition() =>
+    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsPosition();
+
 /// 本行的逐字进度（0..=1）：已唱部分按这个比例点亮，未唱部分压暗
 void desktopLyricsSetProgress({required double ratio}) => RustLib.instance.api
     .crateApiDesktopLyricsDesktopLyricsSetProgress(ratio: ratio);
@@ -58,6 +68,25 @@ Future<void> desktopLyricsSetLocked({required bool locked}) => RustLib
     .instance
     .api
     .crateApiDesktopLyricsDesktopLyricsSetLocked(locked: locked);
+
+/// 桌面歌词窗口的位置（屏幕坐标，左上角）
+class DesktopLyricPosition {
+  final int x;
+  final int y;
+
+  const DesktopLyricPosition({required this.x, required this.y});
+
+  @override
+  int get hashCode => x.hashCode ^ y.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DesktopLyricPosition &&
+          runtimeType == other.runtimeType &&
+          x == other.x &&
+          y == other.y;
+}
 
 /// 桌面歌词窗口按钮发来的命令
 ///

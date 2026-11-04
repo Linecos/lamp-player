@@ -72,6 +72,25 @@ pub fn desktop_lyrics_set_line(line: String) -> Result<()> {
     desktop_lyrics::set_line(&line)
 }
 
+/// 桌面歌词窗口的位置（屏幕坐标，左上角）
+#[derive(Clone, Copy, Debug)]
+pub struct DesktopLyricPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+/// 恢复窗口位置：窗口还没建也先记着，下次显示直接用它
+#[flutter_rust_bridge::frb(sync)]
+pub fn desktop_lyrics_set_position(x: i32, y: i32) {
+    desktop_lyrics::set_position(x, y);
+}
+
+/// 窗口当前的位置；没显示过（也没恢复过）时是 None
+#[flutter_rust_bridge::frb(sync)]
+pub fn desktop_lyrics_position() -> Option<DesktopLyricPosition> {
+    desktop_lyrics::position().map(|(x, y)| DesktopLyricPosition { x, y })
+}
+
 /// 本行的逐字进度（0..=1）：已唱部分按这个比例点亮，未唱部分压暗
 #[flutter_rust_bridge::frb(sync)]
 pub fn desktop_lyrics_set_progress(ratio: f32) {

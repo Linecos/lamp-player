@@ -60,6 +60,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  DesktopLyricPosition dco_decode_box_autoadd_desktop_lyric_position(
+    dynamic raw,
+  );
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
@@ -67,6 +72,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DailyPlaytime dco_decode_daily_playtime(dynamic raw);
+
+  @protected
+  DesktopLyricPosition dco_decode_desktop_lyric_position(dynamic raw);
 
   @protected
   DesktopLyricsCommand dco_decode_desktop_lyrics_command(dynamic raw);
@@ -141,6 +149,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  DesktopLyricPosition? dco_decode_opt_box_autoadd_desktop_lyric_position(
+    dynamic raw,
+  );
+
+  @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
@@ -211,6 +224,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  DesktopLyricPosition sse_decode_box_autoadd_desktop_lyric_position(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
@@ -218,6 +236,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DailyPlaytime sse_decode_daily_playtime(SseDeserializer deserializer);
+
+  @protected
+  DesktopLyricPosition sse_decode_desktop_lyric_position(
+    SseDeserializer deserializer,
+  );
 
   @protected
   DesktopLyricsCommand sse_decode_desktop_lyrics_command(
@@ -302,6 +325,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  DesktopLyricPosition? sse_decode_opt_box_autoadd_desktop_lyric_position(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
@@ -380,6 +408,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_desktop_lyric_position(
+    DesktopLyricPosition self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -387,6 +421,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_daily_playtime(DailyPlaytime self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_desktop_lyric_position(
+    DesktopLyricPosition self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_desktop_lyrics_command(
@@ -495,6 +535,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_desktop_lyric_position(
+    DesktopLyricPosition? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
