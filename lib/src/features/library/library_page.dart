@@ -33,6 +33,7 @@ import '../player/equalizer_dialog.dart';
 import '../player/lyric_alignment.dart';
 import '../player/now_playing_page.dart';
 import '../player/now_playing_route.dart';
+import '../player/desktop_lyric_cue.dart';
 import '../player/queue_dialog.dart';
 import '../player/shortcuts.dart';
 import '../settings/shortcuts_page.dart';
@@ -442,6 +443,16 @@ class _LibraryPageState extends State<LibraryPage>
   String? _lyricsPath;
   String _desktopLine = '';
 
+  /// 桌面歌词的换行调度。
+  ///
+  /// 引擎位置每 500ms 才读一次，靠轮询去发现换行最多会慢半拍。这里记下
+  /// 「读位置那一刻的墙钟与位置」，播放中按墙钟外推当前时刻，再按歌词行的
+  /// 时间戳定一个定时器到点推送——推送次数没变多（每行仍只推一次），
+  /// 也没有提高轮询频率或重建次数。
+  Timer? _desktopLyricTimer;
+  DateTime? _lyricAnchorWall;
+  double _lyricAnchorPosition = 0;
+
   /// 各分区列表的滚动控制：「定位正在播放」要按行高算目标偏移。
   ///
   /// 一个控制器只能挂一个 `ScrollView`，所以每个分区各备一个，按正在显示的分区取
@@ -679,6 +690,7 @@ class _LibraryPageState extends State<LibraryPage>
     _historyScroll.dispose();
     _playlistScroll.dispose();
     _flashTimer?.cancel();
+    _desktopLyricTimer?.cancel();
     unawaited(_media.dispose());
     _searchFocus.removeListener(_onSearchFocusChanged);
     _searchFocus.dispose();

@@ -158,6 +158,10 @@ extension _OutputSection on _LibraryPageState {
   /// 把当前进度写进 notifier，只刷新播放条。
   void _publishProgress() {
     _syncSpectrum();
+    // 记下「读到这一刻位置」的墙钟：桌面歌词靠它外推当前时刻，
+    // 换行不必等到下一次轮询（见 [_scheduleDesktopLyricSwitch]）
+    _lyricAnchorWall = DateTime.now();
+    _lyricAnchorPosition = _position;
     _progress.value = _PlaybackProgress(
       position: _position,
       duration: _duration,
@@ -176,6 +180,7 @@ extension _OutputSection on _LibraryPageState {
       desktopLyricLocked: _desktopLyricLocked,
     );
     _pushDesktopLyric();
+    _scheduleDesktopLyricSwitch();
     _syncTrayDesktopLyrics();
   }
 
@@ -208,10 +213,27 @@ extension _OutputSection on _LibraryPageState {
       }
       _lyrics = loaded;
       _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
     } catch (error) {
       // 没有歌词文件是常态，不该打扰用户
       debugPrint('读取歌词失败：$error');
     }
+  }
+
+  /// 桌面歌词眼下的播放位置（秒）。
+  ///
+  /// 引擎位置 500ms 才读一次，直接拿 `_position` 会慢半拍。播放中用「上次读到的
+  /// 位置 + 这段时间的墙钟差」外推：误差只剩 BASS 时钟与系统时钟的漂移，
+  /// 比等下一拍小一个量级；不在播放时 `_position` 就是准的。
+  double _desktopLyricPosition() {
+    final DateTime? anchor = _lyricAnchorWall;
+    if (!_isPlaying || anchor == null) {
+      return _position;
+    }
+    final double elapsed =
+        DateTime.now().difference(anchor).inMicroseconds / 1000000.0;
+    final double projected = _lyricAnchorPosition + elapsed;
+    return _duration > 0 ? projected.clamp(0.0, _duration) : projected;
   }
 
   /// 当前时间点对应的那行歌词；没歌词返回空串
@@ -220,15 +242,43 @@ extension _OutputSection on _LibraryPageState {
     if (lyrics == null || lyrics.lines.isEmpty) {
       return '';
     }
-    final int positionMs = (_position * 1000).round();
-    String line = '';
-    for (final lyrics_api.LyricLine item in lyrics.lines) {
-      if (item.timeMs > positionMs) {
-        break;
-      }
-      line = item.text;
+    final int positionMs = (_desktopLyricPosition() * 1000).round();
+    return desktopLineAt(lyrics, positionMs) ?? '';
+  }
+
+  /// 定一个「下一次换行」的定时器。
+  ///
+  /// 原来换行只能等 500ms 的位置轮询来发现，最多慢半拍。这里按歌词行的时间戳
+  /// 算出还有多久换行，到点再推一次：推送次数没变多（每行仍然只推一次），
+  /// 也不增加轮询频率、不触发任何重建。暂停 / 换曲 / 拖动都会经
+  /// [_publishProgress] 重排，旧定时器先撤掉。
+  void _scheduleDesktopLyricSwitch() {
+    _desktopLyricTimer?.cancel();
+    _desktopLyricTimer = null;
+    final lyrics_api.TrackLyrics? lyrics = _lyrics;
+    if (!_desktopLyrics ||
+        !_isPlaying ||
+        lyrics == null ||
+        lyrics.lines.isEmpty) {
+      return;
     }
-    return line;
+    final int nowMs = (_desktopLyricPosition() * 1000).round();
+    final int? nextMs = nextDesktopLineStart(lyrics, nowMs);
+    if (nextMs == null) {
+      // 已经是最后一行，等换曲 / 暂停时再重排
+      return;
+    }
+    // 上限 30 秒：歌词文件里偶见超大间隔，别让一个定时器悬太久，
+    // 否则暂停后要等很久才被下一拍撤掉
+    final int delayMs = (nextMs - nowMs).clamp(0, 30000);
+    _desktopLyricTimer = Timer(Duration(milliseconds: delayMs), () {
+      _desktopLyricTimer = null;
+      if (!mounted || !_desktopLyrics || !_isPlaying) {
+        return;
+      }
+      _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
+    });
   }
 
   /// 把当前行推给桌面歌词窗口；窗口没开就什么都不做
@@ -268,8 +318,11 @@ extension _OutputSection on _LibraryPageState {
         await desktop_lyrics.desktopLyricsShow();
         _desktopLine = '';
         _pushDesktopLyric();
+        _scheduleDesktopLyricSwitch();
       } else {
         await desktop_lyrics.desktopLyricsHide();
+        _desktopLyricTimer?.cancel();
+        _desktopLyricTimer = null;
       }
     } catch (error) {
       if (!mounted) {
@@ -340,6 +393,7 @@ extension _OutputSection on _LibraryPageState {
       await desktop_lyrics.desktopLyricsShow();
       _desktopLine = '';
       _pushDesktopLyric();
+      _scheduleDesktopLyricSwitch();
     } catch (error) {
       debugPrint('恢复桌面歌词失败：$error');
     }
