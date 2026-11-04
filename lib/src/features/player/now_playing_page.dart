@@ -204,6 +204,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   static const double _infoFontMinScale = 0.72;
   static const double _infoFontMaxScale = 1.25;
 
+  /// 信息块与封面之间的间距（封面 = 342 时的值）。
+  ///
+  /// 只缩字号不缩间距的话，大窗口里文字长大了、缝还是 16px，字像贴在封面上；
+  /// 小窗口里文字缩了、缝没缩，又显得空。所以它跟 [_infoFontMinScale] 同一套
+  /// 系数一起缩放。
+  static const double _infoCoverGap = 16;
+
   /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
   static const double _infoBlockLift = 48;
@@ -1028,7 +1035,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: _infoCoverGap * scale),
         // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
         // （900×560 这种最小窗口）。只缩封面不缩文字，文字保持原生字号不发虚。
         Flexible(
