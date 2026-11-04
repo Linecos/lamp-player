@@ -149,6 +149,10 @@ class _LibraryPageState extends State<LibraryPage>
   static const Duration _searchDebounce = Duration(milliseconds: 300);
   static const Duration _pollInterval = Duration(milliseconds: 500);
 
+  /// 桌面歌词逐字的推进节奏（约 30fps）。只在「播放中 + 这一行有逐字时间轴 +
+  /// 桌面歌词开着」时才跑
+  static const Duration _karaokeInterval = Duration(milliseconds: 33);
+
   /// 听歌时长攒够这么多秒再写库：每拍写一次会把 SQLite 打满。
   static const double _playTimeFlushSeconds = 15;
 
@@ -453,6 +457,14 @@ class _LibraryPageState extends State<LibraryPage>
   DateTime? _lyricAnchorWall;
   double _lyricAnchorPosition = 0;
 
+  /// 桌面歌词的逐字进度：当前行的字宽 / 时间轴，换行时算一次
+  Timer? _karaokeTimer;
+  lyrics_api.TrackLyrics? _karaokeLyrics;
+  int _karaokeLineIndex = -1;
+  List<int>? _karaokeTimes;
+  List<double>? _karaokeWeights;
+  int _karaokeEndMs = 0;
+
   /// 各分区列表的滚动控制：「定位正在播放」要按行高算目标偏移。
   ///
   /// 一个控制器只能挂一个 `ScrollView`，所以每个分区各备一个，按正在显示的分区取
@@ -691,6 +703,7 @@ class _LibraryPageState extends State<LibraryPage>
     _playlistScroll.dispose();
     _flashTimer?.cancel();
     _desktopLyricTimer?.cancel();
+    _karaokeTimer?.cancel();
     unawaited(_media.dispose());
     _searchFocus.removeListener(_onSearchFocusChanged);
     _searchFocus.dispose();

@@ -37,6 +37,10 @@ Future<void> desktopLyricsHide() =>
 Future<void> desktopLyricsSetLine({required String line}) =>
     RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSetLine(line: line);
 
+/// 本行的逐字进度（0..=1）：已唱部分按这个比例点亮，未唱部分压暗
+void desktopLyricsSetProgress({required double ratio}) => RustLib.instance.api
+    .crateApiDesktopLyricsDesktopLyricsSetProgress(ratio: ratio);
+
 /// 同步播放状态：工具栏的播放 / 暂停字形跟着变
 Future<void> desktopLyricsSetPlaying({required bool playing}) => RustLib
     .instance

@@ -57,6 +57,11 @@ struct LyricState {
     visible: bool,
     playing: bool,
     font_size: i32,
+    /// 本行已经唱到的比例（0..=1）。
+    ///
+    /// 有逐字时间轴时由 Dart 按 30fps 推进，用来裁切高亮层；没有逐字数据时
+    /// 是 1，也就是整行都用高亮色（和加逐字之前一样）。
+    progress: f32,
     locked: bool,
     hovered: bool,
     hovered_button: Option<Button>,
@@ -88,6 +93,7 @@ fn state() -> MutexGuard<'static, LyricState> {
                 visible: false,
                 playing: false,
                 font_size: DEFAULT_FONT_SIZE,
+                progress: 1.0,
                 locked: false,
                 hovered: false,
                 hovered_button: None,
@@ -135,19 +141,31 @@ fn emit(command: Command) {
     }
 }
 
+/// 绘制时用到的一份状态快照
+#[cfg(windows)]
+struct PaintState {
+    text: String,
+    playing: bool,
+    font_size: i32,
+    locked: bool,
+    hovered: bool,
+    hovered_button: Option<Button>,
+    progress: f32,
+}
+
 /// 只在 Windows 绘制时取状态；其它平台不编译，免得被判死代码
 #[cfg(windows)]
-#[allow(clippy::type_complexity)]
-fn snapshot() -> (String, bool, i32, bool, bool, Option<Button>) {
+fn snapshot() -> PaintState {
     let guard = state();
-    (
-        guard.text.clone(),
-        guard.playing,
-        guard.font_size,
-        guard.locked,
-        guard.hovered,
-        guard.hovered_button,
-    )
+    PaintState {
+        text: guard.text.clone(),
+        playing: guard.playing,
+        font_size: guard.font_size,
+        locked: guard.locked,
+        hovered: guard.hovered,
+        hovered_button: guard.hovered_button,
+        progress: guard.progress,
+    }
 }
 
 /// 让窗口线程按当前字号 / 锁定状态重新排版
@@ -208,6 +226,9 @@ pub fn set_line(line: &str) -> anyhow::Result<()> {
             false
         } else {
             guard.text = line.to_string();
+            // 新的一行还没开口：进度归零，等 Dart 按逐字时间轴推上来。
+            // 没有逐字数据时 Dart 会立刻推 1（整行亮），所以这里不用担心闪
+            guard.progress = 0.0;
             true
         }
     };
@@ -215,6 +236,26 @@ pub fn set_line(line: &str) -> anyhow::Result<()> {
         request_repaint();
     }
     Ok(())
+}
+
+/// 本行的逐字进度（0..=1）：已唱部分按这个比例裁切高亮层。
+///
+/// 变化小于 0.5% 不重绘——30fps 下这点差异看不出来，但能省掉不少帧。
+pub fn set_progress(ratio: f32) {
+    let clamped = ratio.clamp(0.0, 1.0);
+    let changed = {
+        let mut guard = state();
+        let finished = clamped >= 1.0 && guard.progress < 1.0;
+        if !finished && (guard.progress - clamped).abs() < 0.005 {
+            false
+        } else {
+            guard.progress = clamped;
+            true
+        }
+    };
+    if changed {
+        request_repaint();
+    }
 }
 
 /// 同步播放状态：工具栏的播放 / 暂停字形跟着变
@@ -296,16 +337,17 @@ mod imp {
         BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
     use windows::Win32::Graphics::GdiPlus::{
-        FillModeAlternate, FlushIntentionSync, FontStyleBold, GdipAddPathArc, GdipClosePathFigure,
-        GdipCreateBitmapFromScan0, GdipCreateFont, GdipCreateFontFamilyFromName, GdipCreatePath,
-        GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFont,
-        GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath, GdipDeleteStringFormat,
-        GdipDisposeImage, GdipDrawString, GdipFillPath, GdipFlush, GdipGetImageGraphicsContext,
-        GdipGraphicsClear, GdipSetSmoothingMode, GdipSetStringFormatAlign,
-        GdipSetStringFormatFlags, GdipSetStringFormatLineAlign, GdipSetStringFormatTrimming,
-        GdipSetTextRenderingHint, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap,
-        GpBrush, GpFont, GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat,
-        RectF, SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
+        CombineModeReplace, FillModeAlternate, FlushIntentionSync, FontStyleBold, GdipAddPathArc,
+        GdipClosePathFigure, GdipCreateBitmapFromScan0, GdipCreateFont,
+        GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreateSolidFill, GdipCreateStringFormat,
+        GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath,
+        GdipDeleteStringFormat, GdipDisposeImage, GdipDrawString, GdipFillPath, GdipFlush,
+        GdipGetImageGraphicsContext, GdipGraphicsClear, GdipMeasureString, GdipResetClip,
+        GdipSetClipRect, GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
+        GdipSetStringFormatLineAlign, GdipSetStringFormatTrimming, GdipSetTextRenderingHint,
+        GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap, GpBrush, GpFont,
+        GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat, RectF,
+        SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
         StringTrimmingEllipsisCharacter, TextRenderingHintAntiAliasGridFit, UnitPixel,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -705,14 +747,14 @@ mod imp {
 
     /// 按当前字号与锁定状态调窗口大小 / 扩展样式，然后重绘
     fn apply(hwnd: HWND) {
-        let (_, _, font_size, locked, _, _) = snapshot();
+        let state = snapshot();
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-        let layout = Layout::new(scale, font_size);
+        let layout = Layout::new(scale, state.font_size);
 
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            let wanted = if locked {
+            let wanted = if state.locked {
                 style | WS_EX_TRANSPARENT.0
             } else {
                 style & !WS_EX_TRANSPARENT.0
@@ -742,10 +784,10 @@ mod imp {
 
     /// 整窗重绘：画到 32 位 DIB（预乘 alpha），再整块交给 `UpdateLayeredWindow`
     fn paint(hwnd: HWND) {
-        let (text, playing, font_size, locked, hovered, hovered_button) = snapshot();
+        let state = snapshot();
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-        let layout = Layout::new(scale, font_size);
+        let layout = Layout::new(scale, state.font_size);
         let width = layout.width;
         let height = layout.height;
         if width <= 0 || height <= 0 {
@@ -804,10 +846,11 @@ mod imp {
             draw(
                 graphics,
                 &layout,
-                &text,
-                playing,
-                hovered && !locked,
-                hovered_button,
+                &state.text,
+                state.playing,
+                state.hovered && !state.locked,
+                state.hovered_button,
+                state.progress,
             );
             unsafe {
                 let _ = GdipFlush(graphics, FlushIntentionSync);
@@ -861,6 +904,7 @@ mod imp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw(
         graphics: *mut GpGraphics,
         layout: &Layout,
@@ -868,6 +912,7 @@ mod imp {
         playing: bool,
         chrome: bool,
         hovered_button: Option<Button>,
+        progress: f32,
     ) {
         let ui = family("Microsoft YaHei UI").or_else(|| family("Segoe UI"));
         let icons = family("Segoe MDL2 Assets");
@@ -924,15 +969,56 @@ mod imp {
                     &shadow,
                     format,
                 );
-                draw_text(
-                    graphics,
-                    lyric,
-                    ui,
-                    layout.font_px,
-                    argb(lyric_alpha, 245, 245, 245),
-                    &layout.text,
-                    format,
-                );
+                if progress >= 1.0 {
+                    // 没有逐字时间轴（或这一行已经唱完）：和以前一样整行亮着
+                    draw_text(
+                        graphics,
+                        lyric,
+                        ui,
+                        layout.font_px,
+                        argb(lyric_alpha, 245, 245, 245),
+                        &layout.text,
+                        format,
+                    );
+                } else {
+                    // 逐字：未唱的部分压暗，已唱的部分按进度裁切后盖高亮色。
+                    // 裁切宽度用**实测文字宽度**，不是内容区宽度——短行是居中的，
+                    // 用内容区宽度会从错的位置开始切
+                    draw_text(
+                        graphics,
+                        lyric,
+                        ui,
+                        layout.font_px,
+                        argb(lyric_alpha * 42 / 100, 245, 245, 245),
+                        &layout.text,
+                        format,
+                    );
+                    if let Some(bounds) =
+                        measure_text(graphics, lyric, ui, layout.font_px, &layout.text, format)
+                    {
+                        let width = bounds.Width * progress.clamp(0.0, 1.0);
+                        if width > 0.0 {
+                            let _ = GdipSetClipRect(
+                                graphics,
+                                bounds.X,
+                                layout.text.Y,
+                                width,
+                                layout.text.Height,
+                                CombineModeReplace,
+                            );
+                            draw_text(
+                                graphics,
+                                lyric,
+                                ui,
+                                layout.font_px,
+                                argb(lyric_alpha, 245, 245, 245),
+                                &layout.text,
+                                format,
+                            );
+                            let _ = GdipResetClip(graphics);
+                        }
+                    }
+                }
                 let _ = GdipDeleteStringFormat(format);
             }
 
@@ -1046,6 +1132,46 @@ mod imp {
                 let _ = GdipDeleteBrush(brush as *mut GpBrush);
             }
             let _ = GdipDeletePath(path);
+        }
+    }
+
+    /// 量出这段文字在 `rect` 里的实际包围盒（含居中对齐造成的偏移）
+    unsafe fn measure_text(
+        graphics: *mut GpGraphics,
+        text: &str,
+        family: *const GpFontFamily,
+        size: f32,
+        rect: &RectF,
+        format: *const GpStringFormat,
+    ) -> Option<RectF> {
+        let mut font: *mut GpFont = null_mut();
+        if unsafe { GdipCreateFont(family, size, FontStyleBold.0, UnitPixel, &mut font) }.0 != 0 {
+            return None;
+        }
+        let mut utf16: Vec<u16> = text.encode_utf16().collect();
+        let mut bounds = RectF::default();
+        let mut fitted: i32 = 0;
+        let mut lines: i32 = 0;
+        let status = unsafe {
+            GdipMeasureString(
+                graphics,
+                PCWSTR(utf16.as_mut_ptr()),
+                utf16.len() as i32,
+                font,
+                rect,
+                format,
+                &mut bounds,
+                &mut fitted,
+                &mut lines,
+            )
+        };
+        unsafe {
+            let _ = GdipDeleteFont(font);
+        }
+        if status.0 == 0 {
+            Some(bounds)
+        } else {
+            None
         }
     }
 
@@ -1270,6 +1396,16 @@ mod imp {
         /// 的 alpha 全是 0，窗口在桌面上就是全透明的——肉眼只能看到「什么都没
         /// 有」，很难判断是绘制失败还是没显示。这里直接读回 alpha 断言。
         fn render(text: &str, chrome: bool, playing: bool) -> (i32, i32, Vec<u8>) {
+            render_at(text, chrome, playing, 1.0)
+        }
+
+        /// 同 [`render`]，但可以指定逐字进度
+        fn render_at(
+            text: &str,
+            chrome: bool,
+            playing: bool,
+            progress: f32,
+        ) -> (i32, i32, Vec<u8>) {
             let layout = Layout::new(1.0, 27);
             let width = layout.width;
             let height = layout.height;
@@ -1320,6 +1456,7 @@ mod imp {
                     playing,
                     chrome,
                     Some(Button::PlayPause),
+                    progress,
                 );
                 let _ = GdipFlush(graphics, FlushIntentionSync);
                 let _ = GdipDeleteGraphics(graphics);
@@ -1376,6 +1513,23 @@ mod imp {
             assert!(
                 opaque < (width * height / 4) as usize,
                 "没悬停时不该铺满背景：{opaque}"
+            );
+        }
+
+        #[test]
+        fn half_progress_dims_the_rest_of_the_line() {
+            let _guard = gdiplus();
+            let full = render_at("夜航夜航", false, true, 1.0);
+            let half = render_at("夜航夜航", false, true, 0.5);
+            let sum = |frame: &(i32, i32, Vec<u8>)| -> u64 {
+                frame.2.iter().map(|alpha| u64::from(*alpha)).sum()
+            };
+            assert!(sum(&half) > 0, "半程也该看得见字");
+            assert!(
+                sum(&half) * 100 < sum(&full) * 95,
+                "半程应明显比整行亮着淡：half={} full={}",
+                sum(&half),
+                sum(&full)
             );
         }
 
