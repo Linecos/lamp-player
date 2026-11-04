@@ -26,8 +26,12 @@ enum LoopMode {
 /// 播放队列：曲目顺序 + 下一首 / 上一首规则。
 ///
 /// 只做纯计算，不接触播放器、不依赖 Flutter；页面只负责在 [advance] /
-/// [retreat] 返回新下标后真正加载音频。随机播放用一个洗牌顺序推进，
-/// 保证一轮内不重复，而不是每次随机抽（会反复听到同一首）。
+/// [retreat] 返回新下标后真正加载音频。
+///
+/// **随机模式是"每次随机抽一首"**：点下一首（或自然播完）就在全队列里等概率
+/// 抽一首，不按预先洗好的顺序走，因此**没有"最后一首"**——可以一直放下去，
+/// 也不需要 [LoopMode] 配合。抽的时候会避开当前这一首，只保证"不会连着放
+/// 同一首歌"，不做整轮去重（那需要记住一轮的播放记录）。
 class PlaybackQueue {
   PlaybackQueue({
     List<Track> tracks = const <Track>[],
@@ -39,11 +43,7 @@ class PlaybackQueue {
        _index = tracks.isEmpty ? -1 : index.clamp(0, tracks.length - 1),
        _repeat = repeat, // ignore: prefer_initializing_formals
        _shuffle = shuffle, // ignore: prefer_initializing_formals
-       _random = random ?? Random() {
-    if (_shuffle) {
-      _rebuildShuffleOrder();
-    }
-  }
+       _random = random ?? Random();
 
   final List<Track> _tracks;
   final Random _random;
@@ -55,9 +55,11 @@ class PlaybackQueue {
   /// 已经播放过的下标（上一首从这里回退，而不是按列表顺序猜）
   final List<int> _history = <int>[];
 
-  /// 随机播放顺序；当前曲目固定在第一位，之后是打乱的其他曲目
-  List<int> _shuffleOrder = <int>[];
-  int _shufflePos = 0;
+  /// 随机模式下"已经抽好、还没播"的那一首。
+  ///
+  /// [peekNext] 会被连续问好几次（切歌、判定有没有下一首），每次重抽的话
+  /// 结果会跳来跳去；抽一次记住，真正切过去之后才清空。
+  int? _shuffleNext;
 
   /// 队列快照（只读）；UI 只展示，不直接改
   List<Track> get tracks => List<Track>.unmodifiable(_tracks);
@@ -79,30 +81,40 @@ class PlaybackQueue {
 
   bool get hasPrevious => peekPrevious() != null;
 
-  /// 下一首会落在哪里；`null` 表示这一轮已经放完。
+  /// 下一首会落在哪里；`null` 表示队列已放完。
   ///
+  /// 随机模式（[shuffle]）每次都现抽一首，抽完记住（见 [_shuffleNext]），
+  /// 所以只有空队列才会返回 `null`——随机播放没有"最后一首"。
   /// [auto] 为 true 表示“自然播完”，此时单曲循环返回当前下标。
   int? peekNext({bool auto = false}) {
     if (_tracks.isEmpty) {
       return null;
     }
+    if (_shuffle) {
+      // 随机优先于 LoopMode：选随机的人要的是"一直随机放下去"
+      return _shuffleNext ??= _pickShuffledNext();
+    }
     if (auto && _repeat == LoopMode.one) {
       return _index;
-    }
-    if (_shuffle) {
-      if (_tracks.length == 1) {
-        return _repeat == LoopMode.off ? null : 0;
-      }
-      _ensureShuffleOrder();
-      if (_shufflePos + 1 < _shuffleOrder.length) {
-        return _shuffleOrder[_shufflePos + 1];
-      }
-      return _repeat == LoopMode.off ? null : _shuffleOrder[1];
     }
     if (_index + 1 < _tracks.length) {
       return _index + 1;
     }
     return _repeat == LoopMode.off ? null : 0;
+  }
+
+  /// 随机挑一首：避开当前曲目，保证不会连着放同一首。
+  int _pickShuffledNext() {
+    if (_tracks.length <= 1) {
+      return _index < 0 ? 0 : _index;
+    }
+    final int at = _index < 0 ? 0 : _index;
+    int pick = _random.nextInt(_tracks.length - 1);
+    // 跳过当前曲目：把 [0, n-2] 映射到"除当前曲目外的 n-1 个下标"
+    if (pick >= at) {
+      pick += 1;
+    }
+    return pick;
   }
 
   /// 上一首会落在哪里；`null` 表示已到队首且不循环。
@@ -127,33 +139,17 @@ class PlaybackQueue {
       return null;
     }
     // 单曲循环重播同一首，不写历史，避免上一首被自己挤掉
-    if (auto && _repeat == LoopMode.one) {
+    if (!_shuffle && auto && _repeat == LoopMode.one) {
       return _index;
     }
-    // 随机播放走到本轮末尾：循环模式重洗一轮，不循环就结束
-    if (_shuffle) {
-      _ensureShuffleOrder();
-    }
-    if (_shuffle &&
-        _tracks.length > 1 &&
-        _shufflePos + 1 >= _shuffleOrder.length) {
-      if (_repeat == LoopMode.off) {
-        return null;
-      }
-      _pushHistory();
-      _rebuildShuffleOrder();
-      _shufflePos = 1;
-      _index = _shuffleOrder[1];
-      return _index;
-    }
-
-    final int? next = peekNext();
+    final int? next = peekNext(auto: auto);
     if (next == null) {
       return null;
     }
     _pushHistory();
     _index = next;
-    _syncShufflePos();
+    // 抽好的那一首已经播了，下次再抽
+    _shuffleNext = null;
     return _index;
   }
 
@@ -164,17 +160,17 @@ class PlaybackQueue {
     }
     if (_history.isNotEmpty) {
       _index = _history.removeLast();
-      _syncShufflePos();
+      _shuffleNext = null;
       return _index;
     }
     if (_index > 0) {
       _index -= 1;
-      _syncShufflePos();
+      _shuffleNext = null;
       return _index;
     }
     if (_repeat != LoopMode.off) {
       _index = _tracks.length - 1;
-      _syncShufflePos();
+      _shuffleNext = null;
       return _index;
     }
     return null;
@@ -187,7 +183,7 @@ class PlaybackQueue {
     }
     _pushHistory();
     _index = index;
-    _syncShufflePos();
+    _shuffleNext = null;
     return true;
   }
 
@@ -198,12 +194,7 @@ class PlaybackQueue {
       ..addAll(tracks);
     _index = tracks.isEmpty ? -1 : index.clamp(0, tracks.length - 1);
     _history.clear();
-    if (_shuffle) {
-      _rebuildShuffleOrder();
-    } else {
-      _shuffleOrder = <int>[];
-      _shufflePos = 0;
-    }
+    _shuffleNext = null;
   }
 
   /// 移除队列里第 [index] 首，返回被移除的是否是当前曲目。
@@ -237,9 +228,8 @@ class PlaybackQueue {
     for (int i = 0; i < _history.length; i += 1) {
       _history[i] = remap(_history[i]);
     }
-    if (_shuffle) {
-      _rebuildShuffleOrder();
-    }
+    // 下标整体平移了，已经抽好的那一首不再可信，重新抽
+    _shuffleNext = null;
   }
 
   bool removeAt(int index) {
@@ -266,9 +256,7 @@ class PlaybackQueue {
         }
       }
     }
-    if (_shuffle) {
-      _rebuildShuffleOrder();
-    }
+    _shuffleNext = null;
     return wasCurrent;
   }
 
@@ -277,8 +265,7 @@ class PlaybackQueue {
     _tracks.clear();
     _index = -1;
     _history.clear();
-    _shuffleOrder = <int>[];
-    _shufflePos = 0;
+    _shuffleNext = null;
   }
 
   /// 用同一批路径的新曲目对象替换队列里的旧对象（扫描后封面等字段会更新）。
@@ -309,9 +296,9 @@ class PlaybackQueue {
     _removePath(track.path);
     _tracks.insert(_index + 1, track);
     if (_shuffle) {
-      // 随机模式下重建顺序时把刚插入的曲目固定在当前曲之后，
-      // 否则「下一首播放」会被洗牌打乱，点了却听不到。
-      _rebuildShuffleOrder(playNext: _index + 1);
+      // 随机模式下也要让「下一首播放」点得中：把已经抽好的下一首改成它，
+      // 否则下次随机又会抽到别处，点了听不到
+      _shuffleNext = _index + 1;
     }
     return true;
   }
@@ -326,14 +313,7 @@ class PlaybackQueue {
         _tracks.any((Track t) => t.path == track.path)) {
       return false;
     }
-    if (_shuffle) {
-      // 先对齐现有顺序，再把新曲目放到随机顺序末尾，避免追加一首就重洗整轮
-      _ensureShuffleOrder();
-    }
     _tracks.add(track);
-    if (_shuffle) {
-      _shuffleOrder.add(_tracks.length - 1);
-    }
     return true;
   }
 
@@ -346,66 +326,7 @@ class PlaybackQueue {
       return;
     }
     _shuffle = value;
-    if (value) {
-      _rebuildShuffleOrder();
-    } else {
-      _shuffleOrder = <int>[];
-      _shufflePos = 0;
-    }
-  }
-
-  /// 重新生成随机顺序：当前曲目固定在第一位，其余打乱。
-  ///
-  /// [playNext] 用于「下一首播放」：把指定下标固定在当前曲目之后，
-  /// 这样随机模式下点「下一首播放」也一定先播它。
-  void _rebuildShuffleOrder({int? playNext}) {
-    final List<int> order = List<int>.generate(_tracks.length, (int i) => i);
-    final int? current = _index >= 0 && _index < _tracks.length ? _index : null;
-    final bool hasPlayNext =
-        playNext != null &&
-        playNext != current &&
-        playNext >= 0 &&
-        playNext < _tracks.length;
-
-    if (current != null) {
-      order.remove(current);
-    }
-    if (hasPlayNext) {
-      order.remove(playNext);
-    }
-    order.shuffle(_random);
-    if (hasPlayNext) {
-      order.insert(0, playNext);
-    }
-    if (current != null) {
-      order.insert(0, current);
-    }
-    _shuffleOrder = order;
-    _shufflePos = 0;
-  }
-
-  /// 索引可能因增删而漂移；长度或位置不一致时重建，保证随机顺序始终有效。
-  void _ensureShuffleOrder() {
-    if (!_shuffle) {
-      return;
-    }
-    if (_shuffleOrder.length != _tracks.length ||
-        _shufflePos >= _shuffleOrder.length ||
-        _shuffleOrder[_shufflePos] != _index) {
-      _rebuildShuffleOrder();
-    }
-  }
-
-  void _syncShufflePos() {
-    if (!_shuffle) {
-      return;
-    }
-    final int pos = _shuffleOrder.indexOf(_index);
-    if (pos >= 0) {
-      _shufflePos = pos;
-    } else {
-      _rebuildShuffleOrder();
-    }
+    _shuffleNext = null;
   }
 
   void _pushHistory() {
