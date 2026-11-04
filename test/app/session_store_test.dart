@@ -155,6 +155,25 @@ void main() {
     );
   });
 
+  test('桌面歌词窗口位置可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    expect((await store.load()).desktopLyricX, isNull, reason: '没存过就是 null');
+
+    await store.save(
+      const SessionSnapshot(desktopLyricX: 320, desktopLyricY: 540),
+    );
+    final SessionSnapshot loaded = await store.load();
+    expect(loaded.desktopLyricX, 320);
+    expect(loaded.desktopLyricY, 540);
+
+    // 之后清掉（窗口位置被重置）也不该残留旧的半份坐标
+    await store.save(const SessionSnapshot());
+    expect((await store.load()).desktopLyricX, isNull);
+    expect((await store.load()).desktopLyricY, isNull);
+  });
+
   test('译文显示开关可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();
