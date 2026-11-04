@@ -142,7 +142,10 @@ void main() {
       // 全局开关：用例结束必须复位，否则会污染其它用例
       addTearDown(() => circularCovers.value = false);
 
-      await _pumpInScaffold(tester, const AlbumCover(size: 40, radius: 12));
+      await _pumpInScaffold(
+        tester,
+        const AlbumCover(size: 40, radius: 12, circular: true),
+      );
 
       BorderRadius clipRadius() {
         final ClipRRect clip = tester.widget<ClipRRect>(find.byType(ClipRRect));
@@ -175,7 +178,7 @@ void main() {
         const SizedBox(
           width: 340,
           height: 340,
-          child: AlbumCover(size: 56, radius: 16),
+          child: AlbumCover(size: 56, radius: 16, circular: true),
         ),
       );
 
@@ -485,7 +488,7 @@ void main() {
               child: SizedBox(
                 width: 200,
                 height: 200,
-                child: AlbumCover(size: 56),
+                child: AlbumCover(size: 56, circular: true),
               ),
             ),
           ),
@@ -501,6 +504,24 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('没声明 circular 的封面不跟随设置，始终方形', (WidgetTester tester) async {
+      // 列表行、歌单卡片、专辑页都不传 circular：用户开「圆形封面」时它们
+      // 仍然是方形，不然一屏几十个圆头像会很碎
+      circularCovers.value = true;
+      addTearDown(() => circularCovers.value = false);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: Center(child: AlbumCover(size: 40, radius: 12))),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(ClipOval), findsNothing);
+      final ClipRRect clip = tester.widget<ClipRRect>(find.byType(ClipRRect));
+      expect((clip.borderRadius as BorderRadius).topLeft.x, 12);
     });
 
     testWidgets('方形封面仍用组件传入的圆角', (WidgetTester tester) async {

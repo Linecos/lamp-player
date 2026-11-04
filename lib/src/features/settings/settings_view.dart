@@ -432,7 +432,9 @@ class SettingsView extends StatelessWidget {
         icon: Icons.circle_outlined,
         title: '圆形封面',
         switchKey: const ValueKey<String>('settings-circular-cover-switch'),
-        subtitle: circularCovers ? '所有封面都裁成正圆，正在播放页的阴影也跟着变圆' : '封面保持圆角方形',
+        subtitle: circularCovers
+            ? '播放岛与正在播放页的封面裁成正圆，正在播放页的阴影也跟着变圆；列表、歌单等仍是方形'
+            : '封面保持圆角方形',
         value: circularCovers,
         onChanged: onCircularCoversChanged,
       ),

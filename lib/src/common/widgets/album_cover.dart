@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 
 import 'cover_shape.dart';
 
+/// 不跟随「圆形封面」设置的实例用它：永远方形，也不会因为设置变化重建
+const ValueListenable<bool> _alwaysSquare = AlwaysStoppedAnimation<bool>(false);
+
 /// 封面「飞入正在播放页」的 Hero tag：播放条与正在播放页两处必须一致。
 const String coverHeroTag = 'now-playing-cover';
 
@@ -30,6 +33,7 @@ class AlbumCover extends StatefulWidget {
     this.animateOnChange = false,
     this.transitionDuration = const Duration(milliseconds: 340),
     this.transitionScale = 1.06,
+    this.circular = false,
   });
 
   /// 封面缓存文件路径；空字符串或 `null` 表示没有封面。
@@ -52,6 +56,12 @@ class AlbumCover extends StatefulWidget {
   /// 新封面淡入时的起始缩放：1.0 表示不做缩放动画。幅度大了像「弹出来」，
   /// 1.05~1.08 左右是「浮上来落定」
   final double transitionScale;
+
+  /// 是否跟随「圆形封面」设置。
+  ///
+  /// 只有播放岛与正在播放页需要（封面的「主角」位置）；列表行、歌单卡片、
+  /// 专辑 / 艺术家页一律方形——一行行圆头像看着比方形更碎，也更容易和行高打架。
+  final bool circular;
 
   @override
   State<AlbumCover> createState() => _AlbumCoverState();
@@ -211,7 +221,9 @@ class _AlbumCoverState extends State<AlbumCover>
     final bool crossfading = widget.animateOnChange && _crossfading;
 
     return ValueListenableBuilder<bool>(
-      valueListenable: circularCovers,
+      // 不跟随设置的实例直接给一个恒 false 的 listenable：既不会变圆，
+      // 也不会因为用户改设置而重建
+      valueListenable: widget.circular ? circularCovers : _alwaysSquare,
       // 只换圆角、不换子树：ValueListenableBuilder 重建的仍是同一个
       // ClipRRect，图片状态（已解码的那帧）不会被丢掉
       builder: (BuildContext context, bool circular, Widget? child) {
@@ -400,7 +412,15 @@ class _CoverImageState extends State<_CoverImage> {
 /// 圆角跟随 [circularCovers]：圆形封面时阴影容器也要跟着圆，矩形阴影会在
 /// 圆角外露出一圈方形的光晕。
 class CoverShadow extends StatelessWidget {
-  const CoverShadow({super.key, required this.radius, required this.child});
+  const CoverShadow({
+    super.key,
+    required this.radius,
+    required this.child,
+    this.circular = false,
+  });
+
+  /// 是否跟随「圆形封面」设置（只有正在播放页的封面需要）
+  final bool circular;
 
   /// 阴影在封面之外还占多大。
   ///
@@ -415,7 +435,7 @@ class CoverShadow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
-      valueListenable: circularCovers,
+      valueListenable: circular ? circularCovers : _alwaysSquare,
       builder: (BuildContext context, bool circular, Widget? child) {
         return Stack(
           // 阴影本来就画在封面外面，硬裁会把四边切掉
@@ -485,6 +505,7 @@ Widget coverFlightShuttle({
   required double size,
   required Widget cover,
   ValueListenable<double>? turns,
+  bool circular = false,
 }) {
   // 圆形封面飞行途中接着转：shuttle 是独立子树，不自己盯着相位的话，
   // 退场第一帧就会退回正面（「先回到最开始的样子再退出」就是这一帧）
@@ -518,7 +539,7 @@ Widget coverFlightShuttle({
             child: RepaintBoundary(
               child: Padding(
                 padding: const EdgeInsets.all(CoverShadow.spread),
-                child: CoverShadow(radius: 28, child: art),
+                child: CoverShadow(radius: 28, circular: circular, child: art),
               ),
             ),
           ),
