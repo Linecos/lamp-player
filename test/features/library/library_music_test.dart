@@ -108,7 +108,7 @@ void main() {
     expect(after, lessThan(80), reason: '第一首在列表顶部');
   });
 
-  testWidgets('定位按钮的右边界和播放岛右边界对齐', (WidgetTester tester) async {
+  testWidgets('定位按钮浮在岛上方，落在行尾图标左侧的空白带', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     await tester.tap(find.text('夜航'));
     await tester.pumpAndSettle();
@@ -121,12 +121,21 @@ void main() {
     final Rect card = tester.getRect(
       find.byKey(const ValueKey<String>('player-bar-open-anywhere')),
     );
+    expect(btn.bottom, lessThan(card.top), reason: '按钮浮在岛上，不压岛');
+    // 不贴窗口右边缘：那里是行尾收藏图标的位置（行内容右对齐），
+    // 按钮固定离右边一段距离才能稳定避开，与窗口宽度无关
+    final double screenRight =
+        tester.view.physicalSize.width / tester.view.devicePixelRatio;
     expect(
       btn.right,
-      closeTo(card.right, 0.5),
-      reason: '按钮右边界要压在卡片右边缘上；对齐外框会多出 16px 悬在岛外面',
+      lessThan(screenRight - 100),
+      reason: '按钮离右边缘留出空白带，不压行尾的时长与收藏图标',
     );
-    expect(btn.bottom, lessThan(card.top), reason: '按钮浮在岛上，不压岛');
+    expect(
+      btn.right,
+      greaterThan(card.left + card.width / 2),
+      reason: '仍待在右半区，不要跑到中间挡住专辑名',
+    );
   });
 
   testWidgets('Windows 的紧凑密度下，排序按钮和「播放全部」一样高', (WidgetTester tester) async {
