@@ -38,6 +38,8 @@ class SessionSnapshot {
     this.desktopLyrics = false,
     this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
     this.desktopLyricLocked = false,
+    this.desktopLyricX,
+    this.desktopLyricY,
     this.lyricAlignment = LyricAlignment.center,
     this.showTranslation = true,
   });
@@ -99,6 +101,10 @@ class SessionSnapshot {
   /// 桌面歌词是否锁定（锁定 = 鼠标穿透）
   final bool desktopLyricLocked;
 
+  /// 桌面歌词窗口上次的屏幕坐标；从没显示过时是 null
+  final int? desktopLyricX;
+  final int? desktopLyricY;
+
   /// 正在播放页歌词的水平对齐方式
   final LyricAlignment lyricAlignment;
 
@@ -147,6 +153,8 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricsKey = 'ui_desktop_lyrics';
   static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
+  static const String desktopLyricXKey = 'ui_desktop_lyric_x';
+  static const String desktopLyricYKey = 'ui_desktop_lyric_y';
   static const String lyricAlignmentKey = 'ui_lyric_alignment';
   static const String showTranslationKey = 'ui_lyric_translation';
 
@@ -216,6 +224,8 @@ class PrefsSessionStore implements SessionStore {
                     desktopLyricFontSizeDefault)
                 .clamp(desktopLyricFontSizeMin, desktopLyricFontSizeMax),
         desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
+        desktopLyricX: prefs.getInt(desktopLyricXKey),
+        desktopLyricY: prefs.getInt(desktopLyricYKey),
         lyricAlignment: LyricAlignment.parse(
           prefs.getString(lyricAlignmentKey),
         ),
@@ -290,6 +300,15 @@ class PrefsSessionStore implements SessionStore {
         ),
       );
       await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
+      final int? x = snapshot.desktopLyricX;
+      final int? y = snapshot.desktopLyricY;
+      if (x == null || y == null) {
+        await prefs.remove(desktopLyricXKey);
+        await prefs.remove(desktopLyricYKey);
+      } else {
+        await prefs.setInt(desktopLyricXKey, x);
+        await prefs.setInt(desktopLyricYKey, y);
+      }
       await prefs.setString(lyricAlignmentKey, snapshot.lyricAlignment.name);
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
       await prefs.setString(sortKey, snapshot.sort.name);

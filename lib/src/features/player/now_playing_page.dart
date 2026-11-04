@@ -1024,6 +1024,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     size: size,
                     // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
                     radius: 28,
+                    // 只有播放岛与正在播放页跟着「圆形封面」设置走
+                    circular: true,
                     playing: playing,
                     // 换歌时新封面收进来 + 淡入，别硬切
                     animateOnChange: true,
@@ -1060,6 +1062,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                 coverFlightShuttle(
                                   size: size,
                                   cover: cover,
+                                  circular: true,
                                   // 飞行途中接着转：shuttle 是另一棵子树，
                                   // 不自己盯着相位就会退回正面
                                   turns: circularCovers.value
@@ -1070,6 +1073,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             // 还杵在原地
                             child: CoverShadow(
                               radius: 28,
+                              circular: true,
                               // 旋转用「Transform 在上、RepaintBoundary 在下」：
                               // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
                               // 光栅），反过来套一层边界就每帧重新光栅化一遍

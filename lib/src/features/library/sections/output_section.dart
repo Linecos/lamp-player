@@ -463,18 +463,18 @@ extension _OutputSection on _LibraryPageState {
     return weights;
   }
 
-  /// 开关桌面歌词：窗口常驻，只切显示 / 隐藏
+  /// 开关桌面歌词：窗口常驻，只切显示 / 隐藏。
+  ///
+  /// 锁定状态原样保留：解锁入口在托盘菜单与正在播放页的锁形按钮上，
+  /// 不能因为「重新打开」就把用户锁好的穿透状态悄悄改掉。
   Future<void> _setDesktopLyrics(bool enabled) async {
-    // 显式打开歌词 = 解锁：锁定后窗口鼠标穿透，没有别的入口能点回来
-    if (enabled) {
-      _desktopLyricLocked = false;
-    }
     _update(() => _desktopLyrics = enabled);
     _saveSessionNow();
     _publishProgress();
     try {
       if (enabled) {
         await _pushDesktopLyricSettings();
+        _restoreDesktopLyricPosition();
         await desktop_lyrics.desktopLyricsShow();
         _desktopLine = '';
         _pushDesktopLyric();
@@ -516,6 +516,36 @@ extension _OutputSection on _LibraryPageState {
 
   /// 把字号、锁定、播放状态先推给窗口，再显示：否则首帧会按默认字号排版，
   /// 用户会看到一次明显的跳动
+  /// 把上次的窗口位置交给窗口线程（窗口还没建就先记着，下次显示直接用）
+  void _restoreDesktopLyricPosition() {
+    final (int, int)? position = _desktopLyricWindow;
+    if (position == null) {
+      return;
+    }
+    try {
+      desktop_lyrics.desktopLyricsSetPosition(x: position.$1, y: position.$2);
+    } catch (error) {
+      debugPrint('恢复桌面歌词位置失败：$error');
+    }
+  }
+
+  /// 窗口当前的位置；窗口没开就沿用上次记下的值
+  (int, int)? _currentDesktopLyricPosition() {
+    if (!_desktopLyrics) {
+      return _desktopLyricWindow;
+    }
+    try {
+      final desktop_lyrics.DesktopLyricPosition? current = desktop_lyrics
+          .desktopLyricsPosition();
+      if (current != null) {
+        _desktopLyricWindow = (current.x, current.y);
+      }
+    } catch (error) {
+      debugPrint('读取桌面歌词位置失败：$error');
+    }
+    return _desktopLyricWindow;
+  }
+
   Future<void> _pushDesktopLyricSettings() async {
     await desktop_lyrics.desktopLyricsSetFontSize(size: _desktopLyricFontSize);
     await desktop_lyrics.desktopLyricsSetLocked(locked: _desktopLyricLocked);
@@ -543,13 +573,9 @@ extension _OutputSection on _LibraryPageState {
     if (!_desktopLyrics) {
       return;
     }
-    if (_desktopLyricLocked) {
-      _desktopLyricLocked = false;
-      _saveSessionNow();
-      _publishProgress();
-    }
     try {
       await _pushDesktopLyricSettings();
+      _restoreDesktopLyricPosition();
       await desktop_lyrics.desktopLyricsShow();
       _desktopLine = '';
       _pushDesktopLyric();

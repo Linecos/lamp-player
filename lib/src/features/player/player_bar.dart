@@ -464,6 +464,8 @@ class _PlayerBarLeft extends StatelessWidget {
                       path: current?.coverPath,
                       size: _coverSize,
                       radius: 16,
+                      // 只有播放岛与正在播放页跟着「圆形封面」设置走
+                      circular: true,
                       playing: isPlaying,
                       // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
                       // 就成了「从别处飞过来」，几乎只留淡入才自然

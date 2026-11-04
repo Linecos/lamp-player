@@ -63,6 +63,8 @@ struct LyricState {
     /// 是 1，也就是整行都用高亮色（和加逐字之前一样）。
     progress: f32,
     locked: bool,
+    /// 窗口左上角的屏幕坐标：拖动时更新，开关窗口 / 重启都回到这里
+    position: Option<(i32, i32)>,
     hovered: bool,
     hovered_button: Option<Button>,
     pressed_button: Option<Button>,
@@ -95,6 +97,7 @@ fn state() -> MutexGuard<'static, LyricState> {
                 font_size: DEFAULT_FONT_SIZE,
                 progress: 1.0,
                 locked: false,
+                position: None,
                 hovered: false,
                 hovered_button: None,
                 pressed_button: None,
@@ -322,6 +325,19 @@ pub fn locked() -> bool {
     state().locked
 }
 
+/// 记住窗口位置（屏幕坐标）：窗口已经存在就立刻挪过去
+pub fn set_position(x: i32, y: i32) {
+    state().position = Some((x, y));
+    if let Some(hwnd) = *slot() {
+        imp::move_to(hwnd, x, y);
+    }
+}
+
+/// 当前记录的窗口位置；从没显示过 / 没存过时是 None
+pub fn position() -> Option<(i32, i32)> {
+    state().position
+}
+
 #[cfg(windows)]
 mod imp {
     use anyhow::{anyhow, Result};
@@ -363,10 +379,10 @@ mod imp {
         TranslateMessage, UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, GWL_EXSTYLE, HTCAPTION,
         HTCLIENT, HTTRANSPARENT, HWND_TOPMOST, IDC_ARROW, MSG, SM_CXSCREEN, SM_CYSCREEN,
         SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
-        ULW_ALPHA, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_LBUTTONUP,
-        WM_MOUSEMOVE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_PAINT, WM_SETCURSOR, WNDCLASSW,
-        WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-        WS_POPUP,
+        ULW_ALPHA, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_LBUTTONDOWN,
+        WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_PAINT, WM_SETCURSOR,
+        WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        WS_EX_TRANSPARENT, WS_POPUP,
     };
 
     use super::{frame, snapshot, Button, Command, Frame, FONT_STEP, MAX_FONT_SIZE, MIN_FONT_SIZE};
@@ -404,6 +420,23 @@ mod imp {
                 HWND_TOPMOST,
                 0,
                 0,
+                0,
+                0,
+                // 不带 NOACTIVATE 的话 SetWindowPos 会抢焦点；这里必须带 NOMOVE，
+                // 否则每次显示都会把窗口拽回 (0,0)
+                SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE,
+            );
+        }
+    }
+
+    /// 把窗口挪到指定屏幕坐标（不动大小、不抢焦点）
+    pub(super) fn move_to(hwnd: isize, x: i32, y: i32) {
+        unsafe {
+            let _ = SetWindowPos(
+                HWND(hwnd),
+                HWND_TOPMOST,
+                x,
+                y,
                 0,
                 0,
                 SWP_NOACTIVATE | SWP_NOSIZE,
@@ -509,11 +542,15 @@ mod imp {
             // 首次落在屏幕下方居中偏上；之后用户拖到哪算哪
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
+            let (start_x, start_y) = match super::state().position {
+                Some((x, y)) => (x, y),
+                None => ((screen_w - layout.width) / 2, screen_h - 260),
+            };
             let _ = SetWindowPos(
                 hwnd,
                 HWND_TOPMOST,
-                (screen_w - layout.width) / 2,
-                screen_h - 260,
+                start_x,
+                start_y,
                 layout.width,
                 layout.height,
                 SWP_NOACTIVATE,
@@ -567,6 +604,15 @@ mod imp {
                     guard.pressed_button = None;
                 }
                 paint(hwnd);
+                LRESULT(0)
+            }
+            // 拖完（系统把 HTCAPTION 拖动交给它自己处理）记下新位置
+            WM_EXITSIZEMOVE => {
+                let mut rect = RECT::default();
+                unsafe {
+                    let _ = GetWindowRect(hwnd, &mut rect);
+                }
+                super::state().position = Some((rect.left, rect.top));
                 LRESULT(0)
             }
             // 换到另一块不同缩放的屏幕：按新 DPI 重排
@@ -1567,6 +1613,8 @@ mod imp {
     }
 
     pub(super) fn show(_hwnd: isize) {}
+
+    pub(super) fn move_to(_hwnd: isize, _x: i32, _y: i32) {}
 
     pub(super) fn hide(_hwnd: Option<isize>) {}
 
