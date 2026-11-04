@@ -1089,37 +1089,15 @@ class _LibraryPageState extends State<LibraryPage>
                                 bottom: 0,
                                 child: _buildPlayerIsland(),
                               ),
-                              // 定位正在播放：浮在播放岛正上方，右边界和岛对齐。
-                              // 没有正在播放的曲目时不出现
+                              // 定位正在播放：浮在播放岛右上方，贴内容区右边缘。
+                              // 不跟随岛的宽度——岛右边缘随窗口变化，窄窗口时正好
+                              // 落到行尾收藏图标上；固定贴右边距可以稳定避开
                               if (_locatableScroll != null &&
                                   _currentTrack != null)
                                 Positioned(
-                                  left: 0,
-                                  right: 0,
+                                  right: 8,
                                   bottom: PlayerBar.occupiedHeight + 8,
-                                  // 套一层和岛完全相同的「居中 + 封顶」约束，
-                                  // 按钮的右边界自然落在岛右边缘上，不必写死数值：
-                                  // 窗口比岛宽时跟着岛走，比岛窄时跟着内容区走
-                                  child: Center(
-                                    heightFactor: 1,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: _playerBarMaxWidth,
-                                      ),
-                                      child: Padding(
-                                        // 岛的外框比卡片本身左右各宽
-                                        // [PlayerBar.cardSidePadding]，右边界要落在
-                                        // 卡片上，不是外框上
-                                        padding: const EdgeInsets.only(
-                                          right: PlayerBar.cardSidePadding,
-                                        ),
-                                        child: Align(
-                                          alignment: Alignment.centerRight,
-                                          child: _buildLocateButton(scheme),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                  child: _buildLocateButton(scheme),
                                 ),
                             ],
                           ),
