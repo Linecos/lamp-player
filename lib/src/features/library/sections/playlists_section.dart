@@ -447,10 +447,48 @@ extension _PlaylistsSection on _LibraryPageState {
 
   Widget _buildPlaylistsSection(BuildContext context) {
     final Playlist? selected = _selectedPlaylist;
-    if (selected != null) {
-      return _buildPlaylistDetail(context, selected);
-    }
 
+    // 列表 ↔ 详情之间做个淡入上滑，和设置页进听歌统计同款：只动不透明度与
+    // 位移，两份子树各自 RepaintBoundary，不会每帧重画。切换的 180ms 里两份
+    // 共存，结束后仍然只有一份。
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
+        fit: StackFit.expand,
+        children: <Widget>[...previous, ?current],
+      ),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            // 位移只给 1.5%（约 10px）：淡入一点点上浮就够，别做成整页平移
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.015),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      // key 一变才会触发过渡：列表与每个歌单详情各用一个 key
+      child: selected == null
+          ? KeyedSubtree(
+              key: const ValueKey<String>('playlists-list'),
+              child: RepaintBoundary(child: _buildPlaylistsList(context)),
+            )
+          : KeyedSubtree(
+              key: ValueKey<String>('playlist-detail-${selected.id}'),
+              child: RepaintBoundary(
+                child: _buildPlaylistDetail(context, selected),
+              ),
+            ),
+    );
+  }
+
+  /// 歌单列表页：标题 + 导入 / 新建 + 卡片网格
+  Widget _buildPlaylistsList(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final List<Playlist> visible = _filterPlaylists(_playlists);
@@ -541,6 +579,7 @@ extension _PlaylistsSection on _LibraryPageState {
   Widget _buildPlaylistDetail(BuildContext context, Playlist playlist) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final String? coverPath = playlist.coverPath;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -557,19 +596,23 @@ extension _PlaylistsSection on _LibraryPageState {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Container(
-                width: 128,
-                height: 128,
-                decoration: BoxDecoration(
-                  color: scheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(32),
+              // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
+              if (coverPath != null && coverPath.isNotEmpty)
+                AlbumCover(path: coverPath, size: 128, radius: 32)
+              else
+                Container(
+                  width: 128,
+                  height: 128,
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(32),
+                  ),
+                  child: Icon(
+                    Icons.queue_music,
+                    size: 48,
+                    color: scheme.onSecondaryContainer,
+                  ),
                 ),
-                child: Icon(
-                  Icons.queue_music,
-                  size: 48,
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
               const SizedBox(width: 24),
               Expanded(
                 child: Column(

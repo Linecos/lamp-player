@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
 
@@ -65,6 +66,7 @@ class _PlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final String? coverPath = playlist.coverPath;
 
     return Material(
       color: scheme.surface,
@@ -80,19 +82,24 @@ class _PlaylistCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
           child: Row(
             children: <Widget>[
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: scheme.secondaryContainer,
-                  // 32 外框 - 12 内边距 = 20，内外圆角才平行
-                  borderRadius: BorderRadius.circular(20),
+              // 歌单自己没有封面图：拿最新加入那首歌的（由仓储一次查出来），
+              // 一首都没封面时才退回歌单图标
+              if (coverPath != null && coverPath.isNotEmpty)
+                AlbumCover(path: coverPath, size: 56, radius: 20)
+              else
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    // 32 外框 - 12 内边距 = 20，内外圆角才平行
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.queue_music,
+                    color: scheme.onSecondaryContainer,
+                  ),
                 ),
-                child: Icon(
-                  Icons.queue_music,
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

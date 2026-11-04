@@ -115,6 +115,9 @@ class Playlist {
   /// 曲目数
   final int trackCount;
 
+  /// 封面：取最新加入、且确实有封面的那首曲目的封面；空歌单或都没封面时是 None
+  final String? coverPath;
+
   /// 创建时间戳（Unix 秒）
   final PlatformInt64 createdAt;
 
@@ -125,6 +128,7 @@ class Playlist {
     required this.id,
     required this.name,
     required this.trackCount,
+    this.coverPath,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -134,6 +138,7 @@ class Playlist {
       id.hashCode ^
       name.hashCode ^
       trackCount.hashCode ^
+      coverPath.hashCode ^
       createdAt.hashCode ^
       updatedAt.hashCode;
 
@@ -145,6 +150,7 @@ class Playlist {
           id == other.id &&
           name == other.name &&
           trackCount == other.trackCount &&
+          coverPath == other.coverPath &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
 }

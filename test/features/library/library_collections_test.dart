@@ -1,12 +1,111 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
 void main() {
+  testWidgets('歌单封面取最新加入那首歌的封面', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(
+          title: '夜航',
+          path: '/music/夜航.mp3',
+          coverPath: '/covers/a.jpg',
+        ),
+        sampleTrack(
+          title: '潮汐',
+          path: '/music/潮汐.mp3',
+          coverPath: '/covers/b.jpg',
+        ),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/潮汐.mp3');
+      },
+    );
+    await openPlaylists(tester);
+
+    final Finder cover = find.descendant(
+      of: find.byType(PlaylistGridView),
+      matching: find.byType(AlbumCover),
+    );
+    expect(cover, findsOneWidget, reason: '有封面时不该再显示歌单图标占位');
+    expect(
+      tester.widget<AlbumCover>(cover).path,
+      '/covers/b.jpg',
+      reason: '取最新加入的那首（潮汐）的封面',
+    );
+  });
+
+  testWidgets('歌单列表与详情之间有淡入上滑的过场', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      seed: (FakeLibraryRepository repo) async {
+        await repo.createPlaylist('晨间');
+      },
+    );
+    await openPlaylists(tester);
+
+    final Finder list = find.byKey(const ValueKey<String>('playlists-list'));
+    final Finder detail = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith(
+            'playlist-detail-',
+          ),
+    );
+    expect(list, findsOneWidget);
+    expect(detail, findsNothing);
+
+    await tester.tap(find.text('晨间'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // 过渡中两份子树共存：旧的淡出、新的淡入
+    expect(list, findsOneWidget, reason: '淡出的列表还在');
+    expect(detail, findsOneWidget, reason: '淡入的详情已经进来');
+
+    await tester.pumpAndSettle();
+    expect(list, findsNothing, reason: '过渡结束只剩详情，不常驻两份');
+    expect(detail, findsOneWidget);
+  });
+
+  testWidgets('歌单详情头部也显示封面', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(
+          title: '夜航',
+          path: '/music/夜航.mp3',
+          coverPath: '/covers/a.jpg',
+        ),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+      },
+    );
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+
+    // 列表行自己也有小封面，按尺寸挑头部那张
+    final Finder header = find.byWidgetPredicate(
+      (Widget widget) => widget is AlbumCover && widget.size == 128,
+    );
+    expect(header, findsOneWidget, reason: '详情头部应该显示封面，而不是歌单图标占位');
+    expect(tester.widget<AlbumCover>(header).path, '/covers/a.jpg');
+  });
+
   testWidgets('歌单分区可新建歌单并展示卡片', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     await openPlaylists(tester);

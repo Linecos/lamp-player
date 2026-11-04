@@ -3126,14 +3126,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Playlist dco_decode_playlist(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return Playlist(
       id: dco_decode_i_64(arr[0]),
       name: dco_decode_String(arr[1]),
       trackCount: dco_decode_i_32(arr[2]),
-      createdAt: dco_decode_i_64(arr[3]),
-      updatedAt: dco_decode_i_64(arr[4]),
+      coverPath: dco_decode_opt_String(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+      updatedAt: dco_decode_i_64(arr[5]),
     );
   }
 
@@ -3656,12 +3657,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_id = sse_decode_i_64(deserializer);
     var var_name = sse_decode_String(deserializer);
     var var_trackCount = sse_decode_i_32(deserializer);
+    var var_coverPath = sse_decode_opt_String(deserializer);
     var var_createdAt = sse_decode_i_64(deserializer);
     var var_updatedAt = sse_decode_i_64(deserializer);
     return Playlist(
       id: var_id,
       name: var_name,
       trackCount: var_trackCount,
+      coverPath: var_coverPath,
       createdAt: var_createdAt,
       updatedAt: var_updatedAt,
     );
@@ -4172,6 +4175,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.id, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_i_32(self.trackCount, serializer);
+    sse_encode_opt_String(self.coverPath, serializer);
     sse_encode_i_64(self.createdAt, serializer);
     sse_encode_i_64(self.updatedAt, serializer);
   }
