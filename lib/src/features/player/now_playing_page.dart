@@ -9,7 +9,6 @@ import '../../app/immersive_chrome.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
-import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
@@ -20,6 +19,7 @@ import '../../theme/app_theme.dart';
 import '../library/library_sort.dart' show splitTrackArtists, trackArtist;
 import 'artist_picker_dialog.dart';
 import 'cover_palette.dart';
+import 'cover_spin.dart';
 import 'lyric_alignment.dart';
 import 'lyrics_view.dart';
 import 'output_device_dialog.dart';
@@ -226,9 +226,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   static const double _spectrumBottom = 6;
   static const double _spectrumHeight = 72;
 
-  /// 圆形封面转一圈的时间（唱片机那种缓慢匀速）
-  static const Duration _coverSpinPeriod = Duration(seconds: 25);
-
   lyrics_api.TrackLyrics? _lyrics;
   String? _loadedPath;
   bool _loading = false;
@@ -250,16 +247,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 播放 / 暂停：只驱动封面的跳动图标，范围比整页小得多。
   final ValueNotifier<bool> _playing = ValueNotifier<bool>(false);
 
-  /// 圆形封面的旋转角度（0~1 圈）：只在「圆形封面 + 正在播放」时转，
-  /// 暂停停在当前角度。用 [UiClock.fast]（60fps）推进：旋转是最吃时间分辨率的
-  /// 动作，15fps 一眼看出停顿、30fps 仍略跳；跟着显示器刷新率走的话，240Hz 屏上
-  /// 等于每帧重新旋转、重新贴图。
-  final ValueNotifier<double> _coverTurns = ValueNotifier<double>(0);
-
-  /// 暂停前累计转过的秒数 / 本次开始转的时刻（[UiClock] 秒）
-  double _spinElapsed = 0;
-  double _spinStartedAt = 0;
-  bool _spinning = false;
+  /// 圆形封面的旋转角度由 [CoverSpin] 统一维护：播放页只上报「我在转」，
+  /// 角度本身跟播放条、Hero 飞行共用，退场时才不会跳回正面。
 
   /// 拖动中的预览位置：松手才真正 seek，避免一次拖动发出几十条命令。
   ///
@@ -476,8 +465,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     pageOwnsWindowControls.value = false;
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
-    _stopSpin();
-    _coverTurns.dispose();
+    CoverSpin.release(this);
     _position.dispose();
     _track.dispose();
     _playing.dispose();
@@ -499,51 +487,29 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     if (_playing.value != data.isPlaying) {
       _playing.value = data.isPlaying;
-      _syncCoverSpin();
     }
     if (_position.value != data.position) {
       _position.value = data.position;
     }
     _syncTrack();
+    // 每次都调：它同时负责「关掉圆形封面就回正」，只在播放态变化时调会漏掉
+    // 进入页面那一刻（暂停着进来时不会触发上面的分支）
+    _syncCoverSpin();
     // 进度与播放态由各自的 builder 局部刷新。
     // 这里不再 setState：每 500ms 整页重建会让歌词列表跟着重新布局。
   }
 
   /// 圆形封面转不转：只有「圆形封面 + 正在播放」才转，暂停停在当前角度。
   ///
-  /// 暂停时把已转的秒数累计下来，再播能接着原来的角度转，不会跳回正面。
-  /// 关掉圆形封面时角度归零，下次打开从正面开始。
+  /// 角度不在这里算，交给 [CoverSpin]：播放条那枚小封面与 Hero 飞行用的
+  /// shuttle 读的是同一个相位，退场才能接着转。关掉圆形封面时回正，
+  /// 下次打开从正面开始。
   void _syncCoverSpin() {
-    if (!circularCovers.value) {
-      _stopSpin();
-      _spinElapsed = 0;
-      _coverTurns.value = 0;
-      return;
+    final bool circular = circularCovers.value;
+    CoverSpin.sync(this, playing: _playing.value, circular: circular);
+    if (!circular) {
+      CoverSpin.resetAngle();
     }
-    if (_playing.value) {
-      if (!_spinning) {
-        _spinning = true;
-        _spinStartedAt = UiClock.fast.seconds;
-        UiClock.fast.addListener(_onSpinTick);
-      }
-    } else {
-      _stopSpin();
-    }
-  }
-
-  void _stopSpin() {
-    if (!_spinning) {
-      return;
-    }
-    _spinElapsed += UiClock.fast.seconds - _spinStartedAt;
-    _spinning = false;
-    UiClock.fast.removeListener(_onSpinTick);
-  }
-
-  void _onSpinTick() {
-    final double seconds = _spinElapsed + UiClock.fast.seconds - _spinStartedAt;
-    _coverTurns.value =
-        (seconds / (_coverSpinPeriod.inMilliseconds / 1000)) % 1;
   }
 
   /// 音量步进（快捷键用）；夹在 0..1，与音量滑条同一约束
@@ -1091,7 +1057,15 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             // 就直接断言失败并退回 saveLayer——每帧一次。之前为了让收尾
                             // 「平滑」加的交叉淡化，反而让转场最后几帧全走这条慢路径
                             flightShuttleBuilder: (_, _, _, _, _) =>
-                                coverFlightShuttle(size: size, cover: cover),
+                                coverFlightShuttle(
+                                  size: size,
+                                  cover: cover,
+                                  // 飞行途中接着转：shuttle 是另一棵子树，
+                                  // 不自己盯着相位就会退回正面
+                                  turns: circularCovers.value
+                                      ? CoverSpin.turns
+                                      : null,
+                                ),
                             // 阴影挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
                             // 还杵在原地
                             child: CoverShadow(
@@ -1100,7 +1074,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                               // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
                               // 光栅），反过来套一层边界就每帧重新光栅化一遍
                               child: ValueListenableBuilder<double>(
-                                valueListenable: _coverTurns,
+                                valueListenable: CoverSpin.turns,
                                 // 25s 一圈：只在圆形封面 + 播放中才转（见 _syncCoverSpin）
                                 builder:
                                     (
