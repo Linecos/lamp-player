@@ -378,11 +378,9 @@ extension _PlaybackSection on _LibraryPageState {
   /// 从别处跳到某个分区的详情（艺术家 / 专辑）。
   ///
   /// 先退掉播放页——详情在曲库页里，留在播放页上什么都看不到。然后交给
-  /// [_selectSection] 切分区：它这一帧只换侧栏高亮，内容与「清空选中」
-  /// 都发生在下一帧，所以选中要再往后推一帧，否则刚设上的值会被它抹掉。
-  ///
-  /// 已在该分区时 [_selectSection] 会同步清空选中后直接返回，那种情况
-  /// 下这一帧的 post-frame 也照样在，顺序不变。
+  /// [_selectSection] 把「换分区」和「选中目标」放在同一帧完成：单独往后推
+  /// 一帧的话，中间那一帧会先把目标分区的列表画出来，看着就像「先跳到列表、
+  /// 才跳到详情」。
   void _jumpToDetail({
     required LibrarySection section,
     required VoidCallback select,
@@ -393,13 +391,7 @@ extension _PlaybackSection on _LibraryPageState {
     }
     _clearSearch();
     _clearSelection();
-    _selectSection(section);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _update(select);
-    });
+    _selectSection(section, select: select);
   }
 
   Future<void> _playAll(List<Track> tracks) async {
