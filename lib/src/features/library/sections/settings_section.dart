@@ -10,7 +10,13 @@ extension _SettingsSection on _LibraryPageState {
     // 设置列表 ↔ 统计子界面之间做个淡入上滑：直接换掉太突兀，而这个过渡
     // 只动不透明度与位移，两份子树各自 RepaintBoundary，不会每帧重画。
     // 只在切换的 180ms 里两者共存，之后仍然是一份，和「不常驻」一致。
+    //
+    // key 带分区世代：从别的分区切回来时换一个新的，免得它记着切走前的统计页
+    // 再淡出 180ms。
     return AnimatedSwitcher(
+      key: ValueKey<String>(
+        'settings-epoch-${_sectionEpochs[LibrarySection.settings] ?? 0}',
+      ),
       duration: const Duration(milliseconds: 180),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,

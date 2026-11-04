@@ -247,6 +247,22 @@ class _LibraryPageState extends State<LibraryPage>
   final Map<LibrarySection, Widget> _sections = <LibrarySection, Widget>{};
   final Map<LibrarySection, int> _sectionVersions = <LibrarySection, int>{};
 
+  /// 每个分区快照是「列表」还是「某条详情」的签名。
+  ///
+  /// 列表与详情共用同一个分区、共用同一份快照缓存，只看版本号分不出来。
+  /// 切分区会清掉选中，若仍拿旧快照顶着，切回来就会先闪一下之前那条详情
+  /// （歌单 / 艺术家 / 专辑 / 统计都踩得到）。
+  final Map<LibrarySection, String> _sectionSelections =
+      <LibrarySection, String>{};
+
+  /// 分区被「切入」的世代。跨分区切回来时 +1。
+  ///
+  /// 分区内部的过渡（歌单列表 ↔ 详情、设置 ↔ 统计）靠 `AnimatedSwitcher`
+  /// 的 State 记住上一份内容；跨分区时这份记忆反而是负担——切回来会把
+  /// 切走前的详情再淡出 180ms。用它当那层 `AnimatedSwitcher` 的 key，
+  /// 只在跨分区时把它重置；同分区内来回切仍然保留过渡动画。
+  final Map<LibrarySection, int> _sectionEpochs = <LibrarySection, int>{};
+
   /// 任何影响分区内容的状态变化都会 +1（统一走 [_update]）
   int _stateVersion = 0;
 
@@ -1469,10 +1485,26 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
-  void _selectSection(LibrarySection section) {
+  /// 切换分区。
+  ///
+  /// [select] 用于「一步进详情」（从听歌统计、正在播放页点艺术家 / 专辑）：
+  /// 目标详情的选中与分区切换落在同一帧，不会先露出目标分区的列表。
+  void _selectSection(LibrarySection section, {VoidCallback? select}) {
     if (section == _section) {
       // 已在该分区时，再点一次导航相当于「回到列表」：
       // 不应把用户困在歌单 / 艺术家 / 专辑详情里。
+      if (select != null) {
+        // 带目标详情的调用：先抹掉当前详情，再落到新详情
+        _update(() {
+          _selectedArtist = null;
+          _selectedAlbumKey = null;
+          _selectedPlaylistId = null;
+          _settingsStatsOpen = false;
+          select();
+        });
+        _clearSelection();
+        return;
+      }
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
           _selectedAlbumKey != null ||
@@ -1490,6 +1522,9 @@ class _LibraryPageState extends State<LibraryPage>
     }
     // 第一帧只换侧栏高亮：新分区首次构建较重，同步构建会把点击的水波纹卡住。
     // 高亮走独立通知器，所以这一帧整页不重建。
+    // 离开前先记下它是不是正开着详情：下面会顺手把统计子页关掉，签名就没了
+    final LibrarySection previous = _section;
+    final bool leavingDetail = _selectionSignature(previous).isNotEmpty;
     _section = section;
     _sectionNotifier.value = section;
     // 离开设置就收起统计子页：下次进来是设置列表，统计的列表与热力图也不
@@ -1515,6 +1550,15 @@ class _LibraryPageState extends State<LibraryPage>
       }
       setState(() {
         _displayedSection = section;
+        _sectionEpochs[section] = (_sectionEpochs[section] ?? 0) + 1;
+        // 离开一个正开着详情的分区时，把它那层 AnimatedSwitcher 也重置掉：
+        // 清选中会让它从「详情」过渡到「列表」，但分区这时是 Offstage、
+        // TickerMode 冻结了动画 —— 等用户切回来，那 180ms 的淡出才继续跑，
+        // 看着就是「先显示之前的详情，再迅速换成列表」。
+        if (leavingDetail) {
+          _sectionEpochs[previous] = (_sectionEpochs[previous] ?? 0) + 1;
+          _forgetSection(previous);
+        }
         _selectedArtist = null;
         _selectedAlbumKey = null;
         _selectedPlaylistId = null;
@@ -1522,8 +1566,16 @@ class _LibraryPageState extends State<LibraryPage>
         if (clearedQuery) {
           _stateVersion += 1;
         }
-        // 已有快照的分区这一帧先显示旧内容，淡入结束后再补新数据
-        _justSwitched = section;
+        if (select == null) {
+          // 已有快照的分区这一帧先显示旧内容，淡入结束后再补新数据
+          _justSwitched = section;
+        } else {
+          // 一步进详情：这一帧就得构建详情，不能拿目标分区的列表快照顶着
+          // （带着它会出现「先闪一下列表再跳走」）。
+          _forgetSection(section);
+          _justSwitched = null;
+          select();
+        }
       });
       _clearSelection();
 
@@ -1664,21 +1716,50 @@ class _LibraryPageState extends State<LibraryPage>
   /// - 快照与当前状态版本一致：原样返回，Element 直接跳过子树重建
   /// - 刚切换过来且已有快照：先返回旧快照（切换帧零重建），淡入结束后再补
   /// - 隐藏分区：不重建，等切回来
+  ///
+  /// 上面三条都必须先看 [_selectionSignature]：签名不同说明这份快照是
+  /// 「另一个页面」（列表 ↔ 某条详情），拿它顶着会先闪一下旧页面。
   Widget _cachedSection(BuildContext context, LibrarySection section) {
     final Widget? cached = _sections[section];
-    if (cached != null && _sectionVersions[section] == _stateVersion) {
-      return cached;
-    }
-    if (cached != null && section == _justSwitched) {
-      return cached;
-    }
-    if (cached != null && section != _displayedSection) {
-      return cached;
+    if (cached != null) {
+      final bool sameView =
+          _sectionSelections[section] == _selectionSignature(section);
+      if (sameView && _sectionVersions[section] == _stateVersion) {
+        return cached;
+      }
+      if (sameView && section == _justSwitched) {
+        return cached;
+      }
+      if (sameView && section != _displayedSection) {
+        return cached;
+      }
     }
     final Widget built = _buildSectionFor(context, section);
     _sections[section] = built;
     _sectionVersions[section] = _stateVersion;
+    _sectionSelections[section] = _selectionSignature(section);
     return built;
+  }
+
+  /// 分区快照里「显示的是哪个页面」的签名。空串 = 该分区的列表。
+  String _selectionSignature(LibrarySection section) {
+    return switch (section) {
+      LibrarySection.playlists => _selectedPlaylistId?.toString() ?? '',
+      LibrarySection.artists => _selectedArtist ?? '',
+      LibrarySection.albums => _selectedAlbumKey ?? '',
+      // 设置分区里，统计是子界面
+      LibrarySection.settings => _settingsStatsOpen ? 'stats' : '',
+      LibrarySection.music ||
+      LibrarySection.favorites ||
+      LibrarySection.history => '',
+    };
+  }
+
+  /// 丢掉某个分区的快照，下一次 build 重新构建。
+  void _forgetSection(LibrarySection section) {
+    _sections.remove(section);
+    _sectionVersions.remove(section);
+    _sectionSelections.remove(section);
   }
 
   Widget _buildSectionFor(BuildContext context, LibrarySection section) {

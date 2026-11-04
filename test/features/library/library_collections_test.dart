@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
+
+/// 歌单详情整棵子树：列表与详情共用一个分区，靠 key 区分。
+Finder _playlistDetail() => find.byWidgetPredicate(
+  (Widget widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith('playlist-detail-'),
+);
 
 void main() {
   testWidgets('歌单封面取最新加入那首歌的封面', (WidgetTester tester) async {
@@ -77,6 +85,80 @@ void main() {
     await tester.pumpAndSettle();
     expect(list, findsNothing, reason: '过渡结束只剩详情，不常驻两份');
     expect(detail, findsOneWidget);
+  });
+
+  testWidgets('离开歌单详情再点侧栏「歌单」，直接回到列表，不先闪之前的详情', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      seed: (FakeLibraryRepository repo) async {
+        await repo.createPlaylist('晨间');
+      },
+    );
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+    expect(_playlistDetail(), findsOneWidget);
+
+    // 切到音乐分区待一会儿，歌单分区被 Offstage 藏起来
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
+    );
+    await tester.pumpAndSettle();
+    expect(_playlistDetail(), findsNothing);
+
+    // 点回歌单：切换那一帧就该是列表，不能拿「详情」的旧快照顶着
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('歌单')),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(_playlistDetail(), findsNothing, reason: '切分区已经清掉选中，旧快照里的详情不该再露一帧');
+    expect(
+      find.byKey(const ValueKey<String>('playlists-list')),
+      findsOneWidget,
+    );
+
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('playlists-list')),
+      findsOneWidget,
+    );
+    expect(_playlistDetail(), findsNothing);
+  });
+
+  testWidgets('离开专辑详情再点侧栏「专辑」，直接回到列表', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    final Finder grid = find.byKey(const PageStorageKey<String>('grid:albums'));
+    Future<void> openAlbums() async {
+      await tester.tap(
+        find.descendant(
+          of: find.byType(LibraryRail),
+          matching: find.text('专辑'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await openAlbums();
+    await tester.tap(find.text('夜之专辑'));
+    await tester.pumpAndSettle();
+    expect(grid, findsNothing, reason: '已经进了专辑详情');
+    expect(find.text('播放全部'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
+    );
+    await tester.pumpAndSettle();
+
+    await openAlbums();
+    await tester.pump();
+    await tester.pump();
+
+    expect(grid, findsOneWidget, reason: '切回来就是列表，不该先露一下之前的详情');
+    expect(find.text('播放全部'), findsNothing);
   });
 
   testWidgets('歌单详情头部也显示封面', (WidgetTester tester) async {

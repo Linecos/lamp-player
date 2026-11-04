@@ -103,6 +103,53 @@ void main() {
     expect(find.text('曲目数量'), findsOneWidget);
   });
 
+  testWidgets('统计里点艺术家一步进详情，不先露出艺术家列表', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      statsRepository: _FakeStatsRepository(),
+    );
+    await openSettings(tester);
+    await tester.tap(find.text('听歌统计'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('rank-tab-artists')));
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(const ValueKey<String>('rank-artist-林间电台'));
+    // 统计页里有不止一个 Scrollable（外面这层 CustomScrollView 之外还有
+    // 横向滚动的部件），必须点名用列表这层滚
+    await tester.scrollUntilVisible(
+      row,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(row);
+    // 一帧收掉统计、下一帧就是详情：中间不给列表留位置
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(ListeningStatsView), findsNothing);
+    expect(
+      find.byKey(const PageStorageKey<String>('grid:artists')),
+      findsNothing,
+      reason: '艺术家列表不该闪一下再跳走',
+    );
+    expect(find.text('播放全部'), findsOneWidget, reason: '直接就是艺术家详情');
+
+    await tester.pumpAndSettle();
+    expect(find.text('播放全部'), findsOneWidget);
+    expect(
+      find.byKey(const PageStorageKey<String>('grid:artists')),
+      findsNothing,
+    );
+  });
+
   testWidgets('设置页列出已添加目录，可重新扫描', (WidgetTester tester) async {
     final FakeMusicFolderStore store = FakeMusicFolderStore(
       folders: <String>[r'D:\Music', r'E:\Songs'],
