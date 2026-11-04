@@ -167,7 +167,9 @@ void main() {
   });
 
   testWidgets('曲目信息字号跟着封面一起缩放', (WidgetTester tester) async {
-    Future<(double cover, double title, double meta)> measure(Size size) async {
+    Future<(double cover, double title, double meta, double gap)> measure(
+      Size size,
+    ) async {
       await _pump(tester, data: _data(), size: size);
       final AlbumCover cover = tester.widget<AlbumCover>(
         find.byType(AlbumCover),
@@ -176,28 +178,34 @@ void main() {
         cover.size,
         tester.getSize(find.text('夜航')).height,
         tester.getSize(find.text('林间电台')).height,
+        // 信息块底边到封面顶边的那道缝
+        tester.getRect(find.byType(AlbumCover)).top -
+            tester
+                .getRect(find.byKey(const ValueKey<String>('now-playing-info')))
+                .bottom,
       );
     }
 
-    final (double bigCover, double bigTitle, double bigMeta) = await measure(
-      const Size(1440, 900),
-    );
-    final (double midCover, double midTitle, double midMeta) = await measure(
-      const Size(1280, 900),
-    );
+    final (double bigCover, double bigTitle, double bigMeta, double bigGap) =
+        await measure(const Size(1440, 900));
+    final (double midCover, double midTitle, double midMeta, double midGap) =
+        await measure(const Size(1280, 900));
 
     expect(midCover, lessThan(bigCover), reason: '窗口变小封面也变小');
     // 文字与封面同比例缩放（而不是固定字号）
     final double coverRatio = midCover / bigCover;
     expect(midTitle / bigTitle, closeTo(coverRatio, 0.06));
     expect(midMeta / bigMeta, closeTo(coverRatio, 0.06));
+    // 字与封面之间的间距也跟着缩，否则大窗口里字会像贴在封面上
+    expect(bigGap, greaterThan(midGap));
+    expect(midGap / bigGap, closeTo(coverRatio, 0.06));
 
     // 最小窗口：缩放下限兜底，但一定比 1280 时小
-    final (_, double smallTitle, double smallMeta) = await measure(
-      const Size(900, 560),
-    );
+    final (_, double smallTitle, double smallMeta, double smallGap) =
+        await measure(const Size(900, 560));
     expect(smallTitle, lessThan(midTitle));
     expect(smallMeta, lessThan(midMeta));
+    expect(smallGap, lessThan(midGap));
   });
 
   testWidgets('点歌手 / 专辑分别回调跳转', (WidgetTester tester) async {
