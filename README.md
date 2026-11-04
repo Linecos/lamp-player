@@ -11,7 +11,7 @@
 ## 界面预览
 
 <p align="center">
-  <img src="docs/images/music.png" alt="曲库列表：封面、排序、收藏与播放条" width="860">
+  <img src="docs/images/music.png" alt="曲库列表：封面、排序、收藏与播放岛" width="860">
 </p>
 
 <p align="center">
@@ -127,7 +127,7 @@ cargo fetch --manifest-path rust/Cargo.toml
 ├── integration_test/          桌面端集成测试（需真实原生库）
 ├── windows/                   Windows 宿主工程
 ├── scripts/                   环境与检查脚本
-├── docs/                      架构、接口契约、路线图
+├── docs/                      架构、接口契约、性能报告、路线图
 └── third_party/               第三方二进制（BASS，不入库）
 ```
 
