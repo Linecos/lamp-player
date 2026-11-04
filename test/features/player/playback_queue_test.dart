@@ -58,21 +58,47 @@ void main() {
     expect(queue.current?.title, 'B');
   });
 
-  test('随机播放一轮内不重复，循环模式会重洗', () {
+  test('随机播放每次现抽一首：没有最后一首，也不会连播同一首', () {
     final PlaybackQueue queue = PlaybackQueue(
       tracks: _tracks(),
-      repeat: LoopMode.all,
+      // 不传 repeat，默认 off —— 随机模式不该受它影响
       shuffle: true,
       random: Random(7),
     );
 
-    final Set<String> visited = <String>{};
-    for (int i = 0; i < 3; i += 1) {
-      visited.add(queue.current!.title);
-      queue.advance();
+    int previous = queue.index;
+    for (int i = 0; i < 20; i += 1) {
+      final int? next = queue.advance();
+      expect(next, isNotNull, reason: '第 ${i + 1} 次切歌不该遇到"最后一首"');
+      expect(next, isNot(previous), reason: '不会连着放同一首');
+      previous = next!;
     }
-    expect(visited.length, 3, reason: '一轮内每首只出现一次');
-    expect(queue.current?.title, isNotNull);
+    expect(queue.hasNext, isTrue);
+  });
+
+  test('随机抽到的下一首是稳定的：连问几次结果不变，切过去才重抽', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(7),
+    );
+
+    final int? picked = queue.peekNext();
+    expect(picked, isNotNull);
+    expect(queue.peekNext(), picked);
+    expect(queue.hasNext, isTrue, reason: 'hasNext 内部也会问一次，但不该改结果');
+    expect(queue.advance(), picked);
+  });
+
+  test('随机模式下只有一首也会重播', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: <Track>[sampleTrack(title: 'A')],
+      shuffle: true,
+      random: Random(1),
+    );
+
+    expect(queue.peekNext(), 0);
+    expect(queue.advance(auto: true), 0);
   });
 
   test('随机模式下「下一首播放」仍然先播指定曲目', () {
@@ -92,7 +118,7 @@ void main() {
     expect(queue.current?.title, 'C');
   });
 
-  test('随机模式下追加曲目不会打乱这一轮的顺序', () {
+  test('随机模式下追加曲目不会改变已经抽好的下一首', () {
     final PlaybackQueue queue = PlaybackQueue(
       tracks: _tracks(),
       shuffle: true,
@@ -101,7 +127,7 @@ void main() {
     final int? before = queue.peekNext();
 
     expect(queue.append(sampleTrack(title: 'D')), isTrue);
-    expect(queue.peekNext(), before, reason: '追加不应重洗待播顺序');
+    expect(queue.peekNext(), before, reason: '追加不应换掉已经抽好的下一首');
   });
 
   test('插入下一首与追加都会去重并移动已有曲目', () {
