@@ -48,6 +48,69 @@ void main() {
     expect(nextDesktopLineStart(lyrics, 9000), isNull);
   });
 
+  test('逐字进度按字宽推进，唱完即 1', () {
+    const List<int> times = <int>[0, 1000, 2000];
+    const List<double> weights = <double>[10, 10, 10];
+
+    double ratio(double ms) => karaokeFillRatio(
+      times: times,
+      weights: weights,
+      lineEndMs: 3000,
+      positionMs: ms,
+    );
+
+    expect(ratio(0), 0);
+    expect(ratio(500), closeTo(1 / 6, 1e-9));
+    expect(ratio(1000), closeTo(1 / 3, 1e-9), reason: '刚唱完第一个字');
+    expect(ratio(2000), closeTo(2 / 3, 1e-9));
+    expect(ratio(3000), 1, reason: '最后一段走完就是整行');
+    expect(ratio(9000), 1, reason: '超出也不该溢出');
+  });
+
+  test('字宽不等时按实际宽度计', () {
+    const List<int> times = <int>[0, 1000];
+    const List<double> weights = <double>[10, 30];
+    expect(
+      karaokeFillRatio(
+        times: times,
+        weights: weights,
+        lineEndMs: 2000,
+        positionMs: 1000,
+      ),
+      closeTo(0.25, 1e-9),
+      reason: '第一段只占 10/40',
+    );
+  });
+
+  test('时间轴缺失或宽度全 0 时给满（退化成整行亮）', () {
+    expect(
+      karaokeFillRatio(
+        times: const <int>[],
+        weights: const <double>[],
+        lineEndMs: 1000,
+        positionMs: 200,
+      ),
+      1,
+    );
+    expect(
+      karaokeFillRatio(
+        times: const <int>[0, 500],
+        weights: const <double>[0, 0],
+        lineEndMs: 1000,
+        positionMs: 200,
+      ),
+      1,
+    );
+  });
+
+  test('行索引随位置推进，第一行之前是 -1', () {
+    final TrackLyrics lyrics = _lyrics(<int>[1500, 3000]);
+    expect(desktopLineIndexAt(lyrics, 0), -1);
+    expect(desktopLineIndexAt(lyrics, 1499), -1);
+    expect(desktopLineIndexAt(lyrics, 1500), 0);
+    expect(desktopLineIndexAt(lyrics, 3600), 1);
+  });
+
   test('没有时间轴时两个函数都安全返回', () {
     const TrackLyrics empty = TrackLyrics(
       lines: <LyricLine>[],
