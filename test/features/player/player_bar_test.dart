@@ -1,8 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/common/widgets/cover_shape.dart';
+import 'package:lamp_player/src/features/player/cover_spin.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/features/player/spectrum_bars.dart';
@@ -398,6 +402,31 @@ void main() {
     await tester.tap(cover);
     await tester.pump();
     expect(opens, 1);
+  });
+
+  testWidgets('圆形封面时播放条小封面跟着同一相位转', (WidgetTester tester) async {
+    addTearDown(() => circularCovers.value = false);
+    CoverSpin.reset();
+    addTearDown(CoverSpin.reset);
+
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'), isPlaying: true);
+    expect(
+      find.byKey(const ValueKey<String>('spinning-cover')),
+      findsNothing,
+      reason: '方形封面不转',
+    );
+
+    circularCovers.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+
+    final Transform spin = tester.widget<Transform>(
+      find.byKey(const ValueKey<String>('spinning-cover')),
+    );
+    final List<double> m = spin.transform.storage;
+    final double turns = math.atan2(m[1], m[0]) / (2 * math.pi);
+    // 5 秒 / 25 秒一圈；播放条与大封面共用同一份相位，Hero 落地才不会跳一下
+    expect(turns, closeTo(5 / 25, 0.02));
   });
 
   testWidgets('曲名区域也可点打开正在播放页', (WidgetTester tester) async {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'cover_shape.dart';
@@ -479,7 +481,25 @@ class CoverShadow extends StatelessWidget {
 /// 代价要控住：飞行框的边长每帧都在变，把阴影直接铺进去等于每帧按新尺寸重做
 /// 一次 28px 高斯模糊。所以按大图尺寸备一份「带阴影的封面」，外面套固定尺寸的
 /// `RepaintBoundary`，每帧只改一个缩放矩阵。
-Widget coverFlightShuttle({required double size, required Widget cover}) {
+Widget coverFlightShuttle({
+  required double size,
+  required Widget cover,
+  ValueListenable<double>? turns,
+}) {
+  // 圆形封面飞行途中接着转：shuttle 是独立子树，不自己盯着相位的话，
+  // 退场第一帧就会退回正面（「先回到最开始的样子再退出」就是这一帧）
+  final Widget art = turns == null
+      ? cover
+      : ValueListenableBuilder<double>(
+          valueListenable: turns,
+          builder: (BuildContext context, double value, Widget? child) =>
+              Transform.rotate(
+                key: const ValueKey<String>('cover-shuttle-spin'),
+                angle: value * math.pi * 2,
+                child: child,
+              ),
+          child: cover,
+        );
   return LayoutBuilder(
     builder: (BuildContext context, BoxConstraints constraints) {
       final double side = constraints.biggest.shortestSide;
@@ -498,7 +518,7 @@ Widget coverFlightShuttle({required double size, required Widget cover}) {
             child: RepaintBoundary(
               child: Padding(
                 padding: const EdgeInsets.all(CoverShadow.spread),
-                child: CoverShadow(radius: 28, child: cover),
+                child: CoverShadow(radius: 28, child: art),
               ),
             ),
           ),
