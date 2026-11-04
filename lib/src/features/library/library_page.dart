@@ -1095,7 +1095,9 @@ class _LibraryPageState extends State<LibraryPage>
                               if (_locatableScroll != null &&
                                   _currentTrack != null)
                                 Positioned(
-                                  right: 8,
+                                  // 120 落在行尾「时长」列左侧的空白带里：
+                                  // 与行内容同样按右边界对齐，窗口变宽时相对位置不变
+                                  right: 120,
                                   bottom: PlayerBar.occupiedHeight + 8,
                                   child: _buildLocateButton(scheme),
                                 ),
