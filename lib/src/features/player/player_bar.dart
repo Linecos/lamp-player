@@ -12,6 +12,7 @@ import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
+import 'cover_spin.dart';
 import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
@@ -455,16 +456,21 @@ class _PlayerBarLeft extends StatelessWidget {
                   tag: coverHeroTag,
                   createRectTween: (Rect? begin, Rect? end) =>
                       RectTween(begin: begin, end: end),
-                  child: AlbumCover(
-                    path: current?.coverPath,
-                    size: _coverSize,
-                    radius: 16,
+                  // 圆形封面与小封面共用同一个旋转相位：播放页退出时封面是
+                  // 「接着转」飞回来的，落地也不会突然跳回正面（见 CoverSpin）
+                  child: SpinningCover(
                     playing: isPlaying,
-                    // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
-                    // 就成了「从别处飞过来」，几乎只留淡入才自然
-                    animateOnChange: true,
-                    transitionDuration: const Duration(milliseconds: 300),
-                    transitionScale: 1.04,
+                    child: AlbumCover(
+                      path: current?.coverPath,
+                      size: _coverSize,
+                      radius: 16,
+                      playing: isPlaying,
+                      // 56px 的小图用比大封面更短的过渡、更小的起缩比：幅度一大
+                      // 就成了「从别处飞过来」，几乎只留淡入才自然
+                      animateOnChange: true,
+                      transitionDuration: const Duration(milliseconds: 300),
+                      transitionScale: 1.04,
+                    ),
                   ),
                 ),
               ),
