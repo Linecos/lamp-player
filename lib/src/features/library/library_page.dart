@@ -33,6 +33,7 @@ import '../player/equalizer_dialog.dart';
 import '../player/lyric_alignment.dart';
 import '../player/now_playing_page.dart';
 import '../player/now_playing_route.dart';
+import '../player/desktop_lyric_cue.dart';
 import '../player/queue_dialog.dart';
 import '../player/shortcuts.dart';
 import '../settings/shortcuts_page.dart';
@@ -147,6 +148,10 @@ class _LibraryPageState extends State<LibraryPage>
     with SingleTickerProviderStateMixin {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
   static const Duration _pollInterval = Duration(milliseconds: 500);
+
+  /// 桌面歌词逐字的推进节奏（约 30fps）。只在「播放中 + 这一行有逐字时间轴 +
+  /// 桌面歌词开着」时才跑
+  static const Duration _karaokeInterval = Duration(milliseconds: 33);
 
   /// 听歌时长攒够这么多秒再写库：每拍写一次会把 SQLite 打满。
   static const double _playTimeFlushSeconds = 15;
@@ -442,6 +447,24 @@ class _LibraryPageState extends State<LibraryPage>
   String? _lyricsPath;
   String _desktopLine = '';
 
+  /// 桌面歌词的换行调度。
+  ///
+  /// 引擎位置每 500ms 才读一次，靠轮询去发现换行最多会慢半拍。这里记下
+  /// 「读位置那一刻的墙钟与位置」，播放中按墙钟外推当前时刻，再按歌词行的
+  /// 时间戳定一个定时器到点推送——推送次数没变多（每行仍只推一次），
+  /// 也没有提高轮询频率或重建次数。
+  Timer? _desktopLyricTimer;
+  DateTime? _lyricAnchorWall;
+  double _lyricAnchorPosition = 0;
+
+  /// 桌面歌词的逐字进度：当前行的字宽 / 时间轴，换行时算一次
+  Timer? _karaokeTimer;
+  lyrics_api.TrackLyrics? _karaokeLyrics;
+  int _karaokeLineIndex = -1;
+  List<int>? _karaokeTimes;
+  List<double>? _karaokeWeights;
+  int _karaokeEndMs = 0;
+
   /// 各分区列表的滚动控制：「定位正在播放」要按行高算目标偏移。
   ///
   /// 一个控制器只能挂一个 `ScrollView`，所以每个分区各备一个，按正在显示的分区取
@@ -679,6 +702,8 @@ class _LibraryPageState extends State<LibraryPage>
     _historyScroll.dispose();
     _playlistScroll.dispose();
     _flashTimer?.cancel();
+    _desktopLyricTimer?.cancel();
+    _karaokeTimer?.cancel();
     unawaited(_media.dispose());
     _searchFocus.removeListener(_onSearchFocusChanged);
     _searchFocus.dispose();
