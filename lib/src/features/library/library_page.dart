@@ -148,7 +148,12 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage>
     with SingleTickerProviderStateMixin {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
-  static const Duration _pollInterval = Duration(milliseconds: 500);
+
+  /// 进度轮询周期。
+  ///
+  /// 500ms（2fps）时进度条与时间文字是一格一格挪的，看着像卡；250ms 是
+  /// 「够顺滑、又不至于让 FFI 每秒跑十几次」的折中（`_ticking` 会挡重入）。
+  static const Duration _pollInterval = Duration(milliseconds: 250);
 
   /// 桌面歌词逐字的推进节奏（约 30fps）。只在「播放中 + 这一行有逐字时间轴 +
   /// 桌面歌词开着」时才跑
@@ -305,6 +310,12 @@ class _LibraryPageState extends State<LibraryPage>
   LibrarySort _sort = LibrarySort.library;
 
   List<Track> _tracks = const <Track>[];
+
+  /// 曲库加载的请求代次。
+  ///
+  /// 扫描结束后的静默刷新、`libraryChanged` 通知、手动重读可能同时发出，
+  /// 只认最后一次发起的那个结果；否则先发后返的旧数据会把新列表盖回去。
+  int _loadTracksGeneration = 0;
   List<Track>? _results;
   String _query = '';
   bool _loading = true;
@@ -489,6 +500,10 @@ class _LibraryPageState extends State<LibraryPage>
   /// 时间戳定一个定时器到点推送——推送次数没变多（每行仍只推一次），
   /// 也没有提高轮询频率或重建次数。
   Timer? _desktopLyricTimer;
+
+  /// 上面那个定时器对应的换行时刻（毫秒）：同一行还没到点时 `_publishProgress`
+  /// 不必每拍都拆掉重建（轮询 250ms 一次，重建次数是白给的）
+  int? _desktopLyricDueMs;
   DateTime? _lyricAnchorWall;
   double _lyricAnchorPosition = 0;
 

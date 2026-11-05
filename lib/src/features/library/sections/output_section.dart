@@ -253,26 +253,40 @@ extension _OutputSection on _LibraryPageState {
   /// 也不增加轮询频率、不触发任何重建。暂停 / 换曲 / 拖动都会经
   /// [_publishProgress] 重排，旧定时器先撤掉。
   void _scheduleDesktopLyricSwitch() {
-    _desktopLyricTimer?.cancel();
-    _desktopLyricTimer = null;
+    void clear() {
+      _desktopLyricTimer?.cancel();
+      _desktopLyricTimer = null;
+      _desktopLyricDueMs = null;
+    }
+
     final lyrics_api.TrackLyrics? lyrics = _lyrics;
     if (!_desktopLyrics ||
         !_isPlaying ||
         lyrics == null ||
         lyrics.lines.isEmpty) {
+      clear();
       return;
     }
     final int nowMs = (_desktopLyricPosition() * 1000).round();
     final int? nextMs = nextDesktopLineStart(lyrics, nowMs);
     if (nextMs == null) {
       // 已经是最后一行，等换曲 / 暂停时再重排
+      clear();
+      return;
+    }
+    // 还是同一个换行点，且定时器还活着：留着它，别每拍拆一次
+    // （[_publishProgress] 现在 250ms 走一次，之前是 500ms）
+    if (_desktopLyricTimer != null && _desktopLyricDueMs == nextMs) {
       return;
     }
     // 上限 30 秒：歌词文件里偶见超大间隔，别让一个定时器悬太久，
     // 否则暂停后要等很久才被下一拍撤掉
     final int delayMs = (nextMs - nowMs).clamp(0, 30000);
+    _desktopLyricTimer?.cancel();
+    _desktopLyricDueMs = nextMs;
     _desktopLyricTimer = Timer(Duration(milliseconds: delayMs), () {
       _desktopLyricTimer = null;
+      _desktopLyricDueMs = null;
       if (!mounted || !_desktopLyrics || !_isPlaying) {
         return;
       }
