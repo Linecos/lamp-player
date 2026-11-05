@@ -276,15 +276,39 @@ void main() {
 
     final List<FractionallySizedBox> bars = tester
         .widgetList<FractionallySizedBox>(
-          find.descendant(
-            of: find.byType(ListeningStatsView),
-            matching: find.byType(FractionallySizedBox),
-          ),
+          find.byKey(const ValueKey<String>('rank-share-bar')),
         )
         .toList();
     expect(bars, hasLength(2), reason: '每行一条');
     expect(bars.first.widthFactor, closeTo(1.0, 0.001), reason: '榜首占满');
     expect(bars.last.widthFactor, closeTo(0.25, 0.001), reason: '3 / 12');
+  });
+
+  testWidgets('热力图铺满卡片右侧，不会切掉一条要横向滚才露出来', (WidgetTester tester) async {
+    for (final Size size in <Size>[
+      const Size(700, 900),
+      const Size(900, 900),
+      const Size(1280, 900),
+      const Size(1600, 900),
+      const Size(1920, 900),
+    ]) {
+      await _pump(tester, _FakeStatsRepository(), size: size);
+      final Finder grid = find.descendant(
+        of: find.byKey(const ValueKey<String>('stats-heatmap')),
+        matching: find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.right,
+        ),
+      );
+      expect(grid, findsOneWidget, reason: '$size 下应有一层横向滚动');
+      final ScrollableState state = tester.state<ScrollableState>(grid);
+      expect(
+        state.position.maxScrollExtent,
+        lessThan(1),
+        reason: '$size 下网格比视口宽，右侧会被切掉',
+      );
+    }
   });
 
   testWidgets('宽窗口总览与热力图并排，窄窗口上下堆叠', (WidgetTester tester) async {
@@ -396,6 +420,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('夜航'), findsOneWidget, reason: '切回来还在，不用重新加载');
     expect(find.text('Bao The Whale'), findsNothing);
+  });
+
+  testWidgets('切换排行时选中框滑过去，两段等宽', (WidgetTester tester) async {
+    await _pump(tester, _FakeStatsRepository());
+    final Finder songs = find.byKey(const ValueKey<String>('rank-tab-songs'));
+    final Finder artists = find.byKey(
+      const ValueKey<String>('rank-tab-artists'),
+    );
+    expect(
+      tester.getSize(artists).width,
+      closeTo(tester.getSize(songs).width, 0.5),
+      reason: '两段等宽，滑块才只需平移、不必同时改尺寸',
+    );
+
+    final Finder chip = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('rank-tab-indicator')),
+          matching: find.byType(DecoratedBox),
+        )
+        .first;
+    expect(
+      tester.getRect(chip).left,
+      closeTo(tester.getRect(songs).left, 0.5),
+      reason: '默认贴在「常听歌曲」上',
+    );
+
+    await tester.tap(artists);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final Rect mid = tester.getRect(chip);
+    expect(
+      mid.left,
+      greaterThan(tester.getRect(songs).left),
+      reason: '滑到中途，不是一帧跳过去',
+    );
+    expect(mid.left, lessThan(tester.getRect(artists).left), reason: '此时还没到终点');
+
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(chip).left,
+      closeTo(tester.getRect(artists).left, 0.5),
+      reason: '停下时正对「常听艺术家」',
+    );
+    expect(
+      tester.getRect(chip).width,
+      closeTo(tester.getRect(artists).width, 0.5),
+    );
   });
 
   testWidgets('没有艺术家记录时给出空状态', (WidgetTester tester) async {
