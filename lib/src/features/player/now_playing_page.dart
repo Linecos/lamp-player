@@ -193,6 +193,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 比 [_infoReserve] 略小，那 8px 是留给尺寸预算的余量
   static const double _infoBlockHeight = 96;
 
+  /// 沉浸模式切换时两侧控件淡出 / 信息块收起的时长
+  static const Duration _chromeFade = Duration(milliseconds: 160);
+
   /// 专辑并入歌手行后空出的一行（2px 间距 + 17px 行高）：标题下移补位，
   /// 封面不跟着上移
   static const double _infoRefillHeight = 19;
@@ -825,6 +828,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           1,
           constraints.maxHeight - topPadding,
         );
+        // 沉浸模式只是把信息块淡出、占位还在，封面位置不变 —— 对齐线照旧
         final double revealAlignment =
             ((_infoBlockHeight + coverSize / 2) / lyricHeight).clamp(
               0.35,
@@ -978,27 +982,37 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // 曲目信息压在封面上面（对齐参考布局）：先读完「在放什么」，再往下看封面
-        MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-          child: Column(
-            key: const ValueKey<String>('now-playing-info'),
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
-              const SizedBox(height: _infoRefillHeight),
-              Text(
-                track.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+        // 曲目信息压在封面上面（对齐参考布局）：先读完「在放什么」，再往下看封面。
+        //
+        // 沉浸模式只留封面和歌词：这里**淡出但保留占位**。
+        // 收起高度会让封面上移近百像素、而歌词只挪一点点，两边对不齐；
+        // 保留占位则封面与歌词都纹丝不动，淡入淡出也和两侧控件一致。
+        AnimatedOpacity(
+          key: const ValueKey<String>('now-playing-info-fade'),
+          opacity: _immersive ? 0 : 1,
+          duration: _chromeFade,
+          curve: Curves.easeOut,
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+            child: Column(
+              key: const ValueKey<String>('now-playing-info'),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
+                const SizedBox(height: _infoRefillHeight),
+                Text(
+                  track.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              SizedBox(height: 6 * scale),
-              _metaLine(context, track),
-            ],
+                SizedBox(height: 6 * scale),
+                _metaLine(context, track),
+              ],
+            ),
           ),
         ),
         SizedBox(height: _infoCoverGap * scale),
@@ -1217,7 +1231,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         excluding: !visible,
         child: AnimatedOpacity(
           opacity: visible ? 1 : 0,
-          duration: const Duration(milliseconds: 160),
+          duration: _chromeFade,
           curve: Curves.easeOut,
           child: child,
         ),
