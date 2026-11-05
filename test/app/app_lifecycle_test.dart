@@ -135,4 +135,37 @@ void main() {
       await expectLater(lifecycle.runBeforeExit(), completes);
     });
   });
+
+  group('runShutdownOnce', () {
+    test('托盘退出与关窗退出各调一次，清理只跑一遍', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      int saved = 0;
+      int released = 0;
+      lifecycle.setBeforeExit(() async => saved += 1);
+
+      // 托盘菜单：先跑一遍
+      await lifecycle.runShutdownOnce(() async => released += 1);
+      expect(saved, 1);
+      expect(released, 1);
+
+      // 真正关窗时又会进到这里：不能再落一次盘、再关一次库
+      await lifecycle.runShutdownOnce(() async => released += 1);
+      expect(saved, 1, reason: '会话不能写第二遍（那时引擎已经关了）');
+      expect(released, 1);
+      expect(lifecycle.shutdownStarted, isTrue);
+    });
+
+    test('释放阶段抛错不外抛，也不影响「已经清理过」的判定', () async {
+      final AppLifecycle lifecycle = AppLifecycle();
+      await expectLater(
+        lifecycle.runShutdownOnce(() async => throw StateError('设备已拔')),
+        completes,
+      );
+      expect(lifecycle.shutdownStarted, isTrue);
+
+      int released = 0;
+      await lifecycle.runShutdownOnce(() async => released += 1);
+      expect(released, 0, reason: '失败也算跑过，不能无限重试');
+    });
+  });
 }

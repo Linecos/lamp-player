@@ -93,6 +93,31 @@ class AppLifecycle extends ChangeNotifier {
     }
   }
 
+  /// 退出清理是否已经跑过。
+  ///
+  /// 托盘菜单「退出」是「先清理、再关窗」，而关窗又会触发
+  /// `_handleClose` 的退出分支 —— 不加这个标志，会话落盘与关库会跑两遍，
+  /// 第二遍时引擎已经关掉，写回去的是空状态。
+  bool _shutdownStarted = false;
+
+  bool get shutdownStarted => _shutdownStarted;
+
+  /// 真正退出前的清理：**只跑第一次**。
+  ///
+  /// [release] 是释放引擎 / 系统媒体 / 曲库的那一步（`_shutdownResources`）。
+  Future<void> runShutdownOnce(Future<void> Function() release) async {
+    if (_shutdownStarted) {
+      return;
+    }
+    _shutdownStarted = true;
+    await runBeforeExit();
+    try {
+      await release();
+    } catch (error) {
+      debugPrint('释放资源失败：$error');
+    }
+  }
+
   /// 读取已保存的偏好；失败时保持默认值
   Future<void> restore() async {
     try {

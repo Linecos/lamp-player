@@ -164,11 +164,14 @@ Future<void> _showWindow() async {
 }
 
 /// 托盘菜单「退出」：真正结束进程（关窗默认只是隐藏）
+///
+/// 清理（会话落盘 → 关引擎 → 关库）走 [AppLifecycle.runShutdownOnce]：
+/// 关窗会再触发 `_handleClose` 的退出分支，那边调同一个入口时直接跳过，
+/// 不会把会话与关库各跑两遍。清理放在关窗之前也是保底——万一 `close()` 失败，
+/// 引擎和曲库不能留着不管。
 Future<void> _quitFromTray(AppLifecycle lifecycle, TrayController tray) async {
   lifecycle.requestQuit();
-  // 先让界面把播放会话落盘，再释放引擎；顺序反了会丢掉最后的位置
-  await lifecycle.runBeforeExit();
-  await _shutdownResources();
+  await lifecycle.runShutdownOnce(_shutdownResources);
   // 图标要在窗口关闭前撤掉，否则托盘里会留一个幽灵图标
   await tray.dispose();
   try {
@@ -427,8 +430,12 @@ class _AppWindowListener with WindowListener {
     } catch (error) {
       debugPrint('关闭前保存窗口状态失败：$error');
     }
-    await _lifecycle.runBeforeExit();
-    await _shutdownResources();
+    // 托盘菜单「退出」刚跑过这一步，这里会直接跳过
+    await _lifecycle.runShutdownOnce(_shutdownResources);
+    // 正常关窗退出（关掉「留在托盘」偏好 / 托盘不可用）也要撤图标：
+    // 不撤的话系统托盘里会留一个点了没反应的幽灵图标。
+    // 已经撤过时 dispose 自己会跳过（_ready 为 false）。
+    await _tray.dispose();
     try {
       await windowManager.setPreventClose(false);
       // 用 close() 而不是 destroy()：后者只投一条 WM_QUIT，窗口不销毁，
