@@ -9,6 +9,7 @@ extension _DataSection on _LibraryPageState {
   /// [silent] 用于扫描后的刷新：保留当前列表，不切加载态、失败也不换错误页，
   /// 否则每扫一个目录整个曲库都会闪一下「正在读取曲库…」。
   Future<void> _loadTracks({bool silent = false}) async {
+    final int generation = ++_loadTracksGeneration;
     if (!silent) {
       _update(() {
         _loading = true;
@@ -17,7 +18,7 @@ extension _DataSection on _LibraryPageState {
     }
     try {
       final List<Track> tracks = await _repository.loadTracks();
-      if (!mounted) {
+      if (!mounted || generation != _loadTracksGeneration) {
         return;
       }
       _update(() {
@@ -45,7 +46,8 @@ extension _DataSection on _LibraryPageState {
         unawaited(_runSearch(_query));
       }
     } catch (error) {
-      if (!mounted) {
+      // 更晚发起的加载已经落地，这次的失败没有意义
+      if (!mounted || generation != _loadTracksGeneration) {
         return;
       }
       if (silent) {

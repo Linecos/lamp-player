@@ -1096,11 +1096,13 @@ extension _PlaybackSection on _LibraryPageState {
           unawaited(_handleTrackEnded());
         }
       }
-    } catch (_) {
+    } catch (error) {
       // 单次失败（引擎忙、响应中断）不该让进度条永久冻住：
       // 连续失败达到上限才停，期间继续按周期重试。
+      // 只在放弃时打一行：250ms 一次的失败会把日志刷满。
       _pollFailures += 1;
       if (_pollFailures >= _LibraryPageState._maxPollFailures) {
+        debugPrint('读取播放进度连续失败，已停表：$error');
         _stopPositionPolling();
       }
     } finally {
