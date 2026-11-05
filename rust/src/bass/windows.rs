@@ -1271,10 +1271,14 @@ impl Engine {
                 return;
             }
             if resume_at > 0.05 {
-                let _ = self.seek(resume_at);
+                if let Err(error) = self.seek(resume_at) {
+                    eprintln!("掉线后用共享输出跳回 {resume_at:.1}s 失败：{error}");
+                }
             }
             if !was_playing {
-                let _ = self.pause();
+                if let Err(error) = self.pause() {
+                    eprintln!("掉线恢复后没能保持暂停：{error}");
+                }
             }
         }
     }
