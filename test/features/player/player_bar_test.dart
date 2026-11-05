@@ -332,7 +332,15 @@ void main() {
 
     expect(buttonWithIcon(Icons.skip_previous).onPressed, isNull);
     expect(buttonWithIcon(Icons.skip_next).onPressed, isNull);
-    expect(buttonWithIcon(Icons.play_arrow).onPressed, isNull);
+    // 播放/暂停键是手写的 InkWell（要挂长按），禁用态看 onTap
+    expect(
+      tester
+          .widget<InkWell>(
+            find.byKey(const ValueKey<String>('player-play-pause')),
+          )
+          .onTap,
+      isNull,
+    );
   });
 
   testWidgets('封面可点打开正在播放页，墨水层不被底色遮住', (WidgetTester tester) async {
@@ -497,7 +505,7 @@ void main() {
       // 左段与右段等宽，播放键就落在整条播放条的中轴上
       final double center = tester.getCenter(find.byType(PlayerBar)).dx;
       final double play = tester
-          .getCenter(find.widgetWithIcon(IconButton, Icons.play_arrow))
+          .getCenter(find.byKey(const ValueKey<String>('player-play-pause')))
           .dx;
       expect(play, closeTo(center, 1), reason: '宽度 $width 下三键偏了');
     }

@@ -41,10 +41,10 @@ void main() {
   testWidgets('播放引擎不可用时禁用播放按钮并给出提示', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
-    final IconButton playButton = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.play_arrow),
+    final InkWell playButton = tester.widget<InkWell>(
+      find.byKey(const ValueKey<String>('player-play-pause')),
     );
-    expect(playButton.onPressed, isNull);
+    expect(playButton.onTap, isNull);
     expect(find.textContaining('播放引擎不可用'), findsWidgets);
 
     await tester.tap(find.text('夜航'));
@@ -69,9 +69,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(playback.playedPaths, <String>['/music/夜航.mp3']);
-    expect(find.widgetWithIcon(IconButton, Icons.pause), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('player-play-pause')),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.pause));
+    await tester.tap(find.byKey(const ValueKey<String>('player-play-pause')));
     await tester.pump();
     expect(playback.pauseCalls, 1);
 
@@ -120,7 +123,7 @@ void main() {
       120.0,
     ], reason: '引擎里已经有曲目了，拖动就是真 seek，不用攒续播点');
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    await tester.tap(find.byKey(const ValueKey<String>('player-play-pause')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -188,7 +191,7 @@ void main() {
     expect(second.preloadedPaths, <String>['/music/夜航.mp3']);
     expect(second.positionSecs, 120.0, reason: '重启后预加载直接落在落盘的位置');
 
-    await tester.tap(find.widgetWithIcon(IconButton, Icons.play_arrow));
+    await tester.tap(find.byKey(const ValueKey<String>('player-play-pause')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -282,7 +285,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(PlayerBar),
-        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
       ),
     );
     await tester.pump();
@@ -636,7 +639,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(PlayerBar),
-        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
       ),
     );
     await tester.pump();
@@ -670,7 +673,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(PlayerBar),
-        matching: find.widgetWithIcon(IconButton, Icons.play_arrow),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
       ),
     );
     await tester.pump();
