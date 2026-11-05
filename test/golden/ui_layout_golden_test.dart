@@ -16,6 +16,7 @@ import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/features/player/sleep_timer.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
@@ -116,6 +117,13 @@ Widget _nowPlaying(ValueListenable<List<double>> spectrum) {
     _data(),
   );
   addTearDown(data.dispose);
+  final SleepTimer sleepTimer = SleepTimer(
+    isPlaying: () => true,
+    position: () => 42,
+    duration: () => 214,
+    pause: () async {},
+  );
+  addTearDown(sleepTimer.dispose);
   return NowPlayingPage(
     data: data,
     onTogglePlay: () async {},
@@ -128,6 +136,7 @@ Widget _nowPlaying(ValueListenable<List<double>> spectrum) {
     onCyclePlayMode: () {},
     spectrum: spectrum,
     windowControls: const _FakeWindowControls(),
+    sleepTimer: sleepTimer,
     lyricsLoader: (String path) async => _lyrics,
   );
 }

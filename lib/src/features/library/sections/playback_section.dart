@@ -335,6 +335,7 @@ extension _PlaybackSection on _LibraryPageState {
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
               shortcuts: _shortcuts,
+              sleepTimer: _sleepTimer,
             ),
           ),
         )

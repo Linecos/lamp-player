@@ -36,6 +36,7 @@ import '../player/now_playing_route.dart';
 import '../player/desktop_lyric_cue.dart';
 import '../player/queue_dialog.dart';
 import '../player/shortcuts.dart';
+import '../player/sleep_timer.dart';
 import '../settings/shortcuts_dialog.dart';
 import '../player/smtc_bridge.dart';
 import '../player/spectrum_controller.dart';
@@ -375,6 +376,18 @@ class _LibraryPageState extends State<LibraryPage>
   double _position = 0;
   double _duration = 0;
 
+  /// 睡眠定时：到点自动暂停。
+  ///
+  /// 由本页持有而不是播放页：播放页一关就销毁，而定时恰恰是关掉界面
+  /// （按 Esc 回曲库继续听）之后才要生效。
+  late final SleepTimer _sleepTimer = SleepTimer(
+    isPlaying: () => _isPlaying,
+    position: () => _position,
+    duration: () => _duration,
+    pause: () => _playback.pause(),
+    onFired: _showMessage,
+  );
+
   /// 听歌时长累计：当前曲目 + 本地日期 + 尚未写库的秒数（含小数）。
   String? _playSessionPath;
   int _playSessionDay = 0;
@@ -701,6 +714,7 @@ class _LibraryPageState extends State<LibraryPage>
     _nowPlayingDeviceTimer?.cancel();
     libraryRevision.removeListener(_onLibraryChanged);
     _sectionFade.dispose();
+    _sleepTimer.dispose();
     _sectionNotifier.dispose();
     _railNotifier.dispose();
     _devicesNotifier.dispose();

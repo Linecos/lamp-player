@@ -26,6 +26,7 @@ import 'output_device_dialog.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
 import 'shortcuts.dart';
+import 'sleep_timer.dart';
 import 'sleep_timer_dialog.dart';
 import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
@@ -92,6 +93,7 @@ class NowPlayingPage extends StatefulWidget {
     this.animateBackground = false,
     this.windowControls,
     this.shortcuts = kDefaultShortcuts,
+    this.sleepTimer,
     this.onToggleDesktopLyrics,
     this.onToggleDesktopLyricLock,
     this.onOpenArtist,
@@ -145,6 +147,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 键位表；由曲库页透传，保证两页键位一致（见 `shortcuts.dart`）
   final List<ShortcutBinding> shortcuts;
+
+  /// 睡眠定时；由曲库页持有（见 [SleepTimer]），为空时不显示定时按钮
+  final SleepTimer? sleepTimer;
 
   final ValueListenable<NowPlayingData> data;
   final Future<void> Function() onTogglePlay;
@@ -268,95 +273,27 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 播放键的位置锚点：提示框跟着它弹在正上方
   final LayerLink _toggleLink = LayerLink();
 
-  /// Sleep timer：到点自动暂停。`null` 表示未开启。
-  Timer? _sleepTimer;
-
-  /// 到点时刻，用于在按钮上显示剩余时间
-  DateTime? _sleepUntil;
-
-  /// 本轮定时是否已经为「听完当前曲目」顺延过一次
-  bool _sleepExtended = false;
-
-  /// 到点时若本曲没播完，是否顺延到播完（浮窗里的开关，默认开）
-  bool _sleepExtendToTrackEnd = true;
-
-  String? get _sleepTooltip {
-    final DateTime? until = _sleepUntil;
-    if (until == null) {
-      return '睡眠定时';
-    }
-    final Duration left = until.difference(DateTime.now());
-    if (left.inSeconds <= 0) {
-      return '睡眠定时：即将暂停';
-    }
-    final int minutes = (left.inSeconds / 60).ceil();
-    return _sleepExtended ? '睡眠定时：播完当前曲目后暂停' : '睡眠定时：还剩 $minutes 分钟';
-  }
-
   /// 打开睡眠定时浮窗：时钟轮盘选 0~60 分钟
+  ///
+  /// 计时本身在 [SleepTimer] 里（曲库页持有）：这个页面关掉之后定时还得继续，
+  /// 本页只负责弹窗与那个按钮。
   Future<void> _openSleepTimer() async {
-    final DateTime? until = _sleepUntil;
-    final int? remaining = until == null
-        ? null
-        : (until.difference(DateTime.now()).inSeconds / 60).ceil().clamp(1, 60);
+    final SleepTimer? timer = widget.sleepTimer;
+    if (timer == null) {
+      return;
+    }
     final SleepTimerResult? choice = await showSleepTimerDialog(
       context,
-      initialMinutes: remaining ?? 30,
-      hasTimer: until != null,
-      extendToTrackEnd: _sleepExtendToTrackEnd,
+      initialMinutes: timer.remainingMinutes ?? 30,
+      hasTimer: timer.active,
+      extendToTrackEnd: timer.extendToTrackEnd,
     );
     if (choice == null || !mounted) {
       return;
     }
-    final int minutes = choice.minutes;
-    _sleepExtendToTrackEnd = choice.extendToTrackEnd;
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    // 重新设定后允许再顺延一次
-    _sleepExtended = false;
-    if (minutes <= 0) {
-      setState(() => _sleepUntil = null);
-      return;
-    }
-    _armSleep(Duration(minutes: minutes));
-  }
-
-  void _armSleep(Duration delay) {
-    _sleepTimer?.cancel();
-    _sleepTimer = Timer(delay, _fireSleep);
-    setState(() => _sleepUntil = DateTime.now().add(delay));
-  }
-
-  /// 到点：正在播就暂停（不停止，醒来点一下就能接着听）。
-  ///
-  /// 当前曲目还没播完就不掐：先把这首听完再暂停，只顺延一次——顺延到点后
-  /// 哪怕用户又拖回前段也直接暂停，免得变成永远不睡。
-  void _fireSleep() {
-    _sleepTimer = null;
-    if (!mounted) {
-      return;
-    }
-    // 时长取播放器上报的值（data.duration），不是标签里的 durationSecs：
-    // 后者可能还没解析出来，会让顺延判断失效
-    final double duration = widget.data.value.duration;
-    final double left = duration - _position.value;
-    if (_sleepExtendToTrackEnd &&
-        !_sleepExtended &&
-        widget.data.value.isPlaying &&
-        duration > 0 &&
-        left > 1) {
-      _sleepExtended = true;
-      final Duration rest = Duration(milliseconds: (left * 1000).round() + 200);
-      _sleepTimer = Timer(rest, _fireSleep);
-      setState(() => _sleepUntil = DateTime.now().add(rest));
-      return;
-    }
-    _sleepExtended = false;
-    setState(() => _sleepUntil = null);
-    if (widget.data.value.isPlaying) {
-      unawaited(widget.onTogglePlay());
-    }
-    _showToast('睡眠定时已到，已暂停播放');
+    timer.extendToTrackEnd = choice.extendToTrackEnd;
+    // 0 分钟 = 关闭
+    timer.arm(Duration(minutes: choice.minutes));
   }
 
   /// 按住头部拖动窗口（页面自绘标题栏，外壳那一层被路由盖住了）
@@ -473,7 +410,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
-    _sleepTimer?.cancel();
     // 离开页面必须复位：窗口按钮跟着这个开关隐，留着会让别的页面也看不到
     immersiveMode.value = false;
     _removeToast();
@@ -1491,22 +1427,32 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                     onSelect: widget.onSelectDevice!,
                                     onToast: _showToast,
                                   ),
-                                IconButton(
-                                  key: const ValueKey<String>(
-                                    'now-playing-sleep',
+                                // 计时在页面之外（SleepTimer），到点暂停、
+                                // 顺延都由它自己判断，这里只跟着画按钮
+                                if (widget.sleepTimer != null)
+                                  ListenableBuilder(
+                                    listenable: widget.sleepTimer!,
+                                    builder:
+                                        (BuildContext context, Widget? child) =>
+                                            IconButton(
+                                              key: const ValueKey<String>(
+                                                'now-playing-sleep',
+                                              ),
+                                              tooltip:
+                                                  widget.sleepTimer!.tooltip,
+                                              padding: EdgeInsets.zero,
+                                              // 秒表比月亮更能表达「倒计时到点暂停」
+                                              onPressed: () =>
+                                                  unawaited(_openSleepTimer()),
+                                              icon: Icon(
+                                                Icons.timer_outlined,
+                                                size: 24,
+                                                color: widget.sleepTimer!.active
+                                                    ? scheme.primary
+                                                    : scheme.onSurfaceVariant,
+                                              ),
+                                            ),
                                   ),
-                                  tooltip: _sleepTooltip,
-                                  padding: EdgeInsets.zero,
-                                  // 秒表比月亮更能表达「倒计时到点暂停」
-                                  onPressed: () => unawaited(_openSleepTimer()),
-                                  icon: Icon(
-                                    Icons.timer_outlined,
-                                    size: 24,
-                                    color: _sleepUntil != null
-                                        ? scheme.primary
-                                        : scheme.onSurfaceVariant,
-                                  ),
-                                ),
                                 if (widget.onOpenEqualizer != null)
                                   IconButton(
                                     key: const ValueKey<String>(

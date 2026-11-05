@@ -1146,4 +1146,48 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+  testWidgets('睡眠定时在关掉播放页之后仍然到点暂停', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 600,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 点播放条上的曲名进正在播放页
+    await tester.tap(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsOneWidget,
+    );
+
+    // 设 15 分钟，并关掉「顺延到曲目结束」——这里测的是到点就停
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('sleep-extend-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('sleep-preset-15')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('sleep-confirm')));
+    await tester.pumpAndSettle();
+
+    // 关掉播放页：定时器必须活在页面之外
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-header')),
+      findsNothing,
+    );
+    expect(playback.pauseCalls, 0);
+
+    await tester.pump(const Duration(minutes: 15, seconds: 1));
+
+    expect(playback.pauseCalls, 1, reason: '到点要暂停，哪怕播放页早就关了（这正是边听边睡的用法）');
+  });
 }
