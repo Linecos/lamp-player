@@ -712,12 +712,31 @@ void main() {
   });
 
   test('上下淡出的 stops：两端各留缓冲，底部盖过丝带再留一段过渡', () {
-    final List<double> stops = lyricFadeStops(height: 700, top: 76, band: 78);
+    // 死区由「视口内第一条完整行的顶边」决定，这里取一行的高度
+    final List<double> stops = lyricFadeStops(
+      height: 700,
+      top: 120,
+      band: 78,
+      deadZone: 60,
+    );
     expect(stops, hasLength(8), reason: '两端各三段缓冲，中间两段全不透明');
     expect(stops.first, 0);
     expect(stops.last, 1);
-    expect(stops[1], greaterThan(0), reason: '顶部第一段缓冲要露出来，alpha 才是缓起');
-    expect(stops[3] * 700, closeTo(76, 0.5), reason: '顶部过渡到 76 走完');
+    expect(
+      stops[1] * 700,
+      closeTo(60, 0.5),
+      reason: '死区边界落在行与行之间，死区内 alpha 恒为 0',
+    );
+    expect(stops[3] * 700, closeTo(120, 0.5), reason: '顶部过渡到 120 走完');
+    expect(stops[2], greaterThan(stops[1]), reason: '死区结束后仍要有渐变段，不能变成硬切');
+    // 死区比渐变还高时夹住，别让 stops 反序
+    final List<double> clamped = lyricFadeStops(
+      height: 700,
+      top: 60,
+      band: 78,
+      deadZone: 200,
+    );
+    expect(clamped[1], closeTo(60 / 700, 1e-9));
     final double bottom = (1 - stops[4]) * 700;
     expect(
       bottom,
@@ -727,8 +746,20 @@ void main() {
     expect(bottom, lessThan(700 / 2), reason: '别把半个歌词区都吃掉');
   });
 
+  test('死区越过行框边界 2px：模糊底笔不会从渐显段漏出', () {
+    // 行内下内边距 9px，最远行的模糊 σ=3.2 会外溢约 10px，正好越过行框 1px
+    expect(deadZoneBoundary(20, 700), closeTo(22, 1e-9));
+    expect(deadZoneBoundary(0, 700), closeTo(2, 1e-9));
+    // 上限仍按歌词区高度的 42% 夹住
+    expect(deadZoneBoundary(600, 700), closeTo(700 * 0.42, 1e-9));
+  });
+
   test('歌词区很矮时过渡收缩到下限，不越过顶部淡出', () {
-    final List<double> small = lyricFadeStops(height: 260, top: 76, band: 78);
+    final List<double> small = lyricFadeStops(
+      height: 260,
+      top: math.min(120, 260 * 0.38),
+      band: 78,
+    );
     expect((1 - small[4]) * 260, closeTo(78 + 56, 0.5));
     for (int i = 1; i < small.length; i += 1) {
       expect(
@@ -738,7 +769,11 @@ void main() {
       );
     }
     // 极端情况（比两段之和还矮）收成一条硬边，而不是让 stops 反序
-    final List<double> tiny = lyricFadeStops(height: 60, top: 76, band: 78);
+    final List<double> tiny = lyricFadeStops(
+      height: 60,
+      top: math.min(120, 60 * 0.38),
+      band: 78,
+    );
     expect(tiny[1], tiny[4]);
     for (int i = 1; i < tiny.length; i += 1) {
       expect(tiny[i], greaterThanOrEqualTo(tiny[i - 1]));
