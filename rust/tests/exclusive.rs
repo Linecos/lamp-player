@@ -9,13 +9,18 @@
 
 use rust_lib_lamp_player::api::player::{
     player_duration, player_is_available, player_is_exclusive, player_output_info, player_pause,
-    player_play, player_position, player_resume, player_seek, player_set_exclusive, player_state,
-    player_stop, PlaybackState,
+    player_play, player_position, player_resume, player_seek, player_set_exclusive,
+    player_spectrum, player_state, player_stop, PlaybackState,
 };
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
+
+/// 独占设备同一时间只能被一个测试占住：并行跑会互相把对方踢下设备，
+/// 表现为 `player_is_exclusive()` 变成 false。用例之间串行一下。
+static DEVICE: Mutex<()> = Mutex::new(());
 
 /// 44.1 kHz 单声道 16 bit 静音 WAV：设备多为 48 kHz，正好走一遍 bassmix 重采样
 fn write_wav(path: &PathBuf, secs: u32) {
@@ -48,11 +53,47 @@ fn write_wav_ex(path: &PathBuf, secs: u32, sample_rate: u32, channels: u16) {
     fs::write(path, buf).expect("写入测试音频失败");
 }
 
+/// 指定频率的正弦 WAV（立体声 16 bit）。
+///
+/// 频谱用例不能用静音素材：静音的 FFT 恒为 0，测不出「有没有频谱」。
+/// 幅度压到 0.02（约 -34 dB），跑测试时基本听不见。
+fn write_tone_wav(path: &PathBuf, secs: u32, freq: f32, amp: f32) {
+    let sample_rate: u32 = 44_100;
+    let channels: u16 = 2;
+    let bits: u16 = 16;
+    let frames = sample_rate * secs;
+    let data_len = frames * u32::from(channels) * u32::from(bits / 8);
+
+    let mut buf = Vec::with_capacity(44 + data_len as usize);
+    buf.extend_from_slice(b"RIFF");
+    buf.extend_from_slice(&(36 + data_len).to_le_bytes());
+    buf.extend_from_slice(b"WAVEfmt ");
+    buf.extend_from_slice(&16u32.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes());
+    buf.extend_from_slice(&channels.to_le_bytes());
+    buf.extend_from_slice(&sample_rate.to_le_bytes());
+    buf.extend_from_slice(&(sample_rate * u32::from(bits / 8) * u32::from(channels)).to_le_bytes());
+    buf.extend_from_slice(&(channels * bits / 8).to_le_bytes());
+    buf.extend_from_slice(&bits.to_le_bytes());
+    buf.extend_from_slice(b"data");
+    buf.extend_from_slice(&data_len.to_le_bytes());
+    let tau = std::f32::consts::PI * 2.0;
+    for frame in 0..frames {
+        let phase = tau * freq * frame as f32 / sample_rate as f32;
+        let value = (amp * phase.sin() * f32::from(i16::MAX)) as i16;
+        for _ in 0..channels {
+            buf.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    fs::write(path, buf).expect("写入测试音频失败");
+}
+
 #[test]
 fn exclusive_output_chain() {
     if !cfg!(windows) {
         return;
     }
+    let _device = DEVICE.lock().unwrap_or_else(|error| error.into_inner());
     // 默认跳过：独占几秒会让游戏 / 音乐当场没声（见文件头说明）
     if std::env::var("LAMP_EXCLUSIVE_TEST").as_deref() != Ok("1") {
         eprintln!("跳过：独占测试会短暂抢占声卡；专项验证时设 LAMP_EXCLUSIVE_TEST=1");
@@ -171,4 +212,70 @@ fn exclusive_output_chain() {
 
     let _ = fs::remove_file(wav);
     let _ = fs::remove_file(short);
+}
+
+/// 频谱不能把播放拖快。
+///
+/// 独占输出的 mixer 是解码流（`BASS_STREAM_DECODE`），`BASS_ChannelGetData`
+/// 取 FFT 时会把采样一并取走、解码位置跟着前进；而 WASAPI 回调正是从同一条
+/// 流里拉数据。两边一起拉 → 输出欠载：播放变快（每 33ms 偷 1024 采样）、
+/// 还带电流声。共享输出没这问题：那时不建 mixer，频谱走的是普通播放流。
+#[test]
+fn spectrum_does_not_speed_up_playback() {
+    if !cfg!(windows) {
+        return;
+    }
+    let _device = DEVICE.lock().unwrap_or_else(|error| error.into_inner());
+    if std::env::var("LAMP_EXCLUSIVE_TEST").as_deref() != Ok("1") {
+        eprintln!("跳过：独占测试会短暂抢占声卡；专项验证时设 LAMP_EXCLUSIVE_TEST=1");
+        return;
+    }
+    std::env::set_var("LAMP_EXCLUSIVE_IDLE_SECS", "2");
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用（未下载 bass.dll / 无声卡？）");
+        return;
+    }
+    if let Err(error) = player_set_exclusive(true) {
+        eprintln!("跳过：设备不支持独占输出（{error}）");
+        return;
+    }
+
+    let wav = std::env::temp_dir().join("lamp_player_spectrum.wav");
+    write_tone_wav(&wav, 6, 440.0, 0.02);
+    player_play(wav.to_string_lossy().to_string(), 0.0).expect("独占模式下播放应成功");
+    thread::sleep(Duration::from_millis(300));
+
+    // 2 秒里按引擎的推流节奏取频谱（33ms 一帧），同时看位置走了多少
+    let started = std::time::Instant::now();
+    let pos_start = player_position().expect("读取起始位置");
+    let mut loudest = 0.0f32;
+    for _ in 0..60 {
+        if let Ok(bands) = player_spectrum() {
+            for band in bands {
+                if band > loudest {
+                    loudest = band;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(33));
+    }
+    let pos_end = player_position().expect("读取结束位置");
+    let elapsed = started.elapsed().as_secs_f64();
+    let rate = (pos_end - pos_start) / elapsed;
+    eprintln!("取频谱时的独占播放速率 {rate:.3}x（1.0 = 正常）");
+
+    assert!(
+        (rate - 1.0).abs() < 0.08,
+        "取频谱不能让播放变快，实际 {rate:.3}（频谱在消费解码流的数据？）"
+    );
+    // 独占下也要有波形：回调把 PCM 抄进了环形缓冲，频谱自己算 FFT。
+    // 0.02 幅度的正弦经 `sqrt(peak * lift)` 后约 0.1，留足余量取 0.02
+    eprintln!("频谱最响一段 {loudest:.3}");
+    assert!(
+        loudest > 0.02,
+        "独占输出下频谱不应全为 0，实际最响 {loudest:.3}"
+    );
+
+    player_stop().expect("停止应成功");
+    let _ = fs::remove_file(wav);
 }
