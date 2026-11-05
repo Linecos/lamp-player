@@ -66,8 +66,13 @@ class LyricsView extends StatefulWidget {
 /// 上下淡出的渐变 stops（两端各用三段缓冲，中间全不透明）。
 ///
 /// 直线渐变在「透明→不透明」走完的那一点上斜率突变，文字笔画从糊到清楚是
-/// 一下子的，看着就是一条看不见的边。改成两段缓冲（0.3 处 12%、0.7 处 70%）
-/// 后，alpha 是 S 形收尾，边界感就散了。
+/// 一下子的，看着就是一条看不见的边。改成两段缓冲后，alpha 是 S 形收尾，
+/// 边界感就散了。
+///
+/// 顶部 [deadZone] 是**严格 0** 的死区，而且调用方必须把它落在行与行之间
+/// （见 [_LyricsViewState._deadZone]）。固定像素的死区一定会切在某一行中间：
+/// 上半截被抹掉、下半截留下来，看着就是顶上一排断断续续的横线（字的底笔）。
+/// 死区结束在行边界上，被裁的行整行消失，下面那行从 0 开始淡入，两头都干净。
 ///
 /// 底部一段按「丝带高度 [band] + 随高度缩放的过渡」算：最小窗口（900×560）里
 /// 歌词区只有 370 高，用固定值会把整个下半屏吃掉。过渡段最少 [_fadeRampMin]，
@@ -77,6 +82,7 @@ List<double> lyricFadeStops({
   required double height,
   required double top,
   required double band,
+  double deadZone = 0,
 }) {
   if (height <= 0) {
     return const <double>[0, 0, 0, 0, 1, 1, 1, 1];
@@ -87,6 +93,7 @@ List<double> lyricFadeStops({
   );
   final double bottom = (band + ramp).clamp(0.0, height);
   final double t = (top / height).clamp(0.0, 1.0);
+  final double d = (deadZone / height).clamp(0.0, t);
   final double b = (1 - bottom / height).clamp(0.0, 1.0);
   // 极矮的歌词区里两段会越过对方，取中点收成一条硬边，别让 stops 反序
   if (t > b) {
@@ -95,8 +102,8 @@ List<double> lyricFadeStops({
   }
   return <double>[
     0,
-    t * 0.3,
-    t * 0.7,
+    d,
+    d + (t - d) * 0.7,
     t,
     b,
     b + (1 - b) * 0.3,
@@ -105,8 +112,32 @@ List<double> lyricFadeStops({
   ];
 }
 
-/// 顶部淡出高度：藏住被视口上沿硬切掉的半行，再往外留一截给渐变
-const double _fadeTop = 76;
+/// 行框顶边到字迹顶边的距离：9px 内边距 + 字体自身的行距（实测 15~17px）。
+///
+/// 淡入段必须从这里才开始算。从行框顶边起算的话，等画到字的时候淡入段已经
+/// 走掉七成，最上面那行字一出现就是七成亮度，看着像半截残影。
+const double _fadeTopOffset = 13;
+
+/// 顶部淡出：字迹出现之后还要多少像素才渐显到全不透明。
+///
+/// 死区落在「视口内第一条完整行」的顶边上（见 [_LyricsViewState._topBoundary]），
+/// 被上沿裁掉的行整行消失，不会切出半截字。剩下这行从字迹顶边开始淡入，
+/// 30px 大约走到行框底边，正好在自身高度里走完。
+const double _fadeTopRamp = 30;
+
+/// 量不到行位置时的兜底：按一整行算（普通行约 50、当前行约 59），乘 0.5
+const double _fadeTop = 120;
+
+/// 死区在行边界上再往下多盖的像素。
+///
+/// 行内下内边距 9px，最远的行模糊 σ=3.2、高斯支撑约 3σ≈10px：底笔会溢出
+/// 行框约 1px。死区正好卡在行框边界时，这一截就从渐显段漏出来（顶部那排虚线）。
+const double _deadZoneGuard = 2;
+
+/// 死区下边界：下一行的行框顶边再让出 [_deadZoneGuard]，上限取歌词区高度的 42%
+@visibleForTesting
+double deadZoneBoundary(double nextTop, double height) =>
+    (nextTop + _deadZoneGuard).clamp(0.0, height * 0.42);
 
 /// 换行时的逐行回弹。
 ///
@@ -184,11 +215,18 @@ class _LyricsViewState extends State<LyricsView>
   /// 缓存对应的丝带高度：切到没频谱的界面时要重建
   double _maskBand = -1;
 
+  /// 缓存对应的顶部死区高度（随滚动每帧都变，静止时命中缓存）
+  double _maskDeadZone = -1;
+
   late List<GlobalKey> _keys;
 
   /// 每行外层（[Transform]）的 key。不能用正文那个：正文在 Transform 里面，
   /// `getOffsetToReveal` 会把弹簧位移一起算进去，目标位置就跟着弹簧飘了
   late List<GlobalKey> _lineKeys;
+
+  /// 视口里第一行的下标。滚动是连续的，每次从它挪几步就能找到新位置，
+  /// 不必全量测量（全屏能露出二十多行）
+  int _firstVisible = 0;
 
   /// 每行译文块的 key：量它的**自然高度**（不受折叠进度影响），用来算补偿量
   late List<GlobalKey> _translationKeys;
@@ -207,6 +245,17 @@ class _LyricsViewState extends State<LyricsView>
 
   /// 正在自己 jumpTo：这期间滚动通知不是用户动作
   bool _driving = false;
+
+  /// 滚动偏移的副本。
+  ///
+  /// 顶部死区要按「第一条完整行落在哪」来算，所以跟着滚动变。而 [ShaderMask]
+  /// 是滚动视图的**祖先**：滚动时 Flutter 只把 viewport 标脏、重绘它自己，
+  /// 祖先的 `shaderCallback` 根本不会再被调用——直接依赖滚动位置的话，遮罩会
+  /// 一直用第一帧算出的参数（顶部那排残影就是这么漏出来的）。所以这里把偏移
+  /// 单独提出来，让包遮罩的那一层随它重建，只重建这一层，歌词列本身不动。
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
+
+  Timer? _scrollSettle;
 
   @override
   void initState() {
@@ -228,10 +277,26 @@ class _LyricsViewState extends State<LyricsView>
     _playing = widget.playing.value;
     widget.position.addListener(_onPosition);
     widget.playing.addListener(_onPlaying);
+    _scroll.addListener(_onScrollOffset);
     _syncClock();
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _scrollToActive(animate: false),
     );
+  }
+
+  /// 滚动位置变了：只通知遮罩那一层重建
+  void _onScrollOffset() {
+    if (!_scroll.hasClients) {
+      return;
+    }
+    _scrollOffset.value = _scroll.offset;
+    // 每个滚动事件都往后推：停下来 250ms 后再刷一次，让遮罩按最终位置重算死区
+    _scrollSettle?.cancel();
+    _scrollSettle = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -244,6 +309,7 @@ class _LyricsViewState extends State<LyricsView>
       _keys = _buildKeys();
       _lineKeys = _buildKeys();
       _translationKeys = _buildKeys();
+      _firstVisible = 0;
       _active = -1;
       _smooth.value = _base;
       _active = _indexAt(_base);
@@ -271,7 +337,10 @@ class _LyricsViewState extends State<LyricsView>
     if (_clockOn) {
       UiClock.instance.removeListener(_onTick);
     }
+    _scroll.removeListener(_onScrollOffset);
+    _scrollSettle?.cancel();
     _scroll.dispose();
+    _scrollOffset.dispose();
     _smooth.dispose();
     _jump.dispose();
     _translation.dispose();
@@ -599,123 +668,217 @@ class _LyricsViewState extends State<LyricsView>
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return Listener(
-      // 鼠标滚轮 / 触摸板滚动不会带 dragDetails，光看滚动通知认不出「用户在滚」，
-      // 这里补一手指针信号：滚动时同样暂停自动跟随、并临时关掉远处的模糊
-      onPointerSignal: (PointerSignalEvent event) {
-        if (event is PointerScrollEvent) {
-          _beginUserScroll();
-        }
-      },
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
-          final double topPad = math.max(
-            24,
-            constraints.maxHeight * widget.revealAlignment,
-          );
-          final double bottomPad = math.max(
-            24,
-            constraints.maxHeight * (1 - widget.revealAlignment),
-          );
-          // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
-          // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
-          final double band = math.min(
-            _lyricBlockWidth,
-            math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
-          );
-          // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
-          // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
-          // 歌词会直接糊在柱子上。着色器按尺寸缓存，见 [_maskShader]
-          return ShaderMask(
-            key: const ValueKey<String>('lyrics-edge-fade'),
-            blendMode: BlendMode.dstIn,
-            shaderCallback: _fadeShader,
-            // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
-            // 压着封面和文字的边缘很难看
-            child: ScrollConfiguration(
-              behavior: ScrollConfiguration.of(context)
-                  .copyWith(scrollbars: false),
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onScrollNotification,
-                child: SingleChildScrollView(
-                  controller: _scroll,
-                  // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
-                  // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
-                  physics: const BouncingScrollPhysics(),
-                  padding: EdgeInsets.only(
-                    top: topPad,
-                    bottom: bottomPad,
-                    left: _scrollPaddingX,
-                    right: _scrollPaddingX,
-                  ),
-                  child: Center(
-                    child: SizedBox(
-                      width: band,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          for (int i = 0; i < widget.lines.length; i += 1)
-                            _SpringLyricLine(
-                              key: ValueKey<String>('lyric-$i'),
-                              index: i,
-                              lineKey: _lineKeys[i],
-                              anchorKey: _keys[i],
-                              translationKey: _translationKeys[i],
-                              jump: _jump,
-                              line: widget.lines[i],
-                              active: i == _active,
-                              distance: _active < 0 ? i : (i - _active).abs(),
-                              position: _smooth,
-                              textTheme: theme.textTheme,
-                              alignment: widget.alignment,
-                              translation: _translation,
-                              blur: !_userScrolling,
-                              onSeek: widget.onSeek,
-                            ),
-                        ],
+    return ClipRect(
+      // 滚动视图的抗锯齿裁剪会在上边界漏出 1px 的上一行笔画，ShaderMask 只
+      // 覆盖自身边界以内，这 1px 就原样显示成一条淡横线。顶部内缩一个设备
+      // 像素把它一起裁掉（那一行本来就在死区里，看不见内容）。
+      clipper: _TopInsetClipper(1 / MediaQuery.devicePixelRatioOf(context)),
+      child: Listener(
+        // 鼠标滚轮 / 触摸板滚动不会带 dragDetails，光看滚动通知认不出「用户在滚」，
+        // 这里补一手指针信号：滚动时同样暂停自动跟随、并临时关掉远处的模糊
+        onPointerSignal: (PointerSignalEvent event) {
+          if (event is PointerScrollEvent) {
+            _beginUserScroll();
+          }
+        },
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
+            final double topPad = math.max(
+              24,
+              constraints.maxHeight * widget.revealAlignment,
+            );
+            final double bottomPad = math.max(
+              24,
+              constraints.maxHeight * (1 - widget.revealAlignment),
+            );
+            // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
+            // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
+            final double band = math.min(
+              _lyricBlockWidth,
+              math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
+            );
+            // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
+            // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
+            // 歌词会直接糊在柱子上。
+            //
+            // 外面套一层监听滚动偏移的 builder，见 [_scrollOffset] 的说明：遮罩是
+            // 祖先，不重建就永远用第一帧的参数。
+            return ValueListenableBuilder<double>(
+              valueListenable: _scrollOffset,
+              // 歌词列本身不重建，只有遮罩这一层
+              child: ScrollConfiguration(
+                // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
+                // 压着封面和文字的边缘很难看
+                behavior: ScrollConfiguration.of(context)
+                    .copyWith(scrollbars: false),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScrollNotification,
+                  child: SingleChildScrollView(
+                    controller: _scroll,
+                    // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
+                    // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
+                    physics: const BouncingScrollPhysics(),
+                    padding: EdgeInsets.only(
+                      top: topPad,
+                      bottom: bottomPad,
+                      left: _scrollPaddingX,
+                      right: _scrollPaddingX,
+                    ),
+                    child: Center(
+                      child: SizedBox(
+                        width: band,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            for (int i = 0; i < widget.lines.length; i += 1)
+                              _SpringLyricLine(
+                                key: ValueKey<String>('lyric-$i'),
+                                index: i,
+                                lineKey: _lineKeys[i],
+                                anchorKey: _keys[i],
+                                translationKey: _translationKeys[i],
+                                jump: _jump,
+                                line: widget.lines[i],
+                                active: i == _active,
+                                distance: _active < 0 ? i : (i - _active).abs(),
+                                position: _smooth,
+                                textTheme: theme.textTheme,
+                                alignment: widget.alignment,
+                                translation: _translation,
+                                blur: !_userScrolling,
+                                onSeek: widget.onSeek,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+              builder:
+                  (BuildContext context, double offset, Widget? lyricColumn) {
+                    return ShaderMask(
+                      key: const ValueKey<String>('lyrics-edge-fade'),
+                      blendMode: BlendMode.dstIn,
+                      shaderCallback: _fadeShader,
+                      child: lyricColumn,
+                    );
+                  },
+            );
+          },
+        ),
       ),
     );
   }
 
   /// 上下淡出的遮罩：同一个尺寸只建一次着色器
   Shader _fadeShader(Rect rect) {
+    // 死区之上整行不可见；再让出「行框顶边到字迹顶边」那段空白，淡入从字迹开始
+    final double deadZone = _topBoundary(rect.height) + _fadeTopOffset;
+    final double top = math.min(deadZone + _fadeTopRamp, rect.height * 0.5);
     final Shader? cached = _maskShader;
     if (cached != null &&
         _maskRect == rect &&
-        _maskBand == widget.edgeFadeBand) {
+        _maskBand == widget.edgeFadeBand &&
+        _maskDeadZone == deadZone) {
       return cached;
     }
     _maskRect = rect;
     _maskBand = widget.edgeFadeBand;
+    _maskDeadZone = deadZone;
     final Shader shader = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       // 只有 alpha 起作用（dstIn）：透明处把歌词抹掉，白色处原样保留。
-      // 每段缓冲取 12% / 70%，和 [lyricFadeStops] 的 0.3 / 0.7 对应
       colors: _fadeColors,
       stops: lyricFadeStops(
         height: rect.height,
-        top: _fadeTop,
+        top: top,
         band: widget.edgeFadeBand,
+        deadZone: deadZone,
       ),
     ).createShader(rect);
     return _maskShader = shader;
   }
+
+  /// 顶部死区的下边界：被视口上沿裁掉的那行整行消失，从下一行的顶边才开始
+  /// 渐显。没有行被裁（最上面那行完整）时返回 0，走正常的顶部渐隐。
+  ///
+  /// 死区必须按行边界走，不能用固定像素：固定值必然切在某一行中间，那一行的
+  /// 上半截被抹掉、下半截留下来，就是顶部那排断断续续的横线（字的底笔）。
+  double _topBoundary(double height) {
+    final RenderObject? self = context.findRenderObject();
+    final int last = widget.lines.length - 1;
+    if (self == null || last < 0) {
+      return 0;
+    }
+
+    ({double top, double bottom})? bounds(int index) {
+      final RenderObject? box = _lineKeys[index].currentContext
+          ?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize || !box.attached) {
+        return null;
+      }
+      final double top = box.localToGlobal(Offset.zero, ancestor: self).dy;
+      return (top: top, bottom: top + box.size.height);
+    }
+
+    // 从上次的位置滚动挪到「第一行还留在视口里的」。
+    //
+    // 不能拿 [active] 当起点：用户手动拖过之后当前行可能已经在视口外；也不能
+    // 固定往前数几行——全屏时歌词区一千多像素、二十来行，顶部那行离当前行很
+    // 远，数少了就漏掉它，于是误判成「最上面那行完整」、死区给 0，被裁的那行
+    // 就露出来了（顶部那排横线）。滚动是连续的，从上次的位置挪几步就够。
+    int first = _firstVisible.clamp(0, last);
+    while (first > 0) {
+      final ({double top, double bottom})? prev = bounds(first - 1);
+      if (prev == null || prev.bottom <= 0.5) {
+        break;
+      }
+      first -= 1;
+    }
+    while (first < last) {
+      final ({double top, double bottom})? cur = bounds(first);
+      if (cur == null || cur.bottom > 0.5) {
+        break;
+      }
+      first += 1;
+    }
+    _firstVisible = first;
+
+    final ({double top, double bottom})? head = bounds(first);
+    if (head == null) {
+      return _fallbackDeadZone(height);
+    }
+    if (head.top >= -0.5) {
+      // 最上面这行是完整的：不需要死区
+      return 0;
+    }
+    // 这行被上沿裁了：死区推到下一行的顶边，让它整行消失
+    if (first < last) {
+      final ({double top, double bottom})? next = bounds(first + 1);
+      if (next != null && next.top > 0) {
+        return deadZoneBoundary(next.top, height);
+      }
+    }
+    return _fallbackDeadZone(height);
+  }
+
+  /// 量不到行位置时的兜底：按一行的高度估（22×1.45 + 上下各 9）
+  double _fallbackDeadZone(double height) {
+    return math.min(_fadeTop, height * 0.38) * 0.5;
+  }
 }
 
-/// 与 [lyricFadeStops] 的 8 个 stop 一一对应的 alpha（S 形收尾）
+/// 与 [lyricFadeStops] 的 8 个 stop 一一对应的 alpha（S 形收尾）。
+///
+/// 顶部前两档都是 0，一直盖到 [lyricFadeStops] 的 0.5 处（[_fadeTop] 的一半，
+/// 约一整行高）：被视口裁掉的行最多露这么多，再往下才允许出现任何亮度。
+/// 底部保持原来的 70% / 12%，往下淡出不需要那么陡。
 const List<Color> _fadeColors = <Color>[
   Color(0x00FFFFFF),
-  Color(0x1FFFFFFF),
+  Color(0x00FFFFFF),
   Color(0xB3FFFFFF),
   Color(0xFFFFFFFF),
   Color(0xFFFFFFFF),
@@ -1668,4 +1831,17 @@ class KaraokeWordPainter extends CustomPainter {
       oldDelegate.index != index ||
       oldDelegate.origin != origin ||
       oldDelegate.position != position;
+}
+
+/// 顶部内缩一段的裁剪区：挡掉滚动视图漏到上边界外的那 1px 笔画。
+class _TopInsetClipper extends CustomClipper<Rect> {
+  const _TopInsetClipper(this.inset);
+
+  final double inset;
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(0, inset, size.width, size.height);
+
+  @override
+  bool shouldReclip(_TopInsetClipper oldClipper) => oldClipper.inset != inset;
 }
