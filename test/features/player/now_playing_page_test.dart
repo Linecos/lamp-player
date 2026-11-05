@@ -14,6 +14,7 @@ import 'package:lamp_player/src/features/player/lyric_alignment.dart';
 import 'package:lamp_player/src/features/player/lyrics_view.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
+import 'package:lamp_player/src/features/player/sleep_timer.dart';
 import 'package:lamp_player/src/rust/api/lyrics.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
@@ -110,6 +111,15 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   final ValueNotifier<NowPlayingData> notifier = ValueNotifier<NowPlayingData>(
     data,
   );
+  // 睡眠定时在真实应用里由曲库页持有；这里跟着页面一起造一个，
+  // 到点动作仍走同一个 onTogglePlay，断言不受影响
+  final SleepTimer sleepTimer = SleepTimer(
+    isPlaying: () => notifier.value.isPlaying,
+    position: () => notifier.value.position,
+    duration: () => notifier.value.duration,
+    pause: () async => onTogglePlay?.call(),
+  );
+  addTearDown(sleepTimer.dispose);
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.light(AppTheme.defaultSeed),
@@ -137,6 +147,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onCycleLyricAlignment: onCycleLyricAlignment,
         showTranslation: showTranslation,
         onToggleTranslation: onToggleTranslation,
+        sleepTimer: sleepTimer,
         lyricsLoader: (String path) async =>
             lyrics ??
             const TrackLyrics(lines: <LyricLine>[], plain: '', source: 'none'),
