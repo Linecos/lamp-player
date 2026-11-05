@@ -105,17 +105,27 @@ class SmtcBridge {
   }
 
   void _handleCommand(media.MediaCommand command) {
+    // 命令回调是同步的、动作是异步的：不接异常的话，播放服务里抛出的错误
+    // 会以「未处理的异步异常」进 zone，日志里只剩一段没有上下文的堆栈。
+    void run(Future<void> Function() action) {
+      unawaited(
+        action().catchError((Object error) {
+          debugPrint('执行系统媒体命令失败：$error');
+        }),
+      );
+    }
+
     switch (command) {
       case media.MediaCommand.play:
-        unawaited(onPlay());
+        run(onPlay);
       case media.MediaCommand.pause:
-        unawaited(onPause());
+        run(onPause);
       case media.MediaCommand.next:
-        unawaited(onNext());
+        run(onNext);
       case media.MediaCommand.previous:
-        unawaited(onPrevious());
+        run(onPrevious);
       case media.MediaCommand.stop:
-        unawaited(onStop());
+        run(onStop);
     }
   }
 
