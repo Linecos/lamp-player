@@ -148,11 +148,12 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
         // 宽窗口把总览与热力图并排：热力图能铺满一整年，页面也不会被拉成
         // 一条长卷；窄窗口仍上下堆叠
         final bool sideBySide = constraints.maxWidth >= 1040;
-        // 横向内边距由分区容器给（16），这里只剩卡片自身的左右 20
-        const double cardPadding = 40;
+        // 这里给的是卡片**外宽**：内边距与描边由 _heatmapCard 自己扣
+        // （Container 会把 border 一起算进 padding，差额只有 2px，但在热力图
+        // 上就是右边被切掉一点点、要横向滚一下才露出来）
         final double heatmapWidth = sideBySide
-            ? constraints.maxWidth - 340 - 16 - cardPadding
-            : constraints.maxWidth - cardPadding;
+            ? constraints.maxWidth - 340 - 16
+            : constraints.maxWidth;
         final Widget overview = _overview(context, bundle.stats, bundle.daily);
         final Widget heatmap = _heatmapCard(
           context,
@@ -437,20 +438,38 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
       for (final DailyPlaytime item in daily) item.day: item.seconds,
     };
 
-    // 周几标签列（26 + 6）要先扣掉，剩下才是网格能用的宽度
-    final double gridWidth = width - _weekdayColumnWidth;
-    // 格子 12 + 间距 3：宽度能放多少周就显示多少周，最多一年。
-    // 固定 26 周的时候，1280 窗口下一整张卡片只有左边三分之一有内容
-    final int weeks = ((gridWidth + 3) / 15).floor().clamp(13, _maxWeeks);
-    // 周数已经顶到一年还没占满宽度（超宽窗口）：把格子放大到 18，
-    // 否则右边会留出一大片和左边不对称的空白
-    final double cell = weeks == _maxWeeks
-        ? ((gridWidth + 3) / weeks - 3).clamp(12.0, 18.0)
-        : 12;
+    // 周几标签列（26 + 6）要先扣掉，剩下才是网格能用的宽度。
+    //
+    // 卡片内的可用宽要自己算：`Container` 的 padding 会把 border 也算进去
+    // （`_paddingIncludingDecoration`），只减 20×2 会多算 2px —— 正好是右侧
+    // 被切掉一条、要横向滚一下才露出来的那点。
+    final double inner =
+        width - (_heatCardInset + _heatCardBorder) * 2 - _weekdayColumnWidth;
+    // 一年铺满时的每列占宽（含间距）：够 12 的格子就满一年，再宽就把格子放大，
+    // 免得右侧空出一大片和左边不对称的空白
+    final double perWeek = (inner + _heatGap) / _maxWeeks;
+    final int weeks;
+    final double cell;
+    if (perWeek >= _heatMinCell + _heatGap) {
+      weeks = _maxWeeks;
+      cell = (perWeek - _heatGap).clamp(_heatMinCell, _heatMaxCell);
+    } else {
+      // 一列 12 + 间距 3：宽度能放多少周就显示多少周，最多一年
+      cell = _heatMinCell;
+      weeks = ((inner + _heatGap) / (cell + _heatGap)).floor().clamp(
+        13,
+        _maxWeeks,
+      );
+    }
 
     return Container(
       key: const ValueKey<String>('stats-heatmap'),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+      padding: const EdgeInsets.fromLTRB(
+        _heatCardInset,
+        18,
+        _heatCardInset,
+        16,
+      ),
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(32),
@@ -678,7 +697,7 @@ class _Heatmap extends StatelessWidget {
   final double cell;
 
   /// 格子间距
-  static const double _gap = 3;
+  static const double _gap = _heatGap;
 
   /// 月份行高度：左侧周几标签要空出这一段，才能和网格首行对齐
   static const double _monthRowHeight = 18;
@@ -733,7 +752,11 @@ class _Heatmap extends StatelessWidget {
               children: <Widget>[
                 for (int week = 0; week < weeks; week += 1)
                   Padding(
-                    padding: const EdgeInsets.only(right: _gap),
+                    // 最后一列不留右间距：留着的话整行会比算好的宽度多 3px，
+                    // 右边缘被挤出视口，得横向滚一下才看得到
+                    padding: EdgeInsets.only(
+                      right: week == weeks - 1 ? 0 : _gap,
+                    ),
                     child: Column(
                       children: <Widget>[
                         for (int weekday = 0; weekday < 7; weekday += 1)
@@ -844,15 +867,22 @@ enum RankTab {
 }
 
 /// 分段切换：外框一个圆角胶囊，选中那段描边 + 主题色底
+///
+/// 选中的框是**一个**独立图层（`rank-tab-indicator`），切标签时在轨道里滑过去，
+/// 而不是两段各自淡入淡出 —— 后者看着像「闪了一下」，没有「换到那边」的方向感。
 class _RankTabs extends StatelessWidget {
   const _RankTabs({required this.selected, required this.onChanged});
 
   final RankTab selected;
   final ValueChanged<RankTab> onChanged;
 
+  /// 滑块跟手时长：比两侧控件的 160ms 稍长一点，滑动才看得出来
+  static const Duration _slide = Duration(milliseconds: 200);
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final int index = RankTab.values.indexOf(selected);
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
@@ -862,11 +892,43 @@ class _RankTabs extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          for (final RankTab tab in RankTab.values) _tab(context, tab),
-        ],
+      // 两段等宽铺在滑块上：等宽后滑块只需平移、不必同时改尺寸，
+      // 动画就是一条干净的直线
+      child: IntrinsicWidth(
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: AnimatedAlign(
+                key: const ValueKey<String>('rank-tab-indicator'),
+                duration: _slide,
+                curve: Curves.easeOutCubic,
+                alignment: index == 0
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                child: FractionallySizedBox(
+                  widthFactor: 1 / RankTab.values.length,
+                  heightFactor: 1,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(
+                        color: scheme.primary.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (final RankTab tab in RankTab.values)
+                  Expanded(child: _tab(context, tab)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -881,32 +943,23 @@ class _RankTabs extends StatelessWidget {
       key: ValueKey<String>('rank-tab-${tab.name}'),
       borderRadius: BorderRadius.circular(11),
       onTap: active ? null : () => onChanged(tab),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
+      child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: active
-              ? scheme.primary.withValues(alpha: 0.14)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(
-            color: active
-                ? scheme.primary.withValues(alpha: 0.55)
-                : Colors.transparent,
-          ),
-        ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(tab.icon, size: 16, color: foreground),
             const SizedBox(width: 6),
-            Text(
-              tab.label,
-              style: theme.textTheme.labelLarge?.copyWith(
+            // 文字颜色 / 字重也走同一个时长，和滑块一起过渡
+            AnimatedDefaultTextStyle(
+              duration: _slide,
+              curve: Curves.easeOutCubic,
+              style: (theme.textTheme.labelLarge ?? const TextStyle()).copyWith(
                 color: foreground,
                 fontWeight: active ? FontWeight.w600 : FontWeight.w400,
               ),
+              child: Text(tab.label),
             ),
           ],
         ),
@@ -959,6 +1012,7 @@ class _RankTile extends StatelessWidget {
             // 空白填上（原来只有一个小「N 次」孤零零飘在右边缘）
             Positioned.fill(
               child: FractionallySizedBox(
+                key: const ValueKey<String>('rank-share-bar'),
                 alignment: Alignment.centerLeft,
                 widthFactor: share,
                 child: DecoratedBox(
@@ -1115,6 +1169,19 @@ class _ArtistRankRow extends StatelessWidget {
 
 /// 左侧周几标签列的总宽（标签 26 + 与网格的 6 间距）
 const double _weekdayColumnWidth = 32;
+
+/// 热力图卡片的左右内边距
+const double _heatCardInset = 20;
+
+/// 卡片描边宽度。`Container` 会把它算进 padding，算可用宽时必须一起减
+const double _heatCardBorder = 1;
+
+/// 格子之间的间距
+const double _heatGap = 3;
+
+/// 格子边长的上下限：窄窗口 12，超宽窗口最多放大到 18
+const double _heatMinCell = 12;
+const double _heatMaxCell = 18;
 
 /// `yyyyMMdd` 整数；与 Rust 侧 `play_sessions.day` 保持同一编码。
 int _dayKey(DateTime date) => date.year * 10000 + date.month * 100 + date.day;
