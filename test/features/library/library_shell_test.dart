@@ -304,11 +304,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
-    expect(find.text('1 张专辑 · 2 首音乐'), findsNothing, reason: '详情应立即移除');
-    expect(find.text('2 位艺术家'), findsOneWidget, reason: '列表应已挂载');
+    // 180ms 过渡中：详情在淡出、列表已经淡入（和点侧栏切分区时看到的一致）
+    expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget, reason: '详情正在淡出');
+    expect(find.text('2 位艺术家'), findsOneWidget, reason: '列表已挂载');
 
     await tester.pumpAndSettle();
-    expect(find.text('1 张专辑 · 2 首音乐'), findsNothing);
+    expect(find.text('1 张专辑 · 2 首音乐'), findsNothing, reason: '过渡结束详情被丢掉');
     expect(find.text('2 位艺术家'), findsOneWidget);
   });
 

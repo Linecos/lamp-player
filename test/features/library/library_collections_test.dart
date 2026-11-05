@@ -17,6 +17,20 @@ Finder _playlistDetail() => find.byWidgetPredicate(
       (widget.key! as ValueKey<String>).value.startsWith('playlist-detail-'),
 );
 
+/// 分区里的「详情」子树（key 前缀区分专辑 / 艺术家 / 歌单）
+Finder _detailWithPrefix(String prefix) => find.byWidgetPredicate(
+  (Widget widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith(prefix),
+);
+
+Future<void> _openSection(WidgetTester tester, String label) async {
+  await tester.tap(
+    find.descendant(of: find.byType(LibraryRail), matching: find.text(label)),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('歌单封面取最新加入那首歌的封面', (WidgetTester tester) async {
     await pumpLibrary(
@@ -79,6 +93,49 @@ void main() {
     await tester.pump(const Duration(milliseconds: 60));
 
     // 过渡中两份子树共存：旧的淡出、新的淡入
+    expect(list, findsOneWidget, reason: '淡出的列表还在');
+    expect(detail, findsOneWidget, reason: '淡入的详情已经进来');
+
+    await tester.pumpAndSettle();
+    expect(list, findsNothing, reason: '过渡结束只剩详情，不常驻两份');
+    expect(detail, findsOneWidget);
+  });
+
+  testWidgets('专辑列表与详情之间有淡入上滑的过场', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await _openSection(tester, '专辑');
+
+    final Finder list = find.byKey(const ValueKey<String>('albums-list'));
+    final Finder detail = _detailWithPrefix('albums-detail-');
+    expect(list, findsOneWidget);
+    expect(detail, findsNothing);
+
+    await tester.tap(find.text('夜之专辑'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // 过渡中两份子树共存：旧的淡出、新的淡入
+    expect(list, findsOneWidget, reason: '淡出的列表还在');
+    expect(detail, findsOneWidget, reason: '淡入的详情已经进来');
+
+    await tester.pumpAndSettle();
+    expect(list, findsNothing, reason: '过渡结束只剩详情，不常驻两份');
+    expect(detail, findsOneWidget);
+  });
+
+  testWidgets('艺术家列表与详情之间有淡入上滑的过场', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await _openSection(tester, '艺术家');
+
+    final Finder list = find.byKey(const ValueKey<String>('artists-list'));
+    final Finder detail = _detailWithPrefix('artists-detail-');
+    expect(list, findsOneWidget);
+    expect(detail, findsNothing);
+
+    await tester.tap(find.text('林间电台').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
     expect(list, findsOneWidget, reason: '淡出的列表还在');
     expect(detail, findsOneWidget, reason: '淡入的详情已经进来');
 
