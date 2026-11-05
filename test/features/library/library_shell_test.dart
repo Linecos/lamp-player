@@ -312,6 +312,86 @@ void main() {
     expect(find.text('2 位艺术家'), findsOneWidget);
   });
 
+  testWidgets('收起后选中项背景是正圆，不是竖椭圆', (WidgetTester tester) async {
+    await pumpLibrary(tester);
+    final Finder capsule = find.byKey(
+      const ValueKey<String>('rail-capsule-music'),
+    );
+    expect(tester.getSize(capsule).height, 56, reason: '展开时是 56 高的扁胶囊');
+
+    await tester.tap(find.byTooltip('收起导航栏'));
+    await tester.pumpAndSettle();
+
+    final Size size = tester.getSize(capsule);
+    expect(
+      size.height,
+      56,
+      reason:
+          '收起也要 56 高：展开的胶囊两端是半径 28 的半圆，'
+          '收起降到 48 半径就成 24 了，形状对不上',
+    );
+    expect(size.width, closeTo(size.height, 0.5), reason: '收起后背景必须是正方（圆）');
+  });
+
+  testWidgets('收起动画中导航图标纹丝不动，只有侧栏边缘在动', (WidgetTester tester) async {
+    await pumpLibrary(tester);
+    final Finder icon = find.descendant(
+      of: find.byType(LibraryRail),
+      matching: find.byIcon(LibrarySection.favorites.icon),
+    );
+    final Offset start = tester.getCenter(icon);
+
+    await tester.tap(find.byTooltip('收起导航栏'));
+    final List<Offset> track = <Offset>[];
+    for (int i = 0; i < 11; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      track.add(tester.getCenter(icon));
+    }
+    await tester.pumpAndSettle();
+
+    // 高度和内边距都不跟着展开状态变，图标的横纵坐标在整段动画里应当恒定；
+    // 一变就会看到图标一边缩一边挪，也就是「抖」
+    for (final Offset offset in track) {
+      expect(offset.dx, closeTo(start.dx, 0.5), reason: '收起过程中图标横向不该移动');
+      expect(offset.dy, closeTo(start.dy, 0.5), reason: '收起过程中图标纵向不该移动');
+    }
+  });
+
+  testWidgets('收起侧栏后导航项间距不变，不会变紧凑', (WidgetTester tester) async {
+    await pumpLibrary(tester);
+
+    double centerGap(LibrarySection a, LibrarySection b) {
+      final Finder fa = find.descendant(
+        of: find.byType(LibraryRail),
+        matching: find.byIcon(a.icon),
+      );
+      final Finder fb = find.descendant(
+        of: find.byType(LibraryRail),
+        matching: find.byIcon(b.icon),
+      );
+      return (tester.getCenter(fb).dy - tester.getCenter(fa).dy).abs();
+    }
+
+    // 收藏 / 历史都未选中，图标不会被换成实心版
+    final double expandedGap = centerGap(
+      LibrarySection.favorites,
+      LibrarySection.history,
+    );
+
+    await tester.tap(find.byTooltip('收起导航栏'));
+    await tester.pumpAndSettle();
+    final double collapsedGap = centerGap(
+      LibrarySection.favorites,
+      LibrarySection.history,
+    );
+
+    expect(
+      collapsedGap,
+      closeTo(expandedGap, 0.5),
+      reason: '收起后条目矮 8px，间距要补回来，图标才不会看着挤在一起',
+    );
+  });
+
   testWidgets('侧边栏包含七个入口', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
