@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_revision.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
+import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
@@ -76,7 +77,7 @@ void main() {
     expect(find.text('回来的'), findsOneWidget, reason: '恢复的曲子要立刻出现在列表里');
   });
 
-  testWidgets('定位按钮：无播放时禁用，播放后能滚回当前曲目', (WidgetTester tester) async {
+  testWidgets('长按播放键把列表滚回当前曲目', (WidgetTester tester) async {
     final List<Track> tracks = List<Track>.generate(
       30,
       (int index) =>
@@ -84,13 +85,9 @@ void main() {
     );
     await pumpLibrary(tester, tracks: tracks);
 
-    final Finder locate = find.byKey(const ValueKey<String>('locate-current'));
-    expect(locate, findsNothing, reason: '没有正在播放的曲目时不显示悬浮按钮');
-
     // 播放第一首，再把列表拖到底
     await tester.tap(find.text('曲目 0'));
     await tester.pumpAndSettle();
-    expect(locate, findsOneWidget);
 
     final Finder list = find.byKey(
       const PageStorageKey<String>('tracks:music'),
@@ -100,42 +97,26 @@ void main() {
     final double before = tester.widget<ListView>(list).controller!.offset;
     expect(before, greaterThan(200), reason: '先滚到下面才有意义');
 
-    await tester.tap(locate);
+    // 长按播放键触发定位：先确认回调确实接上了，再验证手势
+    final Finder playBtn = find.byKey(
+      const ValueKey<String>('player-play-pause'),
+    );
+    expect(
+      tester.widget<PlayerBar>(find.byType(PlayerBar)).onLocateCurrent,
+      isNotNull,
+      reason: '播放岛应接上长按定位回调',
+    );
+
+    final TestGesture press = await tester.startGesture(
+      tester.getCenter(playBtn),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    await press.up();
     await tester.pumpAndSettle();
 
     final double after = tester.widget<ListView>(list).controller!.offset;
-    expect(after, lessThan(before), reason: '定位后应往上滚回当前曲目');
+    expect(after, lessThan(before), reason: '长按应把列表滚回当前曲目');
     expect(after, lessThan(80), reason: '第一首在列表顶部');
-  });
-
-  testWidgets('定位按钮浮在岛上方，落在行尾图标左侧的空白带', (WidgetTester tester) async {
-    await pumpLibrary(tester, tracks: twoTracks());
-    await tester.tap(find.text('夜航'));
-    await tester.pumpAndSettle();
-
-    final Finder button = find.byKey(const ValueKey<String>('locate-current'));
-    expect(button, findsOneWidget);
-
-    final Rect btn = tester.getRect(button);
-    // 岛的卡片本体（不含外框那圈 16 的内边距）才是肉眼看到的「岛右边缘」
-    final Rect card = tester.getRect(
-      find.byKey(const ValueKey<String>('player-bar-open-anywhere')),
-    );
-    expect(btn.bottom, lessThan(card.top), reason: '按钮浮在岛上，不压岛');
-    // 不贴窗口右边缘：那里是行尾收藏图标的位置（行内容右对齐），
-    // 按钮固定离右边一段距离才能稳定避开，与窗口宽度无关
-    final double screenRight =
-        tester.view.physicalSize.width / tester.view.devicePixelRatio;
-    expect(
-      btn.right,
-      lessThan(screenRight - 100),
-      reason: '按钮离右边缘留出空白带，不压行尾的时长与收藏图标',
-    );
-    expect(
-      btn.right,
-      greaterThan(card.left + card.width / 2),
-      reason: '仍待在右半区，不要跑到中间挡住专辑名',
-    );
   });
 
   testWidgets('Windows 的紧凑密度下，排序按钮和「播放全部」一样高', (WidgetTester tester) async {
@@ -261,10 +242,10 @@ void main() {
     final double before = tester.widget<ListView>(list).controller!.offset;
     expect(before, greaterThan(200));
 
-    final Finder locate = find.byKey(const ValueKey<String>('locate-current'));
-    expect(locate, findsOneWidget, reason: '收藏分区也该有定位按钮');
-
-    await tester.tap(locate);
+    // 收藏分区同样能在播放岛上长按定位（回调按分区切换）
+    await tester.longPress(
+      find.byKey(const ValueKey<String>('player-play-pause')),
+    );
     await tester.pumpAndSettle();
 
     expect(

@@ -63,6 +63,7 @@ class PlayerBar extends StatelessWidget {
     this.volume = 1,
     this.track,
     this.onPlayPause,
+    this.onLocateCurrent,
     this.onPrevious,
     this.onNext,
     this.onSeekStart,
@@ -98,6 +99,9 @@ class PlayerBar extends StatelessWidget {
 
   /// 当前音量，`0.0..=1.0`。
   final double volume;
+
+  /// 长按播放/暂停键定位正在播放的曲目；为空表示当前分区不可定位
+  final VoidCallback? onLocateCurrent;
 
   final VoidCallback? onPlayPause;
 
@@ -225,16 +229,13 @@ class PlayerBar extends StatelessWidget {
           size: 36,
           onPressed: canControl ? onPrevious : null,
         ),
-        IconButton.filled(
-          onPressed: canControl ? onPlayPause : null,
-          tooltip: isPlaying ? '暂停 (空格)' : '播放 (空格)',
-          iconSize: 24,
-          style: IconButton.styleFrom(
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-          padding: EdgeInsets.zero,
-          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+        // 播放/暂停键同时承载长按定位，两者必须落在同一个 InkWell 里：
+        // 用 GestureDetector 包 IconButton 收不到长按——内层 InkWell 会独占指针。
+        _PlayPauseButton(
+          isPlaying: isPlaying,
+          enabled: canControl,
+          onTap: onPlayPause,
+          onLongPress: onLocateCurrent,
         ),
         _BarIconButton(
           icon: Icons.skip_next,
@@ -842,6 +843,58 @@ class _SlimSlider extends StatelessWidget {
           onChangeStart: enabled ? onChangeStart : null,
           onChanged: enabled ? onChanged : null,
           onChangeEnd: enabled ? onChangeEnd : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// 播放/暂停键。
+///
+/// 用 `InkWell` 手写而不是 `IconButton`：需要同时挂 `onTap` 与 `onLongPress`，
+/// 而 `IconButton` 没有长按参数，外层再套 `GestureDetector` 又会被它的内层
+/// InkWell 抢走指针。样式对齐 MD3 的 filled 图标按钮（直径 40、图标 24）。
+class _PlayPauseButton extends StatelessWidget {
+  const _PlayPauseButton({
+    required this.isPlaying,
+    required this.enabled,
+    this.onTap,
+    this.onLongPress,
+  });
+
+  final bool isPlaying;
+  final bool enabled;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool active = enabled;
+    return Tooltip(
+      message: isPlaying ? '暂停 (空格)' : '播放 (空格)',
+      child: Material(
+        color: active
+            ? scheme.primary
+            : scheme.onSurface.withValues(alpha: 0.12),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey<String>('player-play-pause'),
+          customBorder: const CircleBorder(),
+          onTap: active ? onTap : null,
+          onLongPress: onLongPress,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(
+              isPlaying ? Icons.pause : Icons.play_arrow,
+              size: 24,
+              color: active
+                  ? scheme.onPrimary
+                  : scheme.onSurface.withValues(alpha: 0.38),
+            ),
+          ),
         ),
       ),
     );
