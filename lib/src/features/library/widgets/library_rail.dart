@@ -138,21 +138,29 @@ class _LibraryRailState extends State<LibraryRail> {
             ),
           ),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              children: <Widget>[
-                for (final LibrarySection item in LibrarySection.values)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: _RailItem(
-                      section: item,
-                      expanded: widget.expanded,
-                      showLabel: _showLabels,
-                      selected: item == widget.section,
-                      onTap: () => widget.onSelect(item),
+            // 左右内边距固定 8、条目自己的左内边距固定 16，两者相加 24 与图标
+            // 的原始左边距完全一致 —— 展开时 220-16=204 宽，收起时 72-16=56 宽，
+            // 图标都停在 x=36。这里不留任何动画：两个隐式动画各自起跑，
+            // 中途会把图标带偏几像素（试过，会漂 4px）。
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: <Widget>[
+                  for (final LibrarySection item in LibrarySection.values)
+                    // 间距固定：条目位置在整段动画里不动，才不会抖
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: _RailItem(
+                        section: item,
+                        expanded: widget.expanded,
+                        showLabel: _showLabels,
+                        selected: item == widget.section,
+                        onTap: () => widget.onSelect(item),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -276,60 +284,72 @@ class _RailItem extends StatelessWidget {
         ? scheme.onSecondaryContainer
         : scheme.onSurfaceVariant;
 
-    final Widget item = Material(
-      color: selected ? scheme.secondaryContainer : Colors.transparent,
-      // 胶囊：展开 56 / 收起 48 两种高度下都是两端半圆，不会因为写死 28
-      // 在高 48 时被隐式夹紧
-      shape: const StadiumBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-        child: AnimatedContainer(
-          duration: LibraryRail.animationDuration,
-          curve: Curves.easeInOutCubic,
-          height: expanded ? 56 : 48,
-          // 左侧固定 12：图标在展开 / 收起两种状态下都停在 x=24，
-          // 右侧内边距随收起淡出，给文字让出空间。
-          padding: EdgeInsets.only(left: 12, right: expanded ? 12 : 0),
-          // 内容按固有宽度布局、交给外层裁剪：动画中途容器比文字窄时，
-          // 若让 Row 去挤，Text 在极窄约束下会撑破布局并触发溢出断言。
-          // 用 OverflowBox 而不是 UnconstrainedBox：后者会自己报溢出。
-          child: ClipRect(
-            child: OverflowBox(
-              alignment: Alignment.centerLeft,
-              minWidth: 0,
-              maxWidth: LibraryRail.expandedWidth,
-              minHeight: 0,
-              maxHeight: expanded ? 56 : 48,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(
-                    selected ? section.selectedIcon : section.icon,
-                    size: 24,
-                    color: foreground,
-                  ),
-                  if (showLabel) ...<Widget>[
-                    const SizedBox(width: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 164),
-                      child: AnimatedOpacity(
-                        opacity: expanded ? 1 : 0,
-                        duration: LibraryRail.animationDuration,
-                        curve: Curves.easeInOutCubic,
-                        child: Text(
-                          section.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.clip,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: foreground,
-                          ),
+    // 占位高度固定 56、背景（胶囊）只在里面垂直居中：
+    // · 位置不动 → 收起过程中七个条目不会上下挪（那就是「抖」）
+    // · 背景可以矮下来 → 收起时 48×48 是正圆，展开时才是 56 高的扁胶囊。
+    //   若让背景撑满整个占位高度，折叠宽度下会变成 48×56 的竖椭圆。
+    final Widget item = SizedBox(
+      height: 56,
+      child: Center(
+        // Center 给的是松约束，这里摊开撑满可用宽，否则 Material 会缩到
+        // OverflowBox 的固有宽度（220）而溢出条目
+        child: SizedBox(
+          width: double.infinity,
+          child: Material(
+            key: ValueKey<String>('rail-capsule-${section.name}'),
+            color: selected ? scheme.secondaryContainer : Colors.transparent,
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+              child: Container(
+                // 高度两态一致：展开 56 高的胶囊、收起 56×56 的正圆，
+                // 两端半圆半径都是 28，形状才对得上。左内边距 16 与外面
+                // 那层 8 相加是 24，图标始终停在 x=36，这一层不需要动画
+                height: 56,
+                padding: const EdgeInsets.only(left: 16, right: 12),
+                // 内容按固有宽度布局、交给外层裁剪：动画中途容器比文字窄时，
+                // 若让 Row 去挤，Text 在极窄约束下会撑破布局并触发溢出断言。
+                // 用 OverflowBox 而不是 UnconstrainedBox：后者会自己报溢出。
+                child: ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.centerLeft,
+                    minWidth: 0,
+                    maxWidth: LibraryRail.expandedWidth,
+                    minHeight: 0,
+                    maxHeight: 56,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(
+                          selected ? section.selectedIcon : section.icon,
+                          size: 24,
+                          color: foreground,
                         ),
-                      ),
+                        if (showLabel) ...<Widget>[
+                          const SizedBox(width: 8),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 164),
+                            child: AnimatedOpacity(
+                              opacity: expanded ? 1 : 0,
+                              duration: LibraryRail.animationDuration,
+                              curve: Curves.easeInOutCubic,
+                              child: Text(
+                                section.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.clip,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: foreground,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ],
+                  ),
+                ),
               ),
             ),
           ),

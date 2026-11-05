@@ -1704,10 +1704,27 @@ class _LibraryPageState extends State<LibraryPage>
             offstage: section != _displayedSection,
             child: TickerMode(
               enabled: section == _displayedSection,
-              child: RepaintBoundary(child: _cachedSection(context, section)),
+              child: RepaintBoundary(child: _sectionBody(context, section)),
             ),
           ),
       ],
+    );
+  }
+
+  /// 分区内容。隐藏的分区外面套一层固定宽度。
+  ///
+  /// `Offstage` 只是不画，**layout 照做**（它要保住子树的状态）。侧栏展开 /
+  /// 收起时宽度动画每帧都在改约束，于是访问过的每个分区都跟着重新布局一遍——
+  /// 实测单帧 20~30ms，其中三成花在这些看不见的分区上。给它们一个不随动画
+  /// 变化的宽度，约束稳定下来，就不会每帧重排了；切回来时宽度变一次，正常。
+  Widget _sectionBody(BuildContext context, LibrarySection section) {
+    final Widget built = _cachedSection(context, section);
+    if (section == _displayedSection) {
+      return built;
+    }
+    return SizedBox(
+      width: MediaQuery.sizeOf(context).width - LibraryRail.collapsedWidth,
+      child: built,
     );
   }
 
