@@ -1089,38 +1089,6 @@ class _LibraryPageState extends State<LibraryPage>
                                 bottom: 0,
                                 child: _buildPlayerIsland(),
                               ),
-                              // 定位正在播放：浮在播放岛正上方，右边界和岛对齐。
-                              // 没有正在播放的曲目时不出现
-                              if (_locatableScroll != null &&
-                                  _currentTrack != null)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: PlayerBar.occupiedHeight + 8,
-                                  // 套一层和岛完全相同的「居中 + 封顶」约束，
-                                  // 按钮的右边界自然落在岛右边缘上，不必写死数值：
-                                  // 窗口比岛宽时跟着岛走，比岛窄时跟着内容区走
-                                  child: Center(
-                                    heightFactor: 1,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: _playerBarMaxWidth,
-                                      ),
-                                      child: Padding(
-                                        // 岛的外框比卡片本身左右各宽
-                                        // [PlayerBar.cardSidePadding]，右边界要落在
-                                        // 卡片上，不是外框上
-                                        padding: const EdgeInsets.only(
-                                          right: PlayerBar.cardSidePadding,
-                                        ),
-                                        child: Align(
-                                          alignment: Alignment.centerRight,
-                                          child: _buildLocateButton(scheme),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1211,47 +1179,6 @@ class _LibraryPageState extends State<LibraryPage>
         _update(() => _flashTrackPath = null);
       }
     });
-  }
-
-  /// 播放岛右上的「定位正在播放」：圆形主色小块，浮在岛上方。
-  ///
-  /// 位置不写死数值，跟着岛走：右边界与岛右边缘对齐，底边距岛卡片顶 16
-  /// （`bottom` 见调用处）。岛本身是「居中 + 封顶 [_playerBarMaxWidth]」，
-  /// 按钮套同一套约束，所以宽窗口下贴着岛的右边缘、窄窗口下贴着内容区右边缘。
-  Widget _buildLocateButton(ColorScheme scheme) {
-    return Tooltip(
-      message: '定位正在播放${_shortcutHint(ShortcutAction.locateCurrent)}',
-      child: Semantics(
-        button: true,
-        label: '定位正在播放',
-        child: Material(
-          key: const ValueKey<String>('locate-current'),
-          color: scheme.primary,
-          shape: const CircleBorder(),
-          elevation: 4,
-          shadowColor: scheme.shadow,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: _locateCurrentTrack,
-            child: SizedBox(
-              width: 40,
-              height: 40,
-              child: Icon(Icons.my_location, size: 20, color: scheme.onPrimary),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 某个动作当前的按键文本，给 tooltip 用（改键后跟着变）
-  String _shortcutHint(ShortcutAction action) {
-    for (final ShortcutBinding binding in _shortcuts) {
-      if (binding.action == action) {
-        return ' (${describeActivator(binding.activator)})';
-      }
-    }
-    return '';
   }
 
   void _setFlowBackground(bool value) {
@@ -1679,6 +1606,9 @@ class _LibraryPageState extends State<LibraryPage>
       shuffle: _queue.shuffle,
       onCyclePlayMode: _cyclePlayMode,
       onOpenNowPlaying: () => unawaited(_openNowPlaying()),
+      // 长按播放键定位：只在当前分区有可定位列表、且确实有曲目在播时接上
+      // 无条件接上：定位函数内部会判断当前分区有没有可定位列表
+      onLocateCurrent: _locateCurrentTrack,
     );
   }
 
