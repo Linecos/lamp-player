@@ -1089,18 +1089,6 @@ class _LibraryPageState extends State<LibraryPage>
                                 bottom: 0,
                                 child: _buildPlayerIsland(),
                               ),
-                              // 定位正在播放：浮在播放岛右上方，贴内容区右边缘。
-                              // 不跟随岛的宽度——岛右边缘随窗口变化，窄窗口时正好
-                              // 落到行尾收藏图标上；固定贴右边距可以稳定避开
-                              if (_locatableScroll != null &&
-                                  _currentTrack != null)
-                                Positioned(
-                                  // 120 落在行尾「时长」列左侧的空白带里：
-                                  // 与行内容同样按右边界对齐，窗口变宽时相对位置不变
-                                  right: 120,
-                                  bottom: PlayerBar.occupiedHeight + 8,
-                                  child: _buildLocateButton(scheme),
-                                ),
                             ],
                           ),
                         ),
@@ -1191,59 +1179,6 @@ class _LibraryPageState extends State<LibraryPage>
         _update(() => _flashTrackPath = null);
       }
     });
-  }
-
-  /// 播放岛右上的「定位正在播放」：圆形主色小块，浮在岛上方。
-  ///
-  /// 位置不写死数值，跟着岛走：右边界与岛右边缘对齐，底边距岛卡片顶 16
-  /// （`bottom` 见调用处）。岛本身是「居中 + 封顶 [_playerBarMaxWidth]」，
-  /// 按钮套同一套约束，所以宽窗口下贴着岛的右边缘、窄窗口下贴着内容区右边缘。
-  Widget _buildLocateButton(ColorScheme scheme) {
-    return Tooltip(
-      message: '定位正在播放${_shortcutHint(ShortcutAction.locateCurrent)}',
-      child: Semantics(
-        button: true,
-        label: '定位正在播放',
-        // 占位保持 40 与列表头部其他控件同高（见 957f0b6 的对齐约定），
-        // 圆本身画 30，视觉上比播放按钮更低调
-        child: SizedBox(
-          width: 40,
-          height: 40,
-          child: Center(
-            child: Material(
-              key: const ValueKey<String>('locate-current'),
-              color: scheme.primary,
-              shape: const CircleBorder(),
-              elevation: 4,
-              shadowColor: scheme.shadow,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _locateCurrentTrack,
-                child: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: Icon(
-                    Icons.my_location,
-                    size: 15,
-                    color: scheme.onPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 某个动作当前的按键文本，给 tooltip 用（改键后跟着变）
-  String _shortcutHint(ShortcutAction action) {
-    for (final ShortcutBinding binding in _shortcuts) {
-      if (binding.action == action) {
-        return ' (${describeActivator(binding.activator)})';
-      }
-    }
-    return '';
   }
 
   void _setFlowBackground(bool value) {
@@ -1671,6 +1606,9 @@ class _LibraryPageState extends State<LibraryPage>
       shuffle: _queue.shuffle,
       onCyclePlayMode: _cyclePlayMode,
       onOpenNowPlaying: () => unawaited(_openNowPlaying()),
+      // 长按播放键定位：只在当前分区有可定位列表、且确实有曲目在播时接上
+      // 无条件接上：定位函数内部会判断当前分区有没有可定位列表
+      onLocateCurrent: _locateCurrentTrack,
     );
   }
 
