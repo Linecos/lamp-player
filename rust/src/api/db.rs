@@ -28,15 +28,25 @@ fn cell() -> &'static Mutex<Option<Database>> {
     DB.get_or_init(|| Mutex::new(None))
 }
 
+/// 取全局连接的锁，锁中毒也继续用。
+///
+/// 某个线程在持锁时 panic 会把锁标记成中毒。这里选 `into_inner()` 接着用：
+/// 连接本身没坏（panic 传播出来时 rusqlite 会回滚未提交的事务），而把中毒
+/// 当成「曲库永久不可用」会让应用只剩重启一条路——对一个播放器来说，
+/// 继续读库明显好过废掉全部功能。
+fn lock_db() -> std::sync::MutexGuard<'static, Option<Database>> {
+    cell()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// 曲库操作唯一入口：持有全局锁执行一次闭包。
 ///
-/// 未初始化、锁中毒都转成普通错误返回，避免在库代码里 panic。
+/// 未初始化转成普通错误返回，避免在库代码里 panic。
 pub(crate) fn with_conn<T>(
     f: impl FnOnce(&mut Connection) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-    let mut guard = cell()
-        .lock()
-        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let mut guard = lock_db();
     let db = guard
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("曲库未初始化：请先调用 init_db(path)"))?;
@@ -48,9 +58,7 @@ pub(crate) fn with_conn<T>(
 /// 同一个路径重复调用是幂等的；换路径必须先 [`close_db`]，否则报错，
 /// 避免「以为切了库、其实还在写旧库」。
 pub fn init_db(path: String) -> anyhow::Result<()> {
-    let mut guard = cell()
-        .lock()
-        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let mut guard = lock_db();
 
     if let Some(db) = guard.as_ref() {
         if db.path == path {
@@ -116,9 +124,7 @@ fn backup_before_upgrade(conn: &mut Connection, path: &str) {
 /// 曲目数据会一直堆在 `-wal` 里（主库看着只有几 KB），任何「只拷主库」的备份
 /// 都会丢数据。
 pub fn close_db() -> anyhow::Result<()> {
-    let mut guard = cell()
-        .lock()
-        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let mut guard = lock_db();
     if let Some(db) = guard.as_mut() {
         // 两条都是尽力而为：外部工具正持锁时 checkpoint 会返回 busy，不该让退出失败
         let _ = db.conn.execute_batch("PRAGMA optimize;");
@@ -132,9 +138,7 @@ pub fn close_db() -> anyhow::Result<()> {
 ///
 /// 让缓存跟着曲库走，扫描器不需要额外参数；换库路径时封面目录也随之切换。
 pub(crate) fn covers_dir() -> anyhow::Result<PathBuf> {
-    let guard = cell()
-        .lock()
-        .map_err(|_| anyhow::anyhow!("曲库连接锁已中毒（此前有线程 panic）"))?;
+    let guard = lock_db();
     let db = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("曲库未初始化：请先调用 init_db(path)"))?;
