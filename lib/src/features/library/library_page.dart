@@ -373,6 +373,9 @@ class _LibraryPageState extends State<LibraryPage>
   bool _isPlaying = false;
   bool _isAvailable = false;
   bool _seeking = false;
+
+  /// 拖动开始前的位置：seek 失败时界面要退回这里，不能停在假位置上
+  double? _seekOrigin;
   double _position = 0;
   double _duration = 0;
 

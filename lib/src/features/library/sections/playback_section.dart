@@ -895,6 +895,8 @@ extension _PlaybackSection on _LibraryPageState {
   /// 拖动进度时停掉轮询，否则下一次 tick 会把滑块拉回原位置。
   void _onSeekStart(double _) {
     _seeking = true;
+    // 拖动过程中 `_position` 会被预览值覆盖，先把「真正的位置」记下来
+    _seekOrigin = _position;
     _stopPositionPolling();
   }
 
@@ -909,6 +911,13 @@ extension _PlaybackSection on _LibraryPageState {
     if (!_isAvailable) {
       return;
     }
+    // 失败要退回「这一下之前」的位置：拖动时是按下前的（拖动中 `_position`
+    // 已是预览值），键盘快进时就是当前位置。
+    final double origin = _seekOrigin ?? _position;
+    // seek 往返期间轮询会读到旧位置、把界面推回去。拖动一直靠 `_seeking`
+    // 挡着，键盘快进这条路径以前没挡，按一下会看到进度闪回再跳过去。
+    final bool alreadySeeking = _seeking;
+    _seeking = true;
     try {
       await _playback.seek(seconds);
       if (!mounted) {
@@ -923,7 +932,15 @@ extension _PlaybackSection on _LibraryPageState {
       if (!mounted) {
         return;
       }
+      // 引擎没跳成：界面也得回来，否则显示的是一段根本没播的位置
+      _position = origin.clamp(0.0, _duration > 0 ? _duration : origin);
+      _publishProgress();
       _showMessage('跳转失败：${ErrorRetry.describe(error)}');
+    } finally {
+      // 拖动期间由 _onSeekEnd 负责复位，别在这里抢
+      if (!alreadySeeking) {
+        _seeking = false;
+      }
     }
   }
 
@@ -938,6 +955,7 @@ extension _PlaybackSection on _LibraryPageState {
         await _seekTo(seconds);
       }
     }
+    _seekOrigin = null;
     if (_isPlaying && _positionTimer == null) {
       _startPositionPolling();
     }
