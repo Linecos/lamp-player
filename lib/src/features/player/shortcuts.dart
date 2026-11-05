@@ -9,7 +9,7 @@ import 'package:flutter/widgets.dart'
 /// 曲库页与正在播放页都从这里生成 `CallbackShortcuts` 的绑定：新增 / 改键
 /// 只改这一处，两边不会漂移（这两页是独立路由，各自持有一份焦点树）。
 ///
-/// 自定义键位的链路：设置页「快捷键」→ `ShortcutsPage` 录制新组合键 →
+/// 自定义键位的链路：设置页「快捷键」→ `ShortcutsDialog` 录制新组合键 →
 /// `LibraryPage` 更新 `_shortcuts` 并写进会话（`SessionSnapshot.shortcutsJson`）→
 /// 两个页面的 `CallbackShortcuts` 跟着重建。页面里的 key 判断不涉及具体键位。
 

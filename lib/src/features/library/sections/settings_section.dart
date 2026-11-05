@@ -196,13 +196,12 @@ extension _SettingsSection on _LibraryPageState {
     }
   }
 
-  /// 打开快捷键设置页：录制式改键，点一行再按组合键
+  /// 打开快捷键弹窗：录制式改键，点一行再按组合键
   Future<void> _openShortcuts() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) =>
-            ShortcutsPage(bindings: _shortcuts, onChanged: _setShortcuts),
-      ),
+    await showShortcutsDialog(
+      context,
+      bindings: _shortcuts,
+      onChanged: _setShortcuts,
     );
   }
 

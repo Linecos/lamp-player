@@ -36,7 +36,7 @@ import '../player/now_playing_route.dart';
 import '../player/desktop_lyric_cue.dart';
 import '../player/queue_dialog.dart';
 import '../player/shortcuts.dart';
-import '../settings/shortcuts_page.dart';
+import '../settings/shortcuts_dialog.dart';
 import '../player/smtc_bridge.dart';
 import '../player/spectrum_controller.dart';
 import '../settings/listening_stats_repository.dart';

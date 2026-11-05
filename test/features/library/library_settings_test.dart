@@ -471,7 +471,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('设置页「快捷键」打开编辑页，列出当前键位', (WidgetTester tester) async {
+  testWidgets('设置页「快捷键」打开弹窗，列出当前键位', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
     await tester.tap(
@@ -484,6 +484,12 @@ void main() {
     await tester.tap(find.text('快捷键'));
     await tester.pumpAndSettle();
 
+    expect(
+      find.byKey(const ValueKey<String>('shortcuts-dialog')),
+      findsOneWidget,
+      reason: '是浮在设置上面的弹窗，不是新页面',
+    );
+    expect(find.byType(LibraryRail), findsOneWidget, reason: '左侧栏没被顶掉');
     expect(find.text('播放 / 暂停'), findsOneWidget);
     expect(find.text('空格'), findsOneWidget);
     expect(find.text('Ctrl + ←'), findsOneWidget, reason: '上一首');
@@ -526,8 +532,8 @@ void main() {
     expect(find.text('Ctrl + P'), findsOneWidget, reason: '键帽要跟着更新');
     expect(session.snapshot.shortcutsJson, isNotEmpty, reason: '要写回会话');
 
-    // 返回曲库页，Ctrl+P 应当能暂停
-    await tester.pageBack();
+    // 关掉弹窗回到曲库页，Ctrl+P 应当能暂停
+    await tester.tap(find.byKey(const ValueKey<String>('shortcuts-close')));
     await tester.pumpAndSettle();
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyP);

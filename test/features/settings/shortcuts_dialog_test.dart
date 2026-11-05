@@ -2,21 +2,40 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/shortcuts.dart';
-import 'package:lamp_player/src/features/settings/shortcuts_page.dart';
+import 'package:lamp_player/src/features/settings/shortcuts_dialog.dart';
+import 'package:lamp_player/src/theme/app_theme.dart';
 
+/// 打开弹窗并返回「每次改动」的记录
 Future<List<List<ShortcutBinding>>> _pump(
   WidgetTester tester, {
   List<ShortcutBinding> bindings = kDefaultShortcuts,
 }) async {
+  tester.view.physicalSize = const Size(1000, 1000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   final List<List<ShortcutBinding>> changes = <List<ShortcutBinding>>[];
   await tester.pumpWidget(
     MaterialApp(
-      home: ShortcutsPage(
-        bindings: bindings,
-        onChanged: (List<ShortcutBinding> next) => changes.add(next),
+      theme: AppTheme.dark(AppTheme.defaultSeed),
+      home: Builder(
+        builder: (BuildContext context) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () => showShortcutsDialog(
+                context,
+                bindings: bindings,
+                onChanged: (List<ShortcutBinding> next) => changes.add(next),
+              ),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
       ),
     ),
   );
+  await tester.tap(find.text('打开'));
   await tester.pumpAndSettle();
   return changes;
 }
@@ -42,6 +61,20 @@ Future<void> _record(
 ShortcutAction _actionOf(ShortcutBinding binding) => binding.action;
 
 void main() {
+  testWidgets('以弹窗打开，不再是整页路由', (WidgetTester tester) async {
+    await _pump(tester);
+
+    expect(find.byKey(const ValueKey<String>('shortcuts-dialog')), findsOne);
+    expect(find.byType(Dialog), findsOne);
+    // 底层页面还在（弹窗是浮层），说明没有 push 新页面
+    expect(find.text('打开'), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey<String>('shortcuts-close')));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('打开'), findsOne);
+  });
+
   testWidgets('录制新组合键后立即回调并更新键帽', (WidgetTester tester) async {
     final List<List<ShortcutBinding>> changes = await _pump(tester);
 
@@ -106,7 +139,7 @@ void main() {
     expect(find.text('↑'), findsOneWidget);
   });
 
-  testWidgets('Esc 取消录制，不改任何键位', (WidgetTester tester) async {
+  testWidgets('Esc 取消录制，不改任何键位也不关弹窗', (WidgetTester tester) async {
     final List<List<ShortcutBinding>> changes = await _pump(tester);
 
     await tester.tap(find.text('播放 / 暂停'));
@@ -119,6 +152,8 @@ void main() {
     expect(find.textContaining('正在录制'), findsNothing);
     expect(find.text('空格'), findsOneWidget);
     expect(changes, isEmpty);
+    // Esc 只取消录制，弹窗还开着
+    expect(find.byType(Dialog), findsOne);
   });
 
   testWidgets('恢复默认把整张表还原', (WidgetTester tester) async {
@@ -143,7 +178,7 @@ void main() {
     );
     expect(find.text('Ctrl + P'), findsOneWidget);
 
-    await tester.tap(find.text('恢复默认'));
+    await tester.tap(find.byKey(const ValueKey<String>('shortcuts-restore')));
     await tester.pumpAndSettle();
 
     expect(find.text('Ctrl + P'), findsNothing);

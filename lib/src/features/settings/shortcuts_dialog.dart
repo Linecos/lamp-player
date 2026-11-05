@@ -3,24 +3,39 @@ import 'package:flutter/services.dart';
 
 import '../player/shortcuts.dart';
 
-/// 快捷键设置页：点一行 → 按下想要的组合键 → 立即生效并保存。
+/// 快捷键弹窗：点一行 → 按下想要的组合键 → 立即生效并保存。
 ///
-/// 校验放在这里而不是调用方：录制过程中只有本页知道用户按了什么，越早拒绝
+/// 与均衡器 / 播放队列 / 睡眠定时同一套外壳（图标 + 标题 + 关闭叉号），
+/// 不再 push 一整页：改键是随手调一下的事，不该遮住整个曲库。
+///
+/// 校验放在这里而不是调用方：录制过程中只有本弹窗知道用户按了什么，越早拒绝
 /// 越容易解释（冲突 / 裸键 / Esc 都有明确提示）。
-class ShortcutsPage extends StatefulWidget {
-  const ShortcutsPage({super.key, required this.bindings, this.onChanged});
+Future<void> showShortcutsDialog(
+  BuildContext context, {
+  required List<ShortcutBinding> bindings,
+  ValueChanged<List<ShortcutBinding>>? onChanged,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (BuildContext context) =>
+        ShortcutsDialog(bindings: bindings, onChanged: onChanged),
+  );
+}
 
-  /// 进入时的键位表（通常是 `LibraryPage` 当前生效的那份）
+class ShortcutsDialog extends StatefulWidget {
+  const ShortcutsDialog({super.key, required this.bindings, this.onChanged});
+
+  /// 打开时的键位表（通常是 `LibraryPage` 当前生效的那份）
   final List<ShortcutBinding> bindings;
 
-  /// 每次改动后回调；为空时只在本页内生效（测试 / 预览用）
+  /// 每次改动后回调；为空时只在弹窗内生效（测试 / 预览用）
   final ValueChanged<List<ShortcutBinding>>? onChanged;
 
   @override
-  State<ShortcutsPage> createState() => _ShortcutsPageState();
+  State<ShortcutsDialog> createState() => _ShortcutsDialogState();
 }
 
-class _ShortcutsPageState extends State<ShortcutsPage> {
+class _ShortcutsDialogState extends State<ShortcutsDialog> {
   late List<ShortcutBinding> _bindings = List<ShortcutBinding>.of(
     normalizeShortcuts(widget.bindings),
   );
@@ -28,7 +43,7 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
   /// 正在等待按键的动作；null 表示没在录制
   ShortcutAction? _recording;
 
-  /// 录制失败的提示（冲突 / 裸键），显示在标题下方
+  /// 录制失败的提示（冲突 / 裸键），固定在列表上方，滚动时也看得见
   String? _error;
 
   final FocusNode _focus = FocusNode(debugLabel: 'shortcut-record');
@@ -43,59 +58,107 @@ class _ShortcutsPageState extends State<ShortcutsPage> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    // 13 条键位排下来比一般弹窗高：高度跟着内容走，超过窗口就在列表里滚动
+    final Size screen = MediaQuery.sizeOf(context);
+    final double width = (screen.width - 120).clamp(420.0, 560.0);
+    final double maxHeight = (screen.height - 96).clamp(320.0, 780.0);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('快捷键'),
-        actions: <Widget>[
-          TextButton(onPressed: _restoreDefaults, child: const Text('恢复默认')),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: Focus(
-        focusNode: _focus,
-        autofocus: true,
-        onKeyEvent: _onKeyEvent,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-          children: <Widget>[
-            Text(
-              _recording == null
-                  ? '点击任意一行，然后按下想要的组合键。'
-                  : '正在录制「${_recording!.label}」：按下组合键，Esc 取消。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: _recording == null
-                    ? scheme.onSurfaceVariant
-                    : scheme.primary,
-              ),
-            ),
-            if (_error != null)
+    return Dialog(
+      key: const ValueKey<String>('shortcuts-dialog'),
+      backgroundColor: scheme.surfaceContainerLow,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SizedBox(
+          width: width,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
               Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.error,
+                padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.keyboard_outlined, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('快捷键', style: theme.textTheme.titleLarge),
+                    ),
+                    TextButton(
+                      key: const ValueKey<String>('shortcuts-restore'),
+                      onPressed: _restoreDefaults,
+                      child: const Text('恢复默认'),
+                    ),
+                    IconButton(
+                      key: const ValueKey<String>('shortcuts-close'),
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      _recording == null
+                          ? '点击任意一行，然后按下想要的组合键。'
+                          : '正在录制「${_recording!.label}」：按下组合键，Esc 取消。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _recording == null
+                            ? scheme.onSurfaceVariant
+                            : scheme.primary,
+                      ),
+                    ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _error!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.error,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: Focus(
+                  focusNode: _focus,
+                  autofocus: true,
+                  onKeyEvent: _onKeyEvent,
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    children: <Widget>[
+                      for (final ShortcutBinding binding in _bindings)
+                        _ShortcutRow(
+                          action: binding.action,
+                          activator: binding.activator,
+                          recording: _recording == binding.action,
+                          onTap: () => _startRecording(binding.action),
+                        ),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          '只在本应用窗口聚焦时生效，媒体键由系统转发。'
+                          '单个字母 / 数字键需配合 Ctrl、Alt、Shift。',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            const SizedBox(height: 8),
-            for (final ShortcutBinding binding in _bindings)
-              _ShortcutRow(
-                action: binding.action,
-                activator: binding.activator,
-                recording: _recording == binding.action,
-                onTap: () => _startRecording(binding.action),
-              ),
-            const SizedBox(height: 16),
-            Text(
-              '只在本应用窗口聚焦时生效（媒体键由系统转发，任何窗口下都能用）。'
-              '单个字母 / 数字键需配合 Ctrl、Alt、Shift 之一，避免和输入冲突。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -239,7 +302,8 @@ class _ShortcutRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        // 13 行要尽量在一屏里排下，上下留 10 就够点了
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Row(
           children: <Widget>[
             Expanded(
