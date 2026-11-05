@@ -101,6 +101,9 @@ class SpectrumController {
   bool _sampling = false;
   bool _suspended = false;
 
+  /// 轮询模式下看门狗已经自救过几次（见 [_check]）
+  int _pollRestarts = 0;
+
   /// 窗口不可见时停止 FFT/桥接，保留订阅引用数；回来再开一条流。
   /// 音频播放不受影响。
   void setSuspended(bool value) {
@@ -272,6 +275,39 @@ class SpectrumController {
       return;
     }
     if (_polling) {
+      // 轮询状态下这里以前直接 return：只要某次 `_sample()` 的 Future
+      // 没回来，`_sampling` 就钉在 true，之后每 33ms 的采样全被挡掉，
+      // 频谱永久冻住（切走再切回来才好）。轮询走的是同一个帧计数，
+      // 按同一套「连续几拍没有新帧」判定，超时就把卡住的标记清掉重排节拍。
+      if (_framesSeen != _frames) {
+        _framesSeen = _frames;
+        _idleTicks = 0;
+        _pollRestarts = 0;
+        return;
+      }
+      // 没有新帧多半只是暂停 / 静音（这时引擎本来就不产生帧），不算僵死。
+      // 真正要救的是「采样卡住」：`_sample()` 的 Future 不回来时
+      // `_sampling` 会一直是 true，之后再没有一次采样能发出去。
+      if (!_sampling) {
+        _idleTicks = 0;
+        return;
+      }
+      _idleTicks += 1;
+      if (_idleTicks < _stallTicks) {
+        return;
+      }
+      _idleTicks = 0;
+      // 最多自救 3 次：真卡死时无限重发只会堆起一串 FFI 调用
+      if (_pollRestarts >= 3) {
+        _pollTimer?.cancel();
+        _pollTimer = null;
+        debugPrint('频谱轮询连续无帧，已停止重试');
+        return;
+      }
+      _pollRestarts += 1;
+      _sampling = false;
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(pollInterval, (_) => _sampleOnce());
       return;
     }
     if (_subscription == null) {
@@ -323,6 +359,8 @@ class SpectrumController {
     _retryDelay = _retryMin;
     _polling = false;
     _sampling = false;
+    _pollRestarts = 0;
+    _idleTicks = 0;
     _sawSignal = false;
     final StreamSubscription<Float32List>? subscription = _subscription;
     _subscription = null;
