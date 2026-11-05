@@ -52,6 +52,8 @@ class SettingsView extends StatelessWidget {
     this.onReplayGainChanged,
     this.crossfadeSeconds = 0,
     this.onCrossfadeChanged,
+    this.volumeFade = true,
+    this.onVolumeFadeChanged,
     this.onShowShortcuts,
     this.shortcuts = kDefaultShortcuts,
     this.flowBackground = true,
@@ -147,6 +149,12 @@ class SettingsView extends StatelessWidget {
 
   /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
+
+  /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
+  final bool volumeFade;
+
+  /// 切换音量过渡；为空表示当前不可操作
+  final ValueChanged<bool>? onVolumeFadeChanged;
 
   /// 打开「快捷键一览」；不传时这一行禁用（测试 / 精简场景）
   final VoidCallback? onShowShortcuts;
@@ -391,6 +399,16 @@ class SettingsView extends StatelessWidget {
             ? null
             : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
         choiceKey: const ValueKey<String>('settings-crossfade'),
+      ),
+      _SwitchRow(
+        icon: Icons.volume_down_outlined,
+        title: '音量过渡',
+        switchKey: const ValueKey<String>('settings-volume-fade-switch'),
+        subtitle: volumeFade
+            ? '播放淡入、暂停与停止淡出时平滑调整音量'
+            : '所有操作直接硬切',
+        value: volumeFade,
+        onChanged: onVolumeFadeChanged,
       ),
       _ActionRow(
         icon: Icons.keyboard_outlined,

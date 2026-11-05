@@ -104,6 +104,13 @@ pub fn player_set_crossfade(seconds: f64) -> Result<()> {
     bass::set_crossfade(millis)
 }
 
+/// 音量过渡开关：暂停 / 停止时淡出，起播与定位后淡入（默认开）
+///
+/// 关掉后所有操作都是硬切，和早期版本一致。
+pub fn player_set_volume_fade(enabled: bool) -> Result<()> {
+    bass::set_volume_fade(enabled)
+}
+
 /// 暂停当前曲目
 pub fn player_pause() -> Result<()> {
     bass::pause()

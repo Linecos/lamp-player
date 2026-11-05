@@ -33,6 +33,22 @@ const EXCLUSIVE_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// 状态轮询间隔，用于发现曲目自然播完
 const TICK: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// 音量过渡的时长（毫秒）。
+///
+/// 暂停 / 停止的淡出与起播的淡入都用 500ms：再短就只是把硬切磨圆了一点，
+/// 听不出「过渡」。定位用最短的，否则连拖进度条会听着像断续。
+/// 淡出之后的真正暂停 / 停止按到期时刻精确补上（见 [`run`]），不再等 200ms 一拍。
+const FADE_OUT_MS: u32 = 500;
+const FADE_IN_MS: u32 = 500;
+const SEEK_FADE_MS: u32 = 60;
+
+/// 淡出结束后要补的动作
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FadeAction {
+    Pause,
+    Stop,
+}
+
 /// 同时等待淡出释放的旧流上限
 ///
 /// 正常听歌永远到不了：8 秒淡变 + 每 200ms 切一次才会堆到 40 个。
@@ -178,10 +194,14 @@ enum Cmd {
     /// 起播后补算出的 ReplayGain：更新 gain_db 并立即应用到当前输出
     SetGain(f64, Reply<()>),
     Snapshot(Reply<Progress>),
+    /// 输出目标的当前音量（振幅），测试与诊断用
+    OutputVolume(Reply<f32>),
     Spectrum(Reply<Vec<f32>>),
     Devices(Reply<Vec<Device>>),
     SetDevice(i32, Reply<()>),
     SetCrossfade(u32, Reply<()>),
+    /// 音量过渡开关：播放 / 暂停 / 停止 / 定位时淡入淡出
+    SetVolumeFade(bool, Reply<()>),
     SetEq(bool, Vec<f32>, Reply<()>),
     SetExclusive(bool, Reply<()>),
     OutputInfo(Reply<String>),
@@ -258,7 +278,8 @@ impl Cmd {
             | Cmd::Seek(_, reply)
             | Cmd::Volume(_, reply)
             | Cmd::SetEq(_, _, reply)
-            | Cmd::SetExclusive(_, reply) => reply,
+            | Cmd::SetExclusive(_, reply)
+            | Cmd::SetVolumeFade(_, reply) => reply,
             _ => return,
         };
         let _ = reply.send(Ok(()));
@@ -405,6 +426,10 @@ struct Engine {
     stream: u32,
     path: Option<String>,
     volume: f32,
+    /// 音量过渡开关：播放淡入、暂停 / 停止淡出、定位前后淡变
+    volume_fade: bool,
+    /// 淡出结束后要补的动作（暂停 / 停止）；到点由 [`Engine::finish_fade`] 执行
+    fade_pending: Option<(FadeAction, std::time::Instant)>,
     /// 独占初始化失败的原因，用于设置页提示
     exclusive_note: String,
     /// 独占模式下进入 Stopped 的时刻，用于空闲后交还设备
@@ -466,6 +491,9 @@ impl Engine {
             stream: 0,
             path: None,
             volume: 1.0,
+            // 默认开：本来就是用户要的「不要咔哒一声」
+            volume_fade: true,
+            fade_pending: None,
             exclusive_note: String::new(),
             idle_since: None,
             device: std::env::var("LAMP_BASS_DEVICE")
@@ -827,20 +855,28 @@ impl Engine {
         self.stream = handle;
         self.path = Some(path.to_string());
         let target = self.target_volume();
+        // 新曲从 0 拉起来：交叉淡变有旧曲垫着，没有交叉时靠音量过渡补一个淡入
+        let fade_in_ms = if overlap {
+            fade_ms
+        } else if self.volume_fade {
+            FADE_IN_MS
+        } else {
+            0
+        };
 
         if self.output == Output::Exclusive {
             // 音量与 SRC 都作用在混音流上：源流只是被拉取的数据源
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, 1.0) };
             if self.mixer != 0 {
-                let start = if fade_ms > 0 { 0.0 } else { target };
+                let start = if fade_in_ms > 0 { 0.0 } else { target };
                 unsafe { (self.api.channel_set_attribute)(self.mixer, BASS_ATTRIB_VOL, start) };
-                if fade_ms > 0 {
+                if fade_in_ms > 0 {
                     unsafe {
                         (self.api.channel_slide_attribute)(
                             self.mixer,
                             BASS_ATTRIB_VOL,
                             target,
-                            fade_ms,
+                            fade_in_ms,
                         )
                     };
                 }
@@ -849,7 +885,7 @@ impl Engine {
             self.apply_eq();
         } else {
             // 音量是 per-channel 属性，换曲后必须重新应用
-            let start = if overlap { 0.0 } else { target };
+            let start = if fade_in_ms > 0 { 0.0 } else { target };
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_VOL, start) };
             // 采样率与设备不一致时才真正生效，一致时代价为零
             unsafe { (self.api.channel_set_attribute)(handle, BASS_ATTRIB_SRC, SRC_QUALITY) };
@@ -858,14 +894,16 @@ impl Engine {
                 self.release_track();
                 return Err(anyhow!("播放失败: {err}"));
             }
-            if overlap {
+            if fade_in_ms > 0 {
                 unsafe {
-                    (self.api.channel_slide_attribute)(handle, BASS_ATTRIB_VOL, target, fade_ms)
+                    (self.api.channel_slide_attribute)(handle, BASS_ATTRIB_VOL, target, fade_in_ms)
                 };
             }
             // 新流没有旧 FX，重新挂一遍
             self.apply_eq();
         }
+        // 新曲上台：上一首的暂停淡出不该再补刀
+        self.fade_pending = None;
         store_state(State::Playing);
         Ok(())
     }
@@ -891,20 +929,21 @@ impl Engine {
 
     /// 把音量写到当前输出目标上（共享 = 曲目流，独占 = 混音流）
     fn apply_volume(&self) {
-        let target = if self.output == Output::Exclusive {
-            self.mixer
-        } else {
-            self.stream
-        };
-        if target != 0 {
-            unsafe {
-                (self.api.channel_set_attribute)(target, BASS_ATTRIB_VOL, self.target_volume())
-            };
-        }
+        self.set_output_volume(self.target_volume());
     }
 
     fn pause(&mut self) -> Result<()> {
         self.ensure_stream()?;
+        // 先淡出，到点再真正暂停（[`Engine::finish_fade`]）
+        // 状态立刻置成暂停，界面与听觉都不会觉得慢
+        if self.begin_fade(FadeAction::Pause) {
+            store_state(State::Paused);
+            return Ok(());
+        }
+        self.pause_now()
+    }
+
+    fn pause_now(&mut self) -> Result<()> {
         match self.output {
             Output::Shared => {
                 if unsafe { (self.api.channel_pause)(self.stream) } == 0 {
@@ -920,6 +959,8 @@ impl Engine {
 
     fn resume(&mut self) -> Result<()> {
         self.ensure_stream()?;
+        // 淡出途中又点了播放：取消那次暂停，音量滑回去
+        self.fade_pending = None;
         match self.output {
             Output::Shared => {
                 if unsafe { (self.api.channel_play)(self.stream, 0) } == 0 {
@@ -928,11 +969,28 @@ impl Engine {
             }
             Output::Exclusive => self.set_slot_paused(false),
         }
+        if self.volume_fade {
+            let target = self.target_volume();
+            self.slide_output_volume(target, FADE_IN_MS);
+        }
         store_state(State::Playing);
         Ok(())
     }
 
     fn stop(&mut self) -> Result<()> {
+        // 同样先淡出再释放流：直接 release 也是硬切
+        if self.begin_fade(FadeAction::Stop) {
+            self.idle_since = None;
+            // 主动停止不是「播到结尾」，进度回到 0
+            self.ended_position = 0.0;
+            self.ended_duration = 0.0;
+            store_state(State::Stopped);
+            return Ok(());
+        }
+        self.stop_now()
+    }
+
+    fn stop_now(&mut self) -> Result<()> {
         self.idle_since = None;
         self.release_track();
         // 主动停止不是「播到结尾」，进度回到 0
@@ -945,6 +1003,50 @@ impl Engine {
         Ok(())
     }
 
+    /// 开始淡出；返回 `true` 表示淡出已启动，调用方不要再立即执行动作。
+    ///
+    /// 不淡的情况：开关关着、没有流、状态不是播放中、本来就没声音。
+    fn begin_fade(&mut self, action: FadeAction) -> bool {
+        if !self.volume_fade || self.stream == 0 || self.fade_pending.is_some() {
+            return false;
+        }
+        if state() != State::Playing {
+            return false;
+        }
+        // 已经静音（启动预加载就是静音起播）：没有声音可淡，直接收尾
+        if self.target_volume() <= 0.0 {
+            return false;
+        }
+        if !self.slide_output_volume(0.0, FADE_OUT_MS) {
+            return false;
+        }
+        self.fade_pending = Some((
+            action,
+            std::time::Instant::now() + std::time::Duration::from_millis(FADE_OUT_MS as u64),
+        ));
+        true
+    }
+
+    /// 到点补上淡出之后的动作；由 [`Engine::refresh`] 调用。
+    ///
+    /// 引擎线程在淡出期间按到期时刻唤醒，所以这里几乎不会迟到。
+    fn finish_fade(&mut self) {
+        let Some((action, due)) = self.fade_pending else {
+            return;
+        };
+        if std::time::Instant::now() < due {
+            return;
+        }
+        self.fade_pending = None;
+        let result = match action {
+            FadeAction::Pause => self.pause_now(),
+            FadeAction::Stop => self.stop_now(),
+        };
+        if let Err(error) = result {
+            eprintln!("音量过渡收尾失败：{error}");
+        }
+    }
+
     fn seek(&mut self, secs: f64) -> Result<()> {
         self.ensure_stream()?;
         if !secs.is_finite() || secs < 0.0 {
@@ -953,6 +1055,13 @@ impl Engine {
         let total = self.duration()?;
         if total > 0.0 && secs > total {
             bail!("跳转位置超出曲目时长: {secs} > {total}");
+        }
+        // 跳转的爆音来自波形不连续：先把音量按到 0，跳完再淡回来。
+        // 这里必须**瞬间**静音，不能 slide——否则跳转会发生在淡出完成之前。
+        let fade = self.volume_fade && state() == State::Playing;
+        let target = self.target_volume();
+        if fade {
+            self.set_output_volume(0.0);
         }
         let bytes = unsafe { (self.api.channel_seconds2bytes)(self.stream, secs) };
         let ok = match self.output {
@@ -967,7 +1076,14 @@ impl Engine {
             },
         };
         if !ok {
+            // 跳失败也别把声音留在 0
+            if fade {
+                self.set_output_volume(target);
+            }
             return Err(anyhow!("跳转失败: {}", last_error(&self.api)));
+        }
+        if fade {
+            self.slide_output_volume(target, SEEK_FADE_MS);
         }
         Ok(())
     }
@@ -978,7 +1094,12 @@ impl Engine {
             bail!("音量非法: {volume}");
         }
         self.volume = volume.clamp(0.0, 1.0);
-        self.apply_volume();
+        // 淡出途中改音量不能把声音拉回来：输出让那次淡出走完，
+        // 新音量由续播的淡入带出来
+        let fading = self.fade_pending.is_some();
+        if !fading {
+            self.apply_volume();
+        }
         Ok(())
     }
 
@@ -991,8 +1112,68 @@ impl Engine {
             bail!("增益非法: {gain_db}");
         }
         self.gain_db = gain_db.clamp(-24.0, 12.0);
-        self.apply_volume();
+        // 与 set_volume 同理：淡出途中不把声音拉回来
+        if self.fade_pending.is_none() {
+            self.apply_volume();
+        }
         Ok(())
+    }
+
+    /* -------------------------------------------------------- 音量过渡 */
+
+    /// 开 / 关音量过渡；关掉时把可能挂着的那次淡出立刻收尾，
+    /// 否则音量会停在 0。
+    fn set_volume_fade(&mut self, enabled: bool) {
+        self.volume_fade = enabled;
+        if enabled {
+            return;
+        }
+        if let Some((action, _)) = self.fade_pending.take() {
+            let result = match action {
+                FadeAction::Pause => self.pause_now(),
+                FadeAction::Stop => self.stop_now(),
+            };
+            if let Err(error) = result {
+                eprintln!("关闭音量过渡时收尾失败：{error}");
+            }
+        }
+    }
+
+    /// 当前音量作用在哪个句柄上（独占 = 混音流，共享 = 曲目流）
+    fn output_target(&self) -> u32 {
+        if self.output == Output::Exclusive {
+            self.mixer
+        } else {
+            self.stream
+        }
+    }
+
+    /// 立即把输出音量设成 [value]（振幅）
+    fn set_output_volume(&self, value: f32) {
+        let target = self.output_target();
+        if target != 0 {
+            unsafe { (self.api.channel_set_attribute)(target, BASS_ATTRIB_VOL, value) };
+        }
+    }
+
+    /// 在 [millis] 毫秒内把输出音量滑到 [value]；返回是否成功下发
+    fn slide_output_volume(&self, value: f32, millis: u32) -> bool {
+        let target = self.output_target();
+        if target == 0 || millis == 0 {
+            return false;
+        }
+        unsafe { (self.api.channel_slide_attribute)(target, BASS_ATTRIB_VOL, value, millis) != 0 }
+    }
+
+    /// 输出目标的当前音量（振幅）；没有流时为 0
+    fn output_volume(&self) -> f32 {
+        let target = self.output_target();
+        if target == 0 {
+            return 0.0;
+        }
+        let mut value = 0.0f32;
+        unsafe { (self.api.channel_get_attribute)(target, BASS_ATTRIB_VOL, &mut value) };
+        value
     }
 
     /* ------------------------------------------------------------ 均衡器 */
@@ -1072,6 +1253,10 @@ impl Engine {
     }
 
     fn position(&self) -> Result<f64> {
+        // 停止的淡出还没收尾时，界面已经停在 0 了：别报淡出点的位置
+        if matches!(self.fade_pending, Some((FadeAction::Stop, _))) {
+            return Ok(0.0);
+        }
         if self.stream == 0 {
             // 自然播完后流已释放，返回记录下来的末态位置
             return Ok(self.ended_position);
@@ -1208,6 +1393,9 @@ impl Engine {
 
     /// 曲目自然播完后把状态刷回 Stopped，并处理独占模式的空闲释放
     fn refresh(&mut self) {
+        // 淡出到点就把暂停 / 停止补上（要跑在 refresh_state 之前，
+        // 否则这一拍还会把状态读回 Playing）
+        self.finish_fade();
         self.reap_fading();
         self.refresh_state();
         // 独占设备掉线：接口状态仍是 PLAYING，但位置不再前进
@@ -1311,6 +1499,10 @@ impl Engine {
     }
 
     fn refresh_state(&self) {
+        // 淡出期间状态由调用方（暂停 / 停止）定，别被这里的 active 覆盖回 Playing
+        if self.fade_pending.is_some() {
+            return;
+        }
         if self.stream == 0 {
             store_state(State::Stopped);
             return;
@@ -1586,7 +1778,13 @@ fn spawn() -> Result<Shared> {
 
 fn run(mut engine: Engine, rx: Receiver<Queued>) {
     loop {
-        match rx.recv_timeout(TICK) {
+        // 淡出期间按到期时刻精确唤醒：多等一拍会让暂停后进度条继续往前走
+        let timeout = engine
+            .fade_pending
+            .map(|(_, due)| due.saturating_duration_since(std::time::Instant::now()))
+            .unwrap_or(TICK)
+            .min(TICK);
+        match rx.recv_timeout(timeout) {
             Ok(queued) => {
                 if queued.discarded() {
                     queued.cmd.reply_discarded();
@@ -1631,6 +1829,9 @@ fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
         Cmd::Snapshot(reply) => {
             let _ = reply.send(engine.snapshot());
         }
+        Cmd::OutputVolume(reply) => {
+            let _ = reply.send(Ok(engine.output_volume()));
+        }
         Cmd::Spectrum(reply) => {
             let _ = reply.send(Ok(engine.spectrum()));
         }
@@ -1646,6 +1847,10 @@ fn dispatch(engine: &mut Engine, cmd: Cmd) -> bool {
         }
         Cmd::SetEq(enabled, gains, reply) => {
             let _ = reply.send(engine.set_eq(enabled, gains));
+        }
+        Cmd::SetVolumeFade(enabled, reply) => {
+            engine.set_volume_fade(enabled);
+            let _ = reply.send(Ok(()));
         }
         Cmd::SetExclusive(exclusive, reply) => {
             let _ = reply.send(engine.set_exclusive(exclusive));
@@ -1734,6 +1939,11 @@ pub fn set_crossfade(millis: u32) -> Result<()> {
     call(Class::Config, |reply| Cmd::SetCrossfade(millis, reply))
 }
 
+/// 开 / 关音量过渡（暂停淡出、起播淡入、定位前后淡变）。
+pub fn set_volume_fade(enabled: bool) -> Result<()> {
+    call(Class::Config, |reply| Cmd::SetVolumeFade(enabled, reply))
+}
+
 pub fn pause() -> Result<()> {
     call(Class::Transport, Cmd::Pause)
 }
@@ -1790,6 +2000,11 @@ fn spectrum_edge(index: usize, bins: usize) -> usize {
 
 pub fn snapshot() -> Result<Progress> {
     call(Class::Passive, Cmd::Snapshot)
+}
+
+/// 输出目标的当前音量（振幅）；测试与诊断用，没有流时为 0
+pub fn output_volume() -> Result<f32> {
+    call(Class::Passive, Cmd::OutputVolume)
 }
 
 /// 频谱快照（[`SPECTRUM_BANDS`] 段，0~1）；没有在放歌时全是 0。

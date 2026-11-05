@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.11（2026-10-30）**
+> **当前版本：v0.12（2026-11-05）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.12 变更：新增 `player_set_volume_fade`（音量过渡开关，默认开）。开启时暂停 /
+> 停止先淡出再收尾（状态立即生效），起播与定位后淡入，定位是「瞬间静音 → 跳转 →
+> 短淡入」避免跳转爆音；关闭时全部硬切。纯新增，不改现有语义。
 >
 > v0.11 变更：新增 `collections::remove_tracks_from_playlist`（批量移出歌单，整批一个
 > 事务，返回真正删掉的条数）。纯新增，不改现有语义。
@@ -282,6 +286,7 @@
 | `player_set_device(index: i32) -> Result<()>` | `Future<void> playerSetDevice({required int index})` | 否 | **已实现** |
 | `player_current_device() -> i32` | `int playerCurrentDevice()` | 是 | **已实现** |
 | `player_set_crossfade(seconds: f64) -> Result<()>` | `Future<void> playerSetCrossfade({required double seconds})` | 否 | **已实现** |
+| `player_set_volume_fade(enabled: bool) -> Result<()>` | `Future<void> playerSetVolumeFade({required bool enabled})` | 否 | **已实现** |
 | `player_set_equalizer(enabled: bool, gains: Vec<f32>) -> Result<()>` | `Future<void> playerSetEqualizer({required bool enabled, required List<double> gains})` | 否 | **已实现** |
 | `player_shutdown() -> Result<()>` | `Future<void> playerShutdown()` | 否 | **已实现** |
 
@@ -310,6 +315,11 @@
   系统默认那一项由界面自己补，热插拔靠界面低频轮询本函数发现。
 - `player_set_crossfade` 传 0 关闭。共享模式是两条流重叠的真交叉淡变；独占模式输出只有
   一条混音流，只做新曲淡入（不重叠）。
+- `player_set_volume_fade` 默认开（Dart 侧会话默认值与引擎默认值一致）。开启时：
+  暂停 / 停止先淡出（约 500ms），淡出结束时引擎补真正的动作，**状态立即生效**、
+  `player_now` 立即报告 Paused / Stopped，淡出期间 `player_position` 对停止报 0；
+  起播淡入同样约 500ms；淡出途中 `player_resume` 会取消那次挂起的暂停并把音量滑回去。
+  定位（seek）不延迟：瞬间静音 → 跳转 → 约 60ms 淡入。关闭时所有操作是硬切。
 - `player_position` / `player_duration` 在未加载曲目时返回 `0.0`，不报错。
 - `player_now` 返回 `PlayerProgress { position_secs, duration_secs, state }`，轮询用它：
   一次跨线程往返拿全三项，也不会出现「位置是新曲、时长还是旧曲」的错位。

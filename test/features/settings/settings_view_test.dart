@@ -807,6 +807,7 @@ void main() {
     final List<int> devicePicks = <int>[];
     final List<bool> gainPicks = <bool>[];
     final List<double> fades = <double>[];
+    final List<bool> fadeToggles = <bool>[];
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
@@ -824,6 +825,8 @@ void main() {
             onReplayGainChanged: gainPicks.add,
             crossfadeSeconds: 0,
             onCrossfadeChanged: fades.add,
+            volumeFade: true,
+            onVolumeFadeChanged: fadeToggles.add,
           ),
         ),
       ),
@@ -860,6 +863,15 @@ void main() {
     await tester.tap(find.text('4 秒').last);
     await tester.pumpAndSettle();
     expect(fades, <double>[4]);
+
+    // 音量过渡开关（默认开，这里点一下关掉）
+    final Finder volumeFadeSwitch = find.byKey(
+      const ValueKey<String>('settings-volume-fade-switch'),
+    );
+    await tester.ensureVisible(volumeFadeSwitch);
+    await tester.tap(volumeFadeSwitch);
+    await tester.pumpAndSettle();
+    expect(fadeToggles, <bool>[false]);
   });
 
   testWidgets('自定义取色：弹窗按内容收紧，拖动中不重算主题', (WidgetTester tester) async {

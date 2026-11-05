@@ -80,6 +80,9 @@ abstract interface class PlaybackService {
   /// 换曲交叉淡变时长（秒）；0 关闭
   Future<void> setCrossfade(double seconds);
 
+  /// 音量过渡开关：暂停 / 停止淡出，起播与定位后淡入
+  Future<void> setVolumeFade(bool enabled);
+
   /// 设置 10 段均衡器；`gains` 为 31Hz→16kHz 各段增益（dB）
   Future<void> setEqualizer({
     required bool enabled,
@@ -197,6 +200,10 @@ class RustPlaybackService implements PlaybackService {
   @override
   Future<void> setCrossfade(double seconds) =>
       rust.playerSetCrossfade(seconds: seconds);
+
+  @override
+  Future<void> setVolumeFade(bool enabled) =>
+      rust.playerSetVolumeFade(enabled: enabled);
 
   @override
   Future<void> setEqualizer({

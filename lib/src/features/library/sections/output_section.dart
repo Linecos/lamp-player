@@ -103,6 +103,18 @@ extension _OutputSection on _LibraryPageState {
     }
   }
 
+  /// 启动时把音量过渡开关装回去
+  Future<void> _applyVolumeFade() async {
+    if (!_isAvailable) {
+      return;
+    }
+    try {
+      await _playback.setVolumeFade(_volumeFade);
+    } catch (error) {
+      debugPrint('恢复音量过渡设置失败：$error');
+    }
+  }
+
   Future<void> _applyEqualizer() async {
     if (!_isAvailable) {
       return;

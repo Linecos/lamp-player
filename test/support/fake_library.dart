@@ -692,6 +692,13 @@ class FakePlaybackService implements PlaybackService {
     crossfadeCalls.add(seconds);
   }
 
+  final List<bool> volumeFadeCalls = <bool>[];
+
+  @override
+  Future<void> setVolumeFade(bool enabled) async {
+    volumeFadeCalls.add(enabled);
+  }
+
   bool eqEnabled = false;
   List<double> eqGains = const <double>[];
   int eqCalls = 0;

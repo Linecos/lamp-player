@@ -475,6 +475,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
+  /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
+  bool _volumeFade = true;
+
   /// 桌面歌词窗口是否打开
   bool _desktopLyrics = false;
 
@@ -619,6 +622,7 @@ class _LibraryPageState extends State<LibraryPage>
     unawaited(_applyEqualizer());
     unawaited(_applyOutputDevice());
     unawaited(_applyCrossfade());
+    unawaited(_applyVolumeFade());
     // 引擎已就绪：把曲库里缺的 ReplayGain 补算出来，别等第一首歌点了才开始算
     unawaited(_warmAutoGains());
     // 输出设备 / 独占模式定下来之后再预加载：这两样切换都会重开当前曲目，
@@ -812,6 +816,7 @@ class _LibraryPageState extends State<LibraryPage>
         _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
       }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
+      _volumeFade = snapshot.volumeFade;
       _desktopLyrics = snapshot.desktopLyrics;
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
       _desktopLyricLocked = snapshot.desktopLyricLocked;
@@ -839,6 +844,9 @@ class _LibraryPageState extends State<LibraryPage>
 
     unawaited(_refreshFavoritePaths());
     unawaited(_loadFoldersAndMaybeBackfill());
+    // 注意这里不能加「已做过就跳过」的去重：探测回调可能早于会话恢复触发，
+    // 那一次带的是还没恢复完的旧偏好（比如独占开关），bootstrap 恢复完后
+    // 这一次才是权威值 —— 重复下发对均衡器 / 淡变这类覆盖式设置没有副作用。
     if (_isAvailable) {
       _applyStartupAudio(snapshot.exclusiveOutput);
     } else {
@@ -950,6 +958,7 @@ class _LibraryPageState extends State<LibraryPage>
       replayGain: _replayGain,
       shortcutsJson: encodeShortcuts(_shortcuts),
       crossfadeSeconds: _crossfadeSeconds,
+      volumeFade: _volumeFade,
       desktopLyrics: _desktopLyrics,
       desktopLyricFontSize: _desktopLyricFontSize,
       desktopLyricLocked: _desktopLyricLocked,

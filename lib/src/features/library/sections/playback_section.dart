@@ -1246,6 +1246,22 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
+  /// 音量过渡开关（暂停 / 停止淡出，起播与定位后淡入）
+  Future<void> _setVolumeFade(bool enabled) async {
+    if (_volumeFade == enabled) {
+      return;
+    }
+    _update(() => _volumeFade = enabled);
+    _saveSessionNow();
+    try {
+      await _playback.setVolumeFade(enabled);
+    } catch (error) {
+      if (mounted) {
+        _showMessage('设置音量过渡失败：${ErrorRetry.describe(error)}');
+      }
+    }
+  }
+
   void _showEngineNotice() {
     if (_engineNoticeShown) {
       return;
