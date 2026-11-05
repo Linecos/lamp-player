@@ -1146,6 +1146,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+
+  testWidgets('seek 失败时进度条退回原来的位置', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 300,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 先让引擎停在 40 秒，界面跟着走一拍
+    playback.positionSecs = 40;
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('00:40'), findsWidgets);
+
+    playback.seekError = StateError('设备已拔');
+    // 键盘快进 5 秒（→ 默认是「快进 5 秒」）
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('跳转失败'), findsWidgets);
+    expect(
+      find.text('00:40'),
+      findsWidgets,
+      reason: '引擎没跳成，界面也不能停在 00:45 这个假位置',
+    );
+    expect(find.text('00:45'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('睡眠定时在关掉播放页之后仍然到点暂停', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
