@@ -11,6 +11,8 @@ use anyhow::Result;
 #[cfg(windows)]
 mod api;
 #[cfg(windows)]
+mod fft;
+#[cfg(windows)]
 mod wasapi;
 
 /// 播放状态（与 `api::player::PlaybackState` 一一对应）

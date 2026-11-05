@@ -3,6 +3,7 @@
 //! 由 `bass.rs` 以 `#[path]` 声明为 `imp`，对外只通过父模块的公开函数访问。
 //! 所有 BASS 调用都在同一条引擎线程上串行执行（命令队列 + 回执通道）。
 
+use super::fft;
 use super::wasapi;
 use super::{Device, Progress, State};
 use anyhow::{anyhow, bail, Result};
@@ -274,6 +275,67 @@ struct Slot {
     mixer: u32,
     paused: bool,
     get_data: unsafe extern "system" fn(u32, *mut c_void, u32) -> u32,
+    /// 独占输出时回调抄下来的最近采样（已混成单声道），给频谱自己算 FFT。
+    ///
+    /// 不能让频谱去取混音流的 FFT —— 那是解码流，取数会把采样一起取走，
+    /// 和这个回调抢数据（实测把播放拖成 1.64 倍速）。
+    scope: Vec<f32>,
+    scope_pos: usize,
+    /// 设备通道数；0 表示还没建立会话
+    scope_chans: u32,
+}
+
+/// 环形缓冲容量：4 帧 FFT，够 `scope_samples` 取最近一帧
+const SCOPE_CAPACITY: usize = fft::FFT_SIZE * 4;
+
+impl Slot {
+    /// 把回调里的 PCM 抄一份进环形缓冲。
+    ///
+    /// 跑在 WAVEAPI 的实时回调线程上：只做加法和写入，不分配、不额外加锁
+    /// （slot 的锁外面已经拿了）。
+    fn push_scope(&mut self, buffer: *const c_void, bytes: u32) {
+        let chans = self.scope_chans as usize;
+        if chans == 0 {
+            return;
+        }
+        // 一律按 float32 读：这份数据是本回调自己 `BASS_ChannelGetData` 从
+        // 混音流取的，而混音流建的是 `BASS_SAMPLE_FLOAT`，格式是确定的。
+        // 别看 `BASS_WASAPI_INFO.format` —— 它报的是设备原生格式（实测 32bit
+        // 整数），但 BASS 实际交给回调的仍是 float，按它判断会把频谱判成 0。
+        let frames = bytes as usize / (chans * 4);
+        if frames == 0 {
+            return;
+        }
+        let src = buffer as *const f32;
+        let len = self.scope.len();
+        let mut pos = self.scope_pos;
+        for frame in 0..frames {
+            let mut sum = 0.0f32;
+            for chan in 0..chans {
+                sum += unsafe { *src.add(frame * chans + chan) };
+            }
+            self.scope[pos] = sum / chans as f32;
+            pos += 1;
+            if pos == len {
+                pos = 0;
+            }
+        }
+        self.scope_pos = pos;
+    }
+
+    /// 最近 [`fft::FFT_SIZE`] 个采样，按时间先后排好
+    fn scope_samples(&self) -> [f32; fft::FFT_SIZE] {
+        let mut out = [0.0f32; fft::FFT_SIZE];
+        let len = self.scope.len();
+        if len == 0 {
+            return out;
+        }
+        let start = (self.scope_pos + len - fft::FFT_SIZE.min(len)) % len;
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = self.scope[(start + i) % len];
+        }
+        out
+    }
 }
 
 /// WASAPI 回调：往设备缓冲里填数据。
@@ -285,7 +347,7 @@ unsafe extern "system" fn wasapi_proc(buffer: *mut c_void, length: u32, user: *m
         return 0;
     }
     let slot = &*(user as *const Mutex<Slot>);
-    let guard = match slot.lock() {
+    let mut guard = match slot.lock() {
         Ok(guard) => guard,
         Err(_) => {
             // 锁中毒时也要写静音：返回 0 会被 BASS 当成「输出结束」
@@ -303,12 +365,14 @@ unsafe extern "system" fn wasapi_proc(buffer: *mut c_void, length: u32, user: *m
         std::ptr::write_bytes(buffer as *mut u8, 0, length as usize);
         return length;
     }
-    let got = (guard.get_data)(source, buffer, length);
+    let get_data = guard.get_data;
+    let got = get_data(source, buffer, length);
     if got == u32::MAX {
-        0
-    } else {
-        got
+        return 0;
     }
+    // 抄一份给频谱：必须在同一把锁里做，样本和 mixer 的位置才对得上
+    guard.push_scope(buffer, got);
+    got
 }
 
 /// 还没接上解码流时的占位实现（`Slot` 要求函数指针非空）
@@ -389,6 +453,9 @@ impl Engine {
                 mixer: 0,
                 paused: false,
                 get_data: no_data,
+                scope: vec![0.0; SCOPE_CAPACITY],
+                scope_pos: 0,
+                scope_chans: 0,
             })),
             output: Output::Shared,
             request_exclusive: false,
@@ -555,6 +622,12 @@ impl Engine {
             bail!("创建混音流失败: {}", last_error(&self.api));
         }
         self.mixer = mixer;
+        // 频谱要按设备格式去读回调里的 buffer：不是 float32 就先不抄，
+        // 免得把整数采样当浮点解析出一堆噪声
+        if let Ok(mut slot) = self.slot.lock() {
+            slot.scope_chans = info.chans;
+            slot.scope_pos = 0;
+        }
         // 混音流是 44.1k/48k 素材与设备格式之间唯一的重采样点
         unsafe { (self.api.channel_set_attribute)(mixer, BASS_ATTRIB_SRC, SRC_QUALITY) };
         unsafe { (self.api.channel_set_attribute)(mixer, BASS_ATTRIB_VOL, self.volume) };
@@ -608,6 +681,9 @@ impl Engine {
         if self.mixer != 0 {
             unsafe { (self.api.stream_free)(self.mixer) };
             self.mixer = 0;
+        }
+        if let Ok(mut slot) = self.slot.lock() {
+            slot.scope_chans = 0;
         }
         if let Some(wasapi) = self.wasapi.as_ref() {
             wasapi.stop(true);
@@ -1037,6 +1113,16 @@ impl Engine {
         if channel == 0 || state() != State::Playing {
             return bands;
         }
+        // 独占输出下 mixer 是**解码流**（BASS_STREAM_DECODE），对它取 FFT 会把
+        // 采样一起取走、解码位置跟着前进；而 wasapi_proc 正是从同一条流里拉
+        // 数据喂给设备。两边抢一条解码流 → 输出欠载：播放变快（实测 1.64x）、
+        // 还带电流声。共享输出没这问题，因为那时 mixer 为 0，频谱走的是普通
+        // 播放流（有播放缓冲，FFT 不推进位置）。
+        //
+        // 所以独占改走「回调抄样本 + 自己算 FFT」这条路（[`Slot::push_scope`]）。
+        if self.mixer != 0 && self.output == Output::Exclusive {
+            return self.scope_spectrum();
+        }
         let mut fft = [0.0f32; 512];
         let got = unsafe {
             (self.api.channel_get_data)(
@@ -1059,16 +1145,7 @@ impl Engine {
             return bands;
         }
         let bins = (got as usize).min(fft.len());
-        for (index, band) in bands.iter_mut().enumerate() {
-            let low = spectrum_edge(index, bins);
-            let high = spectrum_edge(index + 1, bins).max(low + 1).min(bins);
-            let peak = fft[low..high]
-                .iter()
-                .fold(0.0f32, |acc, value| acc.max(*value));
-            // 高频能量天然偏低，做一点提升，否则右半边永远贴地平线
-            let lift = 0.75 + 1.5 * (index as f32 / SPECTRUM_BANDS as f32);
-            *band = (peak.sqrt() * lift).clamp(0.0, 1.0);
-        }
+        bands_from(&fft[..bins], &mut bands);
         if bands.iter().all(|value| *value < 0.001)
             && !SPECTRUM_SILENT_WARNED.swap(true, Ordering::Relaxed)
         {
@@ -1079,6 +1156,21 @@ impl Engine {
                 fft[1],
             );
         }
+        bands
+    }
+
+    /// 独占输出的频谱：从回调抄下来的样本里自己算，完全不碰音频流
+    fn scope_spectrum(&self) -> Vec<f32> {
+        let mut bands = vec![0.0f32; SPECTRUM_BANDS];
+        // try_lock 而不是 lock：拿不到说明音频线程正在写（时间极短），这一帧
+        // 干脆不要 —— 反过来让音频线程等我们，就可能变成爆音
+        let Ok(slot) = self.slot.try_lock() else {
+            return bands;
+        };
+        let samples = slot.scope_samples();
+        drop(slot);
+        let fft = fft::magnitude(&samples);
+        bands_from(&fft, &mut bands);
         bands
     }
 
@@ -1666,6 +1758,27 @@ pub fn set_replay_gain(gain_db: f64) -> Result<()> {
 }
 
 /// 第 [index] 条分频边界落在哪个 bin 上（对数分布：低频密、高频疏）
+/// 幅度谱 → [`SPECTRUM_BANDS`] 段的 0~1 值。
+///
+/// BASS 的 FFT 和 [`fft::magnitude`] 输出同量纲（满幅正弦 = 1），所以两条路
+/// 共用这一套对数分频与高频提升。
+fn bands_from(fft: &[f32], bands: &mut [f32]) {
+    let bins = fft.len();
+    if bins == 0 {
+        return;
+    }
+    for (index, band) in bands.iter_mut().enumerate() {
+        let low = spectrum_edge(index, bins);
+        let high = spectrum_edge(index + 1, bins).max(low + 1).min(bins);
+        let peak = fft[low..high]
+            .iter()
+            .fold(0.0f32, |acc, value| acc.max(*value));
+        // 高频能量天然偏低，做一点提升，否则右半边永远贴地平线
+        let lift = 0.75 + 1.5 * (index as f32 / SPECTRUM_BANDS as f32);
+        *band = (peak.sqrt() * lift).clamp(0.0, 1.0);
+    }
+}
+
 fn spectrum_edge(index: usize, bins: usize) -> usize {
     let ratio = index as f32 / SPECTRUM_BANDS as f32;
     ((bins as f32).powf(ratio) as usize).clamp(1, bins - 1)
