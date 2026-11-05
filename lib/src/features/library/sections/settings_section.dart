@@ -109,6 +109,8 @@ extension _SettingsSection on _LibraryPageState {
             onCrossfadeChanged: _isAvailable
                 ? (double seconds) => unawaited(_setCrossfade(seconds))
                 : null,
+            volumeFade: _volumeFade,
+            onVolumeFadeChanged: _isAvailable ? _setVolumeFade : null,
             shortcuts: _shortcuts,
             onShowShortcuts: () => unawaited(_openShortcuts()),
             flowBackground: _flowBackground,

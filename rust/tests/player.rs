@@ -5,12 +5,23 @@
 use rust_lib_lamp_player::api::player::{
     player_analyze_replay_gain, player_duration, player_is_available, player_pause, player_play,
     player_position, player_resume, player_seek, player_set_equalizer, player_set_volume,
-    player_state, player_stop, PlaybackState,
+    player_set_volume_fade, player_state, player_stop, PlaybackState,
 };
+use rust_lib_lamp_player::bass;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+
+/// 引擎是进程级单例：涉及播放状态的测试必须串行，否则互相踩状态
+static ENGINE_LOCK: Mutex<()> = Mutex::new(());
+
+fn engine_guard() -> MutexGuard<'static, ()> {
+    ENGINE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// 生成一个 1 秒静音 WAV，避免依赖外部音频文件
 fn write_wav(path: &PathBuf, secs: u32) {
@@ -107,6 +118,7 @@ fn equalizer_validates_input() {
 
 #[test]
 fn playback_chain() {
+    let _guard = engine_guard();
     if !cfg!(windows) {
         return;
     }
@@ -159,6 +171,7 @@ fn playback_chain() {
 
 #[test]
 fn pause_without_track_fails() {
+    let _guard = engine_guard();
     if !cfg!(windows) {
         return;
     }
@@ -279,5 +292,116 @@ fn finished_track_releases_stream_and_keeps_ended_position() {
         "播完后流应已释放（seek 应报错），否则文件句柄仍被占用"
     );
 
+    let _ = fs::remove_file(wav);
+}
+
+/// 音量过渡：暂停请求立刻生效（淡出在后台跑、引擎下一拍补真正的暂停），
+/// 淡出途中点播放要取消那次暂停，关掉开关后是立即硬切。
+#[test]
+fn volume_fade_defers_pause_and_resume_cancels_it() {
+    let _guard = engine_guard();
+    if !cfg!(windows) {
+        return;
+    }
+    std::env::set_var("LAMP_BASS_DEVICE", "0");
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用（未下载 bass.dll？）");
+        return;
+    }
+
+    let wav = std::env::temp_dir().join("lamp_player_fade.wav");
+    write_wav(&wav, 30);
+    let path = wav.to_string_lossy().to_string();
+
+    player_set_volume_fade(true).expect("开启音量过渡");
+    player_set_volume(1.0).expect("设置音量");
+    player_play(path, 0.0).expect("播放应成功");
+    thread::sleep(Duration::from_millis(700));
+    assert_eq!(player_state(), PlaybackState::Playing);
+
+    // 暂停请求立刻把状态置成 Paused；真正的暂停在淡出结束后补上，
+    // 之后也不能被 refresh_state 拉回 Playing
+    player_pause().expect("暂停应成功");
+    assert_eq!(player_state(), PlaybackState::Paused);
+    thread::sleep(Duration::from_millis(700));
+    assert_eq!(
+        player_state(),
+        PlaybackState::Paused,
+        "淡出收尾后应真正暂停"
+    );
+
+    // 淡出途中点播放：取消挂起的暂停，音量滑回去
+    player_resume().expect("继续播放应成功");
+    thread::sleep(Duration::from_millis(700));
+    assert_eq!(player_state(), PlaybackState::Playing);
+    player_pause().expect("暂停应成功");
+    thread::sleep(Duration::from_millis(100));
+    player_resume().expect("淡出途中继续播放应成功");
+    thread::sleep(Duration::from_millis(700));
+    assert_eq!(player_state(), PlaybackState::Playing);
+    let resumed = bass::output_volume().expect("读输出音量");
+    assert!(
+        (resumed - 1.0).abs() < 0.05,
+        "取消挂起的暂停后音量应滑回 1.0，实际 {resumed}"
+    );
+
+    // 定位是瞬间静音 + 跳转 + 短淡入，状态不变
+    player_seek(5.0).expect("跳转应成功");
+    thread::sleep(Duration::from_millis(50));
+    assert_eq!(player_state(), PlaybackState::Playing);
+
+    // 关掉开关：暂停是立即硬切
+    player_set_volume_fade(false).expect("关闭音量过渡");
+    player_pause().expect("暂停应成功");
+    assert_eq!(player_state(), PlaybackState::Paused);
+
+    player_stop().expect("停止应成功");
+    assert_eq!(player_state(), PlaybackState::Stopped);
+    let _ = fs::remove_file(wav);
+}
+
+/// 淡出途中调音量不能把正在淡出的声音拉回来。
+///
+/// 启动预加载就是这么用的：静音起播 → 暂停（淡出中）→ 还原音量。
+/// 还原的那条 `set_volume` 曾经直接写输出，把歌曲片段放了出来。
+#[test]
+fn volume_change_during_fade_does_not_restore_output() {
+    let _guard = engine_guard();
+    if !cfg!(windows) {
+        return;
+    }
+    std::env::set_var("LAMP_BASS_DEVICE", "0");
+    if !player_is_available() {
+        eprintln!("跳过：BASS 不可用（未下载 bass.dll？）");
+        return;
+    }
+
+    let wav = std::env::temp_dir().join("lamp_player_fade_volume.wav");
+    write_wav(&wav, 30);
+    let path = wav.to_string_lossy().to_string();
+
+    player_set_volume_fade(true).expect("开启音量过渡");
+    player_set_volume(0.5).expect("设置音量");
+    player_play(path, 0.0).expect("播放应成功");
+    // 等起播的淡入走完
+    thread::sleep(Duration::from_millis(700));
+    let settled = bass::output_volume().expect("读输出音量");
+    assert!(
+        (settled - 0.5).abs() < 0.02,
+        "淡入结束后输出应为 0.5，实际 {settled}"
+    );
+
+    // 暂停先淡出，此时还原音量：输出必须继续滑向 0，而不是跳回 0.5
+    player_pause().expect("暂停应成功");
+    player_set_volume(0.5).expect("还原音量");
+    thread::sleep(Duration::from_millis(700));
+    let after = bass::output_volume().expect("读输出音量");
+    assert!(
+        after < 0.05,
+        "淡出途中改音量不能把声音拉回来，实际输出 {after}"
+    );
+
+    player_set_volume_fade(true).expect("恢复默认开关");
+    player_stop().expect("停止应成功");
     let _ = fs::remove_file(wav);
 }

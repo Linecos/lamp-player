@@ -64,6 +64,12 @@ int playerCurrentDevice() =>
 Future<void> playerSetCrossfade({required double seconds}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetCrossfade(seconds: seconds);
 
+/// 音量过渡开关：暂停 / 停止时淡出，起播与定位后淡入（默认开）
+///
+/// 关掉后所有操作都是硬切，和早期版本一致。
+Future<void> playerSetVolumeFade({required bool enabled}) =>
+    RustLib.instance.api.crateApiPlayerPlayerSetVolumeFade(enabled: enabled);
+
 /// 暂停当前曲目
 Future<void> playerPause() => RustLib.instance.api.crateApiPlayerPlayerPause();
 

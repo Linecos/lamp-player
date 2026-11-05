@@ -372,6 +372,39 @@ void main() {
     expect(session.snapshot.eqEnabled, isTrue);
   });
 
+  testWidgets('音量过渡开关写回会话并下发给引擎', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(isAvailable: true);
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: session,
+    );
+    await openSettings(tester);
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('settings-volume-fade-switch'),
+    );
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+
+    expect(session.snapshot.volumeFade, isTrue, reason: '默认开启');
+    expect(
+      playback.volumeFadeCalls.contains(true),
+      isTrue,
+      reason:
+          '启动时要把开关下发给引擎（探测回调与 bootstrap 可能各发一次，'
+          '第二次才是会话恢复后的权威值）',
+    );
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(session.snapshot.volumeFade, isFalse);
+    expect(playback.volumeFadeCalls.last, isFalse, reason: '开关要写回引擎');
+  });
+
   testWidgets('圆形封面开关会写回会话并立刻作用到全局封面', (WidgetTester tester) async {
     final FakeSessionStore session = FakeSessionStore();
     await pumpLibrary(

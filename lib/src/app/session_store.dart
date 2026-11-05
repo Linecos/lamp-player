@@ -32,6 +32,7 @@ class SessionSnapshot {
     this.outputDevice = -1,
     this.replayGain = false,
     this.crossfadeSeconds = 0,
+    this.volumeFade = true,
     this.flowBackground = true,
     this.circularCovers = false,
     this.shortcutsJson = '',
@@ -92,6 +93,9 @@ class SessionSnapshot {
   /// 换曲交叉淡变时长（秒）；0 表示关闭
   final double crossfadeSeconds;
 
+  /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入（默认开）
+  final bool volumeFade;
+
   /// 桌面歌词窗口是否打开
   final bool desktopLyrics;
 
@@ -150,6 +154,9 @@ class PrefsSessionStore implements SessionStore {
   static const String outputDeviceKey = 'player_output_device';
   static const String replayGainKey = 'player_replay_gain';
   static const String crossfadeKey = 'player_crossfade_seconds';
+
+  /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
+  static const String volumeFadeKey = 'player_volume_fade';
   static const String desktopLyricsKey = 'ui_desktop_lyrics';
   static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
@@ -218,6 +225,7 @@ class PrefsSessionStore implements SessionStore {
         outputDevice: prefs.getInt(outputDeviceKey) ?? -1,
         replayGain: prefs.getBool(replayGainKey) ?? false,
         crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
+        volumeFade: prefs.getBool(volumeFadeKey) ?? true,
         desktopLyrics: prefs.getBool(desktopLyricsKey) ?? false,
         desktopLyricFontSize:
             (prefs.getInt(desktopLyricFontSizeKey) ??
@@ -291,6 +299,7 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setInt(outputDeviceKey, snapshot.outputDevice);
       await prefs.setBool(replayGainKey, snapshot.replayGain);
       await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
+      await prefs.setBool(volumeFadeKey, snapshot.volumeFade);
       await prefs.setBool(desktopLyricsKey, snapshot.desktopLyrics);
       await prefs.setInt(
         desktopLyricFontSizeKey,

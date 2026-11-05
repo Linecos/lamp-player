@@ -118,12 +118,22 @@ pub fn set_replay_gain(gain_db: f64) -> Result<()> {
     imp::set_replay_gain(gain_db)
 }
 
+/// 音量过渡开关：暂停 / 停止淡出，起播与定位后淡入
+pub fn set_volume_fade(enabled: bool) -> Result<()> {
+    imp::set_volume_fade(enabled)
+}
+
 /// 当前位置与总时长（秒），未加载曲目时为 0.0。
 ///
 /// 轮询用这个而不是分别调 `position` / `duration`：一次线程往返拿全，
 /// 也不会出现「位置是新曲、时长还是旧曲」的错位。
 pub fn snapshot() -> Result<Progress> {
     imp::snapshot()
+}
+
+/// 输出目标的当前音量（振幅）；测试与诊断用，没有流时为 0
+pub fn output_volume() -> Result<f32> {
+    imp::output_volume()
 }
 
 /// 频谱段数：Dart 侧按帧长度自适应，这里只作为引擎与测试的约定

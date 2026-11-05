@@ -39,6 +39,14 @@ pub fn set_crossfade(_millis: u32) -> Result<()> {
     Ok(())
 }
 
+pub fn set_volume_fade(_enabled: bool) -> Result<()> {
+    Ok(())
+}
+
+pub fn output_volume() -> Result<f32> {
+    Ok(0.0)
+}
+
 pub fn pause() -> Result<()> {
     unsupported()
 }
