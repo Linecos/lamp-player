@@ -770,6 +770,70 @@ void main() {
     await _settleToast(tester);
   });
 
+  testWidgets('沉浸模式淡出曲目信息，封面与歌词都不挪位', (WidgetTester tester) async {
+    // 有歌词才建得出 LyricsView，才能顺带确认歌词区没被带着动
+    await _pump(
+      tester,
+      data: _data(),
+      lyrics: const TrackLyrics(
+        lines: <LyricLine>[
+          LyricLine(
+            timeMs: 0,
+            endMs: 5000,
+            text: '第一行',
+            words: <LyricWord>[],
+            translation: '',
+          ),
+          LyricLine(
+            timeMs: 5000,
+            endMs: 9000,
+            text: '第二行',
+            words: <LyricWord>[],
+            translation: '',
+          ),
+        ],
+        plain: '',
+        source: 'sidecar',
+      ),
+    );
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('now-playing-toggle'),
+    );
+    double infoOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find.byKey(const ValueKey<String>('now-playing-info-fade')),
+        )
+        .opacity;
+
+    expect(infoOpacity(), 1);
+    final Rect coverBefore = tester.getRect(find.byType(AlbumCover));
+    final Rect lyricBefore = tester.getRect(find.byType(LyricsView));
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+    expect(infoOpacity(), 0, reason: '沉浸模式把曲目信息淡出');
+    // 沉浸模式本来就会摘掉进度条，可用高度变了一点点，封面会跟着挪个十来像素；
+    // 关键是不能因为信息块收起而上移近百像素
+    final Rect coverAfter = tester.getRect(find.byType(AlbumCover));
+    expect(
+      coverAfter.top,
+      closeTo(coverBefore.top, 16),
+      reason: '信息块保留占位，封面不该被顶上去',
+    );
+    expect(coverAfter.width, closeTo(coverBefore.width, 1), reason: '封面尺寸也不该变');
+    final Rect lyricAfter = tester.getRect(find.byType(LyricsView));
+    expect(
+      lyricAfter.top,
+      closeTo(lyricBefore.top, 16),
+      reason: '歌词区同样只挪一点，两边才不会一个上一个下',
+    );
+
+    await tester.longPress(toggle);
+    await tester.pumpAndSettle();
+    expect(infoOpacity(), 1, reason: '退出沉浸把曲目信息淡回来');
+    await _settleToast(tester);
+  });
+
   testWidgets('沉浸模式下三个键位置不变，退出不弹提示', (WidgetTester tester) async {
     await _pump(tester, data: _data());
     final Finder toggle = find.byKey(
