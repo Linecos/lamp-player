@@ -9,6 +9,7 @@ import '../../app/immersive_chrome.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
+import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
@@ -374,19 +375,38 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     _routeAnimation = animation;
-    _routeAnimation?.addStatusListener(_onRouteStatus);
+    if (animation == null) {
+      return;
+    }
+    animation.addStatusListener(_onRouteStatus);
+    // 进页面时动画往往已经在往前跑了，等不到状态变化——先按当前状态对一次
+    _onRouteStatus(animation.status);
   }
 
-  /// 收起动画一开始就把窗口按钮交还给全局那层。
+  /// 转场期间把装饰动画的时钟停住。
   ///
-  /// 等页面 `dispose` 再交还就晚了：页面滑走的这 240ms 里，自己的按钮跟着
-  /// 页面往下走了、全局的却还没回来，右上角会空出一块，看起来像「收起后要
-  /// 愣一下，按钮才冒出来」。
+  /// 流光（15fps）、圆形封面旋转（60fps）、逐字歌词全部挂在 [UiClock] 上，
+  /// 停表等于三样一起停：这 300ms 里每帧只剩转场自己的位移与淡入。
+  /// 恢复时各动画按冻结前的相位接着走（[UiClock] 在暂停期间连 `seconds`
+  /// 一起冻住），不会跳。
+  ///
+  /// 它只压「转场进行中」的每帧成本，**不影响第一帧**——整页构建与封面解码
+  /// 仍发生在按下按钮那一帧，那部分要看 `LAMP_FRAME_LOG` 的 build/raster 比例。
   void _onRouteStatus(AnimationStatus status) {
     if (status == AnimationStatus.reverse) {
       pageOwnsWindowControls.value = false;
     }
+    final bool moving =
+        status == AnimationStatus.forward || status == AnimationStatus.reverse;
+    if (moving) {
+      UiClock.pause(_transitionPause);
+    } else {
+      UiClock.resume(_transitionPause);
+    }
   }
+
+  /// 停表来源；页面销毁时必须撤销，否则整个应用的装饰动画再也不走
+  final Object _transitionPause = Object();
 
   /// 本页自己画窗口按钮，让全局那层让位——否则两套按钮会同时挂在右上角，
   /// 而且全局那套在转场里纹丝不动，和滑上来的页面脱节。
@@ -402,6 +422,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   @override
   void dispose() {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
+    // 转场停表必须在这里撤销：漏了就等于给整个应用的装饰动画上了锁
+    UiClock.resume(_transitionPause);
     pageOwnsWindowControls.value = false;
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
@@ -579,58 +601,65 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           // 沉浸模式下顶部浮层靠它唤出；窗口外壳也更新同一份状态
           onHover: (PointerHoverEvent event) =>
               trackPointerNearTop(event.localPosition),
-          child: Scaffold(
-            backgroundColor: scheme.surfaceContainerLow,
-            body: CoverFlowBackground(
-              colors: _palette,
-              animate: widget.animateBackground,
-              child: SafeArea(
-                // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
-                // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
-                child: Column(
-                  children: <Widget>[
-                    _header(context),
-                    // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
-                    Expanded(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: <Widget>[
-                          // 柱形频谱压在内容下层：铺满整宽、半透明、不吃手势。
-                          // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
-                          // 歌词照常滚动。固定 72 高、贴在控制区上方。
-                          // 纯净（沉浸）模式下跟其它控件一起淡出：那一屏只剩封面
-                          // 和歌词，频谱留着会抢戏。
-                          if (widget.spectrum != null)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: _spectrumBottom,
-                              height: _spectrumHeight,
-                              child: _fadeWhenImmersive(
-                                chromeKey: const ValueKey<String>(
-                                  'now-playing-spectrum',
-                                ),
-                                child: SpectrumWave(
-                                  bands: widget.spectrum!,
-                                  // 颜色默认由主题主色派生三段色相渐变
-                                  color: scheme.primary,
+          // 转场那条 `FadeTransition` 会对整页做透明度：没有这层边界，
+          // 每帧都得把全屏流光 + 歌词 + 频谱重画一遍，快速开关时还会堆出
+          // 一叠来不及回收的离屏图层（任务管理器里的内存尖刺）。
+          // 圈成一层之后，页面在转场里是静止的（见 [_onRouteStatus] 停表），
+          // 只光栅化一次，之后每帧只改 alpha 与位移矩阵。
+          child: RepaintBoundary(
+            child: Scaffold(
+              backgroundColor: scheme.surfaceContainerLow,
+              body: CoverFlowBackground(
+                colors: _palette,
+                animate: widget.animateBackground,
+                child: SafeArea(
+                  // 标题条左上角让出了一段（LampTitleBar.defaultLeftInset），
+                  // header 可以贴住窗口顶端，与右侧窗口按钮齐平。
+                  child: Column(
+                    children: <Widget>[
+                      _header(context),
+                      // 歌词区只监听「曲目」：进度 tick 不该重排整棵歌词列表
+                      Expanded(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            // 柱形频谱压在内容下层：铺满整宽、半透明、不吃手势。
+                            // 放在 Stack 而不是 Column 里，是为了不占歌词的高度，
+                            // 歌词照常滚动。固定 72 高、贴在控制区上方。
+                            // 纯净（沉浸）模式下跟其它控件一起淡出：那一屏只剩封面
+                            // 和歌词，频谱留着会抢戏。
+                            if (widget.spectrum != null)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: _spectrumBottom,
+                                height: _spectrumHeight,
+                                child: _fadeWhenImmersive(
+                                  chromeKey: const ValueKey<String>(
+                                    'now-playing-spectrum',
+                                  ),
+                                  child: SpectrumWave(
+                                    bands: widget.spectrum!,
+                                    // 颜色默认由主题主色派生三段色相渐变
+                                    color: scheme.primary,
+                                  ),
                                 ),
                               ),
+                            ValueListenableBuilder<Track?>(
+                              valueListenable: _track,
+                              builder: (
+                                BuildContext context,
+                                Track? track,
+                                Widget? child,
+                              ) => _body(context, track),
                             ),
-                          ValueListenableBuilder<Track?>(
-                            valueListenable: _track,
-                            builder: (
-                              BuildContext context,
-                              Track? track,
-                              Widget? child,
-                            ) => _body(context, track),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    _controls(context),
-                    const SizedBox(height: 12),
-                  ],
+                      _controls(context),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1000,6 +1029,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             tag: coverHeroTag,
                             createRectTween: (Rect? begin, Rect? end) =>
                                 RectTween(begin: begin, end: end),
+                            // 飞行期间两端默认都换成空白占位，图片流随之松开：
+                            // 落地时若这个尺寸的解码结果已被缓存淘汰，就会先空
+                            // 一帧再出图（"封面闪一下"）。占位里用 `Offstage`
+                            // 继续挂着原封面：不布局也不绘制（不会像 `Opacity`
+                            // 那样把透明度下推到模糊阴影上、每帧退回 saveLayer），
+                            // 但子树与图片订阅都还在，落地直接接上。
+                            placeholderBuilder:
+                                (
+                                  BuildContext context,
+                                  Size size,
+                                  Widget child,
+                                ) => SizedBox.fromSize(
+                                  size: size,
+                                  child: Offstage(child: child),
+                                ),
                             // 飞行时的 shuttle 见 [coverFlightShuttle]：正反两个方向都用
                             // 这张大图，并且阴影跟着封面一起飞（只在页面那棵子树上挂
                             // 阴影的话，落地那一帧才会冒出来）。
