@@ -604,7 +604,8 @@ extension _PlaylistsSection on _LibraryPageState {
             bottom: 8,
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
               if (coverPath != null && coverPath.isNotEmpty)
