@@ -422,48 +422,54 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 定期采样（5 秒）抓不到 300ms 的尖刺，而 `ProcessInfo.currentRss` 读一次
   /// 几乎不要钱——转场这十几帧逐帧读，就能知道「尖刺到底有多大、出现在哪一帧」。
   /// 只在 `LAMP_MEM_LOG` 打开时做。
-  bool _samplingRss = false;
+  bool _rssActive = false;
   int _peakRssBytes = 0;
   int _rssSamples = 0;
 
-  /// 一次转场最多采这么多帧（约 1 秒）。
+  /// 一次转场最多统计这么多帧，兜底用。
   ///
-  /// 这个循环每帧排一个 post-frame 回调，**只要还在采样就等于逼引擎持续出帧**。
-  /// 转场只有 300ms，万一 resolved 状态没回调到（动画被打断、页面先销毁），
-  /// 没有上限的话它会一直排下去，CPU 就钉在 5% 上下——所以宁可少采几帧。
-  static const int _maxRssSamples = 60;
+  /// 正常转场 18 帧左右；设上限是防止「进 / 出」连成一串时一直挂着回调。
+  static const int _maxRssSamples = 120;
 
   void _beginRssSampling() {
-    if (!memoryLogEnabled) {
+    // 已经在采就不再重开：快速开关时「进 → 出」会连着触发两次 status，
+    // 重开会把前半段（通常才是峰值所在）的采样清掉
+    if (!memoryLogEnabled || _rssActive) {
       return;
     }
-    _samplingRss = true;
+    _rssActive = true;
     _rssSamples = 0;
     _peakRssBytes = ProcessInfo.currentRss;
-    _sampleRss();
+    // **不能用 addPostFrameCallback 递归采样**：每排一个回调就等于逼引擎
+    // 再出一帧，快速开关时 CPU 会一直挂在 5% 上下。`timings` 只在真的出过帧
+    // 之后批量回调，不产生任何额外帧。
+    SchedulerBinding.instance.addTimingsCallback(_onTransitionTimings);
   }
 
-  void _sampleRss() {
-    if (!_samplingRss || !mounted) {
-      return;
-    }
+  void _onTransitionTimings(List<FrameTiming> timings) {
     final int rss = ProcessInfo.currentRss;
     if (rss > _peakRssBytes) {
       _peakRssBytes = rss;
     }
-    _rssSamples += 1;
+    _rssSamples += timings.length;
     if (_rssSamples >= _maxRssSamples) {
-      _samplingRss = false;
+      _stopRssSampling();
+    }
+  }
+
+  void _stopRssSampling() {
+    if (!_rssActive) {
       return;
     }
-    SchedulerBinding.instance.addPostFrameCallback((_) => _sampleRss());
+    _rssActive = false;
+    SchedulerBinding.instance.removeTimingsCallback(_onTransitionTimings);
   }
 
   void _endRssSampling() {
-    if (_peakRssBytes <= 0) {
+    if (!_rssActive) {
       return;
     }
-    _samplingRss = false;
+    _stopRssSampling();
     debugPrint(
       '[mem] 本轮转场峰值 '
       '${(_peakRssBytes / (1024 * 1024)).toStringAsFixed(0)}MB'
@@ -489,8 +495,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     // 转场停表必须在这里撤销：漏了就等于给整个应用的装饰动画上了锁
     UiClock.resume(_transitionPause);
-    // 逐帧采样同理：留着它，每帧还会继续排 post-frame 回调
-    _samplingRss = false;
+    // 逐帧采样同理：留着它，会在后台挂着 timings 回调
+    _stopRssSampling();
     _restoreGlobalChrome();
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
