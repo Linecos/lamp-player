@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
+import 'package:lamp_player/src/app/memory_trim.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/common/frame_log.dart';
@@ -288,9 +289,32 @@ Future<Offset?> _restorePosition(WindowSnapshot state) async {
 const String _hiddenReason = 'hidden';
 const String _minimizedReason = 'minimized';
 
+/// 视觉活动跟着窗口可见性走：频谱停采集，藏起来时顺手放掉封面缓存。
+///
+/// 封面解码结果在不可见时没人看，留着只会让任务管理器里的数字一直挂在
+/// 十几万 KB；而恢复可见后可见的那几张会重新解码，代价落在第一帧上。
 void _syncVisualActivity() {
-  SpectrumController.instance.setSuspended(UiClock.isPaused);
+  final bool paused = UiClock.isPaused;
+  SpectrumController.instance.setSuspended(paused);
+  if (paused) {
+    // 只在「刚藏起来」那个沿上清一次：可见性对账每 2 秒一次，
+    // 每次都清既没必要，也会让刚解出来的图立刻被丢掉
+    if (_wasVisible) {
+      _wasVisible = false;
+      trimImageCache();
+      // 工作集晚 2 秒再交还：最小化又立刻恢复的场景不值得换页
+      _trimTimer?.cancel();
+      _trimTimer = Timer(const Duration(seconds: 2), trimWorkingSet);
+    }
+  } else {
+    _wasVisible = true;
+    _trimTimer?.cancel();
+    _trimTimer = null;
+  }
 }
+
+bool _wasVisible = true;
+Timer? _trimTimer;
 
 /// 窗口生命周期：尺寸防抖落盘 + 关闭行为（隐藏到托盘 / 退出）。
 ///

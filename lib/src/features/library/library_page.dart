@@ -28,6 +28,7 @@ import '../player/playback_queue.dart';
 import '../player/playback_service.dart';
 import '../player/player_bar.dart';
 import '../../app/app_lifecycle.dart';
+import '../../app/image_cache_config.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
 import '../player/lyric_alignment.dart';
@@ -146,7 +147,7 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
 
   /// 进度轮询周期。
@@ -260,6 +261,20 @@ class _LibraryPageState extends State<LibraryPage>
   /// （歌单 / 艺术家 / 专辑 / 统计都踩得到）。
   final Map<LibrarySection, String> _sectionSelections =
       <LibrarySection, String>{};
+
+  /// 最多保留几个访问过的分区快照（含当前分区）。
+  ///
+  /// 每个快照是一整棵列表（Element 树 + 列表项里的封面 `Image`）。`Offstage`
+  /// 不绘制，但那些 `Image` 仍 attach 着，解码结果算 live image ——
+  /// **不计入** `ImageCache.maximumSizeBytes`。逛遍七个分区、各自滚一遍就是
+  /// 七份，这就是「放着不动也会一路涨到 500MB」的主因。
+  ///
+  /// 留 3 个够覆盖「A → B → A」这类来回切；更早的丢掉，切回来重建——
+  /// 数据都在内存里，不产生 IO，滚动位置由 `PageStorageKey` 恢复。
+  static const int _keptSectionLimit = 3;
+
+  /// 分区最近使用顺序，越靠前越新；配合 [_keptSectionLimit] 淘汰最早的
+  final List<LibrarySection> _sectionRecency = <LibrarySection>[];
 
   /// 分区被「切入」的世代。跨分区切回来时 +1。
   ///
@@ -647,6 +662,7 @@ class _LibraryPageState extends State<LibraryPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _searchFocus.addListener(_onSearchFocusChanged);
     // 引擎探测要 spawn 引擎线程并等就绪，音频子系统异常时会阻塞好几秒；
     // 放在首帧之后做，界面先按可用渲染，探测结果再回填
@@ -722,9 +738,18 @@ class _LibraryPageState extends State<LibraryPage>
     }
   }
 
+  /// 系统报内存压力：放掉封面缓存。
+  ///
+  /// 可见的那几张会重新解码，但总比被系统挑一个进程杀掉强。
+  @override
+  void didHaveMemoryPressure() {
+    trimImageCache();
+  }
+
   @override
   void dispose() {
     _warmGainsCancelled = true;
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_lyricCommands?.cancel());
     _debounce?.cancel();
     _positionTimer?.cancel();
@@ -1519,6 +1544,8 @@ class _LibraryPageState extends State<LibraryPage>
       setState(() {
         _displayedSection = section;
         _sectionEpochs[section] = (_sectionEpochs[section] ?? 0) + 1;
+        // 记下这次访问，超出上限的老分区连快照一起丢掉（见 [_keptSectionLimit]）
+        _touchSection(section);
         // 离开一个正开着详情的分区时，把它那层 AnimatedSwitcher 也重置掉：
         // 清选中会让它从「详情」过渡到「列表」，但分区这时是 Offstage、
         // TickerMode 冻结了动画 —— 等用户切回来，那 180ms 的淡出才继续跑，
@@ -1741,6 +1768,27 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.favorites ||
       LibrarySection.history => '',
     };
+  }
+
+  /// 记录一次分区访问，并按上限淘汰更早的分区快照。
+  ///
+  /// 淘汰只丢「快照」不丢数据：`_tracks` 与各种缓存还在，切回来重建列表
+  /// （`PageStorageKey` 会把滚动位置接上）。丢掉快照后那棵子树从树里摘掉，
+  /// 列表项里的封面引用才会释放——这是唯一能让内存真正回落的地方。
+  void _touchSection(LibrarySection section) {
+    _sectionRecency
+      ..remove(section)
+      ..insert(0, section);
+    while (_sectionRecency.length > _keptSectionLimit) {
+      final LibrarySection stale = _sectionRecency.removeLast();
+      if (stale == _displayedSection) {
+        // 当前分区刚插到最前面，正常走不到这里；真走到了就别淘汰它
+        _sectionRecency.insert(0, stale);
+        break;
+      }
+      _forgetSection(stale);
+      _sectionEpochs.remove(stale);
+    }
   }
 
   /// 丢掉某个分区的快照，下一次 build 重新构建。
