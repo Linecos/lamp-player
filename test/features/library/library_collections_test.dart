@@ -295,7 +295,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('歌单还是空的'), findsOneWidget);
 
-    await tester.tap(find.text('添加音乐').first);
+    // 头部四个次要按钮只画图标，靠 tooltip 说明功能
+    await tester.tap(find.byTooltip('添加音乐'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
 
