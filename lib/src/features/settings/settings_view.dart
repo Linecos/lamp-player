@@ -404,9 +404,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.volume_down_outlined,
         title: '音量过渡',
         switchKey: const ValueKey<String>('settings-volume-fade-switch'),
-        subtitle: volumeFade
-            ? '播放淡入、暂停与停止淡出时平滑调整音量'
-            : '所有操作直接硬切',
+        subtitle: volumeFade ? '播放淡入、暂停与停止淡出时平滑调整音量' : '所有操作直接硬切',
         value: volumeFade,
         onChanged: onVolumeFadeChanged,
       ),
