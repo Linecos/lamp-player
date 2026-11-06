@@ -95,75 +95,90 @@ class _LibraryRailState extends State<LibraryRail> {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
-    return AnimatedContainer(
-      duration: LibraryRail.animationDuration,
-      curve: Curves.easeInOutCubic,
-      width: widget.expanded
-          ? LibraryRail.expandedWidth
-          : LibraryRail.collapsedWidth,
-      clipBehavior: Clip.hardEdge,
-      decoration: BoxDecoration(color: scheme.surfaceContainer),
-      // 边框用前景绘制，避免内容因边框内缩 1px，
-      // 导致图标中轴比折叠按钮偏左。
-      foregroundDecoration: BoxDecoration(
-        border: Border(right: BorderSide(color: scheme.outlineVariant)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _RailBrand(
-            expanded: widget.expanded,
-            showLabel: _showLabels,
-            onDragStart: widget.onWindowDragStart,
-            onDoubleTap: widget.onWindowDoubleTap,
+    // 宽度交给隐式动画；**颜色不能也放在这里**。
+    //
+    // MaterialApp 切深浅色时 `AnimatedTheme` 已经在 200ms 内逐帧插值，如果
+    // 这层 `AnimatedContainer` 再对底色做一次 180ms 动画，就是「追一个每帧
+    // 都在移动的目标」——实际要将近两倍时长才到位，观感是内容区变完了、
+    // 侧栏还在慢慢追。底色与边框改成静态 `Container`，直接跟着主题插值走。
+    return ClipRect(
+      child: AnimatedContainer(
+        duration: LibraryRail.animationDuration,
+        curve: Curves.easeInOutCubic,
+        width: widget.expanded
+            ? LibraryRail.expandedWidth
+            : LibraryRail.collapsedWidth,
+        child: Container(
+          key: const ValueKey<String>('rail-surface'),
+          decoration: BoxDecoration(color: scheme.surfaceContainer),
+          // 边框用前景绘制，避免内容因边框内缩 1px，
+          // 导致图标中轴比折叠按钮偏左。
+          foregroundDecoration: BoxDecoration(
+            border: Border(right: BorderSide(color: scheme.outlineVariant)),
           ),
-          SizedBox(
-            height: 64,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 12, top: 8),
-                child: IconButton(
-                  onPressed: widget.onToggle,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 48,
-                    height: 48,
-                  ),
-                  iconSize: 24,
-                  tooltip: widget.expanded ? '收起导航栏' : '展开导航栏',
-                  icon: Icon(widget.expanded ? Icons.menu_open : Icons.menu),
-                ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _RailBrand(
+                expanded: widget.expanded,
+                showLabel: _showLabels,
+                onDragStart: widget.onWindowDragStart,
+                onDoubleTap: widget.onWindowDoubleTap,
               ),
-            ),
-          ),
-          Expanded(
-            // 左右内边距固定 8、条目自己的左内边距固定 16，两者相加 24 与图标
-            // 的原始左边距完全一致 —— 展开时 220-16=204 宽，收起时 72-16=56 宽，
-            // 图标都停在 x=36。这里不留任何动画：两个隐式动画各自起跑，
-            // 中途会把图标带偏几像素（试过，会漂 4px）。
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: <Widget>[
-                  for (final LibrarySection item in LibrarySection.values)
-                    // 间距固定：条目位置在整段动画里不动，才不会抖
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: _RailItem(
-                        section: item,
-                        expanded: widget.expanded,
-                        showLabel: _showLabels,
-                        selected: item == widget.section,
-                        onTap: () => widget.onSelect(item),
+              SizedBox(
+                height: 64,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 8),
+                    child: IconButton(
+                      onPressed: widget.onToggle,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 48,
+                        height: 48,
+                      ),
+                      iconSize: 24,
+                      tooltip: widget.expanded ? '收起导航栏' : '展开导航栏',
+                      icon: Icon(
+                        widget.expanded ? Icons.menu_open : Icons.menu,
                       ),
                     ),
-                ],
+                  ),
+                ),
               ),
-            ),
+              Expanded(
+                // 左右内边距固定 8、条目自己的左内边距固定 16，两者相加 24 与图标
+                // 的原始左边距完全一致 —— 展开时 220-16=204 宽，收起时 72-16=56 宽，
+                // 图标都停在 x=36。这里不留任何动画：两个隐式动画各自起跑，
+                // 中途会把图标带偏几像素（试过，会漂 4px）。
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: <Widget>[
+                      for (final LibrarySection item in LibrarySection.values)
+                        // 间距固定：条目位置在整段动画里不动，才不会抖
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: _RailItem(
+                            section: item,
+                            expanded: widget.expanded,
+                            showLabel: _showLabels,
+                            selected: item == widget.section,
+                            onTap: () => widget.onSelect(item),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
