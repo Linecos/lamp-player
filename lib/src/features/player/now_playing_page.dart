@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/immersive_chrome.dart';
@@ -360,6 +361,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   @override
   void initState() {
     super.initState();
+    _livePages += 1;
     widget.data.addListener(_onData);
     circularCovers.addListener(_syncCoverSpin);
     _onData();
@@ -424,7 +426,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     // 转场停表必须在这里撤销：漏了就等于给整个应用的装饰动画上了锁
     UiClock.resume(_transitionPause);
-    pageOwnsWindowControls.value = false;
+    _restoreGlobalChrome();
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
     CoverSpin.release(this);
@@ -432,10 +434,37 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
-    // 离开页面必须复位：窗口按钮跟着这个开关隐，留着会让别的页面也看不到
-    immersiveMode.value = false;
     _removeToast();
     super.dispose();
+  }
+
+  /// 同时在世的播放页数量：销毁时用它判断「是不是最后一页」。
+  ///
+  /// 连点 / 快速开关时可能短暂有两页在树上，前一页退出不能把后一页刚设的
+  /// 全局开关撤掉。
+  static int _livePages = 0;
+
+  /// 把两个全局开关交还出去。
+  ///
+  /// **不能在 `dispose` 里直接改**：`dispose` 发生在 `finalizeTree` 的 unmount
+  /// 阶段，那时 widget 树是锁着的，而这两个值有 `AnimatedBuilder` 在监听
+  /// （窗口按钮那层），一改就是
+  /// 「setState() or markNeedsBuild() called when widget tree was locked」——
+  /// 真机上这个异常会每帧刷一次。延到这一帧结束再改。
+  void _restoreGlobalChrome() {
+    _livePages = _livePages > 0 ? _livePages - 1 : 0;
+    if (_livePages != 0) {
+      return;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      // 期间又开了新页：它已经把自己的状态设好了，别再撤
+      if (_livePages != 0) {
+        return;
+      }
+      pageOwnsWindowControls.value = false;
+      immersiveMode.value = false;
+      pointerNearTop.value = false;
+    });
   }
 
   void _onData() {
