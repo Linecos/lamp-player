@@ -20,3 +20,20 @@ void configureImageCache() {
   cache.maximumSize = coverCacheMaxEntries;
   cache.maximumSizeBytes = coverCacheMaxBytes;
 }
+
+/// 放掉封面缓存。
+///
+/// `maximumSizeBytes` 只管「没人用、但留着下次快」的那部分；列表里正在
+/// attach 的 `Image` 算 live image，**不占这个上限**。所以光靠调小上限
+/// 无法让内存回落，得主动清：
+///
+/// - `clear()` 清 pending 与 keepAlive；
+/// - `clearLiveImages()` 把已解码的引用也放掉（可见的封面会在下一帧重新解码）。
+///
+/// 只在窗口不可见（关到托盘 / 最小化）或系统报内存压力时调用——那时没人看画面，
+/// 重新解码的代价落在恢复之后的第一帧上。
+void trimImageCache() {
+  final ImageCache cache = PaintingBinding.instance.imageCache;
+  cache.clear();
+  cache.clearLiveImages();
+}

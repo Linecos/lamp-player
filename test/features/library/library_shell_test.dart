@@ -155,6 +155,41 @@ void main() {
     expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
   });
 
+  testWidgets('分区快照最多保活 3 个，逛远了丢最早的那份', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    Future<void> open(String label) async {
+      await tester.tap(
+        find.descendant(
+          of: find.byType(LibraryRail),
+          matching: find.text(label),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // 依次把 5 个分区逛一遍；每份快照都是一整棵列表（含封面 Image）
+    for (final String label in <String>['专辑', '艺术家', '歌单', '收藏', '历史']) {
+      await open(label);
+    }
+
+    // 分区宿主只把「保留下来的」放进树里：当前分区 + 最多 3 个保活快照
+    final Finder kept = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is Offstage && widget.key is ValueKey<LibrarySection>,
+    );
+    expect(
+      kept.evaluate().length,
+      lessThanOrEqualTo(4),
+      reason: '访问过的分区不能无限保活（每个都挂着一整棵列表与封面）',
+    );
+
+    // 被丢掉的音乐分区切回来要能正常重建
+    await open('音乐');
+    expect(find.text('夜航'), findsWidgets);
+    expect(find.text('潮汐'), findsWidgets);
+  });
+
   testWidgets('收起侧边栏后只显示图标，并与折叠按钮对齐', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
