@@ -1348,7 +1348,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   Widget _volumeControl(BuildContext context, NowPlayingData data, bool ready) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
     final double volume = data.volume.clamp(0.0, 1.0).toDouble();
     final IconData icon = volume == 0
         ? Icons.volume_off
@@ -1371,10 +1372,17 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               trackHeight: 3,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              // 拖动时才出气泡：平时那 120px 太窄，常驻会一直挡住上方的按钮
+              showValueIndicator: ShowValueIndicator.onDrag,
+              valueIndicatorShape: const RectangularSliderValueIndicatorShape(),
+              valueIndicatorColor: scheme.inverseSurface,
+              valueIndicatorTextStyle: _valueBubbleTextStyle(theme, scheme),
             ),
             child: SliderSemanticsScope(
               child: Slider(
                 key: const ValueKey<String>('now-playing-volume'),
+                // 气泡里给整数百分比：0.62 读起来没有 62 直观
+                label: '${(volume * 100).round()}',
                 value: volume,
                 max: 1,
                 onChanged: ready && widget.onVolumeChanged != null
@@ -1436,12 +1444,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                           const RoundSliderOverlayShape(
                                             overlayRadius: 14,
                                           ),
+                                      // 拖动进度时在圆点上方显示「指到的时间」：
+                                      // 底部左右两端的文字只说明当前与总时长，
+                                      // 拖动过程中看不出正要跳到哪儿
+                                      showValueIndicator:
+                                          ShowValueIndicator.onDrag,
+                                      valueIndicatorShape:
+                                          const RectangularSliderValueIndicatorShape(),
+                                      valueIndicatorColor:
+                                          scheme.inverseSurface,
+                                      valueIndicatorTextStyle:
+                                          _valueBubbleTextStyle(theme, scheme),
                                     ),
                                     child: SliderSemanticsScope(
                                       child: Slider(
                                         key: const ValueKey<String>(
                                           'now-playing-progress',
                                         ),
+                                        label: formatDuration(shown),
                                         value: total > 0 ? shown : 0,
                                         max: total > 0 ? total : 1,
                                         onChanged: ready && total > 0
@@ -1970,4 +1990,18 @@ class _ImmersiveToastState extends State<_ImmersiveToast>
       ),
     );
   }
+}
+
+/// 滑块气泡（拖动时才出现）里那行字的样式。
+///
+/// 12sp + 等宽数字：气泡会跟着指尖左右跑，比例数字会让宽度一直变化、看着发抖；
+/// 颜色走 `inverseSurface` / `onInverseSurface` 这组，深浅色主题下都自带对比度。
+TextStyle _valueBubbleTextStyle(ThemeData theme, ColorScheme scheme) {
+  return (theme.textTheme.labelMedium ?? const TextStyle()).copyWith(
+    color: scheme.onInverseSurface,
+    fontSize: 12,
+    height: 1.1,
+    fontWeight: FontWeight.w600,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
 }
