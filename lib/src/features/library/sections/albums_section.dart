@@ -125,6 +125,9 @@ extension _AlbumsSection on _LibraryPageState {
             bottom: 8,
           ),
           child: Row(
+            // 文字与按钮贴住封面底边：封面撑到 240 之后，顶对齐会让右侧
+            // 上半截空着、三行信息像浮在半空
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               AlbumCover(
                 path: group.coverPath,

@@ -124,6 +124,8 @@ extension _ArtistsSection on _LibraryPageState {
             bottom: 8,
           ),
           child: Row(
+            // 名字 / 统计 / 播放键贴住头像底边，见专辑详情的同一处注释
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               Container(
                 width: detailCoverSize,
