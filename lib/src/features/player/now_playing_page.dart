@@ -424,12 +424,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 只在 `LAMP_MEM_LOG` 打开时做。
   bool _samplingRss = false;
   int _peakRssBytes = 0;
+  int _rssSamples = 0;
+
+  /// 一次转场最多采这么多帧（约 1 秒）。
+  ///
+  /// 这个循环每帧排一个 post-frame 回调，**只要还在采样就等于逼引擎持续出帧**。
+  /// 转场只有 300ms，万一 resolved 状态没回调到（动画被打断、页面先销毁），
+  /// 没有上限的话它会一直排下去，CPU 就钉在 5% 上下——所以宁可少采几帧。
+  static const int _maxRssSamples = 60;
 
   void _beginRssSampling() {
     if (!memoryLogEnabled) {
       return;
     }
     _samplingRss = true;
+    _rssSamples = 0;
     _peakRssBytes = ProcessInfo.currentRss;
     _sampleRss();
   }
@@ -442,19 +451,26 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (rss > _peakRssBytes) {
       _peakRssBytes = rss;
     }
+    _rssSamples += 1;
+    if (_rssSamples >= _maxRssSamples) {
+      _samplingRss = false;
+      return;
+    }
     SchedulerBinding.instance.addPostFrameCallback((_) => _sampleRss());
   }
 
   void _endRssSampling() {
-    if (!_samplingRss) {
+    if (_peakRssBytes <= 0) {
       return;
     }
     _samplingRss = false;
     debugPrint(
       '[mem] 本轮转场峰值 '
       '${(_peakRssBytes / (1024 * 1024)).toStringAsFixed(0)}MB'
-      '（结束时 ${(ProcessInfo.currentRss / (1024 * 1024)).toStringAsFixed(0)}MB）',
+      '（结束时 ${(ProcessInfo.currentRss / (1024 * 1024)).toStringAsFixed(0)}MB，'
+      '采了 $_rssSamples 帧）',
     );
+    _peakRssBytes = 0;
   }
 
   /// 本页自己画窗口按钮，让全局那层让位——否则两套按钮会同时挂在右上角，
@@ -473,6 +489,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     // 转场停表必须在这里撤销：漏了就等于给整个应用的装饰动画上了锁
     UiClock.resume(_transitionPause);
+    // 逐帧采样同理：留着它，每帧还会继续排 post-frame 回调
+    _samplingRss = false;
     _restoreGlobalChrome();
     widget.data.removeListener(_onData);
     circularCovers.removeListener(_syncCoverSpin);
