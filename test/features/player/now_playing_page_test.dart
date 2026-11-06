@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/formatters/duration.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/app/immersive_chrome.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
@@ -1491,6 +1492,42 @@ void main() {
       close.right,
       closeTo(tester.view.physicalSize.width / tester.view.devicePixelRatio, 1),
     );
+  });
+
+  testWidgets('拖动时才出取值气泡：进度给时间、音量给整数', (WidgetTester tester) async {
+    await _pump(tester, data: _data(position: 60, duration: 249, volume: 0.62));
+
+    // 底部两行文字只有「当前位置 / 总时长」，拖动时看不出正要跳到哪儿，
+    // 所以滑块自己带一条 label，由取值气泡在拖动期间显示
+    final Slider progress = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+    );
+    expect(progress.label, formatDuration(60));
+
+    final Slider volume = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('now-playing-volume')),
+    );
+    expect(volume.label, '62', reason: '音量给整数百分比，0.62 读起来不直观');
+
+    for (final String key in <String>[
+      'now-playing-progress',
+      'now-playing-volume',
+    ]) {
+      final SliderTheme theme = tester.widget<SliderTheme>(
+        find
+            .ancestor(
+              of: find.byKey(ValueKey<String>(key)),
+              matching: find.byType(SliderTheme),
+            )
+            .first,
+      );
+      expect(
+        theme.data.showValueIndicator,
+        ShowValueIndicator.onDrag,
+        reason: '常驻会一直挡住上方的控制区',
+      );
+      expect(theme.data.valueIndicatorTextStyle?.fontSize, 12);
+    }
   });
 }
 
