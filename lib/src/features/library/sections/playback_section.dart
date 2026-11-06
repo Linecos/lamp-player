@@ -719,11 +719,43 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 曲目右键菜单的统一入口。
+  ///
+  /// 多选模式下、且右键落点就在已勾选的行上时，整批操作：工具条撤掉之后，
+  /// 批量入口只剩这一处，逐首处理会让「勾了 20 首却只隐藏 1 首」变成陷阱。
   void _onTrackContext(
     List<Track> tracks,
     Track track,
     TrackContextAction action,
   ) {
+    final bool batch =
+        _selectionMode &&
+        _selectedPaths.contains(track.path) &&
+        _selectedPaths.length > 1;
+    if (batch) {
+      switch (action) {
+        case TrackContextAction.play:
+          unawaited(_playSelected());
+        case TrackContextAction.playNext:
+          _playNextSelected();
+        case TrackContextAction.addToQueue:
+          _enqueueSelected();
+        case TrackContextAction.toggleFavorite:
+          unawaited(_favoriteSelected());
+        case TrackContextAction.addToPlaylist:
+          unawaited(_addSelectedToPlaylist());
+        case TrackContextAction.computeReplayGain:
+          unawaited(_computeReplayGainFor(_selectedTracks));
+        case TrackContextAction.removeFromLibrary:
+          unawaited(_removeSelected());
+        // 单文件操作：批量菜单里不出现，真被调用到就忽略
+        case TrackContextAction.revealInExplorer:
+        case TrackContextAction.copyPath:
+        case TrackContextAction.openWithMusicTag:
+          break;
+      }
+      return;
+    }
+
     switch (action) {
       case TrackContextAction.play:
         unawaited(_playFrom(tracks, track));
@@ -735,6 +767,8 @@ extension _PlaybackSection on _LibraryPageState {
         unawaited(_toggleFavorite(track));
       case TrackContextAction.addToPlaylist:
         unawaited(_addToPlaylist(track));
+      case TrackContextAction.computeReplayGain:
+        unawaited(_computeReplayGainFor(<Track>[track]));
       case TrackContextAction.removeFromLibrary:
         unawaited(_removeTrackFromLibrary(track));
       case TrackContextAction.revealInExplorer:
@@ -744,6 +778,31 @@ extension _PlaybackSection on _LibraryPageState {
       case TrackContextAction.openWithMusicTag:
         unawaited(_openWithMusicTag(track));
     }
+  }
+
+  /// 多选批量「下一首播放」：按列表顺序插到当前曲目后面。
+  ///
+  /// 倒着插是因为 `insertNext` 每次都紧贴当前曲目，正着插会得到倒序。
+  void _playNextSelected() {
+    final List<Track> tracks = _selectedTracks;
+    if (tracks.isEmpty) {
+      return;
+    }
+    if (_queue.isEmpty) {
+      unawaited(_playFrom(tracks, tracks.first));
+      return;
+    }
+    int added = 0;
+    for (final Track track in tracks.reversed) {
+      if (track.path != _queue.current?.path && _queue.insertNext(track)) {
+        added += 1;
+      }
+    }
+    _update(() {});
+    if (added > 0) {
+      _saveSessionNow();
+    }
+    _showMessage(added > 0 ? '已把 $added 首排到下一首之后' : '这些曲目都已经在队列里');
   }
 
   /// 右键单曲「隐藏歌曲」。

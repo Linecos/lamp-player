@@ -137,6 +137,8 @@ extension _MusicSection on _LibraryPageState {
         onContextAction: (Track track, TrackContextAction action) =>
             _onTrackContext(_results!, track, action),
         selectionMode: _selectionMode,
+        onSelectAll: _selectionMode ? _toggleSelectAll : null,
+        selectionAllFavored: _selectionAllFavored,
         selectedPaths: _selectedPaths,
         onSelect: (Track track, {required bool toggle, required bool range}) =>
             _onTrackSelect(_results!, track, toggle: toggle, range: range),
@@ -185,6 +187,8 @@ extension _MusicSection on _LibraryPageState {
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_tracks, track, action),
       selectionMode: _selectionMode,
+      onSelectAll: _selectionMode ? _toggleSelectAll : null,
+      selectionAllFavored: _selectionAllFavored,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(_tracks, track, toggle: toggle, range: range),

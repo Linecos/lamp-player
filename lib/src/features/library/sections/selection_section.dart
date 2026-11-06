@@ -165,100 +165,28 @@ extension _SelectionSection on _LibraryPageState {
     );
   }
 
-  /// 页面标题行中间的占位：未多选时等价于 Spacer，多选时显示操作条。
+  /// 页面标题行中间的占位：未多选时等价于 Spacer，多选时只显示已选数量。
+  ///
+  /// 批量动作（播放 / 入队 / 收藏 / 加歌单 / ReplayGain / 隐藏）原先还有一排
+  /// 永远占位的按钮，现在全部收进右键菜单：勾选行上点右键就是对整批操作，
+  /// 标题行只留一个计数，列表也不用为了那排按钮让位。
   Widget _buildSelectionHeaderSlot(BuildContext context) {
-    return Expanded(
-      child: !_selectionMode
-          ? const SizedBox.shrink()
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Align(
-                alignment: Alignment.center,
-                child: _buildSelectionBar(context),
-              ),
-            ),
-    );
-  }
-
-  Widget _buildSelectionBar(BuildContext context) {
+    if (!_selectionMode) {
+      // 未多选时它是标题行里的弹性占位，把右侧按钮推到边上
+      return const Spacer();
+    }
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final int count = _selectedPaths.length;
-    final List<Track> visible = _selectionVisibleTracks;
-    final bool allSelected =
-        visible.isNotEmpty &&
-        visible.every((Track track) => _selectedPaths.contains(track.path));
-    final bool enabled = count > 0;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Material(
-        color: scheme.secondaryContainer,
-        // 与列表行的高亮同档（24），不再用 20 这一档
-        borderRadius: BorderRadius.circular(24),
-        clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                '已选 $count 首',
-                key: const ValueKey<String>('library-selection-count'),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                style: _headerButtonStyle(),
-                onPressed: visible.isEmpty ? null : _toggleSelectAll,
-                child: Text(allSelected ? '取消全选' : '全选'),
-              ),
-              _headerIconButton(
-                tooltip: '播放所选',
-                onPressed: enabled ? () => unawaited(_playSelected()) : null,
-                icon: const Icon(Icons.play_arrow),
-              ),
-              _headerIconButton(
-                tooltip: '加入队列',
-                onPressed: enabled ? _enqueueSelected : null,
-                icon: const Icon(Icons.queue_music),
-              ),
-              _headerIconButton(
-                tooltip: _selectionAllFavored ? '取消收藏所选' : '收藏所选',
-                onPressed: enabled
-                    ? () => unawaited(_favoriteSelected())
-                    : null,
-                icon: Icon(
-                  _selectionAllFavored ? Icons.favorite : Icons.favorite_border,
-                ),
-              ),
-              _headerIconButton(
-                tooltip: '加入歌单',
-                onPressed: enabled
-                    ? () => unawaited(_addSelectedToPlaylist())
-                    : null,
-                icon: const Icon(Icons.playlist_add),
-              ),
-              _headerIconButton(
-                tooltip: '计算 ReplayGain',
-                onPressed: enabled
-                    ? () => unawaited(_computeReplayGainForSelected())
-                    : null,
-                icon: const Icon(Icons.graphic_eq),
-              ),
-              _headerIconButton(
-                tooltip: _selectionInPlaylist ? '从歌单移除' : '隐藏所选',
-                onPressed: enabled ? () => unawaited(_removeSelected()) : null,
-                icon: Icon(
-                  _selectionInPlaylist
-                      ? Icons.playlist_remove
-                      : Icons.delete_outline,
-                ),
-              ),
-            ],
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '已选 ${_selectedPaths.length} 首',
+            key: const ValueKey<String>('library-selection-count'),
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
           ),
         ),
       ),
@@ -299,12 +227,11 @@ extension _SelectionSection on _LibraryPageState {
     _showMessage(added > 0 ? '已加入 $added 首到队列' : '所选曲目都已在队列里');
   }
 
-  /// 多选批量计算 ReplayGain：逐首分析整曲响度，写进文件标签，再重扫让曲库跟上。
+  /// 计算 ReplayGain：逐首分析整曲响度，写进文件标签，再重扫让曲库跟上。
   ///
   /// 写标签是**改用户文件**，所以先弹确认；取消只在两首之间生效（单首解码中
   /// 断没有意义，中断反而会留下只算一半的结果）。
-  Future<void> _computeReplayGainForSelected() async {
-    final List<Track> tracks = _selectedTracks;
+  Future<void> _computeReplayGainFor(List<Track> tracks) async {
     if (tracks.isEmpty) {
       return;
     }
@@ -315,7 +242,11 @@ extension _SelectionSection on _LibraryPageState {
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: Text('计算 ${tracks.length} 首曲目的 ReplayGain？'),
+        title: Text(
+          tracks.length == 1
+              ? '计算这 1 首的 ReplayGain？'
+              : '计算 ${tracks.length} 首曲目的 ReplayGain？',
+        ),
         content: const Text(
           '会逐首分析整曲响度（EBU R128），并把结果写进音频文件的 '
           'REPLAYGAIN_TRACK_GAIN 标签：文件会被修改（只加这一个标签，'

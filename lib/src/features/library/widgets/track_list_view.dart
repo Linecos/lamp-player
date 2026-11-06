@@ -24,6 +24,9 @@ enum TrackContextAction {
 
   /// 用外部 MusicTag 编辑这首的标签
   openWithMusicTag,
+
+  /// 逐首分析整曲响度并把增益写回标签（会改文件）
+  computeReplayGain,
 }
 
 /// 列表行被选中：`toggle` 表示 Ctrl / 复选框（切换该行），`range` 表示 Shift。
@@ -57,6 +60,9 @@ class TrackListView extends StatefulWidget {
     this.selectionMode = false,
     this.selectedPaths = const <String>{},
     this.onSelect,
+    this.onSelectAll,
+    this.inPlaylist = false,
+    this.selectionAllFavored = false,
     this.onReorder,
     this.controller,
     this.flashPath,
@@ -99,6 +105,15 @@ class TrackListView extends StatefulWidget {
   /// 选择回调；为空时多选模式只展示复选框。
   final TrackSelectCallback? onSelect;
 
+  /// 表头复选框：全选 / 取消全选当前列表。为空时表头不出现复选框。
+  final VoidCallback? onSelectAll;
+
+  /// 当前列表就是某个歌单的内容：批量「移除」是从歌单移出，不是隐藏歌曲。
+  final bool inPlaylist;
+
+  /// 已勾选的曲目是否全部已收藏：批量右键菜单据此显示「收藏」还是「取消收藏」。
+  final bool selectionAllFavored;
+
   /// 提供后每行末尾出现拖拽把手，列表可上下拖动改顺序（歌单手动排序）。
   ///
   /// `to` 是「取走该行之后」的插入位置，直接拿它落库即可。
@@ -126,6 +141,7 @@ class _TrackListViewState extends State<TrackListView> {
   bool get selectionMode => widget.selectionMode;
   Set<String> get selectedPaths => widget.selectedPaths;
   TrackSelectCallback? get onSelect => widget.onSelect;
+  VoidCallback? get onSelectAll => widget.onSelectAll;
   void Function(int from, int to)? get onReorder => widget.onReorder;
 
   @override
@@ -166,6 +182,15 @@ class _TrackListViewState extends State<TrackListView> {
           showFavorite: onToggleFavorite != null,
           showSelection: selectionMode,
           showHandle: onReorder != null,
+          // 复选框的「全选」只有多选模式、且页面给了回调才出现
+          onSelectAll: selectionMode ? onSelectAll : null,
+          allSelected:
+              selectionMode &&
+              tracks.isNotEmpty &&
+              tracks.every((Track track) => selectedPaths.contains(track.path)),
+          someSelected:
+              selectionMode &&
+              tracks.any((Track track) => selectedPaths.contains(track.path)),
         ),
         Expanded(
           child: onReorder == null
@@ -236,6 +261,9 @@ class _TrackListViewState extends State<TrackListView> {
           ? null
           : (TrackContextAction action) => onContextAction!(track, action),
       dragIndex: onReorder == null ? null : index,
+      selectedCount: selectedPaths.length,
+      inPlaylist: widget.inPlaylist,
+      selectionAllFavored: widget.selectionAllFavored,
     );
   }
 }
@@ -248,6 +276,9 @@ class _TrackHeader extends StatelessWidget {
     required this.showFavorite,
     required this.showSelection,
     this.showHandle = false,
+    this.onSelectAll,
+    this.allSelected = false,
+    this.someSelected = false,
   });
 
   final bool showArtist;
@@ -256,6 +287,11 @@ class _TrackHeader extends StatelessWidget {
   final bool showFavorite;
   final bool showSelection;
   final bool showHandle;
+
+  /// 全选 / 取消全选；为空时不画表头复选框
+  final VoidCallback? onSelectAll;
+  final bool allSelected;
+  final bool someSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -274,7 +310,20 @@ class _TrackHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          if (showSelection) const SizedBox(width: 40),
+          if (showSelection)
+            SizedBox(
+              width: 40,
+              // 全选放在表头的复选框里：工具条去掉之后，它是唯一「一键全选」的入口
+              child: onSelectAll == null
+                  ? null
+                  : Checkbox(
+                      key: const ValueKey<String>('track-select-all'),
+                      value: allSelected ? true : (someSelected ? null : false),
+                      tristate: someSelected && !allSelected,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onChanged: (_) => onSelectAll!(),
+                    ),
+            ),
           // 行里的序号是居中的，列头也要居中，否则差半个字宽
           SizedBox(
             width: 32,
@@ -322,6 +371,9 @@ class _TrackRow extends StatelessWidget {
     this.onToggleFavorite,
     this.onContextAction,
     this.dragIndex,
+    this.selectedCount = 0,
+    this.inPlaylist = false,
+    this.selectionAllFavored = false,
   });
 
   final Track track;
@@ -344,6 +396,15 @@ class _TrackRow extends StatelessWidget {
   /// 非空表示这一行可拖拽排序，值是该行在当前列表里的下标
   final int? dragIndex;
 
+  /// 当前已勾选多少首：右键落在勾选行上时，菜单要对整批生效并标出数量
+  final int selectedCount;
+
+  /// 当前列表是歌单内容：批量移除的措辞要从「隐藏」换成「从歌单移除」
+  final bool inPlaylist;
+
+  /// 已勾选的曲目是否全部已收藏
+  final bool selectionAllFavored;
+
   /// 多选模式下普通点击切换该行；Ctrl 切换、Shift 范围选择。
   ///
   /// 不在多选模式时按 Ctrl / Shift 点击也能直接进入多选。
@@ -364,50 +425,82 @@ class _TrackRow extends StatelessWidget {
     if (onContextAction == null) {
       return;
     }
+    // 右键落在勾选行上、且勾了不止一首：这一菜单对整批生效。
+    // 「在资源管理器显示 / 复制路径 / MusicTag」是单文件操作，批量时不出。
+    final bool batch = selectionMode && selected && selectedCount > 1;
+    final String count = '$selectedCount 首';
     final RenderBox overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final TrackContextAction? selected = await showMenu<TrackContextAction>(
+    final TrackContextAction? chosen = await showMenu<TrackContextAction>(
       context: context,
       position: RelativeRect.fromRect(
         Rect.fromPoints(globalPosition, globalPosition),
         Offset.zero & overlay.size,
       ),
       items: <PopupMenuEntry<TrackContextAction>>[
-        _menuItem(TrackContextAction.play, Icons.play_arrow, '播放'),
-        _menuItem(TrackContextAction.playNext, Icons.playlist_play, '下一首播放'),
-        _menuItem(TrackContextAction.addToQueue, Icons.queue_music, '添加到队列'),
+        _menuItem(
+          TrackContextAction.play,
+          Icons.play_arrow,
+          batch ? '播放所选 $count' : '播放',
+        ),
+        _menuItem(
+          TrackContextAction.playNext,
+          Icons.playlist_play,
+          batch ? '下一首播放所选 $count' : '下一首播放',
+        ),
+        _menuItem(
+          TrackContextAction.addToQueue,
+          Icons.queue_music,
+          batch ? '添加到队列（$count）' : '添加到队列',
+        ),
+        const PopupMenuDivider(),
         _menuItem(
           TrackContextAction.toggleFavorite,
-          favored ? Icons.favorite : Icons.favorite_border,
-          favored ? '取消收藏' : '收藏',
+          // 批量时以「是否全部已收藏」决定图标与措辞
+          (batch ? selectionAllFavored : favored)
+              ? Icons.favorite
+              : Icons.favorite_border,
+          batch
+              ? (selectionAllFavored ? '取消收藏所选 $count' : '收藏所选 $count')
+              : (favored ? '取消收藏' : '收藏'),
         ),
         _menuItem(
           TrackContextAction.addToPlaylist,
           Icons.playlist_add,
-          '加入歌单…',
+          batch ? '加入歌单（$count）…' : '加入歌单…',
+        ),
+        const PopupMenuDivider(),
+        _menuItem(
+          TrackContextAction.computeReplayGain,
+          Icons.graphic_eq,
+          batch ? '计算 ReplayGain（$count）…' : '计算 ReplayGain…',
         ),
         _menuItem(
           TrackContextAction.removeFromLibrary,
-          Icons.visibility_off_outlined,
-          '隐藏歌曲',
+          batch && inPlaylist
+              ? Icons.playlist_remove
+              : Icons.visibility_off_outlined,
+          batch ? (inPlaylist ? '从歌单移除 $count' : '隐藏所选 $count') : '隐藏歌曲',
         ),
-        const PopupMenuDivider(),
-        _menuItem(
-          TrackContextAction.revealInExplorer,
-          Icons.folder_open,
-          '在资源管理器中显示',
-        ),
-        _menuItem(TrackContextAction.copyPath, Icons.copy, '复制文件路径'),
-        const PopupMenuDivider(),
-        _menuItem(
-          TrackContextAction.openWithMusicTag,
-          Icons.sell_outlined,
-          '用 MusicTag 打开',
-        ),
+        if (!batch) ...<PopupMenuEntry<TrackContextAction>>[
+          const PopupMenuDivider(),
+          _menuItem(
+            TrackContextAction.revealInExplorer,
+            Icons.folder_open,
+            '在资源管理器中显示',
+          ),
+          _menuItem(TrackContextAction.copyPath, Icons.copy, '复制文件路径'),
+          const PopupMenuDivider(),
+          _menuItem(
+            TrackContextAction.openWithMusicTag,
+            Icons.sell_outlined,
+            '用 MusicTag 打开',
+          ),
+        ],
       ],
     );
-    if (selected != null) {
-      onContextAction?.call(selected);
+    if (chosen != null) {
+      onContextAction?.call(chosen);
     }
   }
 
@@ -422,7 +515,11 @@ class _TrackRow extends StatelessWidget {
         children: <Widget>[
           Icon(icon, size: 18),
           const SizedBox(width: 10),
-          Text(label),
+          // 批量措辞会长一截（「下一首播放所选 12 首」），菜单宽度有限，
+          // 给文字留弹性，别让它把 Row 撑出去
+          Flexible(
+            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
         ],
       ),
     );
