@@ -119,10 +119,18 @@ extension _AlbumsSection on _LibraryPageState {
           },
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(
+            left: _detailHeaderInset,
+            top: 8,
+            bottom: 8,
+          ),
           child: Row(
             children: <Widget>[
-              AlbumCover(path: group.coverPath, size: 128, radius: 32),
+              AlbumCover(
+                path: group.coverPath,
+                size: detailCoverSize,
+                radius: 32,
+              ),
               const SizedBox(width: 24),
               Expanded(
                 child: Column(
@@ -142,14 +150,6 @@ extension _AlbumsSection on _LibraryPageState {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if (_selectionMode)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _buildSelectionBar(context),
-                        ),
-                      ),
                     const SizedBox(height: 16),
                     FilledButton.tonalIcon(
                       style: _headerButtonStyle(),
@@ -176,6 +176,8 @@ extension _AlbumsSection on _LibraryPageState {
             onContextAction: (Track track, TrackContextAction action) =>
                 _onTrackContext(group.tracks, track, action),
             selectionMode: _selectionMode,
+            onSelectAll: _selectionMode ? _toggleSelectAll : null,
+            selectionAllFavored: _selectionAllFavored,
             selectedPaths: _selectedPaths,
             onSelect:
                 (Track track, {required bool toggle, required bool range}) =>

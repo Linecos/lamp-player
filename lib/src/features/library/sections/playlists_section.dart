@@ -598,24 +598,28 @@ extension _PlaylistsSection on _LibraryPageState {
           },
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(
+            left: _detailHeaderInset,
+            top: 8,
+            bottom: 8,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
               if (coverPath != null && coverPath.isNotEmpty)
-                AlbumCover(path: coverPath, size: 128, radius: 32)
+                AlbumCover(path: coverPath, size: detailCoverSize, radius: 32)
               else
                 Container(
-                  width: 128,
-                  height: 128,
+                  width: detailCoverSize,
+                  height: detailCoverSize,
                   decoration: BoxDecoration(
                     color: scheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(32),
                   ),
                   child: Icon(
                     Icons.queue_music,
-                    size: 48,
+                    size: detailCoverSize * 0.36,
                     color: scheme.onSecondaryContainer,
                   ),
                 ),
@@ -638,14 +642,6 @@ extension _PlaylistsSection on _LibraryPageState {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if (_selectionMode)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _buildSelectionBar(context),
-                        ),
-                      ),
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 8,
@@ -738,6 +734,9 @@ extension _PlaylistsSection on _LibraryPageState {
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_playlistTracks, track, action),
       selectionMode: _selectionMode,
+      onSelectAll: _selectionMode ? _toggleSelectAll : null,
+      selectionAllFavored: _selectionAllFavored,
+      inPlaylist: _selectionInPlaylist,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),

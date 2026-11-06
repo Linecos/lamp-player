@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
@@ -12,7 +13,18 @@ Future<void> _enterSelectionAndSelectAll(WidgetTester tester) async {
     find.byKey(const ValueKey<String>('library-selection-toggle')),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.text('全选'));
+  await tester.tap(find.byKey(const ValueKey<String>('track-select-all')));
+  await tester.pumpAndSettle();
+}
+
+/// 在已勾选的行上点右键，菜单对整批生效
+Future<void> _rightClickRow(WidgetTester tester, String title) async {
+  final TestGesture gesture = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+    buttons: kSecondaryMouseButton,
+  );
+  await gesture.down(tester.getCenter(find.text(title)));
+  await gesture.up();
   await tester.pumpAndSettle();
 }
 
@@ -29,9 +41,9 @@ void main() {
     );
 
     await _enterSelectionAndSelectAll(tester);
-    expect(find.byTooltip('计算 ReplayGain'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('计算 ReplayGain'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('计算 ReplayGain（2 首）…'));
     await tester.pumpAndSettle();
     expect(find.textContaining('计算 2 首曲目的 ReplayGain'), findsOneWidget);
 
@@ -53,7 +65,8 @@ void main() {
     );
 
     await _enterSelectionAndSelectAll(tester);
-    await tester.tap(find.byTooltip('计算 ReplayGain'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('计算 ReplayGain（2 首）…'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
@@ -71,7 +84,8 @@ void main() {
     repository.writeGainError = StateError('文件只读');
 
     await _enterSelectionAndSelectAll(tester);
-    await tester.tap(find.byTooltip('计算 ReplayGain'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('计算 ReplayGain（2 首）…'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('开始计算'));
     await tester.pumpAndSettle();
@@ -80,18 +94,26 @@ void main() {
     expect(find.textContaining('2 首失败'), findsOneWidget);
   });
 
-  testWidgets('没选曲目时按钮不可点', (WidgetTester tester) async {
-    await pumpLibrary(tester, tracks: twoTracks());
+  testWidgets('只勾一首时右键算单首，不进入批量确认', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..analyzedGain = -6.5;
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('library-selection-toggle')),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
 
-    final IconButton button = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.graphic_eq),
-    );
-    expect(button.onPressed, isNull);
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('计算 ReplayGain…'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('计算这 1 首的 ReplayGain'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('增益未知时起播不中途改音量，算完写进缓存，下次起播带上', (WidgetTester tester) async {
