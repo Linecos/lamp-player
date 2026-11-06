@@ -780,7 +780,32 @@ void main() {
     }
   });
 
-  testWidgets('整片歌词套 dstIn 遮罩做边界淡出', (WidgetTester tester) async {
+  test('边界渐隐曲线：顶部死区 0、中间 1、底部淡出', () {
+    // 600 高的视口、顶部死区 45 + 淡入段到 90、底部丝带 78
+    final List<double> stops = lyricFadeStops(
+      height: 600,
+      top: 90,
+      band: 78,
+      deadZone: 45,
+    );
+    expect(
+      lyricRowOpacity(top: 0, bottom: 40, height: 600, stops: stops),
+      0,
+      reason: '死区里的行整行不可见',
+    );
+    expect(
+      lyricRowOpacity(top: 260, bottom: 300, height: 600, stops: stops),
+      1,
+      reason: '中间区域原样',
+    );
+    expect(
+      lyricRowOpacity(top: 560, bottom: 600, height: 600, stops: stops),
+      lessThan(0.3),
+      reason: '底部边界要淡到几乎看不见',
+    );
+  });
+
+  testWidgets('边界淡出按行给 alpha，不再整片套 dstIn 遮罩', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -789,25 +814,27 @@ void main() {
     await _pump(
       tester,
       lines: <LyricLine>[
-        _line(start: 0, end: 5000, text: '第一行'),
-        _line(start: 5000, end: 9000, text: '第二行'),
+        for (int i = 0; i < 24; i += 1)
+          _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行的歌词'),
       ],
       position: position,
       playing: playing,
       band: 78,
     );
 
-    final Finder maskFinder = find.byKey(
-      const ValueKey<String>('lyrics-edge-fade'),
-    );
-    final ShaderMask mask = tester.widget<ShaderMask>(maskFinder);
-    expect(mask.blendMode, BlendMode.dstIn);
-    final Rect rect = tester.getRect(maskFinder);
-    expect(rect.height, greaterThan(0));
+    // 遮罩是一张全宽的离屏图层：滚动和转场时每帧都要重新分配，这才是要拆掉的东西
+    expect(find.byType(ShaderMask), findsNothing);
     expect(
-      mask.shaderCallback(Offset.zero & rect.size),
-      isNotNull,
-      reason: '遮罩要按歌词区尺寸算出渐变',
+      find.byKey(const ValueKey<String>('lyrics-edge-fade')),
+      findsOneWidget,
+      reason: '视口本身还在，只是不再当遮罩用',
+    );
+    // 底部超出一屏，最后几行必须拿到小于 1 的 alpha（否则就是没生效）
+    final Iterable<Text> texts = tester.widgetList<Text>(find.byType(Text));
+    expect(
+      texts.any((Text text) => (text.style?.color?.a ?? 1) < 0.2),
+      isTrue,
+      reason: '底部的行要淡到几乎看不见',
     );
   });
 
