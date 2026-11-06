@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// 「正在播放」页的转场：从下方 20% 处滑上来 + 渐显（300ms，fastOutSlowIn），
+/// 「正在播放」页的转场：从下方 20% 处滑上来（300ms，fastOutSlowIn），
 /// 返回时反向；封面另有 Hero 飞行（tag 见 [coverHeroTag]）。两边一起才有
 /// 「详情页像抽屉一样弹出、封面长大」的效果。
 ///
-/// 页面用渐显而不是整页位移很重要：Hero 的飞行层画在 Navigator 最上层，
-/// 页面越透明，飞行的封面就越像是「自己长大了」，而不是贴着一张滑进来的图。
+/// **不做整页渐显**（曾经做过）：那会让 Impeller 每帧把整页合成进一张离屏
+/// 图层，release 下单张可达几十 MB，快速开关能把内存顶到 GB 级。详见文件内
+/// `transitionsBuilder` 的注释。
 class NowPlayingPageRoute extends PageRouteBuilder<void> {
   NowPlayingPageRoute({required WidgetBuilder builder})
     : super(
@@ -26,24 +27,24 @@ class NowPlayingPageRoute extends PageRouteBuilder<void> {
               final Animation<double> curved = animation.drive(
                 CurveTween(curve: Curves.fastOutSlowIn),
               );
-              // 淡入稍微早收：透明度在前 75% 就走完，之后只剩位移。
+              // 只做位移，**不包 FadeTransition**。
               //
-              // 只要这层 opacity 小于 1，Impeller 就得把整页合成进一张离屏
-              // 图层（页面里有全屏流光 + 歌词 + 频谱），一帧一张纹理。压到
-              // 0.75 是保守值：反向播放时同一条曲线也管淡出，压得太狠会让
-              // 「收回时整页还亮着、最后才骤暗」。真要彻底消掉这些图层，
-              // 只能连淡入一起去掉——那是视觉取舍，等实测数据再定。
-              final Animation<double> fade = animation.drive(
-                CurveTween(
-                  curve: const Interval(0, 0.75, curve: Curves.easeOut),
-                ),
-              );
+              // 只要整页 opacity 小于 1，Impeller 就得把页面（全屏流光 + 歌词
+              // + 频谱 + 大封面）合成进一张离屏图层，一帧一张；release 下这张
+              // 图层还带 MSAA / 高精度格式，单张能到几十 MB，回收又滞后于分配。
+              // 快速开关几轮就能在任务管理器里看到 GB 级的尖刺。
+              // `SlideTransition` 只改矩阵，不分配任何离屏目标。
+              //
+              // 视觉代价：页面滑上来时不再有透明度渐变。封面 Hero 的飞行层画在
+              // Navigator 最上层、不受影响，所以「封面长大、页面从下面顶出来」
+              // 的观感还在。要恢复淡入，把下面这行换回
+              // `FadeTransition(opacity: curved, child: child)` 即可。
               return SlideTransition(
                 position: Tween<Offset>(
                   begin: const Offset(0, 0.2),
                   end: Offset.zero,
                 ).animate(curved),
-                child: FadeTransition(opacity: fade, child: child),
+                child: child,
               );
             },
       );

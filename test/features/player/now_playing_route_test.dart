@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/now_playing_route.dart';
 
 void main() {
-  testWidgets('打开时从下方滑入并渐显，结束后归位', (WidgetTester tester) async {
+  testWidgets('打开时从下方滑入，结束后归位', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: const Scaffold(body: SizedBox.expand()),
@@ -29,11 +29,12 @@ void main() {
 
     final Finder page = find.text('播放页');
     expect(page, findsOneWidget);
-    // 渐显：动画头几帧页面还是半透明
-    final FadeTransition fade = tester.widget<FadeTransition>(
-      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
+    // 不做整页渐显：opacity 动画会给 Impeller 每帧一张全屏离屏图层
+    expect(
+      find.ancestor(of: page, matching: find.byType(FadeTransition)),
+      findsNothing,
+      reason: '转场只改位移矩阵，不分配离屏图层',
     );
-    expect(fade.opacity.value, inExclusiveRange(0, 1));
     // 从下方滑入：还差一截没到顶
     final SlideTransition slide = tester.widget<SlideTransition>(
       find.ancestor(of: page, matching: find.byType(SlideTransition)).last,
@@ -42,13 +43,9 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(page), Offset.zero);
-    final FadeTransition settled = tester.widget<FadeTransition>(
-      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
-    );
-    expect(settled.opacity.value, 1);
   });
 
-  testWidgets('返回时反向播放：页面退回下方并淡出', (WidgetTester tester) async {
+  testWidgets('返回时反向播放：页面退回下方', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -82,10 +79,6 @@ void main() {
       find.ancestor(of: page, matching: find.byType(SlideTransition)).last,
     );
     expect(slide.position.value.dy, greaterThan(0), reason: '返回时往下滑');
-    final FadeTransition fade = tester.widget<FadeTransition>(
-      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
-    );
-    expect(fade.opacity.value, lessThan(1), reason: '返回时同时淡出');
 
     await tester.pumpAndSettle();
     expect(page, findsNothing);
