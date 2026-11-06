@@ -402,6 +402,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     }
     final bool moving =
         status == AnimationStatus.forward || status == AnimationStatus.reverse;
+    // 只是给 [_requestPop] 用的普通字段：**不能 setState**。
+    // 转场里重建整页会把这一帧拖长，后面几帧被丢掉，而动画是按 vsync 时间
+    // 推进的——观感就是「滑到一半直接跳到终点」。
+    _routeMoving = moving;
     if (moving) {
       UiClock.pause(_transitionPause);
       _beginRssSampling();
@@ -412,6 +416,20 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       _endRssSampling();
       printMemory('转场结束');
     }
+  }
+
+  /// 转场是否正在进行（forward / reverse 期间）。
+  bool _routeMoving = false;
+
+  /// 转场没走完时不接受新的收起请求。
+  ///
+  /// 半路掉头会让整页动画在两个方向之间折返：观感上「顿一下」，而且掉头那一帧
+  /// 整页重新光栅化，帧序列更乱。连点时宁可忽略这一次，等这一趟走完再按。
+  void _requestPop() {
+    if (_routeMoving) {
+      return;
+    }
+    Navigator.of(context).maybePop();
   }
 
   /// 停表来源；页面销毁时必须撤销，否则整个应用的装饰动画再也不走
@@ -692,8 +710,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         ...shortcutBindings(handlers, bindings: widget.shortcuts),
-        const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.of(context).maybePop(),
+        const SingleActivator(LogicalKeyboardKey.escape): () => _requestPop(),
       },
       child: Focus(
         autofocus: true,
@@ -800,7 +817,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               // 热区只覆盖箭头周围这一圈。
               IconButton(
                 key: const ValueKey<String>('now-playing-collapse'),
-                onPressed: () => Navigator.of(context).maybePop(),
+                onPressed: () => _requestPop(),
                 icon: const Icon(Icons.keyboard_arrow_down, size: 22),
                 tooltip: '收起',
                 padding: EdgeInsets.zero,
@@ -1007,9 +1024,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             tooltip: artists.length > 1 ? '选择要查看的艺术家' : '查看艺术家',
             onTap: openArtist == null
                 ? null
-                : () => unawaited(
-                    _openArtist(context, track, artists, openArtist),
-                  ),
+                : () {
+                    // 这条路径会先 pop 再切分区，等于把当前动画硬掰断（同 [_requestPop]）
+                    if (_routeMoving) {
+                      return;
+                    }
+                    unawaited(_openArtist(context, track, artists, openArtist));
+                  },
           ),
         ),
         if (album.isNotEmpty) ...<Widget>[
@@ -1020,7 +1041,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               text: album,
               style: style,
               tooltip: '查看专辑',
-              onTap: openAlbum == null ? null : () => openAlbum(track),
+              onTap: openAlbum == null
+                  ? null
+                  : () {
+                      if (_routeMoving) {
+                        return;
+                      }
+                      openAlbum(track);
+                    },
             ),
           ),
         ],
