@@ -1209,6 +1209,40 @@ void main() {
     expect(UiClock.isPaused, isFalse);
   });
 
+  testWidgets('转场还没走完时按 Esc 不会打断动画', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 600,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final Finder pageHeader = find.byKey(
+      const ValueKey<String>('now-playing-header'),
+    );
+    await tester.tap(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // 打开动画走到一半就按 Esc：这一次要被忽略，否则动画半路掉头
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(pageHeader, findsOneWidget, reason: '转场没走完，收起请求先攒着不办');
+
+    await tester.pumpAndSettle();
+    expect(pageHeader, findsOneWidget, reason: '动画照常走完，页面仍然打开');
+
+    // 动画结束之后再按才有反应
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(pageHeader, findsNothing);
+  });
+
   testWidgets('睡眠定时在关掉播放页之后仍然到点暂停', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

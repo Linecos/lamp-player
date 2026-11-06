@@ -29,12 +29,12 @@ void main() {
 
     final Finder page = find.text('播放页');
     expect(page, findsOneWidget);
-    // 不做整页渐显：opacity 动画会给 Impeller 每帧一张全屏离屏图层
-    expect(
-      find.ancestor(of: page, matching: find.byType(FadeTransition)),
-      findsNothing,
-      reason: '转场只改位移矩阵，不分配离屏图层',
+    // 整页渐显要在：Hero 飞行层画在 Navigator 最上层，页面越透明，封面就越像
+    // 「自己长大了」，而不是贴着一张滑进来的图（去掉淡入会把观感整个改掉）
+    final FadeTransition fade = tester.widget<FadeTransition>(
+      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
     );
+    expect(fade.opacity.value, inExclusiveRange(0, 1), reason: '转场中页面是半透明的');
     // 从下方滑入：还差一截没到顶
     final SlideTransition slide = tester.widget<SlideTransition>(
       find.ancestor(of: page, matching: find.byType(SlideTransition)).last,
@@ -43,9 +43,13 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(page), Offset.zero);
+    final FadeTransition settled = tester.widget<FadeTransition>(
+      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
+    );
+    expect(settled.opacity.value, 1, reason: '落定后必须完全不透明');
   });
 
-  testWidgets('返回时反向播放：页面退回下方', (WidgetTester tester) async {
+  testWidgets('返回时反向播放：页面退回下方并淡出', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -79,6 +83,10 @@ void main() {
       find.ancestor(of: page, matching: find.byType(SlideTransition)).last,
     );
     expect(slide.position.value.dy, greaterThan(0), reason: '返回时往下滑');
+    final FadeTransition fade = tester.widget<FadeTransition>(
+      find.ancestor(of: page, matching: find.byType(FadeTransition)).last,
+    );
+    expect(fade.opacity.value, lessThan(1), reason: '返回时同时淡出');
 
     await tester.pumpAndSettle();
     expect(page, findsNothing);
