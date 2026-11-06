@@ -112,6 +112,58 @@ List<double> lyricFadeStops({
   ];
 }
 
+/// 单行在视口里的不透明度：把行区间在渐隐曲线上取平均。
+///
+/// 以前整片歌词套一张 `ShaderMask`（`BlendMode.dstIn`）做上下淡出——那是**一张
+/// 全宽离屏图层**，Impeller 每帧都要重新分配一次，转场期间更是和帧数一起叠起来。
+/// 现在改成按行把 alpha 乘进文字颜色，一个离屏图层都不产生。
+///
+/// 取「区间平均」而不是行中心点：一行跨在渐隐带里时，整行一起淡比取中点更接近
+/// 原来连续渐变的观感（行高 40~60px，渐隐带 30~110px）。
+@visibleForTesting
+double lyricRowOpacity({
+  required double top,
+  required double bottom,
+  required double height,
+  required List<double> stops,
+}) {
+  if (height <= 0 || bottom <= top) {
+    return 1;
+  }
+  // 分段线性，取 8 个采样点求平均：一行最多跨两三个 stop，误差看不出来
+  const int samples = 8;
+  double sum = 0;
+  for (int i = 0; i < samples; i += 1) {
+    final double y = top + (bottom - top) * (i + 0.5) / samples;
+    sum += _fadeAlpha((y / height).clamp(0.0, 1.0), stops);
+  }
+  return sum / samples;
+}
+
+/// 渐隐曲线在 [t]（0 = 视口顶、1 = 视口底）处的 alpha。
+///
+/// [stops] 与 [_fadeColors] 一一对应，中间线性插值——和原来 `LinearGradient`
+/// 实际画出来的东西一致。
+double _fadeAlpha(double t, List<double> stops) {
+  double previousStop = stops.first;
+  double previousAlpha = _fadeColors.first.a;
+  for (int i = 1; i < stops.length && i < _fadeColors.length; i += 1) {
+    final double stop = stops[i];
+    final double alpha = _fadeColors[i].a;
+    if (t <= stop) {
+      final double span = stop - previousStop;
+      if (span <= 0) {
+        return alpha;
+      }
+      return previousAlpha +
+          (alpha - previousAlpha) * (t - previousStop) / span;
+    }
+    previousStop = stop;
+    previousAlpha = alpha;
+  }
+  return _fadeColors.last.a;
+}
+
 /// 行框顶边到字迹顶边的距离：9px 内边距 + 字体自身的行距（实测 15~17px）。
 ///
 /// 淡入段必须从这里才开始算。从行框顶边起算的话，等画到字的时候淡入段已经
@@ -205,19 +257,6 @@ class _LyricsViewState extends State<LyricsView>
   /// 是否正在听 [UiClock]（播放中且有歌词才需要）
   bool _clockOn = false;
 
-  /// 上下淡出的遮罩（[ShaderMask] 的 dstIn 渐变）：按歌词区尺寸缓存。
-  ///
-  /// `shaderCallback` 每次绘制都会调一次，逐字染色 30fps 重绘时每帧新建一个
-  /// 着色器，正是流光背景踩过的坑（Skia 缓存永远命中不了）。
-  Rect? _maskRect;
-  Shader? _maskShader;
-
-  /// 缓存对应的丝带高度：切到没频谱的界面时要重建
-  double _maskBand = -1;
-
-  /// 缓存对应的顶部死区高度（随滚动每帧都变，静止时命中缓存）
-  double _maskDeadZone = -1;
-
   late List<GlobalKey> _keys;
 
   /// 每行外层（[Transform]）的 key。不能用正文那个：正文在 Transform 里面，
@@ -246,14 +285,12 @@ class _LyricsViewState extends State<LyricsView>
   /// 正在自己 jumpTo：这期间滚动通知不是用户动作
   bool _driving = false;
 
-  /// 滚动偏移的副本。
+  /// 每行的边界不透明度（上下渐隐）。
   ///
-  /// 顶部死区要按「第一条完整行落在哪」来算，所以跟着滚动变。而 [ShaderMask]
-  /// 是滚动视图的**祖先**：滚动时 Flutter 只把 viewport 标脏、重绘它自己，
-  /// 祖先的 `shaderCallback` 根本不会再被调用——直接依赖滚动位置的话，遮罩会
-  /// 一直用第一帧算出的参数（顶部那排残影就是这么漏出来的）。所以这里把偏移
-  /// 单独提出来，让包遮罩的那一层随它重建，只重建这一层，歌词列本身不动。
-  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
+  /// 一行一个通知器：滚动时只有靠近上下边界的那几行会变，其余行不重建。以前
+  /// 这里是整片歌词外面套一张 `ShaderMask`——那层是全宽的离屏图层，滚动和
+  /// 转场时每帧都要重新分配（Impeller 没有光栅缓存）。
+  final List<ValueNotifier<double>> _rowOpacity = <ValueNotifier<double>>[];
 
   Timer? _scrollSettle;
 
@@ -279,22 +316,26 @@ class _LyricsViewState extends State<LyricsView>
     widget.playing.addListener(_onPlaying);
     _scroll.addListener(_onScrollOffset);
     _syncClock();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _scrollToActive(animate: false),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToActive(animate: false);
+      // 行位置要等布局完才量得到，渐隐只能在这里算第一次
+      _refreshRowOpacity();
+    });
   }
 
-  /// 滚动位置变了：只通知遮罩那一层重建
+  /// 滚动位置变了：重算上下边界的渐隐强度。
+  ///
+  /// 只刷可见的那一段（视口里二十来行），滚停 250ms 后再全量对一次。每行的
+  /// alpha 只写到「变化超过 0.01」的通知器里，滚动时真正重绘的通常就两三行。
   void _onScrollOffset() {
     if (!_scroll.hasClients) {
       return;
     }
-    _scrollOffset.value = _scroll.offset;
-    // 每个滚动事件都往后推：停下来 250ms 后再刷一次，让遮罩按最终位置重算死区
+    _refreshRowOpacity(visibleOnly: true);
     _scrollSettle?.cancel();
     _scrollSettle = Timer(const Duration(milliseconds: 250), () {
       if (mounted) {
-        setState(() {});
+        _refreshRowOpacity();
       }
     });
   }
@@ -313,9 +354,10 @@ class _LyricsViewState extends State<LyricsView>
       _active = -1;
       _smooth.value = _base;
       _active = _indexAt(_base);
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _scrollToActive(animate: false),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToActive(animate: false);
+        _refreshRowOpacity();
+      });
     }
     if (oldWidget.position != widget.position) {
       oldWidget.position.removeListener(_onPosition);
@@ -340,10 +382,13 @@ class _LyricsViewState extends State<LyricsView>
     _scroll.removeListener(_onScrollOffset);
     _scrollSettle?.cancel();
     _scroll.dispose();
-    _scrollOffset.dispose();
     _smooth.dispose();
     _jump.dispose();
     _translation.dispose();
+    for (final ValueNotifier<double> notifier in _rowOpacity) {
+      notifier.dispose();
+    }
+    _rowOpacity.clear();
     super.dispose();
   }
 
@@ -391,6 +436,8 @@ class _LyricsViewState extends State<LyricsView>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _followTranslation();
+        // 译文折叠会改行高，行区间跟着变
+        _refreshRowOpacity();
       }
     });
   }
@@ -612,10 +659,14 @@ class _LyricsViewState extends State<LyricsView>
     );
     if (!animate) {
       position.jumpTo(clamped);
+      // 滚动监听读到的是这一帧之前的位置，滚完再对一次
+      _scheduleOpacityRefresh();
       return;
     }
     unawaited(
-      position.animateTo(clamped, duration: _jumpDuration, curve: _jumpCurve),
+      position
+          .animateTo(clamped, duration: _jumpDuration, curve: _jumpCurve)
+          .whenComplete(_scheduleOpacityRefresh),
     );
   }
 
@@ -698,15 +749,12 @@ class _LyricsViewState extends State<LyricsView>
               _lyricBlockWidth,
               math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
             );
-            // 上下边界用 dstIn 遮罩真去改 alpha：文字淡出、背景一点不动。底部一段
-            // 要盖过频谱丝带（[LyricsView.edgeFadeBand]）再留过渡，否则滚到下半屏的
-            // 歌词会直接糊在柱子上。
-            //
-            // 外面套一层监听滚动偏移的 builder，见 [_scrollOffset] 的说明：遮罩是
-            // 祖先，不重建就永远用第一帧的参数。
-            return ValueListenableBuilder<double>(
-              valueListenable: _scrollOffset,
-              // 歌词列本身不重建，只有遮罩这一层
+            // 上下边界改成「按行给 alpha」（见 [_refreshRowOpacity]）：以前这里是
+            // 整片歌词套一张 `ShaderMask`，那层是全宽的离屏图层，Impeller 每帧
+            // 都要重新分配一次。`lyrics-edge-fade` 这个 key 留着——测试和调试
+            // 按它取歌词视口的矩形。
+            return KeyedSubtree(
+              key: const ValueKey<String>('lyrics-edge-fade'),
               child: ScrollConfiguration(
                 // 歌词区不要滚动条：桌面默认会在滚动时冒出一条竖条，
                 // 压着封面和文字的边缘很难看
@@ -747,6 +795,7 @@ class _LyricsViewState extends State<LyricsView>
                                 alignment: widget.alignment,
                                 translation: _translation,
                                 blur: !_userScrolling,
+                                edgeOpacity: _edgeOpacityAt(i),
                                 onSeek: widget.onSeek,
                               ),
                           ],
@@ -756,15 +805,6 @@ class _LyricsViewState extends State<LyricsView>
                   ),
                 ),
               ),
-              builder:
-                  (BuildContext context, double offset, Widget? lyricColumn) {
-                    return ShaderMask(
-                      key: const ValueKey<String>('lyrics-edge-fade'),
-                      blendMode: BlendMode.dstIn,
-                      shaderCallback: _fadeShader,
-                      child: lyricColumn,
-                    );
-                  },
             );
           },
         ),
@@ -772,35 +812,80 @@ class _LyricsViewState extends State<LyricsView>
     );
   }
 
-  /// 上下淡出的遮罩：同一个尺寸只建一次着色器
-  Shader _fadeShader(Rect rect) {
-    // 死区之上整行不可见；再让出「行框顶边到字迹顶边」那段空白，淡入从字迹开始
-    final double deadZone = _topBoundary(rect.height) + _fadeTopOffset;
-    final double top = math.min(deadZone + _fadeTopRamp, rect.height * 0.5);
-    final Shader? cached = _maskShader;
-    if (cached != null &&
-        _maskRect == rect &&
-        _maskBand == widget.edgeFadeBand &&
-        _maskDeadZone == deadZone) {
-      return cached;
+  /// 取第 [i] 行的边界不透明度通知器（按需补齐，行数变化时跟着变）
+  ValueListenable<double> _edgeOpacityAt(int index) {
+    while (_rowOpacity.length <= index) {
+      _rowOpacity.add(ValueNotifier<double>(1));
     }
-    _maskRect = rect;
-    _maskBand = widget.edgeFadeBand;
-    _maskDeadZone = deadZone;
-    final Shader shader = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      // 只有 alpha 起作用（dstIn）：透明处把歌词抹掉，白色处原样保留。
-      colors: _fadeColors,
-      stops: lyricFadeStops(
-        height: rect.height,
-        top: top,
-        band: widget.edgeFadeBand,
-        deadZone: deadZone,
-      ),
-    ).createShader(rect);
-    return _maskShader = shader;
+    return _rowOpacity[index];
   }
+
+  /// 重算每行的上下渐隐强度。
+  ///
+  /// 行位置只能等布局完成才读得到（[RenderBox]），所以这个方法都挂在「布局之后 /
+  /// 滚动之后」：滚动时只刷可见的那一小段，静止时再全量对一次。
+  /// 只把**变化超过 0.01** 的行写进通知器——滚动时通常就边界附近那几行会重绘。
+  void _refreshRowOpacity({bool visibleOnly = false}) {
+    final int count = widget.lines.length;
+    if (count == 0 || !mounted) {
+      return;
+    }
+    final RenderObject? self = context.findRenderObject();
+    if (self is! RenderBox || !self.hasSize) {
+      return;
+    }
+    final double height = self.size.height;
+    if (height <= 0) {
+      return;
+    }
+    // 与旧的遮罩用同一套曲线：顶部死区（行边界）+ 字迹起的淡入段 + 底部丝带
+    final double deadZone = _topBoundary(height) + _fadeTopOffset;
+    final double top = math.min(deadZone + _fadeTopRamp, height * 0.5);
+    final List<double> stops = lyricFadeStops(
+      height: height,
+      top: top,
+      band: widget.edgeFadeBand,
+      deadZone: deadZone,
+    );
+    final int start = visibleOnly ? _firstVisible.clamp(0, count - 1) : 0;
+    // 视口里最多露二十来行，多给一截余量，避免边界上漏更新
+    final int end = visibleOnly ? math.min(count, start + 32) : count;
+    for (int i = start; i < end; i += 1) {
+      final RenderObject? box = _lineKeys[i].currentContext?.findRenderObject();
+      double value = 1;
+      if (box is RenderBox && box.hasSize && box.attached) {
+        final double y = box.localToGlobal(Offset.zero, ancestor: self).dy;
+        value = lyricRowOpacity(
+          top: y,
+          bottom: y + box.size.height,
+          height: height,
+          stops: stops,
+        );
+      }
+      final ValueListenable<double> notifier = _edgeOpacityAt(i);
+      if (notifier is ValueNotifier<double> &&
+          (notifier.value - value).abs() > 0.01) {
+        notifier.value = value;
+      }
+    }
+  }
+
+  /// 布局之后再刷一次渐隐（同一帧里多次调用只排一次）。
+  ///
+  /// 滚动监听里量到的是滚动之前的行位置，jumpTo / 译文折叠这类「一帧内改布局」
+  /// 的操作要等这一帧画完才能量准。
+  void _scheduleOpacityRefresh() {
+    if (_opacityRefreshPending || !mounted) {
+      return;
+    }
+    _opacityRefreshPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _opacityRefreshPending = false;
+      _refreshRowOpacity();
+    });
+  }
+
+  bool _opacityRefreshPending = false;
 
   /// 顶部死区的下边界：被视口上沿裁掉的那行整行消失，从下一行的顶边才开始
   /// 渐显。没有行被裁（最上面那行完整）时返回 0，走正常的顶部渐隐。
@@ -952,6 +1037,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.alignment,
     required this.translation,
     required this.blur,
+    required this.edgeOpacity,
     required this.onSeek,
   });
 
@@ -980,6 +1066,13 @@ class _SpringLyricLine extends StatefulWidget {
   /// 是否给远处的行加模糊。用户正在拖动列表时传 false：
   /// 滚动中一片糊没有信息量，还每帧都要多跑一遍光栅
   final bool blur;
+
+  /// 这一行的上下渐隐强度（0~1），由它在视口里的位置决定。
+  ///
+  /// 以前整片歌词套一张 `ShaderMask` 做边界淡出，那是一张全宽离屏图层；
+  /// 改成按行把 alpha 乘进文字颜色之后，一个离屏图层都不产生。
+  final ValueListenable<double> edgeOpacity;
+
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -1085,35 +1178,41 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
   @override
   Widget build(BuildContext context) {
     // 每行一层 RepaintBoundary：弹动只挪图层，不重新光栅化文字
-    final Widget content = RepaintBoundary(
-      child: _LyricLineView(
-        anchorKey: widget.anchorKey,
-        translationKey: widget.translationKey,
-        line: widget.line,
-        active: widget.active,
-        distance: widget.distance,
-        position: widget.position,
-        textTheme: widget.textTheme,
-        alignment: widget.alignment,
-        translation: widget.translation,
-        blur: widget.blur,
-        onSeek: widget.onSeek,
-      ),
-    );
-    final AnimationController? spring = _spring;
-    return KeyedSubtree(
-      key: widget.lineKey,
-      child: spring == null
-          ? content
-          : AnimatedBuilder(
-              animation: spring,
-              builder: (BuildContext context, Widget? child) =>
-                  Transform.translate(
-                    offset: Offset(0, spring.value),
-                    child: child,
-                  ),
-              child: content,
-            ),
+    return ValueListenableBuilder<double>(
+      valueListenable: widget.edgeOpacity,
+      builder: (BuildContext context, double edge, Widget? child) {
+        final Widget content = RepaintBoundary(
+          child: _LyricLineView(
+            anchorKey: widget.anchorKey,
+            translationKey: widget.translationKey,
+            line: widget.line,
+            active: widget.active,
+            distance: widget.distance,
+            position: widget.position,
+            textTheme: widget.textTheme,
+            alignment: widget.alignment,
+            translation: widget.translation,
+            blur: widget.blur,
+            edgeOpacity: edge,
+            onSeek: widget.onSeek,
+          ),
+        );
+        final AnimationController? spring = _spring;
+        return KeyedSubtree(
+          key: widget.lineKey,
+          child: spring == null
+              ? content
+              : AnimatedBuilder(
+                  animation: spring,
+                  builder: (BuildContext context, Widget? child) =>
+                      Transform.translate(
+                        offset: Offset(0, spring.value),
+                        child: child,
+                      ),
+                  child: content,
+                ),
+        );
+      },
     );
   }
 }
@@ -1131,6 +1230,7 @@ class _LyricLineView extends StatelessWidget {
     required this.alignment,
     required this.translation,
     required this.blur,
+    required this.edgeOpacity,
     required this.onSeek,
   });
 
@@ -1155,6 +1255,10 @@ class _LyricLineView extends StatelessWidget {
 
   /// 是否给远处行加模糊；拖动列表期间会被关掉（见 [_LyricsViewState]）
   final bool blur;
+
+  /// 上下渐隐：整行统一乘进各段颜色（0 = 完全透明、1 = 原样）
+  final double edgeOpacity;
+
   final Future<void> Function(double seconds) onSeek;
 
   @override
@@ -1170,16 +1274,24 @@ class _LyricLineView extends StatelessWidget {
     // 歌词固定使用白色系，不跟随主题色；当前行最实，上下按距离淡出。
     // 有了模糊之后不再一味压低透明度：远处那几行靠「糊」退出焦点，
     // alpha 压太狠的话糊都看不见，层次只剩「有字 / 没字」两档
+    //
+    // 边界渐隐（视口上下沿）在这里一起乘进去：改的是颜色 alpha，不是套
+    // `Opacity`/`ShaderMask`——那两者都要离屏图层，而这一层每帧都在重画
+    final double edge = edgeOpacity.clamp(0.0, 1.0);
+    Color fade(Color color) =>
+        edge >= 0.999 ? color : color.withValues(alpha: color.a * edge);
     final Color white = Colors.white;
-    final Color activeColor = white.withValues(alpha: 0.96);
-    final Color dim = white.withValues(
-      alpha: switch (distance) {
-        1 => 0.62,
-        2 => 0.5,
-        3 => 0.4,
-        4 => 0.32,
-        _ => 0.26,
-      },
+    final Color activeColor = fade(white.withValues(alpha: 0.96));
+    final Color dim = fade(
+      white.withValues(
+        alpha: switch (distance) {
+          1 => 0.62,
+          2 => 0.5,
+          3 => 0.4,
+          4 => 0.32,
+          _ => 0.26,
+        },
+      ),
     );
 
     final Widget main;
@@ -1199,8 +1311,8 @@ class _LyricLineView extends StatelessWidget {
         lineEndMs: line.endMs.toInt(),
         position: position,
         style: style,
-        baseColor: white.withValues(alpha: 0.42),
-        highlightColor: white,
+        baseColor: fade(white.withValues(alpha: 0.42)),
+        highlightColor: fade(white),
         alignment: alignment,
       );
     } else {
@@ -1289,10 +1401,12 @@ class _LyricLineView extends StatelessWidget {
                                     ? (_hasCjk(extra) ? 23 : 21)
                                     : (_hasCjk(extra) ? 18 : 17),
                                 height: 1.4,
-                                color: Colors.white.withValues(
-                                  alpha: active
-                                      ? (_hasCjk(extra) ? 0.72 : 0.58)
-                                      : (_hasCjk(extra) ? 0.34 : 0.24),
+                                color: fade(
+                                  Colors.white.withValues(
+                                    alpha: active
+                                        ? (_hasCjk(extra) ? 0.72 : 0.58)
+                                        : (_hasCjk(extra) ? 0.34 : 0.24),
+                                  ),
                                 ),
                               ),
                             ),
