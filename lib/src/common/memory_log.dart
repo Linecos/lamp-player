@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../features/player/cover_palette.dart';
+import '../features/player/cover_spin.dart';
 
 /// 内存日志：默认关闭，`--dart-define=LAMP_MEM_LOG=true` 才打印。
 ///
@@ -67,6 +68,9 @@ void printMemory(String tag) {
     '（上限 ${cache.maximumSize} 张 / '
     '${(cache.maximumSizeBytes / (1024 * 1024)).toStringAsFixed(0)}MB，'
     '活在用 ${cache.liveImageCount} 张）'
-    '｜配色 ${CoverPaletteCache.length} 条',
+    '｜配色 ${CoverPaletteCache.length} 条'
+    // 转场 / 开关页面之后 CPU 下不去时先看这一项：还在「60fps」说明
+    // 有个来源没被撤掉，时钟一直以 16ms 跑
+    '｜旋转 ${CoverSpin.debugTicking ? '60fps' : '停'}（来源 ${CoverSpin.debugOwners}）',
   );
 }

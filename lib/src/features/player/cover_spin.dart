@@ -87,6 +87,15 @@ class CoverSpin {
     }
   }
 
+  /// 诊断用：是否正以 60fps 推进相位（`LAMP_MEM_LOG` 会打出来）
+  static bool get debugTicking => _ticking;
+
+  /// 诊断用：登记的来源数 / 其中要求转的数量
+  static String get debugOwners {
+    final int wanted = _owners.values.where((bool value) => value).length;
+    return '${_owners.length}（要转 $wanted）';
+  }
+
   static void _tick() {
     final double seconds = _elapsed + UiClock.fast.seconds - _startedAt;
     turns.value = (seconds / (period.inMilliseconds / 1000)) % 1;
