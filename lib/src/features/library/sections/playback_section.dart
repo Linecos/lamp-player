@@ -290,7 +290,15 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 打开「正在播放」页（大封面 + 同步歌词）
+  ///
+  /// 同一时刻只允许一页：播放条、快捷键（O）、托盘回调都能触发它，
+  /// 手快连点会叠出两三页全屏播放页（每页一份流光 + 歌词 + 大封面），
+  /// 内存会成倍地跳。已经在栈上就直接忽略这次。
   Future<void> _openNowPlaying() {
+    if (_nowPlayingOpen) {
+      return Future<void>.value();
+    }
+    _nowPlayingOpen = true;
     _publishProgress();
     // 播放页也能切输出设备：打开期间轮询一次设备列表（热插拔），关掉就停
     unawaited(_refreshDevices());
@@ -340,6 +348,7 @@ extension _PlaybackSection on _LibraryPageState {
           ),
         )
         .whenComplete(() {
+          _nowPlayingOpen = false;
           _nowPlayingDeviceTimer?.cancel();
           _nowPlayingDeviceTimer = null;
         });

@@ -297,14 +297,18 @@ void _syncVisualActivity() {
   final bool paused = UiClock.isPaused;
   SpectrumController.instance.setSuspended(paused);
   if (paused) {
-    // 只在「刚藏起来」那个沿上清一次：可见性对账每 2 秒一次，
-    // 每次都清既没必要，也会让刚解出来的图立刻被丢掉
+    // 只在「刚藏起来」那个沿上起一次延迟任务：可见性对账每 2 秒一次，
+    // 每次都起既没必要，也会把刚解出来的图立刻丢掉
     if (_wasVisible) {
       _wasVisible = false;
-      trimImageCache();
-      // 工作集晚 2 秒再交还：最小化又立刻恢复的场景不值得换页
       _trimTimer?.cancel();
-      _trimTimer = Timer(const Duration(seconds: 2), trimWorkingSet);
+      // 延迟 2 秒再动手。清 `liveImages` 会让可见的封面在恢复后的第一帧
+      // 重新解码（看着闪一下），所以「最小化又马上回来」这种情况不清；
+      // 工作集交还同理，短时间不可见不值得换页。
+      _trimTimer = Timer(const Duration(seconds: 2), () {
+        trimImageCache();
+        trimWorkingSet();
+      });
     }
   } else {
     _wasVisible = true;

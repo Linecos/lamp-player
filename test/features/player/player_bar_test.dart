@@ -362,9 +362,25 @@ void main() {
     );
     expect(hero.tag, coverHeroTag);
 
-    // 不在飞行期间给封面套 `Opacity`：Impeller 会把透明度下推给绘制内容，
-    // 碰到底层带模糊的直接断言失败并逐帧退回 saveLayer
-    expect(hero.placeholderBuilder, isNull);
+    // 占位要**继续挂着原封面**：飞行期间两端都被换成占位，图片订阅断了的话，
+    // 落地时若这张尺寸已被缓存淘汰就会先空一帧（收起播放页时「封面闪一下」）。
+    // 但占位里不能包 `Opacity`：Impeller 会把透明度下推给绘制内容，碰到底层
+    // 带模糊的直接断言失败并逐帧退回 saveLayer。`Offstage` 不布局不绘制，
+    // 子树与订阅都还在。
+    expect(hero.placeholderBuilder, isNotNull);
+    const Widget probe = SizedBox(width: 8, height: 8);
+    final Widget placeholder = hero.placeholderBuilder!(
+      tester.element(find.byType(AlbumCover)),
+      const Size(56, 56),
+      probe,
+    );
+    expect(placeholder, isNot(isA<Opacity>()));
+    expect(
+      (placeholder as SizedBox).child,
+      isA<Offstage>(),
+      reason: '占位用 Offstage 挂住封面，而不是换成一无所有的空白',
+    );
+    expect((placeholder.child! as Offstage).child, same(probe));
 
     // Hero 外面要有绘制边界：起飞 / 落地把占位换回封面时，脏区只到这一小块，
     // 不会把整个播放条拖着重画

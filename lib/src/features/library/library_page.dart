@@ -471,6 +471,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 正在播放页打开时的设备轮询：与设置页各用一支，互不取消
   Timer? _nowPlayingDeviceTimer;
 
+  /// 正在播放页是否已经在路由栈上。
+  ///
+  /// 播放条、快捷键、托盘都能打开它，手快连点会叠出多页全屏播放页，
+  /// 每页一份流光 + 歌词 + 大封面，内存成倍跳。
+  bool _nowPlayingOpen = false;
+
   /// 是否按标签里的 ReplayGain 统一响度
   bool _replayGain = false;
 

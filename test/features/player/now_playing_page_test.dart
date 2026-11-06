@@ -1081,7 +1081,18 @@ void main() {
     );
     expect(pushed, isNot(isA<FadeTransition>()), reason: '不要额外的透明度层');
     expect(popped, isNot(isA<FadeTransition>()));
-    expect(hero.placeholderBuilder, isNull, reason: '占位不要包 opacity，落地才不会重建');
+    // 占位要挂着原封面（图片订阅不断，落地不空帧），但不能包 `Opacity`
+    // —— 透明度会被下推到那圈模糊阴影上，每帧退回 saveLayer
+    expect(hero.placeholderBuilder, isNotNull);
+    const Widget probe = SizedBox(width: 8, height: 8);
+    final Widget placeholder = hero.placeholderBuilder!(
+      context,
+      const Size(340, 340),
+      probe,
+    );
+    expect(placeholder, isNot(isA<Opacity>()));
+    expect((placeholder as SizedBox).child, isA<Offstage>());
+    expect((placeholder.child! as Offstage).child, same(probe));
 
     // Hero 外面必须有一层绘制边界，而且边界要比封面大一圈（包住阴影外溢）：
     // 落地把占位换回子树时 markNeedsPaint 会爬到最近的边界，没有边界就等于

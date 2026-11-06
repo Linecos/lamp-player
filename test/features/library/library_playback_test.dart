@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/common/audio/volume_curve.dart';
+import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -1178,6 +1179,34 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
+  });
+
+  testWidgets('打开 / 收起播放页的转场期间装饰动画停表', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 600,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+    );
+    await tester.pump();
+    expect(UiClock.isPaused, isTrue, reason: '转场期间流光 / 封面旋转 / 逐字歌词都该停表，只留转场本身');
+
+    await tester.pumpAndSettle();
+    expect(UiClock.isPaused, isFalse, reason: '转场结束必须恢复，否则整页动画冻住');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(UiClock.isPaused, isTrue, reason: '收起转场同样停表');
+
+    await tester.pumpAndSettle();
+    expect(UiClock.isPaused, isFalse);
   });
 
   testWidgets('睡眠定时在关掉播放页之后仍然到点暂停', (WidgetTester tester) async {
