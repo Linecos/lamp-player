@@ -75,6 +75,19 @@ part 'sections/filter_section.dart';
 /// 目录选择器，测试可注入假实现。
 typedef DirectoryPicker = Future<String?> Function();
 
+/// 分区详情页（专辑 / 艺术家 / 歌单）头部大封面的边长。
+///
+/// 128 那一档在 1180 宽的窗口里只有巴掌大，标题与统计挤在旁边像附录注释；
+/// 放到 240 既明显大一档，又不会把曲目列表挤到看不见（360 在 1440×900 下
+/// 只剩不到 300 高的列表区）。
+const double detailCoverSize = 240;
+
+/// 详情页头部封面的左边距：把封面顶到返回箭头那条竖线上。
+///
+/// 返回键是 `IconButton`，图标盒子本身相对行首内缩 12，箭头图形在 24 的图标
+/// 里再留 3 左右的左边距，加起来 15；取 16 让两者视觉齐平（差 1px 看不出）。
+const double _detailHeaderInset = 16;
+
 /// 主界面：侧边导航 + 顶部搜索 + 曲库 / 艺术家 / 专辑 + 底部播放条。
 ///
 /// 状态都收敛在本页（`StatefulWidget` + `setState`），不引入第三方状态管理；
@@ -2009,30 +2022,5 @@ ButtonStyle _headerButtonStyle() {
       EdgeInsets.symmetric(horizontal: 16),
     ),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  );
-}
-
-/// 头部那一排小图标键：和 [_headerControlHeight] 同高，去掉 M3 默认的 48 热区
-Widget _headerIconButton({
-  required String tooltip,
-  required VoidCallback? onPressed,
-  required Widget icon,
-}) {
-  return IconButton(
-    tooltip: tooltip,
-    onPressed: onPressed,
-    iconSize: 20,
-    // shrinkWrap 压掉 8px 透明热区，standard 密度压掉桌面默认的 compact 收缩，
-    // 两者一起盒子才真的等于 40
-    style: const ButtonStyle(
-      visualDensity: VisualDensity.standard,
-      padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(EdgeInsets.zero),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    ),
-    constraints: const BoxConstraints.tightFor(
-      width: _headerControlHeight,
-      height: _headerControlHeight,
-    ),
-    icon: icon,
   );
 }

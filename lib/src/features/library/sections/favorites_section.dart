@@ -168,6 +168,8 @@ extension _FavoritesSection on _LibraryPageState {
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(visible, track, action),
       selectionMode: _selectionMode,
+      onSelectAll: _selectionMode ? _toggleSelectAll : null,
+      selectionAllFavored: _selectionAllFavored,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(visible, track, toggle: toggle, range: range),

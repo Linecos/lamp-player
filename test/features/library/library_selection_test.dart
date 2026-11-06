@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,13 +10,31 @@ import '../../support/page_harness.dart';
 Finder get _selectionToggle =>
     find.byKey(const ValueKey<String>('library-selection-toggle'));
 
+Finder get _selectAllBox =>
+    find.byKey(const ValueKey<String>('track-select-all'));
+
+Finder _rowBox(String path) =>
+    find.byKey(ValueKey<String>('track-select-$path'));
+
 Future<void> _enterSelection(WidgetTester tester) async {
   await tester.tap(_selectionToggle);
   await tester.pumpAndSettle();
 }
 
+/// 表头复选框：一键全选 / 取消全选（工具条撤掉后它成了唯一入口）
 Future<void> _selectAll(WidgetTester tester) async {
-  await tester.tap(find.text('全选'));
+  await tester.tap(_selectAllBox);
+  await tester.pumpAndSettle();
+}
+
+/// 在某一行上点右键，等菜单弹出
+Future<void> _rightClickRow(WidgetTester tester, String title) async {
+  final TestGesture gesture = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+    buttons: kSecondaryMouseButton,
+  );
+  await gesture.down(tester.getCenter(find.text(title)));
+  await gesture.up();
   await tester.pumpAndSettle();
 }
 
@@ -27,10 +46,11 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    expect(find.byType(Checkbox), findsNothing, reason: '普通模式不显示复选框');
+    expect(_rowBox('/music/夜航.mp3'), findsNothing, reason: '普通模式不显示复选框');
 
     await _enterSelection(tester);
-    expect(find.byType(Checkbox), findsNWidgets(2));
+    expect(_rowBox('/music/夜航.mp3'), findsOneWidget);
+    expect(_selectAllBox, findsOneWidget, reason: '表头给一键全选');
     expect(find.text('已选 0 首'), findsOneWidget);
 
     await tester.tap(find.text('夜航'));
@@ -49,7 +69,7 @@ void main() {
 
     await tester.tap(_selectionToggle);
     await tester.pumpAndSettle();
-    expect(find.byType(Checkbox), findsNothing);
+    expect(_rowBox('/music/夜航.mp3'), findsNothing);
     expect(find.textContaining('已选'), findsNothing);
   });
 
@@ -74,7 +94,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
 
-    expect(find.byType(Checkbox), findsNWidgets(3));
+    expect(_rowBox('/music/夜航.mp3'), findsOneWidget);
     expect(find.text('已选 1 首'), findsOneWidget);
     expect(playback.playedPaths, isEmpty, reason: 'Ctrl 点击不应触发播放');
 
@@ -86,19 +106,18 @@ void main() {
     expect(find.text('已选 3 首'), findsOneWidget, reason: 'Shift 应从锚点选中整段范围');
   });
 
-  testWidgets('全选 / 取消全选作用于当前列表', (WidgetTester tester) async {
+  testWidgets('表头复选框全选 / 取消全选作用于当前列表', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     await _enterSelection(tester);
 
     await _selectAll(tester);
     expect(find.text('已选 2 首'), findsOneWidget);
 
-    await tester.tap(find.text('取消全选'));
-    await tester.pumpAndSettle();
+    await _selectAll(tester);
     expect(find.text('已选 0 首'), findsOneWidget);
   });
 
-  testWidgets('批量收藏与取消收藏', (WidgetTester tester) async {
+  testWidgets('批量收藏与取消收藏走右键菜单', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
@@ -106,7 +125,8 @@ void main() {
     await _enterSelection(tester);
     await _selectAll(tester);
 
-    await tester.tap(find.byTooltip('收藏所选'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('收藏所选 2 首'));
     await tester.pumpAndSettle();
 
     expect(await repository.loadFavoritePaths(), <String>{
@@ -114,16 +134,16 @@ void main() {
       '/music/潮汐.mp3',
     });
     expect(find.text('已收藏 2 首'), findsOneWidget);
-    expect(find.byTooltip('取消收藏所选'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('取消收藏所选'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('取消收藏所选 2 首'));
     await tester.pumpAndSettle();
 
     expect(await repository.loadFavoritePaths(), isEmpty);
     expect(find.text('已取消收藏 2 首'), findsOneWidget);
   });
 
-  testWidgets('批量加入歌单', (WidgetTester tester) async {
+  testWidgets('批量加入歌单走右键菜单', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
@@ -134,7 +154,8 @@ void main() {
     await _enterSelection(tester);
     await _selectAll(tester);
 
-    await tester.tap(find.byTooltip('加入歌单'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('加入歌单（2 首）…'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('晨间'));
     await tester.pumpAndSettle();
@@ -144,7 +165,7 @@ void main() {
     expect(find.text('已加入 2 首到「晨间」'), findsOneWidget);
   });
 
-  testWidgets('隐藏所选只删记录并退出多选', (WidgetTester tester) async {
+  testWidgets('右键隐藏对整批生效，只删记录并退出多选', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
@@ -152,7 +173,8 @@ void main() {
     await _enterSelection(tester);
     await _selectAll(tester);
 
-    await tester.tap(find.byTooltip('隐藏所选'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('隐藏所选 2 首'));
     await tester.pumpAndSettle();
 
     expect(find.text('隐藏 2 首？'), findsOneWidget);
@@ -165,11 +187,11 @@ void main() {
     expect(repository.lastHiddenPaths, hasLength(2));
     expect(repository.tracks, isEmpty);
     expect(find.text('已隐藏 2 首'), findsOneWidget);
-    expect(find.byType(Checkbox), findsNothing, reason: '删除后应退出多选');
+    expect(_rowBox('/music/夜航.mp3'), findsNothing, reason: '删除后应退出多选');
     expect(find.text('曲库还是空的'), findsOneWidget);
   });
 
-  testWidgets('歌单详情的批量移除只移出歌单，不动曲库', (WidgetTester tester) async {
+  testWidgets('歌单详情右键批量移除只移出歌单，不动曲库', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
@@ -186,7 +208,8 @@ void main() {
     await _enterSelection(tester);
     await _selectAll(tester);
 
-    await tester.tap(find.byTooltip('从歌单移除'));
+    await _rightClickRow(tester, '夜航');
+    await tester.tap(find.text('从歌单移除 2 首'));
     await tester.pumpAndSettle();
     expect(find.text('从歌单移除 2 首？'), findsOneWidget);
 
@@ -198,7 +221,26 @@ void main() {
     expect(find.text('已从歌单移除 2 首'), findsOneWidget);
   });
 
-  testWidgets('多选条嵌在标题行，不把列表向下挤', (WidgetTester tester) async {
+  testWidgets('未勾选的行右键仍只作用单曲', (WidgetTester tester) async {
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+    );
+    await _enterSelection(tester);
+    await tester.tap(find.text('夜航'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 首'), findsOneWidget);
+
+    await _rightClickRow(tester, '潮汐');
+    expect(find.text('隐藏歌曲'), findsOneWidget, reason: '单首菜单用单数措辞');
+    expect(find.textContaining('所选'), findsNothing, reason: '没勾选的行走单曲语义');
+
+    await tester.tap(find.text('隐藏歌曲'));
+    await tester.pumpAndSettle();
+    expect(repository.lastHiddenPaths, <String>['/music/潮汐.mp3']);
+  });
+
+  testWidgets('已选计数留在标题行，不再有工具条按钮', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     final double listHeaderTop = tester.getTopLeft(find.text('标题')).dy;
 
@@ -211,8 +253,10 @@ void main() {
     expect(
       tester.getTopLeft(find.text('标题')).dy,
       closeTo(listHeaderTop, 0.5),
-      reason: '列表不应因多选条下移',
+      reason: '列表不应因计数下移',
     );
+    expect(find.byTooltip('播放所选'), findsNothing, reason: '工具条已撤掉');
+    expect(find.byTooltip('收藏所选'), findsNothing);
   });
 
   testWidgets('切换分区会退出多选', (WidgetTester tester) async {
@@ -224,7 +268,7 @@ void main() {
 
     await openFavorites(tester);
 
-    expect(find.byType(Checkbox), findsNothing);
+    expect(_rowBox('/music/夜航.mp3'), findsNothing);
     expect(find.textContaining('已选'), findsNothing);
   });
 }
