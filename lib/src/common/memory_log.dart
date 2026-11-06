@@ -21,10 +21,22 @@ const bool memoryLogEnabled =
     String.fromEnvironment('LAMP_MEM_LOG') == 'true' ||
     String.fromEnvironment('LAMP_MEM_LOG') == '1';
 
-/// 每隔多久打一行
-const Duration _interval = Duration(seconds: 5);
+/// 采样间隔。
+///
+/// 5 秒一次的采样抓不到几百毫秒的尖刺（上一轮就是这样漏掉的），改成 1 秒：
+/// 读一次 `ProcessInfo.currentRss` 只是一次 syscall，开销可以忽略。为避免刷屏，
+/// 正常情况仍然每 5 秒才打一行，突增则立刻单独打一条。
+const Duration _interval = Duration(seconds: 1);
+
+/// 每几拍打一行常规日志
+const int _printEvery = 5;
+
+/// 一次采样涨这么多就算「突增」：正常波动是几十 MB 级
+const int _spikeBytes = 300 << 20;
 
 Timer? _timer;
+int _ticks = 0;
+int _lastRssBytes = 0;
 
 /// 启动内存日志（已启动则不重复）
 void startMemoryLog() {
@@ -34,7 +46,24 @@ void startMemoryLog() {
   // 量的时候窗口必须在前台：被遮住 / 最小化的窗口会被系统裁工作集，
   // 数字偏低，据此下结论会跑偏（跟 `tool/hero_flight_bench.dart` 同一个坑）
   unawaited(_keepForeground());
-  _timer = Timer.periodic(_interval, (_) => printMemory('定期'));
+  _lastRssBytes = ProcessInfo.currentRss;
+  _timer = Timer.periodic(_interval, (_) => _tick());
+}
+
+void _tick() {
+  final int rss = ProcessInfo.currentRss;
+  final int jump = rss - _lastRssBytes;
+  _lastRssBytes = rss;
+  if (jump >= _spikeBytes) {
+    debugPrint(
+      '[mem] 突增 +${(jump / (1024 * 1024)).toStringAsFixed(0)}MB'
+      '（现在 ${(rss / (1024 * 1024)).toStringAsFixed(0)}MB）',
+    );
+  }
+  _ticks += 1;
+  if (_ticks % _printEvery == 0) {
+    printMemory('定期');
+  }
 }
 
 Future<void> _keepForeground() async {
