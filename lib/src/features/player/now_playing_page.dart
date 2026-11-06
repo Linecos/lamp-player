@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show ProcessInfo;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import '../../app/immersive_chrome.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
+import '../../common/memory_log.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
@@ -402,13 +404,58 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         status == AnimationStatus.forward || status == AnimationStatus.reverse;
     if (moving) {
       UiClock.pause(_transitionPause);
+      _beginRssSampling();
+      // 只在开了 LAMP_MEM_LOG 时输出：转场前后各一条，能看出这一轮分配了多少
+      printMemory('转场开始（${status == AnimationStatus.forward ? '进' : '出'}）');
     } else {
       UiClock.resume(_transitionPause);
+      _endRssSampling();
+      printMemory('转场结束');
     }
   }
 
   /// 停表来源；页面销毁时必须撤销，否则整个应用的装饰动画再也不走
   final Object _transitionPause = Object();
+
+  /// 转场期间逐帧采样的 RSS 峰值。
+  ///
+  /// 定期采样（5 秒）抓不到 300ms 的尖刺，而 `ProcessInfo.currentRss` 读一次
+  /// 几乎不要钱——转场这十几帧逐帧读，就能知道「尖刺到底有多大、出现在哪一帧」。
+  /// 只在 `LAMP_MEM_LOG` 打开时做。
+  bool _samplingRss = false;
+  int _peakRssBytes = 0;
+
+  void _beginRssSampling() {
+    if (!memoryLogEnabled) {
+      return;
+    }
+    _samplingRss = true;
+    _peakRssBytes = ProcessInfo.currentRss;
+    _sampleRss();
+  }
+
+  void _sampleRss() {
+    if (!_samplingRss || !mounted) {
+      return;
+    }
+    final int rss = ProcessInfo.currentRss;
+    if (rss > _peakRssBytes) {
+      _peakRssBytes = rss;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) => _sampleRss());
+  }
+
+  void _endRssSampling() {
+    if (!_samplingRss) {
+      return;
+    }
+    _samplingRss = false;
+    debugPrint(
+      '[mem] 本轮转场峰值 '
+      '${(_peakRssBytes / (1024 * 1024)).toStringAsFixed(0)}MB'
+      '（结束时 ${(ProcessInfo.currentRss / (1024 * 1024)).toStringAsFixed(0)}MB）',
+    );
+  }
 
   /// 本页自己画窗口按钮，让全局那层让位——否则两套按钮会同时挂在右上角，
   /// 而且全局那套在转场里纹丝不动，和滑上来的页面脱节。

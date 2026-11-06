@@ -17,14 +17,18 @@ void main() {
     addTearDown(data.dispose);
     addTearDown(() => pageOwnsWindowControls.value = false);
 
-    await tester.pumpWidget(_harness(showPage: true, data: data, onBuild: () => chromeBuilds += 1));
+    await tester.pumpWidget(
+      _harness(showPage: true, data: data, onBuild: () => chromeBuilds += 1),
+    );
     await tester.pumpAndSettle();
     expect(chromeBuilds, greaterThan(1), reason: '页面进来后开关应已置位');
 
     // 第二次 pump 只把页面摘出树：外层那个 AnimatedBuilder 的 Element 被复用、
     // 监听还在（真机上它就是 MaterialApp.builder 里的窗口按钮那层）。
     // 修复前这里会抛 widget-tree-locked。
-    await tester.pumpWidget(_harness(showPage: false, data: data, onBuild: () => chromeBuilds += 1));
+    await tester.pumpWidget(
+      _harness(showPage: false, data: data, onBuild: () => chromeBuilds += 1),
+    );
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
