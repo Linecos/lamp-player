@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
@@ -237,9 +238,9 @@ void main() {
     await tester.tap(find.text('晨间'));
     await tester.pumpAndSettle();
 
-    // 列表行自己也有小封面，按尺寸挑头部那张
+    // 列表行自己也有小封面，按尺寸挑头部那张（360 是详情页头部那一档）
     final Finder header = find.byWidgetPredicate(
-      (Widget widget) => widget is AlbumCover && widget.size == 128,
+      (Widget widget) => widget is AlbumCover && widget.size == detailCoverSize,
     );
     expect(header, findsOneWidget, reason: '详情头部应该显示封面，而不是歌单图标占位');
     expect(tester.widget<AlbumCover>(header).path, '/covers/a.jpg');
@@ -294,7 +295,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('歌单还是空的'), findsOneWidget);
 
-    await tester.tap(find.text('添加音乐').first);
+    // 头部四个次要按钮只画图标，靠 tooltip 说明功能
+    await tester.tap(find.byTooltip('添加音乐'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
 

@@ -118,12 +118,18 @@ extension _ArtistsSection on _LibraryPageState {
           },
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(
+            left: _detailHeaderInset,
+            top: 8,
+            bottom: 8,
+          ),
           child: Row(
+            // 名字 / 统计 / 播放键贴住头像底边，见专辑详情的同一处注释
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               Container(
-                width: 128,
-                height: 128,
+                width: detailCoverSize,
+                height: detailCoverSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: scheme.primaryContainer,
@@ -131,7 +137,9 @@ extension _ArtistsSection on _LibraryPageState {
                 alignment: Alignment.center,
                 child: Text(
                   initialsOf(group.name),
+                  // 字号跟着封面走：128 时是 28，同比例放大到 240 约 53
                   style: theme.textTheme.headlineMedium?.copyWith(
+                    fontSize: detailCoverSize * 0.22,
                     color: scheme.onPrimaryContainer,
                   ),
                 ),
@@ -154,14 +162,6 @@ extension _ArtistsSection on _LibraryPageState {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if (_selectionMode)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _buildSelectionBar(context),
-                        ),
-                      ),
                     const SizedBox(height: 16),
                     FilledButton.tonalIcon(
                       style: _headerButtonStyle(),
@@ -188,6 +188,8 @@ extension _ArtistsSection on _LibraryPageState {
             onContextAction: (Track track, TrackContextAction action) =>
                 _onTrackContext(group.tracks, track, action),
             selectionMode: _selectionMode,
+            onSelectAll: _selectionMode ? _toggleSelectAll : null,
+            selectionAllFavored: _selectionAllFavored,
             selectedPaths: _selectedPaths,
             onSelect:
                 (Track track, {required bool toggle, required bool range}) =>

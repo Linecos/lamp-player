@@ -582,6 +582,41 @@ extension _PlaylistsSection on _LibraryPageState {
     );
   }
 
+  /// 头部只画图标的小键：与带文字的按钮同高（40）、圆角 12，功能名走 tooltip。
+  ///
+  /// 用最朴素的 `IconButton` + `styleFrom`，不走 `.outlined` / `.filledTonal`：
+  /// 那两个变体自带 `CircleBorder`，会把传进来的 shape 盖掉，渲染出来是圆的。
+  Widget _headerIconAction(
+    BuildContext context, {
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    bool tonal = false,
+    Color? color,
+  }) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 20),
+      style: IconButton.styleFrom(
+        visualDensity: VisualDensity.standard,
+        minimumSize: const Size.square(_headerControlHeight),
+        maximumSize: const Size.square(_headerControlHeight),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: tonal ? scheme.secondaryContainer : null,
+        foregroundColor:
+            color ??
+            (tonal ? scheme.onSecondaryContainer : scheme.onSurfaceVariant),
+        side: tonal
+            ? BorderSide.none
+            : BorderSide(color: scheme.outlineVariant),
+      ),
+    );
+  }
+
   Widget _buildPlaylistDetail(BuildContext context, Playlist playlist) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
@@ -598,24 +633,29 @@ extension _PlaylistsSection on _LibraryPageState {
           },
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(
+            left: _detailHeaderInset,
+            top: 8,
+            bottom: 8,
+          ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
               if (coverPath != null && coverPath.isNotEmpty)
-                AlbumCover(path: coverPath, size: 128, radius: 32)
+                AlbumCover(path: coverPath, size: detailCoverSize, radius: 32)
               else
                 Container(
-                  width: 128,
-                  height: 128,
+                  width: detailCoverSize,
+                  height: detailCoverSize,
                   decoration: BoxDecoration(
                     color: scheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(32),
                   ),
                   child: Icon(
                     Icons.queue_music,
-                    size: 48,
+                    size: detailCoverSize * 0.36,
                     color: scheme.onSecondaryContainer,
                   ),
                 ),
@@ -638,14 +678,6 @@ extension _PlaylistsSection on _LibraryPageState {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if (_selectionMode)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _buildSelectionBar(context),
-                        ),
-                      ),
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 8,
@@ -659,34 +691,34 @@ extension _PlaylistsSection on _LibraryPageState {
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('播放全部'),
                         ),
-                        FilledButton.tonalIcon(
-                          style: _headerButtonStyle(),
+                        // 其余四个只留图标：歌单名一长，五个带文字的按钮会把
+                        // 头部挤成两行；功能说明改成悬停时的 tooltip
+                        _headerIconAction(
+                          context,
+                          tooltip: '添加音乐',
+                          icon: Icons.add,
+                          tonal: true,
                           onPressed: () =>
                               unawaited(_addTracksToPlaylist(playlist)),
-                          icon: const Icon(Icons.add),
-                          label: const Text('添加音乐'),
                         ),
-                        OutlinedButton.icon(
-                          style: _headerButtonStyle(),
+                        _headerIconAction(
+                          context,
+                          tooltip: '导出',
+                          icon: Icons.ios_share,
                           onPressed: () => unawaited(_exportPlaylist(playlist)),
-                          icon: const Icon(Icons.ios_share),
-                          label: const Text('导出'),
                         ),
-                        OutlinedButton.icon(
-                          style: _headerButtonStyle(),
+                        _headerIconAction(
+                          context,
+                          tooltip: '重命名',
+                          icon: Icons.edit_outlined,
                           onPressed: () => unawaited(_renamePlaylist(playlist)),
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('重命名'),
                         ),
-                        OutlinedButton.icon(
-                          style: _headerButtonStyle().copyWith(
-                            foregroundColor: WidgetStatePropertyAll<Color>(
-                              scheme.error,
-                            ),
-                          ),
+                        _headerIconAction(
+                          context,
+                          tooltip: '删除歌单',
+                          icon: Icons.delete_outline,
+                          color: scheme.error,
                           onPressed: () => unawaited(_deletePlaylist(playlist)),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('删除歌单'),
                         ),
                       ],
                     ),
@@ -738,6 +770,9 @@ extension _PlaylistsSection on _LibraryPageState {
       onContextAction: (Track track, TrackContextAction action) =>
           _onTrackContext(_playlistTracks, track, action),
       selectionMode: _selectionMode,
+      onSelectAll: _selectionMode ? _toggleSelectAll : null,
+      selectionAllFavored: _selectionAllFavored,
+      inPlaylist: _selectionInPlaylist,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),
