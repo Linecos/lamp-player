@@ -157,7 +157,7 @@ Future<void> _showWindow() async {
     } catch (_) {
       // 低频可见性对账会在下一轮修正。
     }
-    _syncVisualActivity();
+    _syncVisualActivity(visible: true);
     await windowManager.focus();
   } catch (error) {
     debugPrint('显示窗口失败：$error');
@@ -245,7 +245,7 @@ Future<void> _setupWindow(WindowSnapshot state) async {
           await windowManager.show();
           UiClock.resume(_hiddenReason);
           UiClock.resume(_minimizedReason);
-          _syncVisualActivity();
+          _syncVisualActivity(visible: true);
           await windowManager.focus();
         } catch (error) {
           debugPrint('显示窗口失败：$error');
@@ -291,12 +291,14 @@ const String _minimizedReason = 'minimized';
 
 /// 视觉活动跟着窗口可见性走：频谱停采集，藏起来时顺手放掉封面缓存。
 ///
-/// 封面解码结果在不可见时没人看，留着只会让任务管理器里的数字一直挂在
-/// 十几万 KB；而恢复可见后可见的那几张会重新解码，代价落在第一帧上。
-void _syncVisualActivity() {
-  final bool paused = UiClock.isPaused;
-  SpectrumController.instance.setSuspended(paused);
-  if (paused) {
+/// [visible] 必须是**窗口真的可见**，不能拿 `UiClock.isPaused` 代替：
+/// 转场停表（正在播放页进出时）也会让它为 true。可见性对账每 2 秒一次、
+/// 转场只有 300ms，拿错了就有相当概率在**可见**状态下误清一次封面缓存、
+/// 甚至把工作集交还系统——那会让封面重新解码（看起来闪一下），
+/// 任务管理器里的内存也会莫名跳一下。
+void _syncVisualActivity({required bool visible}) {
+  SpectrumController.instance.setSuspended(!visible);
+  if (!visible) {
     // 只在「刚藏起来」那个沿上起一次延迟任务：可见性对账每 2 秒一次，
     // 每次都起既没必要，也会把刚解出来的图立刻丢掉
     if (_wasVisible) {
@@ -367,7 +369,9 @@ class _AppWindowListener with WindowListener {
       } else {
         UiClock.resume(_minimizedReason);
       }
-      _syncVisualActivity();
+      // 这里用的是刚查到的真实可见性，不能再读 UiClock：转场（播放页进出）
+      // 也会让它暂停，误判成「藏起来了」就会在可见状态下清缓存、交还工作集
+      _syncVisualActivity(visible: visible && !minimized);
     } catch (_) {
       // 插件尚未就绪时维持当前状态，不能误冻住界面。
     } finally {
@@ -382,14 +386,14 @@ class _AppWindowListener with WindowListener {
   @override
   void onWindowMinimize() {
     UiClock.pause(_minimizedReason);
-    _syncVisualActivity();
+    _syncVisualActivity(visible: false);
   }
 
   @override
   void onWindowEvent(String eventName) {
     if (eventName == 'hide') {
       UiClock.pause(_hiddenReason);
-      _syncVisualActivity();
+      _syncVisualActivity(visible: false);
     }
     if (eventName == 'show') unawaited(_checkVisibility());
   }
@@ -413,7 +417,7 @@ class _AppWindowListener with WindowListener {
   @override
   void onWindowRestore() {
     UiClock.resume(_minimizedReason);
-    _syncVisualActivity();
+    _syncVisualActivity(visible: true);
     _scheduleSave();
   }
 
@@ -440,7 +444,7 @@ class _AppWindowListener with WindowListener {
       try {
         await windowManager.hide();
         UiClock.pause(_hiddenReason);
-        _syncVisualActivity();
+        _syncVisualActivity(visible: false);
       } catch (error) {
         // 隐藏失败时不能把窗口留在「拦截关闭」状态，改为直接退出
         debugPrint('隐藏窗口失败，改为退出：$error');
