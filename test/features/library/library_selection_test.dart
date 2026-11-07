@@ -117,6 +117,24 @@ void main() {
     expect(find.text('已选 0 首'), findsOneWidget);
   });
 
+  testWidgets('多选时 Ctrl+A 也能全选 / 取消全选', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await _enterSelection(tester);
+
+    Future<void> ctrlA() async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    await ctrlA();
+    expect(find.text('已选 2 首'), findsOneWidget, reason: 'Ctrl+A 与表头复选框等价');
+
+    await ctrlA();
+    expect(find.text('已选 0 首'), findsOneWidget, reason: '再按一次取消全选');
+  });
+
   testWidgets('批量收藏与取消收藏走右键菜单', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,

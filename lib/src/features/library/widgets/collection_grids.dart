@@ -37,7 +37,8 @@ class ArtistGridView extends StatelessWidget {
         bottom: PlayerBar.occupiedHeight + 8,
       ),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 208,
+        // 与专辑网格同宽（220）：两个分区来回切时卡片大小不跳
+        maxCrossAxisExtent: 220,
         mainAxisSpacing: 16,
         crossAxisSpacing: 16,
         childAspectRatio: 0.86,

@@ -1079,6 +1079,11 @@ class _LibraryPageState extends State<LibraryPage>
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         ...shortcutBindings(activeHandlers, bindings: _shortcuts),
+        // 多选时 Ctrl+A 全选当前列表：表头那个复选框之外的键盘入口。
+        // 搜索框有焦点时不绑——那里 Ctrl+A 是「全选输入的文字」
+        if (_selectionMode && !_searchFocused)
+          const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+              _toggleSelectAll,
         const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
             _handleEscape,
       },
