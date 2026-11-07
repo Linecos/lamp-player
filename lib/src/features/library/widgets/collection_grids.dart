@@ -1,43 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../common/widgets/album_cover.dart';
+import '../../../common/common.dart';
 import '../../player/player_bar.dart';
 import '../library_sort.dart';
 import 'cover_flight.dart';
-
-/// 艺术家首字母头像。
-///
-/// 列表卡片（96）、详情头部（[detailCoverSize]）和飞行中的那一份都用它：
-/// 字号按尺寸等比（0.22），飞过去的过程中字不会跳大小。
-Widget artistInitialsAvatar(BuildContext context, String name, double size) {
-  final ThemeData theme = Theme.of(context);
-  final ColorScheme scheme = theme.colorScheme;
-  return Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: scheme.primaryContainer,
-    ),
-    alignment: Alignment.center,
-    child: Text(
-      initialsOf(name),
-      style: theme.textTheme.headlineSmall?.copyWith(
-        fontSize: size * 0.22,
-        color: scheme.onPrimaryContainer,
-      ),
-    ),
-  );
-}
-
-/// 取展示用首字：中文取第一个字，英文取首字母。
-String initialsOf(String name) {
-  final String text = name.trim();
-  if (text.isEmpty) {
-    return '?';
-  }
-  return String.fromCharCode(text.runes.first).toUpperCase();
-}
 
 /// 艺术家网格：圆形首字封面 + 名字 + 专辑/曲目数
 class ArtistGridView extends StatelessWidget {
