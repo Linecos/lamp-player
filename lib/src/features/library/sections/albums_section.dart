@@ -92,11 +92,10 @@ extension _AlbumsSection on _LibraryPageState {
                   return AlbumGridView(
                     albums: groups,
                     storageKey: const PageStorageKey<String>('grid:albums'),
-                    onSelect: (AlbumGroup album) {
-                      _clearSearch();
-                      _clearSelection();
-                      _update(() => _selectedAlbumKey = album.key);
-                    },
+                    // 带上卡片封面的矩形，详情页用它做「封面飞过去」的起点
+                    onSelect: _openAlbumDetail,
+                    // 正在飞的那张卡片先藏着，落地再显形
+                    flyingTag: _coverFlightTag,
                   );
                 }),
         ),
@@ -113,10 +112,8 @@ extension _AlbumsSection on _LibraryPageState {
       children: <Widget>[
         _DetailBar(
           label: '专辑',
-          onBack: () {
-            _clearSelection();
-            _update(() => _selectedAlbumKey = null);
-          },
+          // 退回列表时让封面按原路飞回去
+          onBack: _closeAlbumDetail,
         ),
         Padding(
           padding: const EdgeInsets.only(
@@ -129,10 +126,14 @@ extension _AlbumsSection on _LibraryPageState {
             // 上半截空着、三行信息像浮在半空
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              AlbumCover(
-                path: group.coverPath,
-                size: detailCoverSize,
-                radius: 32,
+              CoverFlightTarget(
+                key: _albumDetailCoverKey,
+                hidden: _coverFlightTag == albumCoverTag(group.key),
+                child: AlbumCover(
+                  path: group.coverPath,
+                  size: detailCoverSize,
+                  radius: 32,
+                ),
               ),
               const SizedBox(width: 24),
               Expanded(

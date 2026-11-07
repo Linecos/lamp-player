@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
+import 'package:lamp_player/src/features/library/widgets/cover_flight.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
@@ -244,6 +245,250 @@ void main() {
     );
     expect(header, findsOneWidget, reason: '详情头部应该显示封面，而不是歌单图标占位');
     expect(tester.widget<AlbumCover>(header).path, '/covers/a.jpg');
+  });
+
+  testWidgets('进专辑详情时封面飞过去，落地前详情那张先藏着', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    // 详情头部那张（240 的大图）必须先藏着，否则同一张封面会一分为二；
+    // 列表那张此刻正随列表淡出，是切换前的旧子树、不会重建，所以不参与判断
+    for (final Element element in find.byType(CoverFlightTarget).evaluate()) {
+      final RenderBox box = element.renderObject! as RenderBox;
+      if (box.size.width < 200) {
+        continue;
+      }
+      expect(
+        (element.widget as CoverFlightTarget).hidden,
+        isTrue,
+        reason: '飞行期间详情封面要先藏着',
+      );
+    }
+
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<CoverFlightTarget>(find.byType(CoverFlightTarget)).hidden,
+      isFalse,
+      reason: '落地后详情封面必须显示出来',
+    );
+  });
+
+  testWidgets('封面飞行的终点跟着详情上浮，落地不跳', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final Finder flight = find.byKey(const ValueKey<String>('cover-flight'));
+    final Finder target = find.byType(CoverFlightTarget);
+    expect(flight, findsOneWidget);
+
+    // 逐帧推进到飞行尾段。必须一帧一帧走：一次性 pump 一大段会让「量终点」
+    // 读到的位置落后整整一大段动画，测出来的是假跳变（真实运行是 60fps）。
+    Offset flying = tester.getCenter(flight);
+    for (int i = 0; i < 14; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (flight.evaluate().isEmpty) {
+        break;
+      }
+      flying = tester.getCenter(flight);
+    }
+
+    await tester.pumpAndSettle();
+    expect(flight, findsNothing);
+    expect(
+      (flying - tester.getCenter(target)).distance,
+      lessThan(2),
+      reason: '飞行落点要和真实封面对上，否则落地瞬间会跳一下',
+    );
+  });
+
+  testWidgets('退回列表时封面按原路飞回去', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+
+    // 进详情之前先记下卡片封面在哪：退回时的飞行落点就是这里
+    final Rect card = tester.getRect(find.byType(CoverFlightTarget));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final Finder flight = find.byKey(const ValueKey<String>('cover-flight'));
+    expect(flight, findsOneWidget, reason: '退回列表也要有飞行层');
+    // 卡片那张先藏着，落地再显形（详情头部是正在淡出的旧子树，不再重建）
+    for (final Element element in find.byType(CoverFlightTarget).evaluate()) {
+      final RenderBox box = element.renderObject! as RenderBox;
+      if (box.size.width > 200) {
+        continue;
+      }
+      expect(
+        (element.widget as CoverFlightTarget).hidden,
+        isTrue,
+        reason: '飞行期间卡片封面要先藏着',
+      );
+    }
+
+    // 逐帧走到尾段，落点应当落在卡片原来的位置
+    Offset flying = tester.getCenter(flight);
+    for (int i = 0; i < 14; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (flight.evaluate().isEmpty) {
+        break;
+      }
+      flying = tester.getCenter(flight);
+    }
+    await tester.pumpAndSettle();
+    expect(flight, findsNothing);
+    expect(
+      (flying - card.center).distance,
+      lessThan(2),
+      reason: '飞回卡片那一格，不要在半空消失',
+    );
+    expect(
+      tester.widget<CoverFlightTarget>(find.byType(CoverFlightTarget)).hidden,
+      isFalse,
+      reason: '落地后卡片封面要显示出来',
+    );
+  });
+
+  testWidgets('退回列表时头像字号跟盒子同比例缩放', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '艺术家');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('artists-list')),
+        matching: find.text('林间电台'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pump();
+    // 第二帧才把飞行层插进来，此刻动画 t=0
+    await tester.pump();
+
+    final Finder flight = find.byKey(const ValueKey<String>('cover-flight'));
+    // 取矩阵的 x 缩放分量：`getMaxScaleOnAxis` 会被 z 轴的 1 吃掉，
+    // 小于 1 的缩放它一律返回 1
+    final double scale = tester.widget<Transform>(flight).transform.storage[0];
+    final Text initials = tester.widget<Text>(
+      find.descendant(of: flight, matching: find.byType(Text)),
+    );
+
+    // 视觉字号 = 字号 × 缩放。起点必须正好是详情头像那一档（240 × 0.22）：
+    // 以前飞行层被塞进卡片大小的盒子、再放大 1.39 倍，字会先暴涨一大截
+    expect(
+      initials.style!.fontSize! * scale,
+      closeTo(240 * 0.22, 0.5),
+      reason: '起飞那一刻的字号要和详情头像一致，不能先突变',
+    );
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('退回列表时封面圆角按视觉值过渡', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pump();
+    await tester.pump();
+
+    final Finder flight = find.byKey(const ValueKey<String>('cover-flight'));
+    final Finder coverFinder = find.descendant(
+      of: flight,
+      matching: find.byType(AlbumCover),
+    );
+    final double startScale = tester
+        .widget<Transform>(flight)
+        .transform
+        .storage[0];
+    final AlbumCover start = tester.widget<AlbumCover>(coverFinder);
+
+    // 飞行层按两端较大的尺寸（详情 240）构建，靠缩放显示；
+    // 圆角传的是「视觉值 ÷ 缩放」，所以屏幕上的圆角应当就是详情那一档
+    expect(start.size, closeTo(240, 0.5), reason: '飞行盒子要按大的一端构建');
+    expect(startScale, closeTo(1, 0.01), reason: '起点不能先放大一下');
+    expect(
+      start.radius * startScale,
+      closeTo(albumDetailCoverRadius, 1),
+      reason: '起飞时圆角要和详情封面一致',
+    );
+
+    // 走到尾段：视觉尺寸回到卡片那档，圆角也回到卡片的圆角
+    for (int i = 0; i < 14; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (flight.evaluate().isEmpty) {
+        break;
+      }
+    }
+    final double endScale = tester
+        .widget<Transform>(flight)
+        .transform
+        .storage[0];
+    final AlbumCover end = tester.widget<AlbumCover>(coverFinder);
+    expect(
+      end.radius * endScale,
+      closeTo(albumCardCoverRadius, 1),
+      reason: '落地前圆角要收到卡片的 20，否则最后一下四角会突然被填上',
+    );
+    await tester.pumpAndSettle();
   });
 
   testWidgets('歌单分区可新建歌单并展示卡片', (WidgetTester tester) async {

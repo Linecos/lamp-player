@@ -3,6 +3,32 @@ import 'package:flutter/material.dart';
 import '../../../common/widgets/album_cover.dart';
 import '../../player/player_bar.dart';
 import '../library_sort.dart';
+import 'cover_flight.dart';
+
+/// 艺术家首字母头像。
+///
+/// 列表卡片（96）、详情头部（[detailCoverSize]）和飞行中的那一份都用它：
+/// 字号按尺寸等比（0.22），飞过去的过程中字不会跳大小。
+Widget artistInitialsAvatar(BuildContext context, String name, double size) {
+  final ThemeData theme = Theme.of(context);
+  final ColorScheme scheme = theme.colorScheme;
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: scheme.primaryContainer,
+    ),
+    alignment: Alignment.center,
+    child: Text(
+      initialsOf(name),
+      style: theme.textTheme.headlineSmall?.copyWith(
+        fontSize: size * 0.22,
+        color: scheme.onPrimaryContainer,
+      ),
+    ),
+  );
+}
 
 /// 取展示用首字：中文取第一个字，英文取首字母。
 String initialsOf(String name) {
@@ -20,11 +46,18 @@ class ArtistGridView extends StatelessWidget {
     required this.artists,
     required this.onSelect,
     this.storageKey,
+    this.flyingTag,
   });
 
   final List<ArtistGroup> artists;
-  final ValueChanged<ArtistGroup> onSelect;
+
+  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
+  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
   final Key? storageKey;
+
+  /// 正在飞的那张封面（见 [artistCoverTag]）：对应的卡片先把自己藏起来，
+  /// 免得飞行层和卡片上的那张同时出现
+  final Object? flyingTag;
 
   @override
   Widget build(BuildContext context) {
@@ -46,17 +79,32 @@ class ArtistGridView extends StatelessWidget {
       itemCount: artists.length,
       itemBuilder: (BuildContext context, int index) {
         final ArtistGroup artist = artists[index];
-        return _ArtistCard(artist: artist, onTap: () => onSelect(artist));
+        final String tag = artistCoverTag(artist.name);
+        return _ArtistCard(
+          artist: artist,
+          onSelect: onSelect,
+          hidden: flyingTag == tag,
+        );
       },
     );
   }
 }
 
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.artist, required this.onTap});
+  _ArtistCard({
+    required this.artist,
+    required this.onSelect,
+    this.hidden = false,
+  });
 
   final ArtistGroup artist;
-  final VoidCallback onTap;
+  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
+
+  /// 这张的封面正在飞行中：先让位给飞行层
+  final bool hidden;
+
+  /// 首字母圆：点击时按它量出飞行动画的起点
+  final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -71,26 +119,18 @@ class _ArtistCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: onTap,
+        onTap: () => onSelect(artist, rectOfKey(_coverKey) ?? Rect.zero),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.primaryContainer,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  initialsOf(artist.name),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                  ),
+              KeyedSubtree(
+                key: _coverKey,
+                child: CoverFlightTarget(
+                  hidden: hidden,
+                  child: artistInitialsAvatar(context, artist.name, 96),
                 ),
               ),
               const SizedBox(height: 12),
@@ -124,11 +164,17 @@ class AlbumGridView extends StatelessWidget {
     required this.albums,
     required this.onSelect,
     this.storageKey,
+    this.flyingTag,
   });
 
   final List<AlbumGroup> albums;
-  final ValueChanged<AlbumGroup> onSelect;
+
+  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
+  final void Function(AlbumGroup album, Rect coverRect) onSelect;
   final Key? storageKey;
+
+  /// 见 [ArtistGridView.flyingTag]
+  final Object? flyingTag;
 
   @override
   Widget build(BuildContext context) {
@@ -149,17 +195,32 @@ class AlbumGridView extends StatelessWidget {
       itemCount: albums.length,
       itemBuilder: (BuildContext context, int index) {
         final AlbumGroup album = albums[index];
-        return _AlbumCard(album: album, onTap: () => onSelect(album));
+        final String tag = albumCoverTag(album.key);
+        return _AlbumCard(
+          album: album,
+          onSelect: onSelect,
+          hidden: flyingTag == tag,
+        );
       },
     );
   }
 }
 
 class _AlbumCard extends StatelessWidget {
-  const _AlbumCard({required this.album, required this.onTap});
+  _AlbumCard({
+    required this.album,
+    required this.onSelect,
+    this.hidden = false,
+  });
 
   final AlbumGroup album;
-  final VoidCallback onTap;
+  final void Function(AlbumGroup album, Rect coverRect) onSelect;
+
+  /// 这张的封面正在飞行中：先让位给飞行层
+  final bool hidden;
+
+  /// 封面图：点击时按它量出飞行动画的起点
+  final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -174,7 +235,7 @@ class _AlbumCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: onTap,
+        onTap: () => onSelect(album, rectOfKey(_coverKey) ?? Rect.zero),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.all(10),
@@ -182,16 +243,20 @@ class _AlbumCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               AspectRatio(
+                key: _coverKey,
                 aspectRatio: 1,
-                child: LayoutBuilder(
-                  builder: (BuildContext context, BoxConstraints constraints) {
-                    return AlbumCover(
-                      path: album.coverPath,
-                      size: constraints.maxWidth,
-                      // 32 外框 - 12 内边距 = 20，与卡片圆角同心
-                      radius: 20,
-                    );
-                  },
+                child: CoverFlightTarget(
+                  hidden: hidden,
+                  child: LayoutBuilder(
+                    builder:
+                        (BuildContext context, BoxConstraints constraints) {
+                          return AlbumCover(
+                            path: album.coverPath,
+                            size: constraints.maxWidth,
+                            radius: albumCardCoverRadius,
+                          );
+                        },
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
