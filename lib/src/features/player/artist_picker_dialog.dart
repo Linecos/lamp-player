@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../common/widgets/artist_avatar.dart';
+
 /// 多艺术家选择弹窗。
 ///
 /// 一首歌的艺术家标签里可能用 `/` 隔开好几位
@@ -81,15 +83,8 @@ class _ArtistRow extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          leading: CircleAvatar(
-            radius: 18,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            child: Icon(
-              Icons.person,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+          // 与艺术家列表 / 详情同一套首字母头像：光秃秃的人形图标认不出是谁
+          leading: artistInitialsAvatar(context, name, 36),
           title: Text(
             name,
             maxLines: 1,

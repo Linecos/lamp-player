@@ -279,11 +279,26 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
     await tester.pumpAndSettle();
 
+    final Finder dialog = find.byKey(
+      const ValueKey<String>('artist-picker-dialog'),
+    );
+    expect(dialog, findsOneWidget);
+    expect(opened, isEmpty, reason: '还没选就不该跳走');
+
+    // 每条都带自己的首字母头像：以前一律是那个人形占位，认不出谁是谁
     expect(
-      find.byKey(const ValueKey<String>('artist-picker-dialog')),
+      find.descendant(of: dialog, matching: find.byIcon(Icons.person)),
+      findsNothing,
+      reason: '不该再是统一的人形占位',
+    );
+    expect(
+      find.descendant(of: dialog, matching: find.text('B')),
       findsOneWidget,
     );
-    expect(opened, isEmpty, reason: '还没选就不该跳走');
+    expect(
+      find.descendant(of: dialog, matching: find.text('O')),
+      findsOneWidget,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('artist-picker-Overspace')),
