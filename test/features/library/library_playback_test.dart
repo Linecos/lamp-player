@@ -6,6 +6,7 @@ import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/common/audio/volume_curve.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
+import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
@@ -829,6 +830,56 @@ void main() {
 
     expect(playback.volumeCalls.last, greaterThan(0));
     expect(find.byIcon(Icons.volume_off), findsNothing);
+  });
+
+  testWidgets('播放页的静音按钮要同时改图标和引擎', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 600,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder page = find.byType(NowPlayingPage);
+    expect(page, findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: page,
+        matching: find.byKey(const ValueKey<String>('now-playing-mute')),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.descendant(of: page, matching: find.byIcon(Icons.volume_off)),
+      findsOneWidget,
+      reason: '点击后图标要变成静音（播放页读的是 NowPlayingData，快照不推就永远不变）',
+    );
+    expect(playback.volumeCalls.last, 0);
+
+    await tester.tap(
+      find.descendant(
+        of: page,
+        matching: find.byKey(const ValueKey<String>('now-playing-mute')),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.descendant(of: page, matching: find.byIcon(Icons.volume_off)),
+      findsNothing,
+      reason: '再点一次回到静音前的音量',
+    );
+    expect(playback.volumeCalls.last, greaterThan(0));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('连续拖动音量按窗口合并，只发一次 setVolume', (WidgetTester tester) async {
