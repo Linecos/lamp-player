@@ -258,6 +258,106 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('艺术家详情页也能定位正在播放的曲目', (WidgetTester tester) async {
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) => sampleTrack(
+        title: '曲目 $index',
+        path: '/music/track_$index.mp3',
+        artist: '林间电台',
+        album: '夜之专辑',
+      ),
+    );
+    await pumpLibrary(tester, tracks: tracks);
+
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+
+    // 切到艺术家分区并进详情：这里以前会提示「当前没有正在播放的曲目」
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    // 播放岛的副标题也叫这个艺术家，只在艺术家网格里点
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('artists-list')),
+        matching: find.text('林间电台'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder list = find.byKey(
+      const PageStorageKey<String>('tracks:artist:林间电台'),
+    );
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = tester.widget<ListView>(list).controller!.offset;
+    expect(before, greaterThan(200));
+
+    await tester.longPress(
+      find.byKey(const ValueKey<String>('player-play-pause')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ListView>(list).controller!.offset,
+      lessThan(before),
+      reason: '艺术家详情里的列表同样要滚回当前曲目',
+    );
+    expect(find.text('当前没有正在播放的曲目'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('专辑详情页也能定位正在播放的曲目', (WidgetTester tester) async {
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) => sampleTrack(
+        title: '曲目 $index',
+        path: '/music/track_$index.mp3',
+        artist: '林间电台',
+        album: '夜之专辑',
+      ),
+    );
+    await pumpLibrary(tester, tracks: tracks);
+
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.library_books_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 专辑分组的 key 是「艺术家\u0000专辑」拼出来的（见 albumGroupKey）
+    final Finder list = find.byKey(
+      const PageStorageKey<String>('tracks:album:林间电台\u0000夜之专辑'),
+    );
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = tester.widget<ListView>(list).controller!.offset;
+    expect(before, greaterThan(200));
+
+    await tester.longPress(
+      find.byKey(const ValueKey<String>('player-play-pause')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ListView>(list).controller!.offset,
+      lessThan(before),
+      reason: '专辑详情里的列表同样要滚回当前曲目',
+    );
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('空曲库展示空态', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: const <Track>[]);
 

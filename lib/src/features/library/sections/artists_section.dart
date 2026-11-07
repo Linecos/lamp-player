@@ -178,6 +178,9 @@ extension _ArtistsSection on _LibraryPageState {
         const SizedBox(height: 8),
         Expanded(
           child: TrackListView(
+            // 详情页也要能「定位正在播放」：控制器与高亮路径都跟列表分区共用同一套
+            controller: _artistScroll,
+            flashPath: _flashTrackPath,
             tracks: group.tracks,
             storageKey: PageStorageKey<String>('tracks:artist:${group.name}'),
             playingPath: _currentTrack?.path,
