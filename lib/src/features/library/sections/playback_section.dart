@@ -1116,6 +1116,9 @@ extension _PlaybackSection on _LibraryPageState {
       _lastVolume = next;
     }
     _volume = next;
+    // 播放页的图标 / 滑杆读的是 NowPlayingData.volume，那份快照只有
+    // _publishProgress 才推；少了这一句引擎其实已经静音，界面却纹丝不动
+    _publishProgress();
     _saveSessionNow();
     if (_isAvailable) {
       unawaited(_applyVolume(next));
