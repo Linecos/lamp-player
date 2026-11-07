@@ -91,11 +91,10 @@ extension _ArtistsSection on _LibraryPageState {
                   return ArtistGridView(
                     artists: groups,
                     storageKey: const PageStorageKey<String>('grid:artists'),
-                    onSelect: (ArtistGroup artist) {
-                      _clearSearch();
-                      _clearSelection();
-                      _update(() => _selectedArtist = artist.name);
-                    },
+                    // 带上卡片封面的矩形，详情页用它做「头像飞过去」的起点
+                    onSelect: _openArtistDetail,
+                    // 正在飞的那张卡片先藏着，落地再显形
+                    flyingTag: _coverFlightTag,
                   );
                 }),
         ),
@@ -112,10 +111,8 @@ extension _ArtistsSection on _LibraryPageState {
       children: <Widget>[
         _DetailBar(
           label: '艺术家',
-          onBack: () {
-            _clearSelection();
-            _update(() => _selectedArtist = null);
-          },
+          // 退回列表时让头像按原路飞回去
+          onBack: _closeArtistDetail,
         ),
         Padding(
           padding: const EdgeInsets.only(
@@ -127,21 +124,14 @@ extension _ArtistsSection on _LibraryPageState {
             // 名字 / 统计 / 播放键贴住头像底边，见专辑详情的同一处注释
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Container(
-                width: detailCoverSize,
-                height: detailCoverSize,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.primaryContainer,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  initialsOf(group.name),
-                  // 字号跟着封面走：128 时是 28，同比例放大到 240 约 53
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontSize: detailCoverSize * 0.22,
-                    color: scheme.onPrimaryContainer,
-                  ),
+              // 飞行期间先藏着，等列表那张飞到位再显形
+              CoverFlightTarget(
+                key: _artistDetailCoverKey,
+                hidden: _coverFlightTag == artistCoverTag(group.name),
+                child: artistInitialsAvatar(
+                  context,
+                  group.name,
+                  detailCoverSize,
                 ),
               ),
               const SizedBox(width: 24),

@@ -21,6 +21,7 @@ import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
+import 'widgets/cover_flight.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
 import '../player/playback_mode.dart';
@@ -362,6 +363,22 @@ class _LibraryPageState extends State<LibraryPage>
   Object? _searchError;
 
   String? _selectedArtist;
+
+  /// 列表 → 详情时正在飞的封面的标识：详情头部据此先不画，等飞行落地再显示
+  Object? _coverFlightTag;
+
+  /// 详情头部封面的位置，也就是飞行的终点
+  final GlobalKey _artistDetailCoverKey = GlobalKey();
+  final GlobalKey _albumDetailCoverKey = GlobalKey();
+
+  /// 正在跑的飞行层。页面销毁时要撤回，否则 Overlay 上会留一张永远飞不完的图
+  VoidCallback? _cancelCoverFlight;
+
+  /// 各卡片封面的位置（进详情那一刻量的）：退回列表时封面飞回这里。
+  ///
+  /// 退出时列表刚重建、「卡片」还没布局好，量不到；而这个位置在详情期间不会变
+  /// （列表本身不滚，滚动位置由 PageStorageKey 接着），直接用记下的就行。
+  final Map<String, Rect> _coverOrigins = <String, Rect>{};
   String? _selectedAlbumKey;
 
   Set<String> _favoritePaths = <String>{};
@@ -800,6 +817,8 @@ class _LibraryPageState extends State<LibraryPage>
     widget.appLifecycle
       ?..removeListener(_onLifecycleChanged)
       ..clearBeforeExit(_exitHook);
+    _cancelCoverFlight?.call();
+    _cancelCoverFlight = null;
     _musicScroll.dispose();
     _favoritesScroll.dispose();
     _historyScroll.dispose();
@@ -1198,6 +1217,176 @@ class _LibraryPageState extends State<LibraryPage>
           ),
         ),
       ),
+    );
+  }
+
+  /// 进艺术家详情，并让首字母头像从卡片的位置飞到头部。
+  void _openArtistDetail(ArtistGroup artist, Rect coverRect) {
+    _clearSearch();
+    _clearSelection();
+    final String tag = artistCoverTag(artist.name);
+    // 记下卡片在哪：回列表时要从同一个位置飞回去
+    _coverOrigins[tag] = coverRect;
+    _flyCoverInto(
+      tag: tag,
+      from: coverRect,
+      targetKey: _artistDetailCoverKey,
+      // 首字母头像是圆的，没有圆角要插值
+      buildCover: (double size, double radius) =>
+          artistInitialsAvatar(context, artist.name, size),
+      apply: () => _selectedArtist = artist.name,
+    );
+  }
+
+  /// 进专辑详情，封面同样飞过去。
+  void _openAlbumDetail(AlbumGroup album, Rect coverRect) {
+    _clearSearch();
+    _clearSelection();
+    final String tag = albumCoverTag(album.key);
+    _coverOrigins[tag] = coverRect;
+    _flyCoverInto(
+      tag: tag,
+      from: coverRect,
+      targetKey: _albumDetailCoverKey,
+      fromRadius: albumCardCoverRadius,
+      toRadius: albumDetailCoverRadius,
+      buildCover: (double size, double radius) =>
+          AlbumCover(path: album.coverPath, size: size, radius: radius),
+      apply: () => _selectedAlbumKey = album.key,
+    );
+  }
+
+  /// 切到详情，并在 Overlay 上让封面从 [from] 飞到详情头部。
+  ///
+  /// 列表和详情是同一个页面里的两个子树（`AnimatedSwitcher` 切换），原生的
+  /// `Hero` 只认路由，所以这里自己铺一层：起点是点击时卡片的矩形，终点是
+  /// 详情头部布局后的矩形。飞行期间详情那张先藏着（[CoverFlightTarget]），
+  /// 免得同一张封面在屏幕上一分为二。
+  void _flyCoverInto({
+    required Object tag,
+    required Rect from,
+    required GlobalKey targetKey,
+    required Widget Function(double size, double radius) buildCover,
+    double fromRadius = 0,
+    double toRadius = 0,
+    required VoidCallback apply,
+  }) {
+    _cancelCoverFlight?.call();
+    _cancelCoverFlight = null;
+    _update(() {
+      _coverFlightTag = tag;
+      apply();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _coverFlightTag != tag) {
+        return;
+      }
+      final Rect? to = rectOfKey(targetKey);
+      if (to == null) {
+        // 详情没量到位置（窗口正在缩、或者这一帧还没布局）：直接显示，不飞
+        _update(() => _coverFlightTag = null);
+        return;
+      }
+      _cancelCoverFlight = flyCover(
+        context,
+        from: from,
+        to: to,
+        // 详情头部自己还在这 180ms 里上浮（AnimatedSwitcher 的 SlideTransition），
+        // 每帧重新量一次终点，落地时才严丝合缝
+        toNow: () => rectOfKey(targetKey) ?? to,
+        fromRadius: fromRadius,
+        toRadius: toRadius,
+        buildCover: buildCover,
+        onDone: () {
+          _cancelCoverFlight = null;
+          if (mounted) {
+            _update(() => _coverFlightTag = null);
+          }
+        },
+      );
+    });
+  }
+
+  /// 从详情退回列表：封面按原路飞回卡片。
+  ///
+  /// 与 [_flyCoverInto] 对称，只是方向相反。起点必须**在切回列表之前**量——
+  /// 切过去之后详情子树就开始淡出了。
+  void _flyCoverBack({
+    required String tag,
+    required GlobalKey detailKey,
+    required Widget Function(double size, double radius) buildCover,
+    double fromRadius = 0,
+    double toRadius = 0,
+    required VoidCallback leave,
+  }) {
+    final Rect? from = rectOfKey(detailKey);
+    final Rect? to = _coverOrigins[tag];
+    _cancelCoverFlight?.call();
+    _cancelCoverFlight = null;
+    if (from == null || to == null) {
+      // 没有起点或没有落点（比如详情是「一步进来」的，没经过列表卡片）：
+      // 不做动画，直接回列表
+      _update(leave);
+      return;
+    }
+    _update(() {
+      _coverFlightTag = tag;
+      leave();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _coverFlightTag != tag) {
+        return;
+      }
+      _cancelCoverFlight = flyCover(
+        context,
+        from: from,
+        to: to,
+        fromRadius: fromRadius,
+        toRadius: toRadius,
+        buildCover: buildCover,
+        onDone: () {
+          _cancelCoverFlight = null;
+          if (mounted) {
+            _update(() => _coverFlightTag = null);
+          }
+        },
+      );
+    });
+  }
+
+  /// 从艺术家详情退回列表
+  void _closeArtistDetail() {
+    final ArtistGroup? group = _selectedArtistGroup;
+    if (group == null) {
+      _update(() => _selectedArtist = null);
+      return;
+    }
+    _clearSelection();
+    _flyCoverBack(
+      tag: artistCoverTag(group.name),
+      detailKey: _artistDetailCoverKey,
+      buildCover: (double size, double radius) =>
+          artistInitialsAvatar(context, group.name, size),
+      leave: () => _selectedArtist = null,
+    );
+  }
+
+  /// 从专辑详情退回列表
+  void _closeAlbumDetail() {
+    final AlbumGroup? group = _selectedAlbumGroup;
+    if (group == null) {
+      _update(() => _selectedAlbumKey = null);
+      return;
+    }
+    _clearSelection();
+    _flyCoverBack(
+      tag: albumCoverTag(group.key),
+      detailKey: _albumDetailCoverKey,
+      fromRadius: albumDetailCoverRadius,
+      toRadius: albumCardCoverRadius,
+      buildCover: (double size, double radius) =>
+          AlbumCover(path: group.coverPath, size: size, radius: radius),
+      leave: () => _selectedAlbumKey = null,
     );
   }
 

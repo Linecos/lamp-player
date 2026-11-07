@@ -35,7 +35,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
-          body: AlbumGridView(albums: albums, onSelect: (_) {}),
+          body: AlbumGridView(albums: albums, onSelect: (_, _) {}),
         ),
       ),
     );
