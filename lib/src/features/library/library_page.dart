@@ -561,6 +561,10 @@ class _LibraryPageState extends State<LibraryPage>
   final ScrollController _historyScroll = ScrollController();
   final ScrollController _playlistScroll = ScrollController();
 
+  /// 艺术家 / 专辑详情页的列表：详情页里也能「定位正在播放」
+  final ScrollController _artistScroll = ScrollController();
+  final ScrollController _albumScroll = ScrollController();
+
   /// 刚被定位到的那一行：短暂强调一下，否则目标本来就在屏幕中间时毫无反馈
   String? _flashTrackPath;
   Timer? _flashTimer;
@@ -800,6 +804,8 @@ class _LibraryPageState extends State<LibraryPage>
     _favoritesScroll.dispose();
     _historyScroll.dispose();
     _playlistScroll.dispose();
+    _artistScroll.dispose();
+    _albumScroll.dispose();
     _flashTimer?.cancel();
     _desktopLyricTimer?.cancel();
     _karaokeTimer?.cancel();
@@ -1190,7 +1196,38 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
+  /// 正在看的那位艺术家的分组（没进详情就是 null）
+  ArtistGroup? get _selectedArtistGroup {
+    final String? name = _selectedArtist;
+    if (name == null) {
+      return null;
+    }
+    for (final ArtistGroup group in _artistGroupsCache) {
+      if (group.name == name) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  /// 正在看的那张专辑的分组（没进详情就是 null）
+  AlbumGroup? get _selectedAlbumGroup {
+    final String? key = _selectedAlbumKey;
+    if (key == null) {
+      return null;
+    }
+    for (final AlbumGroup group in _albumGroupsCache) {
+      if (group.key == key) {
+        return group;
+      }
+    }
+    return null;
+  }
+
   /// 正在显示的分区里那份「可定位」的列表内容；没有列表就 null
+  ///
+  /// 艺术家 / 专辑的详情页也挂着同一份 [TrackListView]，所以进详情之后
+  /// 定位要落到那位的曲目上，而不是判成「没有正在播放的曲目」。
   List<Track>? get _locatableTracks => switch (_displayedSection) {
     LibrarySection.music =>
       _query.isEmpty ? _tracks : (_results ?? const <Track>[]),
@@ -1198,7 +1235,9 @@ class _LibraryPageState extends State<LibraryPage>
     LibrarySection.history => _filterTracks(_historyTracks),
     LibrarySection.playlists =>
       _selectedPlaylist == null ? null : _playlistTracks,
-    _ => null,
+    LibrarySection.artists => _selectedArtistGroup?.tracks,
+    LibrarySection.albums => _selectedAlbumGroup?.tracks,
+    LibrarySection.settings => null,
   };
 
   /// 与 [_locatableTracks] 对应的滚动控制器
@@ -1208,7 +1247,10 @@ class _LibraryPageState extends State<LibraryPage>
     LibrarySection.history => _historyScroll,
     LibrarySection.playlists =>
       _selectedPlaylist == null ? null : _playlistScroll,
-    _ => null,
+    LibrarySection.artists =>
+      _selectedArtistGroup == null ? null : _artistScroll,
+    LibrarySection.albums => _selectedAlbumGroup == null ? null : _albumScroll,
+    LibrarySection.settings => null,
   };
 
   /// 把正在播放的曲目滚到列表中间，并短暂强调那一行。
@@ -1218,8 +1260,14 @@ class _LibraryPageState extends State<LibraryPage>
     final Track? current = _currentTrack;
     final List<Track>? visible = _locatableTracks;
     final ScrollController? scroll = _locatableScroll;
-    if (current == null || visible == null || scroll == null) {
+    if (current == null) {
       _showMessage('当前没有正在播放的曲目');
+      return;
+    }
+    if (visible == null || scroll == null) {
+      // 侧栏的艺术家 / 专辑总表、设置这些页面本来就没有曲目列表：
+      // 有歌在放却提示「没有正在播放的曲目」会让人以为播放器坏了
+      _showMessage('这个页面没有可定位的列表');
       return;
     }
     if (_searching) {

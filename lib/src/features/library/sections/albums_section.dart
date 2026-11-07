@@ -169,6 +169,9 @@ extension _AlbumsSection on _LibraryPageState {
         const SizedBox(height: 8),
         Expanded(
           child: TrackListView(
+            // 同艺术家详情：定位要能落到这张专辑的列表上
+            controller: _albumScroll,
+            flashPath: _flashTrackPath,
             tracks: group.tracks,
             storageKey: PageStorageKey<String>('tracks:album:${group.key}'),
             playingPath: _currentTrack?.path,
