@@ -32,10 +32,11 @@ class PlaylistGridView extends StatelessWidget {
         // 同上：滚到底时最后一行停在播放岛上方
         bottom: PlayerBar.occupiedHeight + 8,
       ),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 340,
+      // 歌单不是封面墙：一条一条铺满整宽（以前 340 宽，1280 的窗口里只占 1/3，
+      // 右侧空出大片，读起来像散落的卡片）。单列 + 固定行高的长条更像列表
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 1,
         mainAxisExtent: 92,
-        crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
       itemCount: playlists.length,
@@ -79,7 +80,7 @@ class _PlaylistCard extends StatelessWidget {
         onTap: onOpen,
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
           child: Row(
             children: <Widget>[
               // 歌单自己没有封面图：拿最新加入那首歌的（由仓储一次查出来），
@@ -125,25 +126,27 @@ class _PlaylistCard extends StatelessWidget {
                   ],
                 ),
               ),
-              PopupMenuButton<PlaylistAction>(
-                tooltip: '歌单操作',
+              // 两个动作直接摆出来：歌单卡片就这两个操作，藏在三点菜单里
+              // 等于多点两下（菜单项本身也只是一行字）
+              IconButton(
+                key: ValueKey<String>('playlist-rename-${playlist.name}'),
+                tooltip: '重命名歌单',
+                onPressed: () => onAction(PlaylistAction.rename),
                 icon: Icon(
-                  Icons.more_vert,
+                  Icons.edit_outlined,
                   size: 20,
                   color: scheme.onSurfaceVariant,
                 ),
-                onSelected: onAction,
-                itemBuilder: (BuildContext context) =>
-                    <PopupMenuEntry<PlaylistAction>>[
-                      const PopupMenuItem<PlaylistAction>(
-                        value: PlaylistAction.rename,
-                        child: Text('重命名'),
-                      ),
-                      const PopupMenuItem<PlaylistAction>(
-                        value: PlaylistAction.delete,
-                        child: Text('删除歌单'),
-                      ),
-                    ],
+              ),
+              IconButton(
+                key: ValueKey<String>('playlist-delete-${playlist.name}'),
+                tooltip: '删除歌单',
+                onPressed: () => onAction(PlaylistAction.delete),
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 20,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),

@@ -257,7 +257,9 @@ void main() {
 
     expect(find.text('深夜通勤'), findsOneWidget);
     expect(find.text('1 个歌单'), findsOneWidget);
-    expect(find.byTooltip('歌单操作'), findsOneWidget);
+    // 两个动作直接摆在卡片右侧，不再收进三点菜单
+    expect(find.byTooltip('重命名歌单'), findsOneWidget);
+    expect(find.byTooltip('删除歌单'), findsOneWidget);
   });
 
   testWidgets('新建歌单校验空名与重名', (WidgetTester tester) async {
@@ -327,9 +329,7 @@ void main() {
     await openPlaylists(tester);
     await createPlaylistThroughUi(tester, '通勤');
 
-    await tester.tap(find.byTooltip('歌单操作'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('删除歌单'));
+    await tester.tap(find.byTooltip('删除歌单'));
     await tester.pumpAndSettle();
 
     expect(find.text('删除「通勤」？'), findsOneWidget);
