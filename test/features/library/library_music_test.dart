@@ -138,12 +138,7 @@ void main() {
             .first,
       );
       final Rect pill = tester.getRect(
-        find
-            .ancestor(
-              of: find.textContaining('排序：'),
-              matching: find.byType(Container),
-            )
-            .first,
+        find.byKey(const ValueKey<String>('library-sort')),
       );
 
       expect(playAll.height, 40, reason: '桌面密度下别被 compact 削成 32');
@@ -156,6 +151,69 @@ void main() {
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  testWidgets('排序胶囊：文字靠左、方向箭头自绘、墨迹裁在胶囊里', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    final Rect pill = tester.getRect(
+      find.byKey(const ValueKey<String>('library-sort')),
+    );
+
+    // 文字块要贴着左端：左段不放前导图标，只有一层内边距
+    final Rect label = tester.getRect(
+      find.byKey(const ValueKey<String>('library-sort-label')),
+    );
+    expect(
+      label.left - pill.left,
+      closeTo(14, 2),
+      reason: '文字到胶囊左端应当只有内边距的距离，不留给空占位',
+    );
+
+    // 方向箭头是自绘的 CustomPaint：图标字体的 Release 子集一旦过期，
+    // Icon 就渲染成空白（实测过），箭头不能赌它
+    // （胶囊的 clipBehavior 内部也会生成一个 CustomPaint，所以按 painter 类型挑）
+    final Finder arrow = find.descendant(
+      of: find.byKey(const ValueKey<String>('library-sort')),
+      matching: find.byWidgetPredicate(
+        (Widget w) =>
+            w is CustomPaint &&
+            w.painter != null &&
+            w.painter.runtimeType.toString() == '_SortArrowPainter',
+      ),
+    );
+    expect(arrow, findsOneWidget);
+
+    // 墨迹画在胶囊自己的透明 Material 上，才会被胶囊圆角裁住；
+    // 不垫这层的话高亮一路画到 Scaffold 的 Material 上，跨出胶囊
+    final Finder ink = find.descendant(
+      of: find.byKey(const ValueKey<String>('library-sort')),
+      matching: find.byType(Material),
+    );
+    expect(ink, findsOneWidget);
+    expect(tester.widget<Material>(ink).type, MaterialType.transparency);
+
+    // 左段的悬停高亮要铺满整段：InkWell 高亮跟着 child 走，
+    // child 不撑到胶囊高度的话就只有贴着文字的一条
+    final Iterable<Rect> inkRects = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('library-sort')),
+          matching: find.byType(InkWell),
+        )
+        .evaluate()
+        .map(
+          (Element element) =>
+              (element.renderObject! as RenderBox).localToGlobal(Offset.zero) &
+              (element.renderObject! as RenderBox).size,
+        );
+    expect(inkRects, isNotEmpty);
+    // 胶囊 40 高，但 1px 边框会把内容区压到 38：高亮铺满内容区就是对的
+    final double innerHeight = pill.height - 2;
+    expect(
+      inkRects.every((Rect rect) => (rect.height - innerHeight).abs() < 0.5),
+      isTrue,
+      reason: '两个分段的墨迹都要铺满内容区（40 减去边框）',
+    );
   });
 
   testWidgets('定位：Ctrl+L 也能触发，目标行短暂高亮', (WidgetTester tester) async {
@@ -607,7 +665,14 @@ void main() {
       ),
     );
 
-    expect(find.text('排序：标题'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('library-sort-label')),
+          )
+          .data,
+      '标题',
+    );
     final double aY = tester.getTopLeft(find.text('A 曲')).dy;
     final double bY = tester.getTopLeft(find.text('B 曲')).dy;
     expect(aY, lessThan(bY), reason: '应按标题排序，而不是保留默认顺序');
@@ -617,13 +682,20 @@ void main() {
     final FakeSessionStore session = FakeSessionStore();
     await pumpLibrary(tester, tracks: twoTracks(), sessionStore: session);
 
-    await tester.tap(find.textContaining('排序：'));
+    await tester.tap(find.byKey(const ValueKey<String>('library-sort')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('标题').last);
+    await tester.tap(find.text('艺术家').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('排序：标题'), findsOneWidget);
-    expect(session.snapshot.sort, LibrarySort.title);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('library-sort-label')),
+          )
+          .data,
+      '艺术家',
+    );
+    expect(session.snapshot.sort, LibrarySort.artist);
   });
 
   testWidgets('拖入文件夹会复用扫描流程并显示导入结果', (WidgetTester tester) async {

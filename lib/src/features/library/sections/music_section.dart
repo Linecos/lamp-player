@@ -41,7 +41,12 @@ extension _MusicSection on _LibraryPageState {
             const SizedBox(width: 8),
             _buildSelectionToggle(context),
             const SizedBox(width: 8),
-            _SortButton(mode: _sort, onSelected: _changeSort),
+            _SortButton(
+              mode: _sort,
+              ascending: _sortAscending,
+              onSelected: _changeSort,
+              onToggleDirection: _toggleSortDirection,
+            ),
           ],
         ),
         const SizedBox(height: 2),

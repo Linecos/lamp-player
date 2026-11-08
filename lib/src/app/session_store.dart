@@ -22,7 +22,8 @@ class SessionSnapshot {
     this.shuffle = false,
     this.section,
     this.railExpanded = true,
-    this.sort = LibrarySort.library,
+    this.sort = LibrarySort.defaultSort,
+    this.sortAscending = true,
     this.coverBackfillAttempted = false,
     this.exclusiveOutput = false,
     this.eqEnabled = false,
@@ -62,6 +63,9 @@ class SessionSnapshot {
 
   /// 曲库列表的排序方式；重启后沿用上次选择
   final LibrarySort sort;
+
+  /// 排序方向：true = 升序
+  final bool sortAscending;
 
   /// 是否已经尝试过「升级后自动补扫封面」。
   ///
@@ -171,6 +175,7 @@ class PrefsSessionStore implements SessionStore {
   static const int desktopLyricFontSizeMax = 56;
   static const int desktopLyricFontSizeStep = 3;
   static const String sortKey = 'ui_sort';
+  static const String sortAscendingKey = 'ui_sort_ascending';
   static const String flowBackgroundKey = 'ui_flow_background';
   static const String circularCoversKey = 'ui_circular_covers';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
@@ -239,6 +244,7 @@ class PrefsSessionStore implements SessionStore {
         ),
         showTranslation: prefs.getBool(showTranslationKey) ?? true,
         sort: _parseSort(prefs.getString(sortKey)),
+        sortAscending: prefs.getBool(sortAscendingKey) ?? true,
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
         flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
@@ -321,6 +327,7 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setString(lyricAlignmentKey, snapshot.lyricAlignment.name);
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
       await prefs.setString(sortKey, snapshot.sort.name);
+      await prefs.setBool(sortAscendingKey, snapshot.sortAscending);
       await prefs.setBool(
         coverBackfillAttemptedKey,
         snapshot.coverBackfillAttempted,
@@ -350,7 +357,7 @@ class PrefsSessionStore implements SessionStore {
         return sort;
       }
     }
-    return LibrarySort.library;
+    return LibrarySort.defaultSort;
   }
 
   /// 单条预设是一个 JSON 字符串；解析失败就丢掉这一条，不影响其余预设

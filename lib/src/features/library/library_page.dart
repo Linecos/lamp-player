@@ -337,7 +337,12 @@ class _LibraryPageState extends State<LibraryPage>
     end: Offset.zero,
   ).animate(_sectionFadeCurve);
   bool _railExpanded = true;
-  LibrarySort _sort = LibrarySort.library;
+  LibrarySort _sort = LibrarySort.defaultSort;
+
+  /// 当前排序方向：true = 升序（标题 A→Z、时长短→长），false = 降序。
+  ///
+  /// 「最近添加」切过来时默认降序（新的在前），见 [LibrarySort.defaultAscending]。
+  bool _sortAscending = true;
 
   List<Track> _tracks = const <Track>[];
 
@@ -872,7 +877,12 @@ class _LibraryPageState extends State<LibraryPage>
       _railExpanded = snapshot.railExpanded;
       _railNotifier.value = _railExpanded;
       _sort = snapshot.sort;
-      _tracks = sortTracks(_tracks, snapshot.sort);
+      _sortAscending = snapshot.sortAscending;
+      _tracks = sortTracks(
+        _tracks,
+        snapshot.sort,
+        ascending: snapshot.sortAscending,
+      );
       _coverBackfillAttempted = snapshot.coverBackfillAttempted;
       _exclusive = snapshot.exclusiveOutput;
       _eqEnabled = snapshot.eqEnabled;
@@ -1018,6 +1028,7 @@ class _LibraryPageState extends State<LibraryPage>
       section: _section.name,
       railExpanded: _railExpanded,
       sort: _sort,
+      sortAscending: _sortAscending,
       coverBackfillAttempted: _coverBackfillAttempted,
       exclusiveOutput: _exclusive,
       eqEnabled: _eqEnabled,
@@ -2100,56 +2111,167 @@ class _LibraryPageState extends State<LibraryPage>
 }
 
 /// 标题右侧的排序下拉，外观是描边胶囊。
+/// 排序方式对应的图标（菜单里共用）
+IconData _sortIconOf(LibrarySort sort) => switch (sort) {
+  LibrarySort.title => Icons.text_fields,
+  LibrarySort.artist => Icons.person_outline,
+  LibrarySort.album => Icons.album_outlined,
+  LibrarySort.duration => Icons.schedule,
+  LibrarySort.added => Icons.fiber_new_outlined,
+};
+
+/// 方向箭头：自绘而不是图标字体。
+///
+/// 图标字体的 Release 子集是按「构建那一刻用到的图标」裁出来的，代码后加的
+/// 图标如果子集没重新生成，就渲染成一片空白（实测发生过）。箭头是核心交互，
+/// 不能依赖这个环节，几条线自己画。
+class _SortArrowPainter extends CustomPainter {
+  const _SortArrowPainter({required this.ascending, required this.color});
+
+  final bool ascending;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final double cx = size.width / 2;
+    final Offset head = ascending ? Offset(cx, 3) : Offset(cx, size.height - 3);
+    final Offset tail = ascending ? Offset(cx, size.height - 3) : Offset(cx, 3);
+    canvas.drawLine(tail, head, paint);
+    final double wing = 4;
+    final double dy = ascending ? 4.2 : -4.2;
+    final Path path = Path()
+      ..moveTo(cx - wing, head.dy + dy)
+      ..lineTo(head.dx, head.dy)
+      ..lineTo(cx + wing, head.dy + dy);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_SortArrowPainter old) =>
+      old.ascending != ascending || old.color != color;
+}
+
+/// 两段式排序控件：
+///
+/// 左段点开选方式（标题 / 艺术家 / …），右段一个箭头翻升降序。
+/// 原来是一个整体下拉、按钮上写着「排序：标题」，又长又只有一个动作。
 class _SortButton extends StatelessWidget {
-  const _SortButton({required this.mode, required this.onSelected});
+  const _SortButton({
+    required this.mode,
+    required this.ascending,
+    required this.onSelected,
+    required this.onToggleDirection,
+  });
 
   final LibrarySort mode;
+
+  /// true = 升序
+  final bool ascending;
   final ValueChanged<LibrarySort> onSelected;
+  final VoidCallback onToggleDirection;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-
-    return PopupMenuButton<LibrarySort>(
-      tooltip: '排序方式',
-      onSelected: onSelected,
-      itemBuilder: (BuildContext context) => <PopupMenuEntry<LibrarySort>>[
-        for (final LibrarySort item in LibrarySort.values)
-          PopupMenuItem<LibrarySort>(
-            value: item,
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  width: 24,
-                  child: item == mode
-                      ? Icon(Icons.check, size: 18, color: scheme.primary)
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Text(item.label),
-              ],
-            ),
-          ),
-      ],
-      child: Container(
-        height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: scheme.outline),
-        ),
+    return Container(
+      key: const ValueKey<String>('library-sort'),
+      height: _headerControlHeight,
+      // 两段的墨迹都要贴着胶囊圆角裁掉
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outline),
+      ),
+      // InkWell 的墨迹画在**最近一层 Material** 上：不在这里垫一个透明的，
+      // 高亮就会一路画到 Scaffold 的 Material 上，跨出胶囊、范围完全不对
+      child: Material(
+        type: MaterialType.transparency,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(
-              '排序：${mode.label}',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: scheme.primary,
+            PopupMenuButton<LibrarySort>(
+              tooltip: '排序方式',
+              onSelected: onSelected,
+              itemBuilder: (BuildContext context) =>
+                  <PopupMenuEntry<LibrarySort>>[
+                    for (final LibrarySort item in LibrarySort.values)
+                      PopupMenuItem<LibrarySort>(
+                        value: item,
+                        child: Row(
+                          children: <Widget>[
+                            Icon(
+                              _sortIconOf(item),
+                              size: 18,
+                              color: item == mode
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              item.label,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: item == mode ? scheme.primary : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+              // 撑满胶囊高度：InkWell 的高亮跟着 child 走，child 只有文字
+              // 那么高的话，悬停高亮就是贴着文字的一条，铺不满左段
+              child: SizedBox(
+                height: _headerControlHeight,
+                // 没放前导图标：文字块从这里就开始，左段不至于头重脚轻
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 14, right: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      // 按钮上只显示「标题」这类顺序名，不写「排序：」
+                      Text(
+                        mode.label,
+                        key: const ValueKey<String>('library-sort-label'),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: scheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        size: 20,
+                        color: scheme.primary,
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 4),
-            Icon(Icons.arrow_drop_down, size: 20, color: scheme.primary),
+            Container(width: 1, height: 20, color: scheme.outlineVariant),
+            Tooltip(
+              message: ascending ? '升序' : '降序',
+              child: InkWell(
+                onTap: onToggleDirection,
+                child: SizedBox(
+                  width: 40,
+                  height: _headerControlHeight,
+                  child: Center(
+                    child: CustomPaint(
+                      size: const Size.square(18),
+                      painter: _SortArrowPainter(
+                        ascending: ascending,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

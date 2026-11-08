@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
@@ -260,7 +261,12 @@ void main() {
 
   testWidgets('已选计数留在标题行，不再有工具条按钮', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
-    final double listHeaderTop = tester.getTopLeft(find.text('标题')).dy;
+    // 排序按钮上也写着「标题」，这里只量表头那一处
+    final Finder headerTitle = find.descendant(
+      of: find.byType(TrackListView),
+      matching: find.text('标题'),
+    );
+    final double listHeaderTop = tester.getTopLeft(headerTitle).dy;
 
     await _enterSelection(tester);
 
@@ -269,7 +275,7 @@ void main() {
     expect(bar.center.dy, closeTo(playAll.center.dy, 18), reason: '应与标题按钮同一行');
     expect(bar.right, lessThan(playAll.left), reason: '不能盖住右侧按钮');
     expect(
-      tester.getTopLeft(find.text('标题')).dy,
+      tester.getTopLeft(headerTitle).dy,
       closeTo(listHeaderTop, 0.5),
       reason: '列表不应因计数下移',
     );
