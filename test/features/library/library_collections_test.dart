@@ -492,6 +492,70 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('音乐分区的多选按钮与播放全部同行同高', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('library-selection-toggle'),
+    );
+    final Finder playAll = find.text('播放全部');
+    expect(toggle, findsOneWidget, reason: '多选长在分区头部，不再挂顶栏');
+
+    final Rect toggleRect = tester.getRect(toggle);
+    // 比的是按钮本身，不是里面那行文字
+    final Rect playAllRect = tester.getRect(
+      find.ancestor(of: playAll, matching: find.byType(FilledButton)),
+    );
+    expect(toggleRect.left, greaterThan(playAllRect.left));
+    expect(
+      (toggleRect.center.dy - playAllRect.center.dy).abs(),
+      lessThan(2),
+      reason: '同一行',
+    );
+    expect(
+      toggleRect.height,
+      closeTo(playAllRect.height, 0.5),
+      reason: '高度要和「播放全部」一致，不能一高一矮',
+    );
+  });
+
+  testWidgets('详情页的多选按钮跟在「播放全部」右边', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('library-selection-toggle'),
+    );
+    final Finder playAll = find.text('播放全部');
+    // 只出现一次：标题行那份要让位，否则同 key 两个 widget
+    expect(toggle, findsOneWidget);
+
+    final Rect toggleRect = tester.getRect(toggle);
+    final Rect playAllRect = tester.getRect(playAll);
+    expect(
+      toggleRect.left,
+      greaterThan(playAllRect.left),
+      reason: '多选应当排在「播放全部」右边',
+    );
+    expect(
+      (toggleRect.center.dy - playAllRect.center.dy).abs(),
+      lessThan(8),
+      reason: '同一行，别掉到下面去',
+    );
+  });
+
   testWidgets('Esc 从专辑 / 艺术家 / 歌单详情退回列表', (WidgetTester tester) async {
     await pumpLibrary(
       tester,

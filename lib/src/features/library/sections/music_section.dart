@@ -39,6 +39,8 @@ extension _MusicSection on _LibraryPageState {
               label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
             ),
             const SizedBox(width: 8),
+            _buildSelectionToggle(context),
+            const SizedBox(width: 8),
             _SortButton(mode: _sort, onSelected: _changeSort),
           ],
         ),

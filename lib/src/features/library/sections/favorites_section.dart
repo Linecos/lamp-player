@@ -114,6 +114,8 @@ extension _FavoritesSection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
+            const SizedBox(width: 8),
+            _buildSelectionToggle(context),
           ],
         ),
         const SizedBox(height: 2),
