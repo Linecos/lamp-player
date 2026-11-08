@@ -21,6 +21,7 @@ import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
+import 'widgets/cover_backdrop.dart';
 import 'widgets/cover_flight.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
