@@ -355,8 +355,10 @@ void main() {
 
         // 真解码一次，让第二张躺在 ImageCache 里：真正换歌时它就是这条路
         final BuildContext context = tester.element(find.byType(AlbumCover));
+        // 解码尺寸要走封面组件那套分档，否则 precache 与真正的 Image
+        // 拿到的是两个不同的 provider，缓存永远命中不了
         final ImageProvider cached = ResizeImage.resizeIfNeeded(
-          (MediaQuery.devicePixelRatioOf(context) * 40).round().clamp(32, 1024),
+          coverDecodeWidth(40, MediaQuery.devicePixelRatioOf(context)),
           null,
           FileImage(File(covers[1])),
         );
