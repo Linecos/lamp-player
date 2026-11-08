@@ -13,6 +13,29 @@ const ValueListenable<bool> _alwaysSquare = AlwaysStoppedAnimation<bool>(false);
 /// 封面「飞入正在播放页」的 Hero tag：播放条与正在播放页两处必须一致。
 const String coverHeroTag = 'now-playing-cover';
 
+/// 解码宽度的档位（设备像素）：相邻两档差约 12%，肉眼看不出差别。
+///
+/// 为什么不直接用 `尺寸 × 像素比`：那等于「每个尺寸一份解码结果」。侧边栏
+/// 展开 / 收起这种**宽度连续变化**的动画里，卡片宽度每帧都不同 → 每帧给每个
+/// 可见封面重新解码一次，快速开合几轮就能堆出几百 MB（解码中间态 + 排队任务），
+/// CPU 也跟着飙。分到固定档位后，一档之内的尺寸变化命中同一份解码结果。
+const List<int> coverDecodeSteps = <int>[
+  32, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 176, 192, //
+  224, 256, 288, 320, 352, 384, 416, 448, 512, 576, 640, 704, //
+  768, 832, 896, 960, 1024,
+];
+
+/// 某块封面该按多少像素宽解码：向上取到最近的档位。
+int coverDecodeWidth(double logicalSize, double devicePixelRatio) {
+  final double pixels = logicalSize * devicePixelRatio;
+  for (final int step in coverDecodeSteps) {
+    if (pixels <= step) {
+      return step;
+    }
+  }
+  return coverDecodeSteps.last;
+}
+
 /// 专辑封面缩略图：有缓存文件就显示图片，否则回退到音符 / 播放中图标。
 ///
 /// 只接收文件路径，不依赖曲目模型，任何页面都能复用。
@@ -84,6 +107,23 @@ class _AlbumCoverState extends State<AlbumCover>
   /// [build] 时记下的像素比：预解码发生在 [didUpdateWidget]，那里读
   /// MediaQuery 会往 element 上挂依赖，只能用上一次渲染时的值
   double _devicePixelRatio = 1;
+
+  /// 当前按多少像素宽解码（见 [_decodeWidthFor]）
+  int _decodeWidth = 0;
+
+  /// 尺寸变化不超过 20% 就沿用它，只有明显变了才换档。
+  ///
+  /// 侧边栏展开 / 收起时，卡片宽度会连续变化 10%~20%，每帧都换解码尺寸
+  /// 等于每帧把可见封面全部重新解一遍（这正是那个内存 / CPU 尖刺的来源）。
+  /// 一代按 20% 的偏差，缩略图放大显示几乎看不出来。
+  int _decodeWidthFor(double size) {
+    final int wanted = coverDecodeWidth(size, _devicePixelRatio);
+    final int current = _decodeWidth;
+    if (current == 0 || wanted > current * 1.2 || wanted < current / 1.2) {
+      _decodeWidth = wanted;
+    }
+    return _decodeWidth;
+  }
 
   /// 连切时只认最后一次：每次请求自增，异步回调回来对不上就丢弃
   int _token = 0;
@@ -286,7 +326,6 @@ class _AlbumCoverState extends State<AlbumCover>
   }
 
   Widget _picture(BuildContext context, String? path, Key key) {
-    final double pixels = _devicePixelRatio * widget.size;
     final String? coverPath = path;
     return SizedBox(
       key: key,
@@ -296,7 +335,7 @@ class _AlbumCoverState extends State<AlbumCover>
           ? _fallback(context)
           : _CoverImage(
               file: File(coverPath),
-              cacheWidth: pixels.round().clamp(32, 1024),
+              cacheWidth: _decodeWidthFor(widget.size),
               fallback: _fallback(context),
             ),
     );
@@ -305,9 +344,8 @@ class _AlbumCoverState extends State<AlbumCover>
   /// 与 `Image.file(cacheWidth:)` 完全一致的提供者，预解码才能命中同一份
   /// 图片缓存——否则这张图会被解码两遍，切歌瞬间多一次重活。
   ImageProvider _providerFor(String path) {
-    final double pixels = _devicePixelRatio * widget.size;
     return ResizeImage.resizeIfNeeded(
-      pixels.round().clamp(32, 1024),
+      _decodeWidthFor(widget.size),
       null,
       FileImage(File(path)),
     );
