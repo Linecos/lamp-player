@@ -58,6 +58,25 @@ void main() {
     expect(find.byType(LibraryRail), findsOneWidget);
   });
 
+  testWidgets('Esc 从听歌统计退回设置列表', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      statsRepository: _FakeStatsRepository(),
+    );
+    await openSettings(tester);
+
+    await tester.tap(find.text('听歌统计'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ListeningStatsView), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ListeningStatsView), findsNothing, reason: 'Esc 退回设置列表');
+    expect(find.text('曲目数量'), findsOneWidget);
+  });
+
   testWidgets('打开统计是淡入过渡，不是硬切换', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
