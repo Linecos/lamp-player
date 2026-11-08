@@ -625,108 +625,140 @@ extension _PlaylistsSection on _LibraryPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _DetailBar(
-          label: '歌单',
-          onBack: () {
-            _clearSelection();
-            _update(() => _selectedPlaylistId = null);
-          },
-        ),
-        Padding(
-          padding: const EdgeInsets.only(
-            left: _detailHeaderInset,
-            top: 8,
-            bottom: 8,
-          ),
-          child: Row(
-            // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
-              if (coverPath != null && coverPath.isNotEmpty)
-                AlbumCover(path: coverPath, size: detailCoverSize, radius: 32)
-              else
-                Container(
-                  width: detailCoverSize,
-                  height: detailCoverSize,
-                  decoration: BoxDecoration(
-                    color: scheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(32),
-                  ),
-                  child: Icon(
-                    Icons.queue_music,
-                    size: detailCoverSize * 0.36,
-                    color: scheme.onSecondaryContainer,
-                  ),
-                ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${playlist.trackCount} 首 · 更新于 '
-                      '${formatPlaylistUpdated(playlist.updatedAt)}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: <Widget>[
-                        FilledButton.icon(
-                          style: _headerButtonStyle(),
-                          onPressed: _playlistTracks.isEmpty
-                              ? null
-                              : () => unawaited(_playAll(_playlistTracks)),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('播放全部'),
-                        ),
-                        // 其余四个只留图标：歌单名一长，五个带文字的按钮会把
-                        // 头部挤成两行；功能说明改成悬停时的 tooltip
-                        _headerIconAction(
-                          context,
-                          tooltip: '添加音乐',
-                          icon: Icons.add,
-                          tonal: true,
-                          onPressed: () =>
-                              unawaited(_addTracksToPlaylist(playlist)),
-                        ),
-                        _headerIconAction(
-                          context,
-                          tooltip: '导出',
-                          icon: Icons.ios_share,
-                          onPressed: () => unawaited(_exportPlaylist(playlist)),
-                        ),
-                        _headerIconAction(
-                          context,
-                          tooltip: '重命名',
-                          icon: Icons.edit_outlined,
-                          onPressed: () => unawaited(_renamePlaylist(playlist)),
-                        ),
-                        _headerIconAction(
-                          context,
-                          tooltip: '删除歌单',
-                          icon: Icons.delete_outline,
-                          color: scheme.error,
-                          onPressed: () => unawaited(_deletePlaylist(playlist)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+        Stack(
+          // 背景要铺到内容区那 16 的左右内边距外面，所以不能裁剪
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            Positioned(
+              left: -_detailHeaderInset,
+              right: -_detailHeaderInset,
+              // 贴到分区内容区的顶部（那里还留着 12 的上内边距）
+              top: -12,
+              bottom: 0,
+              child: CoverBackdrop(
+                coverPath: coverPath,
+                // 没有封面时用与那个占位图标同色的底
+                fallbackColor: scheme.secondaryContainer,
               ),
-            ],
-          ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _DetailBar(
+                  label: '歌单',
+                  onBack: () {
+                    _clearSelection();
+                    _update(() => _selectedPlaylistId = null);
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: _detailHeaderInset,
+                    top: 8,
+                    bottom: 8,
+                  ),
+                  child: Row(
+                    // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
+                      if (coverPath != null && coverPath.isNotEmpty)
+                        AlbumCover(
+                          path: coverPath,
+                          size: detailCoverSize,
+                          radius: 32,
+                        )
+                      else
+                        Container(
+                          width: detailCoverSize,
+                          height: detailCoverSize,
+                          decoration: BoxDecoration(
+                            color: scheme.secondaryContainer,
+                            borderRadius: BorderRadius.circular(32),
+                          ),
+                          child: Icon(
+                            Icons.queue_music,
+                            size: detailCoverSize * 0.36,
+                            color: scheme.onSecondaryContainer,
+                          ),
+                        ),
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              playlist.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${playlist.trackCount} 首 · 更新于 '
+                              '${formatPlaylistUpdated(playlist.updatedAt)}',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: <Widget>[
+                                FilledButton.icon(
+                                  style: _headerButtonStyle(),
+                                  onPressed: _playlistTracks.isEmpty
+                                      ? null
+                                      : () => unawaited(
+                                          _playAll(_playlistTracks),
+                                        ),
+                                  icon: const Icon(Icons.play_arrow),
+                                  label: const Text('播放全部'),
+                                ),
+                                // 其余四个只留图标：歌单名一长，五个带文字的按钮会把
+                                // 头部挤成两行；功能说明改成悬停时的 tooltip
+                                _headerIconAction(
+                                  context,
+                                  tooltip: '添加音乐',
+                                  icon: Icons.add,
+                                  tonal: true,
+                                  onPressed: () =>
+                                      unawaited(_addTracksToPlaylist(playlist)),
+                                ),
+                                _headerIconAction(
+                                  context,
+                                  tooltip: '导出',
+                                  icon: Icons.ios_share,
+                                  onPressed: () =>
+                                      unawaited(_exportPlaylist(playlist)),
+                                ),
+                                _headerIconAction(
+                                  context,
+                                  tooltip: '重命名',
+                                  icon: Icons.edit_outlined,
+                                  onPressed: () =>
+                                      unawaited(_renamePlaylist(playlist)),
+                                ),
+                                _headerIconAction(
+                                  context,
+                                  tooltip: '删除歌单',
+                                  icon: Icons.delete_outline,
+                                  color: scheme.error,
+                                  onPressed: () =>
+                                      unawaited(_deletePlaylist(playlist)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Expanded(child: _buildPlaylistTracksBody(context, playlist)),

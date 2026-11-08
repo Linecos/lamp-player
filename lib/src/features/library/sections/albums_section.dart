@@ -110,62 +110,82 @@ extension _AlbumsSection on _LibraryPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _DetailBar(
-          label: '专辑',
-          // 退回列表时让封面按原路飞回去
-          onBack: _closeAlbumDetail,
-        ),
-        Padding(
-          padding: const EdgeInsets.only(
-            left: _detailHeaderInset,
-            top: 8,
-            bottom: 8,
-          ),
-          child: Row(
-            // 文字与按钮贴住封面底边：封面撑到 240 之后，顶对齐会让右侧
-            // 上半截空着、三行信息像浮在半空
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              CoverFlightTarget(
-                key: _albumDetailCoverKey,
-                hidden: _coverFlightTag == albumCoverTag(group.key),
-                child: AlbumCover(
-                  path: group.coverPath,
-                  size: detailCoverSize,
-                  radius: 32,
+        Stack(
+          // 背景要铺到内容区那 16 的左右内边距外面，所以不能裁剪
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            Positioned(
+              left: -_detailHeaderInset,
+              right: -_detailHeaderInset,
+              // 贴到分区内容区的顶部（那里还留着 12 的上内边距）
+              top: -12,
+              bottom: 0,
+              child: CoverBackdrop(coverPath: group.coverPath),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _DetailBar(
+                  label: '专辑',
+                  // 退回列表时让封面按原路飞回去
+                  onBack: _closeAlbumDetail,
                 ),
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      group.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${group.artist} · ${group.tracks.length} 首 · '
-                      '${formatDuration(group.durationSecs)}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: _detailHeaderInset,
+                    top: 8,
+                    bottom: 8,
+                  ),
+                  child: Row(
+                    // 文字与按钮贴住封面底边：封面撑到 240 之后，顶对齐会让右侧
+                    // 上半截空着、三行信息像浮在半空
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      CoverFlightTarget(
+                        key: _albumDetailCoverKey,
+                        hidden: _coverFlightTag == albumCoverTag(group.key),
+                        child: AlbumCover(
+                          path: group.coverPath,
+                          size: detailCoverSize,
+                          radius: 32,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.tonalIcon(
-                      style: _headerButtonStyle(),
-                      onPressed: () => unawaited(_playAll(group.tracks)),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('播放全部'),
-                    ),
-                  ],
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              group.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${group.artist} · ${group.tracks.length} 首 · '
+                              '${formatDuration(group.durationSecs)}',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton.tonalIcon(
+                              style: _headerButtonStyle(),
+                              onPressed: () =>
+                                  unawaited(_playAll(group.tracks)),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('播放全部'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Expanded(
