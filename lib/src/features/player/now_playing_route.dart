@@ -9,7 +9,10 @@ import 'package:flutter/material.dart';
 /// 在 Impeller 下每帧要一张离屏图层，是转场内存尖刺的一部分——**但不能拿它
 /// 换内存**（试过去掉，页面变成「实心顶出来」，已回退），怎么省见
 /// `docs/PROJECT_MEMORY.md` §6 第 79 条。
-class NowPlayingPageRoute extends PageRouteBuilder<void> {
+class NowPlayingPageRoute extends PageRouteBuilder<Object?> {
+  /// 转场（前进或后退）没走完时收到的 pop 请求，先记下，等转场结束再执行。
+  bool _popQueued = false;
+
   NowPlayingPageRoute({required WidgetBuilder builder})
     : super(
         transitionDuration: const Duration(milliseconds: 300),
@@ -51,4 +54,53 @@ class NowPlayingPageRoute extends PageRouteBuilder<void> {
               );
             },
       );
+
+  // 转场中不允许立刻 pop：
+  //
+  // 封面 Hero 的飞行层跟着路由动画走，转场中被 pop（快速连点封面、转场中
+  // 按 Esc、托盘关页……）会撞上框架的已知缺陷——飞行层收不了尾，残骸永远
+  // 挂在 Overlay 上：岛上的封面停在不可见占位里、那张带阴影的大封面冻在
+  // 半空（flutter/flutter#121325、SO 78080285）。实测复现过一次，重启才能救。
+  //
+  // 于是这里把「转场中的 pop」排队到转场结束：行为上只是关页晚了最多 300ms，
+  // 但飞行层永远完整地走完出生与收尾。
+
+  @override
+  RoutePopDisposition get popDisposition {
+    // animation 在路由安装前是 null：那时不可能收到 pop，走 super
+    final AnimationStatus? status = animation?.status;
+    if (status != null && status != AnimationStatus.completed) {
+      return RoutePopDisposition.doNotPop;
+    }
+    return super.popDisposition;
+  }
+
+  @override
+  void onPopInvokedWithResult(bool didPop, Object? result) {
+    super.onPopInvokedWithResult(didPop, result);
+    final Animation<double>? anim = animation;
+    if (didPop || _popQueued || anim == null) {
+      return;
+    }
+    // 只有前进转场中才排队；后退转场中（已经在关了）不再补一刀，
+    // 否则等它退完会把下面的路由也带掉
+    if (anim.status != AnimationStatus.forward) {
+      return;
+    }
+    _popQueued = true;
+    anim.addStatusListener(_popWhenSettled);
+    _popWhenSettled(anim.status);
+  }
+
+  void _popWhenSettled(AnimationStatus status) {
+    if (status != AnimationStatus.completed) {
+      return;
+    }
+    animation?.removeStatusListener(_popWhenSettled);
+    if (!_popQueued) {
+      return;
+    }
+    _popQueued = false;
+    navigator?.pop();
+  }
 }

@@ -49,6 +49,83 @@ void main() {
     expect(settled.opacity.value, 1, reason: '落定后必须完全不透明');
   });
 
+  testWidgets('前进转场中 pop 会被拦下，转场结束再自动关', (WidgetTester tester) async {
+    // 转场中被 pop 是 Hero flight 残骸的触发器（flutter#121325 /
+    // SO 78080285）：飞行层跟着路由动画走，中途 pop 会撞上「收不了尾」，
+    // 残骸永远挂在 Overlay 上（实测：岛上封面消失 + 带阴影的大封面冻在半空）
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).push(
+                  NowPlayingPageRoute(
+                    builder: (BuildContext context) =>
+                        const Scaffold(body: Text('播放页')),
+                  ),
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+
+    // 转场中 pop：被 popDisposition 拦下，页面还在
+    // （用 maybePop——播放页 Esc 走的就是这条路；裸 pop() 不查 popDisposition）
+    await tester.state<NavigatorState>(find.byType(Navigator)).maybePop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('播放页'), findsOneWidget, reason: '转场中被拦下，页面不能消失');
+
+    // 转场走完：排队的 pop 自动执行
+    await tester.pumpAndSettle();
+    expect(find.text('播放页'), findsNothing, reason: '排队的 pop 要在转场结束时执行');
+    expect(find.text('打开'), findsOneWidget, reason: '回到的是下层路由');
+  });
+
+  testWidgets('后退转场中再 pop 不会把下层路由也带掉', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).push(
+                  NowPlayingPageRoute(
+                    builder: (BuildContext context) =>
+                        const Scaffold(body: Text('播放页')),
+                  ),
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    // 关一次：进入后退转场
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 手快再补一刀：被拦下且不排队，退完只关播放页这一层
+    await tester.state<NavigatorState>(find.byType(Navigator)).maybePop();
+    await tester.pumpAndSettle();
+    expect(find.text('播放页'), findsNothing);
+    expect(find.text('打开'), findsOneWidget, reason: '连按两次 Esc 也只能关到播放页为止');
+  });
+
   testWidgets('返回时反向播放：页面退回下方并淡出', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
