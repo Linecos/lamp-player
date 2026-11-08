@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
@@ -489,6 +490,63 @@ void main() {
       reason: '落地前圆角要收到卡片的 20，否则最后一下四角会突然被填上',
     );
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('Esc 从专辑 / 艺术家 / 歌单详情退回列表', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+      },
+    );
+
+    // 专辑
+    await _openSection(tester, '专辑');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_detailWithPrefix('albums-detail-'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('albums-list')),
+      findsOneWidget,
+      reason: 'Esc 退回专辑列表',
+    );
+
+    // 艺术家
+    await _openSection(tester, '艺术家');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('artists-list')),
+        matching: find.text('林间电台'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_detailWithPrefix('artists-detail-'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('artists-list')), findsOneWidget);
+
+    // 歌单
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+    expect(_playlistDetail(), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(_playlistDetail(), findsNothing, reason: 'Esc 退回歌单列表');
   });
 
   testWidgets('歌单分区可新建歌单并展示卡片', (WidgetTester tester) async {

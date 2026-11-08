@@ -1571,9 +1571,38 @@ class _LibraryPageState extends State<LibraryPage>
     }
     if (_query.isNotEmpty) {
       _clearSearch();
-    } else {
-      _releaseSearchFocus();
+      return;
     }
+    // 二级界面（歌单 / 艺术家 / 专辑详情、听歌统计）先退一级：
+    if (_leaveSubPage()) {
+      return;
+    }
+    _releaseSearchFocus();
+  }
+
+  /// 有二级界面就退回上一层，返回这次是否真的退了。
+  ///
+  /// 顺序与「侧栏再点当前分区」一致；艺术家 / 专辑走 `_closeXxxDetail`，
+  /// 顺带保留封面飞回卡片的动画。
+  bool _leaveSubPage() {
+    if (_settingsStatsOpen) {
+      _update(() => _settingsStatsOpen = false);
+      return true;
+    }
+    if (_selectedPlaylistId != null) {
+      _clearSelection();
+      _update(() => _selectedPlaylistId = null);
+      return true;
+    }
+    if (_selectedArtist != null) {
+      _closeArtistDetail();
+      return true;
+    }
+    if (_selectedAlbumKey != null) {
+      _closeAlbumDetail();
+      return true;
+    }
+    return false;
   }
 
   /// 搜索框失焦后把键盘焦点交还页面。
