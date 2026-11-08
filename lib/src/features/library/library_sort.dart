@@ -7,24 +7,25 @@ const String unknownArtist = '未知艺术家';
 const String unknownAlbum = '未知专辑';
 
 /// 曲库列表的排序方式
+///
+/// 没有「默认顺序」这一项了：按钮上只显示当前是哪种顺序（「标题」「艺术家」…），
+/// 首次打开就是按标题升序。
 enum LibrarySort {
-  /// 默认顺序：最近添加的排在前面。
-  ///
-  /// 以前这里是「不排序、沿用调用方给的顺序」，而调用方拿到的列表就是上一次
-  /// 排序的结果 —— 于是「默认顺序」实际上等于「上次选的那一种」，按标题排完
-  /// 再切回来还是标题序。现在固定成按 `addedAt` 倒序，不再受上一次选择影响。
-  library('默认顺序'),
   title('标题'),
   artist('艺术家'),
   album('专辑'),
   duration('时长'),
-
-  /// 与默认顺序同义：保留成显式选项，习惯点这一项的人照旧能找到
   added('最近添加');
 
   const LibrarySort(this.label);
 
   final String label;
+
+  /// 首次打开 / 用户没选过时的排序方式
+  static const LibrarySort defaultSort = LibrarySort.title;
+
+  /// 这一项切过去时的默认方向：只有「最近添加」是新的在前，其它都是升序
+  bool get defaultAscending => this != LibrarySort.added;
 }
 
 /// 取展示用艺术家名（空标签归为「未知艺术家」）
@@ -113,15 +114,19 @@ class _SortEntry {
 /// 按指定方式排序，返回新列表（不改动入参）。
 ///
 /// 排序规则全部是纯 Dart 逻辑，可在 `test/` 下覆盖，不依赖 Rust。
-List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
+List<Track> sortTracks(
+  Iterable<Track> tracks,
+  LibrarySort mode, {
+  bool? ascending,
+}) {
+  // 不传方向时按这一项自己的默认值：「最近添加」新的在前，其它升序
+  final bool asc = ascending ?? mode.defaultAscending;
   final List<_SortEntry> entries = <_SortEntry>[
     for (final Track track in tracks) _SortEntry(track),
   ];
   entries.sort((_SortEntry a, _SortEntry b) {
+    // 每种模式先按「升序」定义，方向由 ascending 统一翻转
     final int primary = switch (mode) {
-      // 默认顺序与「最近添加」同义：新导入的排在最前
-      LibrarySort.library ||
-      LibrarySort.added => b.track.addedAt.compareTo(a.track.addedAt),
       LibrarySort.title => a.title.compareTo(b.title),
       LibrarySort.artist => _firstNonZero(<int>[
         a.artist.compareTo(b.artist),
@@ -133,12 +138,13 @@ List<Track> sortTracks(Iterable<Track> tracks, LibrarySort mode) {
         a.artist.compareTo(b.artist),
         _compareNumber(a.track.trackNum, b.track.trackNum),
       ]),
-      LibrarySort.duration => b.track.durationSecs.compareTo(
-        a.track.durationSecs,
+      LibrarySort.duration => a.track.durationSecs.compareTo(
+        b.track.durationSecs,
       ),
+      LibrarySort.added => a.track.addedAt.compareTo(b.track.addedAt),
     };
     if (primary != 0) {
-      return primary;
+      return asc ? primary : -primary;
     }
     // 同值时用标题、路径兜底，保证顺序稳定、可预期
     return _firstNonZero(<int>[

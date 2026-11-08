@@ -22,7 +22,7 @@ extension _DataSection on _LibraryPageState {
         return;
       }
       _update(() {
-        _tracks = sortTracks(tracks, _sort);
+        _tracks = sortTracks(tracks, _sort, ascending: _sortAscending);
         // 扫描会刷新标签：旧的拼音键可能已经对不上新标题，整体作废
         _pinyinKeys.clear();
         _pinyinWarmedCount = 0;

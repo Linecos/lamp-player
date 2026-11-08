@@ -24,21 +24,17 @@ void main() {
   });
 
   group('排序', () {
-    test('默认顺序固定按最近添加倒序，与调用方顺序无关', () {
+    test('默认就是标题升序', () {
       final List<Track> tracks = <Track>[
         sampleTrack(title: '乙', artist: 'B', addedAt: 100),
         sampleTrack(title: '甲', artist: 'A', addedAt: 300),
       ];
 
+      expect(LibrarySort.defaultSort, LibrarySort.title);
+      expect(LibrarySort.defaultSort.defaultAscending, isTrue);
       expect(
-        sortTracks(tracks, LibrarySort.library).map((Track t) => t.title),
-        <String>['甲', '乙'],
-      );
-      // 先按标题排过一遍再切回默认，结果仍是最近添加序——不再是「上次的排序」
-      final List<Track> byTitle = sortTracks(tracks, LibrarySort.title);
-      expect(
-        sortTracks(byTitle, LibrarySort.library).map((Track t) => t.title),
-        <String>['甲', '乙'],
+        sortTracks(tracks, LibrarySort.defaultSort).map((Track t) => t.title),
+        <String>['乙', '甲'],
       );
     });
 
@@ -84,15 +80,18 @@ void main() {
 
       final List<String> byDefault = sortTracks(
         tracks,
-        LibrarySort.library,
-      ).map((Track track) => track.title).toList();
-      final List<String> byAdded = sortTracks(
-        tracks,
         LibrarySort.added,
       ).map((Track track) => track.title).toList();
+      // 切到「最近添加」时方向默认是降序（新的在前）
+      final List<String> reversed = sortTracks(
+        tracks,
+        LibrarySort.added,
+        ascending: true,
+      ).map((Track track) => track.title).toList();
 
-      expect(byAdded, <String>['新', '中', '旧']);
-      expect(byAdded, byDefault);
+      expect(LibrarySort.added.defaultAscending, isFalse);
+      expect(byDefault, <String>['新', '中', '旧']);
+      expect(reversed, <String>['旧', '中', '新']);
     });
 
     test('同一时刻添加的曲目按标题兜底，顺序稳定', () {
@@ -102,12 +101,12 @@ void main() {
       ];
 
       expect(
-        sortTracks(tracks, LibrarySort.library).map((Track t) => t.title),
+        sortTracks(tracks, LibrarySort.added).map((Track t) => t.title),
         <String>['a', 'b'],
       );
     });
 
-    test('按时长倒序', () {
+    test('按时长：默认升序，切方向就倒过来', () {
       final List<Track> tracks = <Track>[
         sampleTrack(title: '短', durationSecs: 60),
         sampleTrack(title: '长', durationSecs: 300),
@@ -118,6 +117,14 @@ void main() {
         sortTracks(
           tracks,
           LibrarySort.duration,
+        ).map((Track track) => track.title),
+        <String>['短', '中', '长'],
+      );
+      expect(
+        sortTracks(
+          tracks,
+          LibrarySort.duration,
+          ascending: false,
         ).map((Track track) => track.title),
         <String>['长', '中', '短'],
       );

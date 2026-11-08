@@ -18,7 +18,7 @@ void main() {
     expect(snapshot.shuffle, isFalse);
     expect(snapshot.section, isNull);
     expect(snapshot.railExpanded, isTrue);
-    expect(snapshot.sort, LibrarySort.library);
+    expect(snapshot.sort, LibrarySort.title);
     expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
     expect(snapshot.flowBackground, isTrue, reason: '默认开启流光背景');
     expect(snapshot.circularCovers, isFalse, reason: '圆形封面默认关闭');
@@ -95,7 +95,7 @@ void main() {
     });
 
     final SessionSnapshot snapshot = await const PrefsSessionStore().load();
-    expect(snapshot.sort, LibrarySort.library);
+    expect(snapshot.sort, LibrarySort.title);
   });
 
   test('「最近添加」仍能被存档解析', () async {

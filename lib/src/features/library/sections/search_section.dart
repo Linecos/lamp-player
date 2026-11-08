@@ -149,7 +149,7 @@ extension _SearchSection on _LibraryPageState {
       }
 
       _update(() {
-        _results = sortTracks(merged, _sort);
+        _results = sortTracks(merged, _sort, ascending: _sortAscending);
         _searchTruncated = truncated || merged.length > _searchLimit;
         _searching = false;
       });
@@ -186,12 +186,28 @@ extension _SearchSection on _LibraryPageState {
     }
     _update(() {
       _sort = sort;
-      _tracks = sortTracks(_tracks, sort);
-      final List<Track>? results = _results;
-      if (results != null) {
-        _results = sortTracks(results, sort);
-      }
+      // 换排序方式时方向跟着这项的默认走：只有「最近添加」是新的在前
+      _sortAscending = sort.defaultAscending;
+      _resortTracks();
     });
     _saveSessionNow();
+  }
+
+  /// 只翻方向，不动排序方式
+  void _toggleSortDirection() {
+    _update(() {
+      _sortAscending = !_sortAscending;
+      _resortTracks();
+    });
+    _saveSessionNow();
+  }
+
+  /// 按当前排序方式与方向重排内存里的曲目（不重新读库）
+  void _resortTracks() {
+    _tracks = sortTracks(_tracks, _sort, ascending: _sortAscending);
+    final List<Track>? results = _results;
+    if (results != null) {
+      _results = sortTracks(results, _sort, ascending: _sortAscending);
+    }
   }
 }
