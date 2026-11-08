@@ -170,12 +170,20 @@ extension _AlbumsSection on _LibraryPageState {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            FilledButton.tonalIcon(
-                              style: _headerButtonStyle(),
-                              onPressed: () =>
-                                  unawaited(_playAll(group.tracks)),
-                              icon: const Icon(Icons.play_arrow),
-                              label: const Text('播放全部'),
+                            Row(
+                              children: <Widget>[
+                                FilledButton.tonalIcon(
+                                  style: _headerButtonStyle(),
+                                  onPressed: () =>
+                                      unawaited(_playAll(group.tracks)),
+                                  icon: const Icon(Icons.play_arrow),
+                                  label: const Text('播放全部'),
+                                ),
+                                const SizedBox(width: 12),
+                                // 与其它功能按钮同行：多选原来在页面顶栏，
+                                // 要跨半个屏幕去点
+                                _buildSelectionToggle(context),
+                              ],
                             ),
                           ],
                         ),

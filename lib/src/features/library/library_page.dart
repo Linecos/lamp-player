@@ -1666,7 +1666,9 @@ class _LibraryPageState extends State<LibraryPage>
     }
   }
 
-  /// 页面顶栏：搜索、多选入口与窗口拖动区。
+  /// 页面顶栏：搜索与窗口拖动区。
+  ///
+  /// 多选入口不在这里：它跟着各分区的「播放全部」走，见 [_buildSelectionToggle]。
   ///
   /// 右侧 [LampTitleBar.controlsWidth] 留给悬浮在最上层的窗口按钮，
   /// 空白处交给拖动区，交互控件盖在拖动区之上。
@@ -1698,11 +1700,6 @@ class _LibraryPageState extends State<LibraryPage>
                     child: _buildSearchField(context),
                   ),
                 ),
-                if (_selectionMode ||
-                    _selectionVisibleTracks.isNotEmpty) ...<Widget>[
-                  const SizedBox(width: 12),
-                  _buildSelectionToggle(context),
-                ],
               ],
             ),
           ),

@@ -716,6 +716,9 @@ extension _PlaylistsSection on _LibraryPageState {
                                   icon: const Icon(Icons.play_arrow),
                                   label: const Text('播放全部'),
                                 ),
+                                // 多选紧跟「播放全部」：原来它挂在页面顶栏，
+                                // 要跨半个屏幕去点
+                                _buildSelectionToggle(context),
                                 // 其余四个只留图标：歌单名一长，五个带文字的按钮会把
                                 // 头部挤成两行；功能说明改成悬停时的 tooltip
                                 _headerIconAction(

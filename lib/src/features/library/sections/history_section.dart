@@ -101,6 +101,8 @@ extension _HistorySection on _LibraryPageState {
               label: const Text('播放全部'),
             ),
             const SizedBox(width: 8),
+            _buildSelectionToggle(context),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               style: _headerButtonStyle().copyWith(
                 foregroundColor: WidgetStatePropertyAll<Color>(scheme.error),

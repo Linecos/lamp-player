@@ -159,6 +159,8 @@ extension _SelectionSection on _LibraryPageState {
   Widget _buildSelectionToggle(BuildContext context) {
     return OutlinedButton.icon(
       key: const ValueKey<String>('library-selection-toggle'),
+      // 与「播放全部」等按钮同一套高度 / 内边距，并排时不会一高一矮
+      style: _headerButtonStyle(),
       onPressed: _toggleSelectionMode,
       icon: Icon(_selectionMode ? Icons.close : Icons.checklist),
       label: Text(_selectionMode ? '退出多选' : '多选'),
