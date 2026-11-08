@@ -241,6 +241,13 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                           child: ListTile(
                             key: ValueKey<String>('queue-item-$index'),
                             selected: current,
+                            // 悬停 / 水波纹是画在最近 Material 上的墨迹，不给 shape 就是直角块，
+                            // 而下面那层选中色（DecoratedBox）反而是圆的
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(16),
+                              ),
+                            ),
                             contentPadding: const EdgeInsets.only(
                               left: 24,
                               right: 8,

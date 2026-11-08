@@ -149,6 +149,10 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
                   itemBuilder: (BuildContext context, int index) {
                     final Playlist playlist = playlists[index];
                     return ListTile(
+                      // 悬停 / 水波纹是画在最近 Material 上的墨迹，不给 shape 就是直角
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(16)),
+                      ),
                       leading: const Icon(Icons.queue_music),
                       title: Text(
                         playlist.name,
@@ -325,6 +329,9 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
                         final bool added = _added.contains(track.path);
                         final bool busy = _busy.contains(track.path);
                         return ListTile(
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(16)),
+                          ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 4,
                           ),
