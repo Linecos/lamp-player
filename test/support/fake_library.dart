@@ -206,8 +206,9 @@ class FakeLibraryRepository implements LibraryRepository {
     if (playlist.paths.contains(path)) {
       return false;
     }
+    // 新加的歌放最前，与 Rust 侧 COALESCE(MIN(position), 0) - 1 一致
     playlist
-      ..paths.add(path)
+      ..paths.insert(0, path)
       ..updatedAt = _now();
     return true;
   }
@@ -222,14 +223,17 @@ class FakeLibraryRepository implements LibraryRepository {
       }
     }
     int added = 0;
-    for (final String path in paths.toSet()) {
-      if (playlist.paths.contains(path)) {
+    final List<String> fresh = <String>[];
+    for (final String path in paths) {
+      if (playlist.paths.contains(path) || fresh.contains(path)) {
         continue;
       }
-      playlist.paths.add(path);
+      fresh.add(path);
       added += 1;
     }
     if (added > 0) {
+      // 整批插到最前，且保持 paths 给的顺序（与 Rust 侧倒序插入等价）
+      playlist.paths.insertAll(0, fresh);
       playlist.updatedAt = _now();
     }
     return added;
@@ -430,8 +434,10 @@ class FakeLibraryRepository implements LibraryRepository {
   );
 
   /// 与 Rust 侧一致：最新加入、且确实有封面的那首
+  ///
+  /// 新加的歌排在最前（见 [addTrackToPlaylist]），所以从前往后找
   String? _latestPlaylistCover(_FakePlaylist playlist) {
-    for (final String path in playlist.paths.reversed) {
+    for (final String path in playlist.paths) {
       final String cover = _trackByPath(path)?.coverPath ?? '';
       if (cover.isNotEmpty) {
         return cover;

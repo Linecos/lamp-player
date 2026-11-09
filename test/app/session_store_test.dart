@@ -22,6 +22,9 @@ void main() {
     expect(snapshot.coverBackfillAttempted, isFalse, reason: '老用户升级后应触发一次封面补扫');
     expect(snapshot.flowBackground, isTrue, reason: '默认开启流光背景');
     expect(snapshot.circularCovers, isFalse, reason: '圆形封面默认关闭');
+    expect(snapshot.detailSort, LibrarySort.title, reason: '专辑 / 艺术家详情默认标题');
+    expect(snapshot.manualSort, isNull, reason: '歌单 / 收藏默认「自定义」');
+    expect(snapshot.favoriteOrder, isEmpty);
   });
 
   test('保存后可以完整读回', () async {
@@ -39,6 +42,11 @@ void main() {
         section: 'favorites',
         railExpanded: false,
         sort: LibrarySort.title,
+        detailSort: LibrarySort.duration,
+        detailAscending: false,
+        manualSort: LibrarySort.artist,
+        manualAscending: false,
+        favoriteOrder: <String>['/music/a.mp3', '/music/b.mp3'],
         coverBackfillAttempted: true,
       ),
     );
@@ -53,6 +61,11 @@ void main() {
     expect(snapshot.section, 'favorites');
     expect(snapshot.railExpanded, isFalse);
     expect(snapshot.sort, LibrarySort.title);
+    expect(snapshot.detailSort, LibrarySort.duration);
+    expect(snapshot.detailAscending, isFalse);
+    expect(snapshot.manualSort, LibrarySort.artist);
+    expect(snapshot.manualAscending, isFalse);
+    expect(snapshot.favoriteOrder, <String>['/music/a.mp3', '/music/b.mp3']);
     expect(snapshot.coverBackfillAttempted, isTrue);
   });
 

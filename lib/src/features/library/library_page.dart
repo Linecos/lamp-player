@@ -343,6 +343,108 @@ class _LibraryPageState extends State<LibraryPage>
   /// 「最近添加」切过来时默认降序（新的在前），见 [LibrarySort.defaultAscending]。
   bool _sortAscending = true;
 
+  /// 专辑详情 / 艺术家详情的排序方式：默认标题 A→Z（这两处没有「自定义」，
+  /// 专辑曲序本来就在音轨号里，想按 CD 顺序看就是「专辑」这一项）。
+  LibrarySort _detailSort = LibrarySort.title;
+
+  /// 上面那种排序的方向：true = 升序
+  bool _detailAscending = true;
+
+  /// 歌单详情 / 收藏的排序方式；`null` = **自定义**（手动拖出来的顺序）。
+  ///
+  /// 这两处的原顺序是用户自己拖的，所以「不排序」这个状态该叫自定义；
+  /// 在任意排序下拖动一次六点抓手，就会落库并把排序切回这里。
+  LibrarySort? _manualSort;
+
+  /// 上面那种排序的方向：true = 升序
+  bool _manualAscending = true;
+
+  /// 收藏的自定义顺序（路径列表）；空表示还没拖过，按收藏先后显示
+  List<String> _favoriteOrder = const <String>[];
+
+  /// 专辑 / 艺术家详情按当前排序整理一份曲目
+  List<Track> _sortDetailTracks(List<Track> tracks) =>
+      sortTracks(tracks, _detailSort, ascending: _detailAscending);
+
+  /// 歌单 / 收藏按当前排序整理一份曲目；自定义（null）时原样返回
+  List<Track> _sortManualTracks(List<Track> tracks) {
+    final LibrarySort? mode = _manualSort;
+    if (mode == null) {
+      return tracks;
+    }
+    return sortTracks(tracks, mode, ascending: _manualAscending);
+  }
+
+  /// 切换专辑 / 艺术家详情的排序
+  void _changeDetailSort(LibrarySort sort) {
+    if (sort == _detailSort) {
+      return;
+    }
+    _update(() {
+      _detailSort = sort;
+      _detailAscending = sort.defaultAscending;
+    });
+    _saveSessionNow();
+  }
+
+  void _toggleDetailSortDirection() {
+    _update(() => _detailAscending = !_detailAscending);
+    _saveSessionNow();
+  }
+
+  /// 切换歌单 / 收藏的排序；选「自定义」时方向不再有意义
+  void _changeManualSort(LibrarySort? sort) {
+    if (sort == _manualSort) {
+      return;
+    }
+    _update(() {
+      _manualSort = sort;
+      if (sort != null) {
+        _manualAscending = sort.defaultAscending;
+      }
+    });
+    _saveSessionNow();
+  }
+
+  void _toggleManualSortDirection() {
+    if (_manualSort == null) {
+      return;
+    }
+    _update(() => _manualAscending = !_manualAscending);
+    _saveSessionNow();
+  }
+
+  /// 一次拖拽之后，手动顺序应该变成什么样。
+  ///
+  /// [displayed] 是当前看到的顺序（可能正按标题排着），[manual] 是自定义顺序：
+  /// 把被拖的那一首从 [manual] 里摘出来，插到「它现在的前一件」后面——
+  /// 这样在任意排序下拖一次，得到的自定义顺序都符合眼睛看到的位置关系。
+  List<Track> _manualOrderAfterDrag(
+    List<Track> displayed,
+    List<Track> manual,
+    int from,
+    int to,
+  ) {
+    if (from < 0 || from >= displayed.length) {
+      return manual;
+    }
+    final Track moved = displayed[from];
+    final List<Track> after = List<Track>.of(displayed);
+    final int target = to.clamp(0, after.length - 1);
+    after.insert(target, after.removeAt(from));
+    final List<Track> next = manual
+        .where((Track track) => track.path != moved.path)
+        .toList();
+    if (target == 0) {
+      next.insert(0, moved);
+      return next;
+    }
+    final String anchor = after[target - 1].path;
+    final int at = next.indexWhere((Track track) => track.path == anchor);
+    next.insert(at < 0 ? next.length : at + 1, moved);
+    return next;
+  }
+
   List<Track> _tracks = const <Track>[];
 
   /// 曲库加载的请求代次。
@@ -877,6 +979,11 @@ class _LibraryPageState extends State<LibraryPage>
       _railNotifier.value = _railExpanded;
       _sort = snapshot.sort;
       _sortAscending = snapshot.sortAscending;
+      _detailSort = snapshot.detailSort;
+      _detailAscending = snapshot.detailAscending;
+      _manualSort = snapshot.manualSort;
+      _manualAscending = snapshot.manualAscending;
+      _favoriteOrder = snapshot.favoriteOrder;
       _tracks = sortTracks(
         _tracks,
         snapshot.sort,
@@ -1028,6 +1135,11 @@ class _LibraryPageState extends State<LibraryPage>
       railExpanded: _railExpanded,
       sort: _sort,
       sortAscending: _sortAscending,
+      detailSort: _detailSort,
+      detailAscending: _detailAscending,
+      manualSort: _manualSort,
+      manualAscending: _manualAscending,
+      favoriteOrder: _favoriteOrder,
       coverBackfillAttempted: _coverBackfillAttempted,
       exclusiveOutput: _exclusive,
       eqEnabled: _eqEnabled,
@@ -2110,6 +2222,9 @@ class _LibraryPageState extends State<LibraryPage>
 }
 
 /// 标题右侧的排序下拉，外观是描边胶囊。
+/// 「自定义」的图标：歌单 / 收藏里表示「按手动拖出来的顺序」
+const IconData _manualOrderIcon = Icons.reorder;
+
 /// 排序方式对应的图标（菜单里共用）
 IconData _sortIconOf(LibrarySort sort) => switch (sort) {
   LibrarySort.title => Icons.text_fields,
@@ -2155,6 +2270,18 @@ class _SortArrowPainter extends CustomPainter {
       old.ascending != ascending || old.color != color;
 }
 
+/// 排序菜单里的一项。
+///
+/// `PopupMenuButton` 把选中的 `null` 当成「用户点了菜单外面取消」，所以
+/// 「自定义」不能直接用 `null` 当值——包一层才能选中它。
+class _SortChoice {
+  const _SortChoice(this.sort);
+
+  final LibrarySort? sort;
+
+  static const _SortChoice manual = _SortChoice(null);
+}
+
 /// 两段式排序控件：
 ///
 /// 左段点开选方式（标题 / 艺术家 / …），右段一个箭头翻升降序。
@@ -2165,21 +2292,37 @@ class _SortButton extends StatelessWidget {
     required this.ascending,
     required this.onSelected,
     required this.onToggleDirection,
+    this.allowManual = false,
+    this.keySuffix,
   });
 
-  final LibrarySort mode;
+  /// 当前排序方式；`null` = 原序（只有 [allowOriginal] 时才会出现）
+  final LibrarySort? mode;
 
   /// true = 升序
   final bool ascending;
-  final ValueChanged<LibrarySort> onSelected;
+  final ValueChanged<LibrarySort?> onSelected;
   final VoidCallback onToggleDirection;
+
+  /// 菜单里是否提供「自定义」：歌单 / 收藏用（那两处的顺序是用户自己拖的），
+  /// 歌曲页与专辑 / 艺术家详情没有这一项
+  final bool allowManual;
+
+  /// 测试定位用的 key 后缀。
+  ///
+  /// 分区都是 Offstage 常驻的，几处排序控件会同时挂在树上，不带后缀就撞 key。
+  /// 歌曲页沿用 `library-sort`，其余各自带后缀。
+  final String? keySuffix;
+
+  String get _key =>
+      keySuffix == null ? 'library-sort' : 'library-sort-$keySuffix';
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     return Container(
-      key: const ValueKey<String>('library-sort'),
+      key: ValueKey<String>(_key),
       height: _headerControlHeight,
       // 两段的墨迹都要贴着胶囊圆角裁掉
       clipBehavior: Clip.antiAlias,
@@ -2194,14 +2337,37 @@ class _SortButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            PopupMenuButton<LibrarySort>(
+            PopupMenuButton<_SortChoice>(
               tooltip: '排序方式',
-              onSelected: onSelected,
+              onSelected: (_SortChoice choice) => onSelected(choice.sort),
               itemBuilder: (BuildContext context) =>
-                  <PopupMenuEntry<LibrarySort>>[
+                  <PopupMenuEntry<_SortChoice>>[
+                    // 「自定义」排第一位：拖完想回到手动顺序时最好找
+                    if (allowManual)
+                      PopupMenuItem<_SortChoice>(
+                        value: _SortChoice.manual,
+                        child: Row(
+                          children: <Widget>[
+                            Icon(
+                              _manualOrderIcon,
+                              size: 18,
+                              color: mode == null
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              '自定义',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: mode == null ? scheme.primary : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     for (final LibrarySort item in LibrarySort.values)
-                      PopupMenuItem<LibrarySort>(
-                        value: item,
+                      PopupMenuItem<_SortChoice>(
+                        value: _SortChoice(item),
                         child: Row(
                           children: <Widget>[
                             Icon(
@@ -2234,8 +2400,8 @@ class _SortButton extends StatelessWidget {
                     children: <Widget>[
                       // 按钮上只显示「标题」这类顺序名，不写「排序：」
                       Text(
-                        mode.label,
-                        key: const ValueKey<String>('library-sort-label'),
+                        mode?.label ?? '自定义',
+                        key: ValueKey<String>('$_key-label'),
                         style: theme.textTheme.labelLarge?.copyWith(
                           color: scheme.primary,
                         ),
@@ -2252,10 +2418,11 @@ class _SortButton extends StatelessWidget {
               ),
             ),
             Container(width: 1, height: 20, color: scheme.outlineVariant),
+            // 原序没有方向可言：箭头压暗且不可点，免得点了没反应
             Tooltip(
-              message: ascending ? '升序' : '降序',
+              message: mode == null ? '自定义' : (ascending ? '升序' : '降序'),
               child: InkWell(
-                onTap: onToggleDirection,
+                onTap: mode == null ? null : onToggleDirection,
                 child: SizedBox(
                   width: 40,
                   height: _headerControlHeight,
@@ -2264,7 +2431,9 @@ class _SortButton extends StatelessWidget {
                       size: const Size.square(18),
                       painter: _SortArrowPainter(
                         ascending: ascending,
-                        color: scheme.onSurfaceVariant,
+                        color: mode == null
+                            ? scheme.onSurfaceVariant.withValues(alpha: 0.32)
+                            : scheme.onSurfaceVariant,
                       ),
                     ),
                   ),

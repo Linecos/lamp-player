@@ -616,6 +616,192 @@ void main() {
     expect(_playlistDetail(), findsNothing, reason: 'Esc 退回歌单列表');
   });
 
+  testWidgets('专辑详情默认按标题升序，改成时长排序后顺序变化', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        // 音轨号 1 在前、时长较短；标题字母序是 A → B
+        sampleTrack(
+          title: 'B 曲',
+          album: '夜之专辑',
+          path: '/music/b.mp3',
+          trackNum: 1,
+          durationSecs: 120,
+        ),
+        sampleTrack(
+          title: 'A 曲',
+          album: '夜之专辑',
+          path: '/music/a.mp3',
+          trackNum: 2,
+          durationSecs: 300,
+        ),
+      ],
+    );
+    await _openSection(tester, '专辑');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    double topOf(String title) => tester.getTopLeft(find.text(title)).dy;
+    final Finder sort = find.byKey(
+      const ValueKey<String>('library-sort-album-detail'),
+    );
+    final Finder label = find.byKey(
+      const ValueKey<String>('library-sort-album-detail-label'),
+    );
+
+    // 默认标题 A→Z：专辑 / 艺术家详情没有「原序」这一项
+    expect(tester.widget<Text>(label).data, '标题');
+    expect(topOf('A 曲'), lessThan(topOf('B 曲')));
+
+    // 换成时长：B（120s）排到 A（300s）前面
+    await tester.tap(sort);
+    await tester.pumpAndSettle();
+    expect(find.text('自定义'), findsNothing, reason: '这里不该有「自定义」');
+    await tester.tap(find.text('时长').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(label).data, '时长');
+    expect(topOf('B 曲'), lessThan(topOf('A 曲')));
+
+    // 切回标题
+    await tester.tap(sort);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标题').last);
+    await tester.pumpAndSettle();
+    expect(topOf('A 曲'), lessThan(topOf('B 曲')));
+  });
+
+  testWidgets('收藏默认是自定义顺序，可以排序，拖一次会存成自定义', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: 'B 曲', path: '/music/b.mp3'),
+        sampleTrack(title: 'A 曲', path: '/music/a.mp3'),
+        sampleTrack(title: 'C 曲', path: '/music/c.mp3'),
+      ],
+      sessionStore: session,
+      seed: (FakeLibraryRepository repo) async {
+        for (final String path in <String>[
+          '/music/b.mp3',
+          '/music/a.mp3',
+          '/music/c.mp3',
+        ]) {
+          await repo.setFavorite(path, true);
+        }
+      },
+    );
+    await openFavorites(tester);
+
+    double topOf(String title) => tester.getTopLeft(find.text(title)).dy;
+    final Finder sort = find.byKey(
+      const ValueKey<String>('library-sort-favorites'),
+    );
+    final Finder label = find.byKey(
+      const ValueKey<String>('library-sort-favorites-label'),
+    );
+
+    // 默认「自定义」：按收藏先后（B 先收藏）
+    expect(tester.widget<Text>(label).data, '自定义');
+    expect(topOf('B 曲'), lessThan(topOf('A 曲')));
+
+    // 按标题排
+    await tester.tap(sort);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标题').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(label).data, '标题');
+    expect(topOf('A 曲'), lessThan(topOf('B 曲')));
+
+    // 在标题排序下拖一次：顺序落库成自定义，按钮跟着变回「自定义」
+    final TrackListView list = tester.widget<TrackListView>(
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w is TrackListView &&
+            w.storageKey is PageStorageKey<String> &&
+            (w.storageKey! as PageStorageKey<String>).value ==
+                'tracks:favorites',
+      ),
+    );
+    expect(list.onReorder, isNotNull, reason: '收藏要有六点抓手');
+    list.onReorder!(2, 0);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Text>(label).data, '自定义', reason: '手动拖过之后就是自定义顺序');
+    expect(session.snapshot.favoriteOrder, <String>[
+      '/music/c.mp3',
+      '/music/b.mp3',
+      '/music/a.mp3',
+    ], reason: '自定义顺序要存盘：C 被拖到最前，其余保持原相对顺序');
+    expect(topOf('C 曲'), lessThan(topOf('B 曲')));
+  });
+
+  testWidgets('歌单在标题排序下拖一次，会落库并切回自定义', (WidgetTester tester) async {
+    final FakeLibraryRepository repo = await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: 'A 曲', path: '/music/a.mp3'),
+        sampleTrack(title: 'B 曲', path: '/music/b.mp3'),
+        sampleTrack(title: 'C 曲', path: '/music/c.mp3'),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        // 新加的歌排最前：倒着加才能得到 A、B、C 的手动顺序
+        for (final String path in <String>[
+          '/music/c.mp3',
+          '/music/b.mp3',
+          '/music/a.mp3',
+        ]) {
+          await repo.addTrackToPlaylist(playlist.id.toInt(), path);
+        }
+      },
+    );
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+
+    final Finder sort = find.byKey(
+      const ValueKey<String>('library-sort-playlist-detail'),
+    );
+    final Finder label = find.byKey(
+      const ValueKey<String>('library-sort-playlist-detail-label'),
+    );
+    expect(tester.widget<Text>(label).data, '自定义');
+
+    // 先按标题（此时顺序刚好也是 A、B、C）
+    await tester.tap(sort);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标题').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(label).data, '标题');
+
+    // 拖动把手仍在：把 C 拖到最前 → 落库 (2, 0)，并切回自定义
+    final TrackListView list = tester.widget<TrackListView>(
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w is TrackListView &&
+            w.storageKey is PageStorageKey<String> &&
+            (w.storageKey as PageStorageKey<String>).value.startsWith(
+              'tracks:playlist:',
+            ),
+      ),
+    );
+    expect(list.onReorder, isNotNull, reason: '排序视图下也要能拖');
+    list.onReorder!(2, 0);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Text>(label).data, '自定义');
+    expect(repo.movePlaylistCalls.last, (1, 2, 0), reason: '按手动顺序落库');
+    expect(
+      tester.getTopLeft(find.text('C 曲')).dy,
+      lessThan(tester.getTopLeft(find.text('A 曲')).dy),
+    );
+  });
+
   testWidgets('歌单拖拽落库期间不换列表控件（换了文字会抽动一下）', (WidgetTester tester) async {
     final FakeLibraryRepository repo = await pumpLibrary(
       tester,

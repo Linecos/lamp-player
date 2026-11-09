@@ -119,8 +119,8 @@ fn playlist_crud_and_item_lifecycle() {
     let items = collections::playlist_tracks(playlist.id).expect("歌单曲目");
     assert_eq!(
         items.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
-        vec!["B", "A"],
-        "按加入顺序排列"
+        vec!["A", "B"],
+        "新加的歌排在最前（先加 B 再加 A，所以 A 在上一行）"
     );
 
     collections::rename_playlist(playlist.id, "Late Night".to_string()).expect("重命名");
@@ -548,23 +548,23 @@ fn playlist_move_reorders_and_normalizes_positions() {
             .map(|track| track.title)
             .collect()
     };
-    assert_eq!(titles(), vec!["A", "B", "C"], "新加入的排在末尾");
+    assert_eq!(titles(), vec!["C", "B", "A"], "新加入的排在最前");
 
     collections::move_playlist_track(playlist.id, 2, 0).expect("挪到最前");
-    assert_eq!(titles(), vec!["C", "A", "B"]);
+    assert_eq!(titles(), vec!["A", "C", "B"]);
 
     // 越界的 to 夹到末尾，不会报错也不会丢条目
     collections::move_playlist_track(playlist.id, 0, 99).expect("挪到末尾");
-    assert_eq!(titles(), vec!["A", "B", "C"]);
+    assert_eq!(titles(), vec!["C", "B", "A"]);
 
     assert!(
         collections::move_playlist_track(playlist.id, 9, 0).is_err(),
         "越界的 from 应报错"
     );
 
-    // 重排后新加的曲目仍然追加在末尾
+    // 重排后新加的曲目仍然排在最前
     collections::add_track_to_playlist(playlist.id, "/music/d.mp3".to_string()).expect("加 D");
-    assert_eq!(titles(), vec!["A", "B", "C", "D"]);
+    assert_eq!(titles(), vec!["D", "C", "B", "A"]);
 }
 
 /// 歌单里有隐藏曲目时拖拽排序：不能和隐藏行的 position 撞号。
@@ -589,7 +589,8 @@ fn moving_playlist_track_keeps_positions_unique_with_hidden_rows() {
     }
     db::hide_tracks(vec!["/music/b.mp3".to_string()]).expect("隐藏 B");
 
-    // 界面上看到的是 [A, C]：把 C 拖到最前
+    // 新加的歌排最前，所以加入 A、B、C 之后槽位是 [C, B, A]；
+    // 隐藏 B 后界面上看到 [C, A]，把 A 拖到最前
     collections::move_playlist_track(playlist.id, 1, 0).expect("拖拽");
 
     // 直接看 position 全量，确认唯一（另开连接读，不惊动单例）
@@ -610,7 +611,7 @@ fn moving_playlist_track_keeps_positions_unique_with_hidden_rows() {
         .iter()
         .map(|t| t.title.clone())
         .collect();
-    assert_eq!(visible, vec!["C", "A"], "可见顺序按拖拽结果");
+    assert_eq!(visible, vec!["A", "C"], "可见顺序按拖拽结果");
 
     // 恢复 B：仍在它原来的槽位（A 与 C 之间）
     db::unhide_tracks(vec!["/music/b.mp3".to_string()]).expect("恢复");
@@ -619,7 +620,7 @@ fn moving_playlist_track_keeps_positions_unique_with_hidden_rows() {
         .iter()
         .map(|t| t.title.clone())
         .collect();
-    assert_eq!(after, vec!["C", "B", "A"]);
+    assert_eq!(after, vec!["A", "B", "C"]);
 }
 
 /// 批量移出歌单：整批一个事务，返回真正删掉的条数。

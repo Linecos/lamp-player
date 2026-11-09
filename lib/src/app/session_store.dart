@@ -24,6 +24,11 @@ class SessionSnapshot {
     this.railExpanded = true,
     this.sort = LibrarySort.defaultSort,
     this.sortAscending = true,
+    this.detailSort = LibrarySort.title,
+    this.detailAscending = true,
+    this.manualSort,
+    this.manualAscending = true,
+    this.favoriteOrder = const <String>[],
     this.coverBackfillAttempted = false,
     this.exclusiveOutput = false,
     this.eqEnabled = false,
@@ -66,6 +71,21 @@ class SessionSnapshot {
 
   /// 排序方向：true = 升序
   final bool sortAscending;
+
+  /// 专辑 / 艺术家详情的排序方式：默认标题 A→Z
+  final LibrarySort detailSort;
+
+  /// 上面那种排序的方向：true = 升序
+  final bool detailAscending;
+
+  /// 歌单详情 / 收藏的排序方式；`null` = 自定义（手动拖出来的顺序）
+  final LibrarySort? manualSort;
+
+  /// 上面那种排序的方向：true = 升序
+  final bool manualAscending;
+
+  /// 收藏的自定义顺序（路径列表）；空 = 还没拖过，按收藏先后
+  final List<String> favoriteOrder;
 
   /// 是否已经尝试过「升级后自动补扫封面」。
   ///
@@ -176,6 +196,11 @@ class PrefsSessionStore implements SessionStore {
   static const int desktopLyricFontSizeStep = 3;
   static const String sortKey = 'ui_sort';
   static const String sortAscendingKey = 'ui_sort_ascending';
+  static const String detailSortKey = 'ui_detail_sort';
+  static const String detailAscendingKey = 'ui_detail_ascending';
+  static const String manualSortKey = 'ui_manual_sort';
+  static const String manualAscendingKey = 'ui_manual_ascending';
+  static const String favoriteOrderKey = 'ui_favorite_order';
   static const String flowBackgroundKey = 'ui_flow_background';
   static const String circularCoversKey = 'ui_circular_covers';
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
@@ -245,6 +270,11 @@ class PrefsSessionStore implements SessionStore {
         showTranslation: prefs.getBool(showTranslationKey) ?? true,
         sort: _parseSort(prefs.getString(sortKey)),
         sortAscending: prefs.getBool(sortAscendingKey) ?? true,
+        detailSort: _parseSort(prefs.getString(detailSortKey)),
+        detailAscending: prefs.getBool(detailAscendingKey) ?? true,
+        manualSort: _parseListSort(prefs.getString(manualSortKey)),
+        manualAscending: prefs.getBool(manualAscendingKey) ?? true,
+        favoriteOrder: _parseStringList(prefs.getString(favoriteOrderKey)),
         coverBackfillAttempted:
             prefs.getBool(coverBackfillAttemptedKey) ?? false,
         flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
@@ -328,6 +358,14 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(sortAscendingKey, snapshot.sortAscending);
+      await prefs.setString(detailSortKey, snapshot.detailSort.name);
+      await prefs.setBool(detailAscendingKey, snapshot.detailAscending);
+      await prefs.setString(manualSortKey, snapshot.manualSort?.name ?? '');
+      await prefs.setBool(manualAscendingKey, snapshot.manualAscending);
+      await prefs.setString(
+        favoriteOrderKey,
+        jsonEncode(snapshot.favoriteOrder),
+      );
       await prefs.setBool(
         coverBackfillAttemptedKey,
         snapshot.coverBackfillAttempted,
@@ -349,6 +387,32 @@ class PrefsSessionStore implements SessionStore {
       }
     }
     return LoopMode.off;
+  }
+
+  /// 收藏自定义顺序：JSON 数组；解析失败当作没设置过
+  static List<String> _parseStringList(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return const <String>[];
+    }
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.whereType<String>().toList();
+      }
+    } on FormatException {
+      // 坏数据：当作没设置过
+    }
+    return const <String>[];
+  }
+
+  /// 歌单 / 收藏的排序：空串与未知值都当作「自定义」（null）
+  static LibrarySort? _parseListSort(String? name) {
+    for (final LibrarySort sort in LibrarySort.values) {
+      if (sort.name == name) {
+        return sort;
+      }
+    }
+    return null;
   }
 
   static LibrarySort _parseSort(String? name) {
