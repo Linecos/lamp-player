@@ -58,22 +58,114 @@ void main() {
     expect(queue.current?.title, 'B');
   });
 
-  test('随机播放每次现抽一首：没有最后一首，也不会连播同一首', () {
+  test('洗牌袋：一轮之内每首正好放一次，没有最后一首', () {
+    final List<Track> tracks = <Track>[
+      for (int i = 0; i < 8; i += 1) sampleTrack(title: 'T$i'),
+    ];
     final PlaybackQueue queue = PlaybackQueue(
-      tracks: _tracks(),
+      tracks: tracks,
       // 不传 repeat，默认 off —— 随机模式不该受它影响
       shuffle: true,
       random: Random(7),
     );
 
-    int previous = queue.index;
-    for (int i = 0; i < 20; i += 1) {
+    // 从当前曲目之后开始连放 8 首：整轮跑完，每个下标恰好出现一次
+    final List<int> played = <int>[];
+    for (int i = 0; i < tracks.length; i += 1) {
       final int? next = queue.advance();
       expect(next, isNotNull, reason: '第 ${i + 1} 次切歌不该遇到"最后一首"');
-      expect(next, isNot(previous), reason: '不会连着放同一首');
+      played.add(next!);
+    }
+    expect(played.toSet(), <int>{
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+    }, reason: '一轮之内既不放重、也不漏放（这正是「某首反复来」的根因）');
+    expect(played.toSet().length, played.length, reason: '一轮之内不重复');
+    expect(queue.hasNext, isTrue, reason: '袋子空了会自动重洗，永远有下一首');
+  });
+
+  test('洗牌袋：轮末接到轮首时也不会连放同一首', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(3),
+    );
+
+    int previous = queue.index;
+    for (int i = 0; i < 40; i += 1) {
+      final int? next = queue.advance();
+      expect(next, isNotNull);
+      expect(next, isNot(previous), reason: '第 ${i + 1} 次切歌连放了同一首');
       previous = next!;
     }
-    expect(queue.hasNext, isTrue);
+  });
+
+  test('重排队列后洗牌袋跟着平移，不会放重也不会漏放', () {
+    final List<Track> tracks = <Track>[
+      for (int i = 0; i < 8; i += 1) sampleTrack(title: 'M$i'),
+    ];
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: tracks,
+      shuffle: true,
+      random: Random(11),
+    );
+
+    final Set<String> played = <String>{queue.current!.path};
+    for (int i = 0; i < 3; i += 1) {
+      played.add(queue.tracks[queue.advance()!].path);
+    }
+
+    // 拖动重排：袋里的下标必须跟着一起 remap，否则会指向别的歌
+    queue.move(0, 7);
+
+    for (int i = 0; i < 5; i += 1) {
+      played.add(queue.tracks[queue.advance()!].path);
+    }
+    expect(played.length, 8, reason: '一整轮仍要覆盖所有曲目，重排不能让某首放两遍');
+  });
+
+  test('删曲之后洗牌袋不会指向已经删掉的歌', () {
+    final List<Track> tracks = <Track>[
+      for (int i = 0; i < 6; i += 1) sampleTrack(title: 'R$i'),
+    ];
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: tracks,
+      shuffle: true,
+      random: Random(13),
+    );
+
+    expect(queue.removeAt(5), isFalse, reason: '删的是队尾那首，不是当前曲目');
+    // 不收拾袋子的话，袋里那个 5 就成了越界下标：切歌会拿不到曲目
+    for (int i = 0; i < 10; i += 1) {
+      final int? next = queue.advance();
+      expect(next, isNotNull);
+      expect(next! < queue.length, isTrue, reason: '下标必须落在剩余队列里');
+    }
+  });
+
+  test('随机播放不改变队列显示顺序，从列表上看不出下一首', () {
+    final PlaybackQueue queue = PlaybackQueue(
+      tracks: _tracks(),
+      shuffle: true,
+      random: Random(5),
+    );
+    final List<String> before = _titles(queue.tracks);
+
+    for (int i = 0; i < 12; i += 1) {
+      queue.advance();
+    }
+
+    expect(
+      _titles(queue.tracks),
+      before,
+      reason: '随机只体现在当前下标上；列表一旦被重排，用户就能"看出来"下一首了',
+    );
   });
 
   test('随机抽到的下一首是稳定的：连问几次结果不变，切过去才重抽', () {
