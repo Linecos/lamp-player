@@ -386,6 +386,66 @@ void main() {
         expect(_shownCoverPath(tester), covers[1]);
       });
 
+      testWidgets('缓存命中时换封面，卸载时不会对已 dispose 的流再摘监听', (
+        WidgetTester tester,
+      ) async {
+        // 现场日志（2026-11-09）：dispose → _releasePending → removeListener
+        // 抛 `Bad state: Stream has been disposed`，中断了 element 卸载，
+        // 随后连锁出 Duplicate GlobalKey、RenderFlex 溢出、播放岛渲染缺块。
+        // 起因：图已在缓存里，回调在 addListener 里同步跑完、自己摘掉监听，
+        // 流随即 dispose；但 _pendingStream 是**之后**才挂上的，于是留下一对
+        // 指向已 dispose 的流的过期引用，下一次 _releasePending 就炸。
+        final List<String> covers = await makeCovers(tester, 2);
+        String path = covers[0];
+        late StateSetter rebuild;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (BuildContext context, StateSetter setState) {
+                  rebuild = setState;
+                  return AlbumCover(path: path, animateOnChange: true);
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // 让第二张先进 ImageCache：换图时 resolve 会同步回调
+        final BuildContext context = tester.element(find.byType(AlbumCover));
+        final ImageProvider cached = ResizeImage.resizeIfNeeded(
+          coverDecodeWidth(40, MediaQuery.devicePixelRatioOf(context)),
+          null,
+          FileImage(File(covers[1])),
+        );
+        await tester.runAsync(() => precacheImage(cached, context));
+
+        rebuild(() => path = covers[1]);
+        // 只推一帧：**不要** pumpAndSettle——那会跨过 250ms 的兜底定时器，
+        // 定时器里的 _releasePending 会顺手把过期引用清干净，bug 就藏起来了。
+        // 真机上换封面之后很快拆页面（切分区、换歌、关播放页）就是这条时序。
+        await tester.pump();
+
+        // 把 ImageCache 清掉：只要图还活在缓存里，它替我们拿着 keepAlive
+        // 句柄，completer 不会被 dispose，也就测不到这个 bug。真机上缓存
+        // 淘汰（封面解码档位一换就是一批）随时会让它 dispose。
+        PaintingBinding.instance.imageCache
+          ..clear()
+          ..clearLiveImages();
+        await tester.pump();
+
+        // 卸载整棵树：子节点（Image）先摘监听 → completer dispose →
+        // 再轮到 AlbumCover 的 dispose → _releasePending
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '卸载时不能对已 dispose 的流再摘监听（会中断框架的卸载流程）',
+        );
+      });
+
       testWidgets('过渡中途：新封面半透明且比原尺寸略大，收到原位才结束', (WidgetTester tester) async {
         final List<String> covers = await makeCovers(tester, 2);
 
