@@ -528,8 +528,17 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.byType(TextField));
-    await tester.pump();
+    // 搜索框平时收着（顶栏只剩一个放大镜）：点开后它会向左展开并自动聚焦。
+    // 展开是 220ms 的宽度动画，等它走完再按键
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-search-toggle')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+      isTrue,
+      reason: '点放大镜应当直接聚焦，省掉用户再点一次',
+    );
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pump();
 
