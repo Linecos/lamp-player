@@ -235,6 +235,28 @@ class FakeLibraryRepository implements LibraryRepository {
     return added;
   }
 
+  /// 歌单拖动排序：默认立即完成。测试塞一个 [Completer] 就能把这次调用
+  /// 挂住，用来观察「正在落库」那个时间窗口里的界面（列表控件不能换型）。
+  Completer<void>? movePlaylistGate;
+
+  /// 每次拖动排序的参数记录：(歌单 id, from, to)
+  final List<(int, int, int)> movePlaylistCalls = <(int, int, int)>[];
+
+  @override
+  Future<void> movePlaylistTrack(int id, int from, int to) async {
+    movePlaylistCalls.add((id, from, to));
+    final Completer<void>? gate = movePlaylistGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    final _FakePlaylist playlist = _playlistById(id);
+    if (from < 0 || from >= playlist.paths.length) {
+      return;
+    }
+    final String moved = playlist.paths.removeAt(from);
+    playlist.paths.insert(to.clamp(0, playlist.paths.length), moved);
+  }
+
   @override
   Future<int> removeTracksFromPlaylist(int id, List<String> paths) async {
     final _FakePlaylist playlist = _playlistById(id);

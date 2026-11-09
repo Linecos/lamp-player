@@ -17,7 +17,6 @@ import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/frame_log.dart';
 import '../../common/text/pinyin_key.dart';
-import '../../rust/api/collections.dart' as collections;
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
