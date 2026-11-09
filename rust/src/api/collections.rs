@@ -305,11 +305,13 @@ pub fn add_track_to_playlist(id: i64, path: String) -> anyhow::Result<bool> {
         let tx = conn.transaction()?;
         playlist_exists(&tx, id)?;
         track_exists(&tx, &path)?;
+        // 新加的歌放在**最前**：position 取现有最小值再减 1，不用整体重排。
+        // 以前是 MAX+1（追加到末尾），用户加完歌要翻到最后才找得到。
         let changed = tx.execute(
             "INSERT OR IGNORE INTO playlist_items
                  (playlist_id, track_path, added_at, position)
              VALUES (?1, ?2, ?3, (
-                 SELECT COALESCE(MAX(position), -1) + 1
+                 SELECT COALESCE(MIN(position), 0) - 1
                    FROM playlist_items WHERE playlist_id = ?1
              ))",
             params![id, path, now_secs()],
@@ -343,11 +345,13 @@ pub fn add_tracks_to_playlist(id: i64, paths: Vec<String>) -> anyhow::Result<i32
                 "INSERT OR IGNORE INTO playlist_items
                      (playlist_id, track_path, added_at, position)
                  VALUES (?1, ?2, ?3, (
-                     SELECT COALESCE(MAX(position), -1) + 1
+                     SELECT COALESCE(MIN(position), 0) - 1
                        FROM playlist_items WHERE playlist_id = ?1
                  ))",
             )?;
-            for path in &paths {
+            // 倒序插入：每条都插到当前最前，倒过来走一遍才能让 paths 的顺序
+            // 就是最终从上到下的顺序（第一批加进来的排在第一行）
+            for path in paths.iter().rev() {
                 track_exists(&tx, path)?;
                 added += stmt.execute(params![id, path, now])?;
             }

@@ -44,7 +44,12 @@ extension _MusicSection on _LibraryPageState {
             _SortButton(
               mode: _sort,
               ascending: _sortAscending,
-              onSelected: _changeSort,
+              // 歌曲页没有「原序」这一项，菜单不会给 null
+              onSelected: (LibrarySort? sort) {
+                if (sort != null) {
+                  _changeSort(sort);
+                }
+              },
               onToggleDirection: _toggleSortDirection,
             ),
           ],

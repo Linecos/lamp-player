@@ -230,9 +230,18 @@ void main() {
     final Finder list = find.byKey(
       const PageStorageKey<String>('tracks:music'),
     );
+    // 收藏列表现在带拖拽把手（ReorderableListView），控制器的取法不能再写死
+    // ListView：直接问滚动位置
+    double listOffset() => tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)).first,
+        )
+        .position
+        .pixels;
+
     await tester.drag(list, const Offset(0, -2400));
     await tester.pumpAndSettle();
-    final double before = tester.widget<ListView>(list).controller!.offset;
+    final double before = listOffset();
     expect(before, greaterThan(200));
 
     // 快捷键与按钮走同一条路径
@@ -241,11 +250,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
 
-    expect(
-      tester.widget<ListView>(list).controller!.offset,
-      lessThan(before),
-      reason: 'Ctrl+L 应把列表滚回当前曲目',
-    );
+    expect(listOffset(), lessThan(before), reason: 'Ctrl+L 应把列表滚回当前曲目');
 
     /// 目标行外面那层强调容器（静止时是透明）
     Color flashColor() {
@@ -295,9 +300,17 @@ void main() {
     final Finder list = find.byKey(
       const PageStorageKey<String>('tracks:favorites'),
     );
+    // 收藏列表带拖拽把手（ReorderableListView），别再写死 ListView 取控制器
+    double listOffset() => tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)).first,
+        )
+        .position
+        .pixels;
+
     await tester.drag(list, const Offset(0, -2400));
     await tester.pumpAndSettle();
-    final double before = tester.widget<ListView>(list).controller!.offset;
+    final double before = listOffset();
     expect(before, greaterThan(200));
 
     // 收藏分区同样能在播放岛上长按定位（回调按分区切换）
@@ -306,11 +319,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      tester.widget<ListView>(list).controller!.offset,
-      lessThan(before),
-      reason: '收藏分区的列表要滚回当前曲目',
-    );
+    expect(listOffset(), lessThan(before), reason: '收藏分区的列表要滚回当前曲目');
 
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();

@@ -711,7 +711,7 @@ extension _PlaylistsSection on _LibraryPageState {
                                   onPressed: _playlistTracks.isEmpty
                                       ? null
                                       : () => unawaited(
-                                          _playAll(_playlistTracks),
+                                          _playAll(_playlistTracksShown),
                                         ),
                                   icon: const Icon(Icons.play_arrow),
                                   label: const Text('播放全部'),
@@ -719,6 +719,15 @@ extension _PlaylistsSection on _LibraryPageState {
                                 // 多选紧跟「播放全部」：原来它挂在页面顶栏，
                                 // 要跨半个屏幕去点
                                 _buildSelectionToggle(context),
+                                // 同样默认「原序」＝歌单的手动顺序
+                                _SortButton(
+                                  mode: _manualSort,
+                                  ascending: _manualAscending,
+                                  allowManual: true,
+                                  keySuffix: 'playlist-detail',
+                                  onSelected: _changeManualSort,
+                                  onToggleDirection: _toggleManualSortDirection,
+                                ),
                                 // 其余四个只留图标：歌单名一长，五个带文字的按钮会把
                                 // 头部挤成两行；功能说明改成悬停时的 tooltip
                                 _headerIconAction(
@@ -769,6 +778,9 @@ extension _PlaylistsSection on _LibraryPageState {
     );
   }
 
+  /// 歌单曲目按当前「详情排序」整理后的顺序；原序 = 手动拖出来的顺序
+  List<Track> get _playlistTracksShown => _sortManualTracks(_playlistTracks);
+
   Widget _buildPlaylistTracksBody(BuildContext context, Playlist playlist) {
     if (_playlistTracksLoading && _playlistTracks.isEmpty) {
       return const LoadingState(message: '正在读取歌单…');
@@ -792,31 +804,33 @@ extension _PlaylistsSection on _LibraryPageState {
         ),
       );
     }
+    final List<Track> shown = _playlistTracksShown;
     return TrackListView(
       controller: _playlistScroll,
       flashPath: _flashTrackPath,
-      tracks: _playlistTracks,
+      tracks: shown,
       storageKey: PageStorageKey<String>('tracks:playlist:${playlist.id}'),
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playFrom(_playlistTracks, track)),
+      onPlay: (Track track) => unawaited(_playFrom(shown, track)),
       onRemove: (Track track) => unawaited(_removeTrackFromPlaylist(track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
-          _onTrackContext(_playlistTracks, track, action),
+          _onTrackContext(shown, track, action),
       selectionMode: _selectionMode,
       onSelectAll: _selectionMode ? _toggleSelectAll : null,
       selectionAllFavored: _selectionAllFavored,
       inPlaylist: _selectionInPlaylist,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
-          _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),
+          _onTrackSelect(shown, track, toggle: toggle, range: range),
       // 多选 / 拖拽互斥：选择模式下行尾让给复选框，不给把手。
       //
       // **落库期间不能把 onReorder 置 null**：TrackListView 就是靠它决定
       // 用 ReorderableListView 还是普通 ListView，一次拖拽里来回切会整列表
       // 重建（两个控件类型不同，key 一样也不复用 element），文字重排一次，
       // 观感就是「拖完抽动一下、像刷新」。改成回调内部防重入。
+      // 任何排序下都能拖：拖完会落库并切回「自定义」
       onReorder: _selectionMode
           ? null
           : (int from, int to) =>
@@ -831,16 +845,35 @@ extension _PlaylistsSection on _LibraryPageState {
     if (_playlistReordering) {
       return;
     }
-    if (from == to || from < 0 || from >= _playlistTracks.length) {
+    final List<Track> displayed = _playlistTracksShown;
+    if (from == to || from < 0 || from >= displayed.length) {
       return;
     }
     final List<Track> before = _playlistTracks;
-    final List<Track> next = List<Track>.of(before);
-    next.insert(to.clamp(0, next.length - 1), next.removeAt(from));
+    final Track moved = displayed[from];
+    // 不管当前按什么排，都把这次拖拽折算成「手动顺序里的一次移动」
+    final List<Track> next = _manualOrderAfterDrag(displayed, before, from, to);
+    final int oldIndex = before.indexWhere((Track t) => t.path == moved.path);
+    final int newIndex = next.indexWhere((Track t) => t.path == moved.path);
+    // 自定义视图下没真正挪动：什么都不用做
+    if (_manualSort == null && oldIndex == newIndex) {
+      return;
+    }
     _playlistReordering = true;
-    _update(() => _playlistTracks = next);
+    _update(() {
+      _playlistTracks = next;
+      // 拖过之后看到的就是自定义顺序：排序按钮切回「自定义」
+      _manualSort = null;
+    });
+    _saveSessionNow();
     try {
-      await _repository.movePlaylistTrack(playlist.id.toInt(), from, to);
+      if (oldIndex >= 0 && newIndex >= 0 && oldIndex != newIndex) {
+        await _repository.movePlaylistTrack(
+          playlist.id.toInt(),
+          oldIndex,
+          newIndex,
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;

@@ -105,6 +105,8 @@ extension _ArtistsSection on _LibraryPageState {
   Widget _buildArtistDetail(BuildContext context, ArtistGroup group) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    // 展示 / 播放 / 多选共用这一份，排序后播放顺序与所见一致
+    final List<Track> tracks = _sortDetailTracks(group.tracks);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -157,12 +159,25 @@ extension _ArtistsSection on _LibraryPageState {
                       children: <Widget>[
                         FilledButton.tonalIcon(
                           style: _headerButtonStyle(),
-                          onPressed: () => unawaited(_playAll(group.tracks)),
+                          onPressed: () => unawaited(_playAll(tracks)),
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('播放全部'),
                         ),
                         const SizedBox(width: 12),
                         _buildSelectionToggle(context),
+                        const SizedBox(width: 12),
+                        // 默认「原序」＝这位艺术家的原有顺序
+                        _SortButton(
+                          mode: _detailSort,
+                          ascending: _detailAscending,
+                          keySuffix: 'artist-detail',
+                          onSelected: (LibrarySort? sort) {
+                            if (sort != null) {
+                              _changeDetailSort(sort);
+                            }
+                          },
+                          onToggleDirection: _toggleDetailSortDirection,
+                        ),
                       ],
                     ),
                   ],
@@ -177,27 +192,24 @@ extension _ArtistsSection on _LibraryPageState {
             // 详情页也要能「定位正在播放」：控制器与高亮路径都跟列表分区共用同一套
             controller: _artistScroll,
             flashPath: _flashTrackPath,
-            tracks: group.tracks,
+            tracks: tracks,
             storageKey: PageStorageKey<String>('tracks:artist:${group.name}'),
             playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
+            onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
             favoritePaths: _favoritePaths,
             onToggleFavorite: (Track track) =>
                 unawaited(_toggleFavorite(track)),
             onContextAction: (Track track, TrackContextAction action) =>
-                _onTrackContext(group.tracks, track, action),
+                _onTrackContext(tracks, track, action),
             selectionMode: _selectionMode,
             onSelectAll: _selectionMode ? _toggleSelectAll : null,
             selectionAllFavored: _selectionAllFavored,
             selectedPaths: _selectedPaths,
-            onSelect:
-                (Track track, {required bool toggle, required bool range}) =>
-                    _onTrackSelect(
-                      group.tracks,
-                      track,
-                      toggle: toggle,
-                      range: range,
-                    ),
+            onSelect: (
+              Track track, {
+              required bool toggle,
+              required bool range,
+            }) => _onTrackSelect(tracks, track, toggle: toggle, range: range),
           ),
         ),
       ],

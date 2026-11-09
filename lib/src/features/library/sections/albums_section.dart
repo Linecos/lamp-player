@@ -106,6 +106,9 @@ extension _AlbumsSection on _LibraryPageState {
   Widget _buildAlbumDetail(BuildContext context, AlbumGroup group) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    // 展示 / 播放 / 多选都用这一份：用户按标题排过序，播放顺序也要跟着，
+    // 否则「播放全部」和眼睛看到的顺序对不上
+    final List<Track> tracks = _sortDetailTracks(group.tracks);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -174,8 +177,7 @@ extension _AlbumsSection on _LibraryPageState {
                               children: <Widget>[
                                 FilledButton.tonalIcon(
                                   style: _headerButtonStyle(),
-                                  onPressed: () =>
-                                      unawaited(_playAll(group.tracks)),
+                                  onPressed: () => unawaited(_playAll(tracks)),
                                   icon: const Icon(Icons.play_arrow),
                                   label: const Text('播放全部'),
                                 ),
@@ -183,6 +185,19 @@ extension _AlbumsSection on _LibraryPageState {
                                 // 与其它功能按钮同行：多选原来在页面顶栏，
                                 // 要跨半个屏幕去点
                                 _buildSelectionToggle(context),
+                                const SizedBox(width: 12),
+                                // 默认「原序」＝专辑曲序；想看别的排序再点开
+                                _SortButton(
+                                  mode: _detailSort,
+                                  ascending: _detailAscending,
+                                  keySuffix: 'album-detail',
+                                  onSelected: (LibrarySort? sort) {
+                                    if (sort != null) {
+                                      _changeDetailSort(sort);
+                                    }
+                                  },
+                                  onToggleDirection: _toggleDetailSortDirection,
+                                ),
                               ],
                             ),
                           ],
@@ -201,27 +216,24 @@ extension _AlbumsSection on _LibraryPageState {
             // 同艺术家详情：定位要能落到这张专辑的列表上
             controller: _albumScroll,
             flashPath: _flashTrackPath,
-            tracks: group.tracks,
+            tracks: tracks,
             storageKey: PageStorageKey<String>('tracks:album:${group.key}'),
             playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playFrom(group.tracks, track)),
+            onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
             favoritePaths: _favoritePaths,
             onToggleFavorite: (Track track) =>
                 unawaited(_toggleFavorite(track)),
             onContextAction: (Track track, TrackContextAction action) =>
-                _onTrackContext(group.tracks, track, action),
+                _onTrackContext(tracks, track, action),
             selectionMode: _selectionMode,
             onSelectAll: _selectionMode ? _toggleSelectAll : null,
             selectionAllFavored: _selectionAllFavored,
             selectedPaths: _selectedPaths,
-            onSelect:
-                (Track track, {required bool toggle, required bool range}) =>
-                    _onTrackSelect(
-                      group.tracks,
-                      track,
-                      toggle: toggle,
-                      range: range,
-                    ),
+            onSelect: (
+              Track track, {
+              required bool toggle,
+              required bool range,
+            }) => _onTrackSelect(tracks, track, toggle: toggle, range: range),
           ),
         ),
       ],
