@@ -498,6 +498,69 @@ void main() {
     expect(find.text('夜航'), findsOneWidget);
   });
 
+  testWidgets('搜索平时收成右上角放大镜，点开向左展开', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    final Finder area = find.byKey(
+      const ValueKey<String>('library-search-area'),
+    );
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('library-search-toggle'),
+    );
+
+    // 收起态：只剩一个按钮的槽位（与窗口按钮同宽，中心距才相等）
+    final Rect collapsed = tester.getRect(area);
+    expect(collapsed.width, closeTo(46, 0.5), reason: '平时不该占一整条顶栏');
+    expect(toggle, findsOneWidget);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    final Rect opened = tester.getRect(area);
+    expect(opened.width, greaterThan(200), reason: '点开后向左展开');
+    expect(
+      opened.right,
+      closeTo(collapsed.right, 0.5),
+      reason: '右端固定在窗口按钮左边，只往左长',
+    );
+    // 展开只是为了搜索：顺手就把焦点给了输入框
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+      isTrue,
+    );
+
+    // Esc：没词时交还焦点，框子跟着收起
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(area).width, closeTo(46, 0.5));
+  });
+
+  testWidgets('有搜索词时失焦不收起，否则过滤还在却看不到词', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+
+    final Finder area = find.byKey(
+      const ValueKey<String>('library-search-area'),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-search-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '夜');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    // 点列表里剩下的那首（输入框失焦）
+    await tester.tap(find.text('夜航').first);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(area).width,
+      greaterThan(200),
+      reason: '过滤仍在生效，框子得一真留着，否则用户找不到「清除」',
+    );
+  });
+
   testWidgets('搜索输入防抖 300ms 后才发起请求', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,

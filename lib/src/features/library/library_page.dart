@@ -230,6 +230,28 @@ class _LibraryPageState extends State<LibraryPage>
   /// 期间干脆不绑这些键，而不是绑了之后再在回调里判断要不要执行。
   bool _searchFocused = false;
 
+  /// 搜索框是否展开。
+  ///
+  /// 平时顶栏右侧（窗口按钮左边）只有一个放大镜，点开才向左长出搜索框——
+  /// 常驻一条通栏输入框在曲库页太占地方，而搜索是低频动作。
+  bool _searchExpanded = false;
+
+  /// 展开 / 收起的动画时长；两段（宽度与图标淡入淡出）共用同一个值
+  static const Duration _searchExpandDuration = Duration(milliseconds: 220);
+
+  /// 收起时只留一个按钮：宽度与窗口按钮的槽位一致（46），
+  /// 这样四个按钮的中心距相等，看起来才是同一排控件
+  static const double _searchSlotWidth = 46;
+
+  /// 输入框（以及它外面那层裁剪容器）的高度
+  static const double _searchFieldHeight = 36;
+
+  /// 收起态圆形按钮的直径：与窗口按钮的悬停圆（32）对齐
+  static const double _searchButtonDiameter = 32;
+
+  /// 展开后的宽度上限；窗口更窄时按可用宽度收
+  static const double _searchOpenWidth = 320;
+
   /// 播放队列：曲目顺序、循环 / 随机、上一首历史都在里面
   final PlaybackQueue _queue = PlaybackQueue();
 
@@ -1680,6 +1702,11 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   void _focusSearch() {
+    // 框子可能还收着（点放大镜 / Ctrl+F）：展开和聚焦同一帧做，
+    // 光标位置走的是 controller 的 selection，不依赖布局宽度
+    if (!_searchExpanded) {
+      setState(() => _searchExpanded = true);
+    }
     _searchFocus.requestFocus();
     _searchController.selection = TextSelection(
       baseOffset: 0,
@@ -1757,11 +1784,25 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   void _onSearchFocusChanged() {
-    if (_searchFocus.hasFocus == _searchFocused) {
+    final bool focused = _searchFocus.hasFocus;
+    // 失焦时如果还有搜索词就别收起来：过滤还在生效，框子收起来用户既看不到
+    // 词也找不到「清除」，只剩一个放大镜，会以为列表莫名其妙少了一半
+    final bool collapse = !focused && _query.isEmpty;
+    if (focused == _searchFocused && !(collapse && _searchExpanded)) {
       return;
     }
-    setState(() => _searchFocused = _searchFocus.hasFocus);
+    setState(() {
+      _searchFocused = focused;
+      if (focused) {
+        _searchExpanded = true;
+      } else if (collapse) {
+        _searchExpanded = false;
+      }
+    });
   }
+
+  /// 点右上角的放大镜：展开并聚焦。
+  void _openSearch() => _focusSearch();
 
   /// 输入框有焦点时仍然保留的动作：媒体键不会打出字符，聚焦搜索本身也无害。
   /// 其余（空格 / ←→ / Ctrl+←→ / Ctrl+↑↓）都要让给文本编辑。
@@ -1810,22 +1851,97 @@ class _LibraryPageState extends State<LibraryPage>
             child: ColoredBox(color: scheme.surfaceContainerLow),
           ),
           Padding(
+            // 右侧不留额外空隙：放大镜的槽位紧挨着最小化按钮，
+            // 四个按钮的中心距才是同一个数（46）
             padding: const EdgeInsets.only(
               left: 16,
-              right: LampTitleBar.controlsWidth + 24,
+              right: LampTitleBar.controlsWidth,
             ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: SizedBox(
-                    height: 36,
-                    child: _buildSearchField(context),
-                  ),
-                ),
-              ],
+            // 靠右排：搜索区宽度一变就自然向左长 / 收，右端始终贴着窗口按钮
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _buildSearchArea(context),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 顶栏右侧的搜索区：收起时只是一个放大镜，点开后向左长出输入框。
+  ///
+  /// 输入框按「展开后」的宽度布局、外层只负责裁剪，所以动画途中文字不会
+  /// 被挤压重排，看着就是把整条胶囊从右往左拉出来。
+  Widget _buildSearchArea(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double openWidth = min(
+          _searchOpenWidth,
+          max(_searchSlotWidth, constraints.maxWidth),
+        );
+        return AnimatedContainer(
+          key: const ValueKey<String>('library-search-area'),
+          duration: _searchExpandDuration,
+          curve: Curves.easeOutCubic,
+          width: _searchExpanded ? openWidth : _searchSlotWidth,
+          height: _searchFieldHeight,
+          child: Stack(
+            alignment: Alignment.centerRight,
+            children: <Widget>[
+              AnimatedOpacity(
+                opacity: _searchExpanded ? 1 : 0,
+                duration: _searchExpandDuration,
+                child: ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.centerRight,
+                    minWidth: openWidth,
+                    maxWidth: openWidth,
+                    minHeight: _searchFieldHeight,
+                    maxHeight: _searchFieldHeight,
+                    // 收着的时候别让鼠标点到这块被裁掉的区域（点它等于点空白，
+                    // 会落到下面的拖动区上）；键盘 / 程序聚焦仍然可以，聚焦即展开
+                    child: IgnorePointer(
+                      ignoring: !_searchExpanded,
+                      child: _buildSearchField(context),
+                    ),
+                  ),
+                ),
+              ),
+              // 收起态的放大镜：展开后淡出，但不挡输入框。
+              // 在 46 的槽位里居中，中心才落在与窗口按钮相同的位置
+              IgnorePointer(
+                ignoring: _searchExpanded,
+                child: AnimatedOpacity(
+                  opacity: _searchExpanded ? 0 : 1,
+                  duration: _searchExpandDuration,
+                  child: Center(child: _buildSearchToggle(context)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSearchToggle(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      key: const ValueKey<String>('library-search-toggle'),
+      onPressed: _openSearch,
+      tooltip: '搜索',
+      padding: EdgeInsets.zero,
+      style: IconButton.styleFrom(shape: const CircleBorder()),
+      constraints: const BoxConstraints.tightFor(
+        width: _searchButtonDiameter,
+        height: _searchButtonDiameter,
+      ),
+      // 放大镜自绘：图标字体的 Release 子集按「构建那一刻用到的图标」裁剪，
+      // 增量构建不会重裁（实测过），新加的图标会渲染成空白。搜索是唯一入口，
+      // 空白等于入口消失，不能赌这个环节
+      icon: CustomPaint(
+        size: const Size.square(19),
+        painter: _SearchGlyphPainter(color: scheme.onSurfaceVariant),
       ),
     );
   }
@@ -1862,9 +1978,18 @@ class _LibraryPageState extends State<LibraryPage>
           borderRadius: BorderRadius.circular(999),
           borderSide: BorderSide(color: scheme.primary, width: 1.6),
         ),
+        // 与收起态那个放大镜同一支笔：图标字体在 Release 增量构建里可能
+        // 缺字形（见 [_buildSearchToggle]），这里也自绘
         prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: 6),
-          child: Icon(Icons.search, size: 20, color: scheme.onSurfaceVariant),
+          padding: const EdgeInsets.only(left: 8),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: CustomPaint(
+              size: const Size.square(17),
+              painter: _SearchGlyphPainter(color: scheme.onSurfaceVariant),
+            ),
+          ),
         ),
         prefixIconConstraints: const BoxConstraints(
           minWidth: 38,
@@ -2280,6 +2405,32 @@ class _SortChoice {
   final LibrarySort? sort;
 
   static const _SortChoice manual = _SortChoice(null);
+}
+
+/// 放大镜：自绘而不是图标字体（理由见 [_buildSearchToggle]）。
+class _SearchGlyphPainter extends CustomPainter {
+  const _SearchGlyphPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    final double radius = size.width * 0.30;
+    final Offset center = Offset(size.width * 0.42, size.height * 0.42);
+    canvas.drawCircle(center, radius, paint);
+    // 手柄从圆的 45° 处往外，末端留一点余量，整体不至于顶到方框边
+    final Offset start = center + Offset(radius * 0.707, radius * 0.707);
+    final Offset end = Offset(size.width * 0.88, size.height * 0.88);
+    canvas.drawLine(start, end, paint);
+  }
+
+  @override
+  bool shouldRepaint(_SearchGlyphPainter old) => old.color != color;
 }
 
 /// 两段式排序控件：

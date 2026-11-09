@@ -177,6 +177,11 @@ extension _SearchSection on _LibraryPageState {
       _searching = false;
       _searchTruncated = false;
       _searchError = null;
+      // 焦点不在输入框（切分区、进详情顺手清词）：框子一起收起来，只留放大镜。
+      // 点「清除」按钮时焦点还在，保持展开，方便接着输入。
+      if (!_searchFocus.hasFocus) {
+        _searchExpanded = false;
+      }
     });
   }
 

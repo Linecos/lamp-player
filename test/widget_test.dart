@@ -49,11 +49,48 @@ void main() {
       findsOneWidget,
     );
 
-    // 搜索框已上移到顶栏内部，不会压到窗口按钮
-    final Rect searchRect = tester.getRect(find.byType(TextField));
-    expect(searchRect.top, greaterThanOrEqualTo(0));
-    expect(searchRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
-    expect(searchRect.width, greaterThan(400));
+    // 搜索平时收成右上角一个放大镜，落在窗口按钮左边
+    final Finder searchToggle = find.byKey(
+      const ValueKey<String>('library-search-toggle'),
+    );
+    expect(searchToggle, findsOneWidget);
+    final Rect toggleRect = tester.getRect(searchToggle);
+    expect(toggleRect.top, greaterThanOrEqualTo(0));
+    expect(toggleRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
+    expect(
+      toggleRect.right,
+      lessThanOrEqualTo(
+        tester.getRect(find.byKey(const ValueKey<String>('window-close'))).left,
+      ),
+      reason: '放大镜要停在三大金刚键左边',
+    );
+
+    // 四个按钮（放大镜 + 三大金刚键）中心距一致，放大镜才不会显得离得远
+    double centerX(String key) =>
+        tester.getCenter(find.byKey(ValueKey<String>(key))).dx;
+    final double searchX = tester.getCenter(searchToggle).dx;
+    final double minimizeX = centerX('window-minimize');
+    final double maximizeX = centerX('window-maximize');
+    final double closeX = centerX('window-close');
+    expect(minimizeX - searchX, closeTo(maximizeX - minimizeX, 0.5));
+    expect(maximizeX - minimizeX, closeTo(closeX - maximizeX, 0.5));
+    expect(
+      tester.getCenter(searchToggle).dy,
+      closeTo(
+        tester.getCenter(find.byKey(const ValueKey<String>('window-close'))).dy,
+        0.5,
+      ),
+      reason: '同一排，垂直中心也要对齐',
+    );
+
+    // 点开才向左展开，并直接拿到焦点
+    await tester.tap(searchToggle);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+      isTrue,
+      reason: '点开后自动聚焦，可以直接打字',
+    );
     // 侧边导航与曲库页标题
     expect(find.text('音乐'), findsWidgets);
     expect(find.text('夜航'), findsOneWidget);
