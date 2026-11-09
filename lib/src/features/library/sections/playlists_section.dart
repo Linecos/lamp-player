@@ -708,13 +708,14 @@ extension _PlaylistsSection on _LibraryPageState {
                               children: <Widget>[
                                 FilledButton.icon(
                                   style: _headerButtonStyle(),
-                                  onPressed: _playlistTracks.isEmpty
+                                  // 搜索时放的是命中结果，没有命中就没得放
+                                  onPressed: _playlistTracksShown.isEmpty
                                       ? null
                                       : () => unawaited(
                                           _playAll(_playlistTracksShown),
                                         ),
                                   icon: const Icon(Icons.play_arrow),
-                                  label: const Text('播放全部'),
+                                  label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
                                 ),
                                 // 多选紧跟「播放全部」：原来它挂在页面顶栏，
                                 // 要跨半个屏幕去点
@@ -778,8 +779,12 @@ extension _PlaylistsSection on _LibraryPageState {
     );
   }
 
-  /// 歌单曲目按当前「详情排序」整理后的顺序；原序 = 手动拖出来的顺序
-  List<Track> get _playlistTracksShown => _sortManualTracks(_playlistTracks);
+  /// 歌单曲目按当前「详情排序」整理后的顺序；自定义 = 手动拖出来的顺序。
+  ///
+  /// 搜索框在详情页里搜的就是这个歌单的歌，所以过滤也在这里做——不然用户
+  /// 输入关键词后只会看到一张空列表（外面那层列的是歌单卡片）。
+  List<Track> get _playlistTracksShown =>
+      _sortManualTracks(_filterTracks(_playlistTracks));
 
   Widget _buildPlaylistTracksBody(BuildContext context, Playlist playlist) {
     if (_playlistTracksLoading && _playlistTracks.isEmpty) {
@@ -805,6 +810,10 @@ extension _PlaylistsSection on _LibraryPageState {
       );
     }
     final List<Track> shown = _playlistTracksShown;
+    // 歌单本身有歌、但搜索没命中：给搜索的空态，别让用户以为歌单被清空了
+    if (shown.isEmpty && _query.isNotEmpty) {
+      return _searchEmptyState('没有找到匹配的歌曲', scope: '这个歌单');
+    }
     return TrackListView(
       controller: _playlistScroll,
       flashPath: _flashTrackPath,
@@ -826,12 +835,14 @@ extension _PlaylistsSection on _LibraryPageState {
           _onTrackSelect(shown, track, toggle: toggle, range: range),
       // 多选 / 拖拽互斥：选择模式下行尾让给复选框，不给把手。
       //
+      // 搜索时也不给拖：看到的只是命中的子集，拖出来的顺序对不上整张歌单。
+      //
       // **落库期间不能把 onReorder 置 null**：TrackListView 就是靠它决定
       // 用 ReorderableListView 还是普通 ListView，一次拖拽里来回切会整列表
       // 重建（两个控件类型不同，key 一样也不复用 element），文字重排一次，
       // 观感就是「拖完抽动一下、像刷新」。改成回调内部防重入。
-      // 任何排序下都能拖：拖完会落库并切回「自定义」
-      onReorder: _selectionMode
+      // 其余情况任何排序下都能拖：拖完会落库并切回「自定义」
+      onReorder: _selectionMode || _query.isNotEmpty
           ? null
           : (int from, int to) =>
                 unawaited(_movePlaylistTrack(playlist, from, to)),
@@ -843,6 +854,10 @@ extension _PlaylistsSection on _LibraryPageState {
     // 上一次还在落库：这次直接丢掉（和原来「置 null 禁用把手」等价，
     // 但不动控件类型，列表不用重建）
     if (_playlistReordering) {
+      return;
+    }
+    // 搜索中列表是子集，index 跟整张歌单对不上：界面上也没给把手，兜个底
+    if (_query.isNotEmpty) {
       return;
     }
     final List<Track> displayed = _playlistTracksShown;

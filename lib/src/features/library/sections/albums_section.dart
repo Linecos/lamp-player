@@ -107,8 +107,11 @@ extension _AlbumsSection on _LibraryPageState {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     // 展示 / 播放 / 多选都用这一份：用户按标题排过序，播放顺序也要跟着，
-    // 否则「播放全部」和眼睛看到的顺序对不上
-    final List<Track> tracks = _sortDetailTracks(group.tracks);
+    // 否则「播放全部」和眼睛看到的顺序对不上。
+    //
+    // 先就地过滤再排序：常驻搜索框在详情页里搜的就是这张专辑的歌，别再让用户
+    // 退回曲库去搜（外面那层列的是专辑卡片，搜歌名根本命中不了）。
+    final List<Track> tracks = _sortDetailTracks(_filterTracks(group.tracks));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,7 +182,8 @@ extension _AlbumsSection on _LibraryPageState {
                                   style: _headerButtonStyle(),
                                   onPressed: () => unawaited(_playAll(tracks)),
                                   icon: const Icon(Icons.play_arrow),
-                                  label: const Text('播放全部'),
+                                  // 搜着的时候放的是命中结果，不是整张专辑
+                                  label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
                                 ),
                                 const SizedBox(width: 12),
                                 // 与其它功能按钮同行：多选原来在页面顶栏，
@@ -212,29 +216,39 @@ extension _AlbumsSection on _LibraryPageState {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: TrackListView(
-            // 同艺术家详情：定位要能落到这张专辑的列表上
-            controller: _albumScroll,
-            flashPath: _flashTrackPath,
-            tracks: tracks,
-            storageKey: PageStorageKey<String>('tracks:album:${group.key}'),
-            playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
-            favoritePaths: _favoritePaths,
-            onToggleFavorite: (Track track) =>
-                unawaited(_toggleFavorite(track)),
-            onContextAction: (Track track, TrackContextAction action) =>
-                _onTrackContext(tracks, track, action),
-            selectionMode: _selectionMode,
-            onSelectAll: _selectionMode ? _toggleSelectAll : null,
-            selectionAllFavored: _selectionAllFavored,
-            selectedPaths: _selectedPaths,
-            onSelect: (
-              Track track, {
-              required bool toggle,
-              required bool range,
-            }) => _onTrackSelect(tracks, track, toggle: toggle, range: range),
-          ),
+          child: tracks.isEmpty && _query.isNotEmpty
+              ? _searchEmptyState('没有找到匹配的歌曲', scope: '这张专辑')
+              : TrackListView(
+                  // 同艺术家详情：定位要能落到这张专辑的列表上
+                  controller: _albumScroll,
+                  flashPath: _flashTrackPath,
+                  tracks: tracks,
+                  storageKey: PageStorageKey<String>(
+                    'tracks:album:${group.key}',
+                  ),
+                  playingPath: _currentTrack?.path,
+                  onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
+                  favoritePaths: _favoritePaths,
+                  onToggleFavorite: (Track track) =>
+                      unawaited(_toggleFavorite(track)),
+                  onContextAction: (Track track, TrackContextAction action) =>
+                      _onTrackContext(tracks, track, action),
+                  selectionMode: _selectionMode,
+                  onSelectAll: _selectionMode ? _toggleSelectAll : null,
+                  selectionAllFavored: _selectionAllFavored,
+                  selectedPaths: _selectedPaths,
+                  onSelect:
+                      (
+                        Track track, {
+                        required bool toggle,
+                        required bool range,
+                      }) => _onTrackSelect(
+                        tracks,
+                        track,
+                        toggle: toggle,
+                        range: range,
+                      ),
+                ),
         ),
       ],
     );

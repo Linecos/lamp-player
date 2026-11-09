@@ -802,6 +802,135 @@ void main() {
     );
   });
 
+  testWidgets('专辑详情里直接就能搜这张专辑的歌', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+        sampleTrack(title: '晨光', album: '夜之专辑', path: '/music/晨光.mp3'),
+      ],
+    );
+    await _openSection(tester, '专辑');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('albums-list')),
+        matching: find.text('夜之专辑'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 搜索框里也有文字，量列表要用 descendant 限定在详情那张列表里
+    Finder inAlbum(String text) => find.descendant(
+      of: find.byWidgetPredicate(
+        (Widget w) =>
+            w is TrackListView &&
+            w.storageKey is PageStorageKey<String> &&
+            (w.storageKey as PageStorageKey<String>).value.startsWith(
+              'tracks:album:',
+            ),
+      ),
+      matching: find.text(text),
+    );
+    expect(inAlbum('晨光'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '夜航');
+    await tester.pumpAndSettle();
+
+    // 外面那层列的是专辑卡片，搜歌名本来就命中不了；进详情后必须就地问列表
+    expect(inAlbum('夜航'), findsOneWidget);
+    expect(inAlbum('晨光'), findsNothing, reason: '详情页里应当按歌名过滤');
+    expect(find.text('播放结果'), findsOneWidget, reason: '此时放的是命中结果，不是整张专辑');
+
+    // 换成搜不到的词：给搜索空态，别显示「这张专辑是空的」
+    await tester.enterText(find.byType(TextField), '根本不存在的歌');
+    await tester.pumpAndSettle();
+    expect(find.text('没有找到匹配的歌曲'), findsOneWidget);
+    expect(find.textContaining('这张专辑'), findsOneWidget);
+  });
+
+  testWidgets('艺术家详情里直接就能搜这位艺术家的歌', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        // 专辑名给不同值：列表行里有一列显示专辑，同名会干扰按文本断言
+        sampleTrack(title: '夜航', album: '专辑一', path: '/music/夜航.mp3'),
+        sampleTrack(title: '晨光', album: '专辑二', path: '/music/晨光.mp3'),
+      ],
+    );
+    await _openSection(tester, '艺术家');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('artists-list')),
+        matching: find.text('林间电台'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Finder inArtist(String text) => find.descendant(
+      of: find.byWidgetPredicate(
+        (Widget w) =>
+            w is TrackListView &&
+            w.storageKey is PageStorageKey<String> &&
+            (w.storageKey as PageStorageKey<String>).value.startsWith(
+              'tracks:artist:',
+            ),
+      ),
+      matching: find.text(text),
+    );
+    expect(inArtist('晨光'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '晨光');
+    await tester.pumpAndSettle();
+
+    expect(inArtist('晨光'), findsOneWidget);
+    expect(inArtist('夜航'), findsNothing);
+    expect(find.text('播放结果'), findsOneWidget);
+  });
+
+  testWidgets('歌单详情里直接就能搜这个歌单的歌，搜索时不给拖', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '专辑一', path: '/music/夜航.mp3'),
+        sampleTrack(title: '晨光', album: '专辑二', path: '/music/晨光.mp3'),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/晨光.mp3');
+      },
+    );
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+
+    final Finder playlistList = find.byWidgetPredicate(
+      (Widget w) =>
+          w is TrackListView &&
+          w.storageKey is PageStorageKey<String> &&
+          (w.storageKey as PageStorageKey<String>).value.startsWith(
+            'tracks:playlist:',
+          ),
+    );
+    Finder inPlaylist(String text) =>
+        find.descendant(of: playlistList, matching: find.text(text));
+
+    await tester.enterText(find.byType(TextField), '夜航');
+    await tester.pumpAndSettle();
+
+    expect(inPlaylist('夜航'), findsOneWidget);
+    expect(inPlaylist('晨光'), findsNothing);
+
+    // 看到的是命中子集，拖出来的顺序对不上整张歌单：这时不给把手
+    final TrackListView list = tester.widget<TrackListView>(playlistList);
+    expect(list.onReorder, isNull, reason: '搜索过滤时拖拽排序没有意义');
+
+    // 清掉搜索词：把手回来
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+    expect(tester.widget<TrackListView>(playlistList).onReorder, isNotNull);
+  });
+
   testWidgets('歌单拖拽落库期间不换列表控件（换了文字会抽动一下）', (WidgetTester tester) async {
     final FakeLibraryRepository repo = await pumpLibrary(
       tester,

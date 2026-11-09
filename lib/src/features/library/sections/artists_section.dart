@@ -105,8 +105,9 @@ extension _ArtistsSection on _LibraryPageState {
   Widget _buildArtistDetail(BuildContext context, ArtistGroup group) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    // 展示 / 播放 / 多选共用这一份，排序后播放顺序与所见一致
-    final List<Track> tracks = _sortDetailTracks(group.tracks);
+    // 展示 / 播放 / 多选共用这一份，排序后播放顺序与所见一致。
+    // 先就地过滤再排序：详情页里的搜索框搜的是这位艺术家的歌。
+    final List<Track> tracks = _sortDetailTracks(_filterTracks(group.tracks));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -161,7 +162,8 @@ extension _ArtistsSection on _LibraryPageState {
                           style: _headerButtonStyle(),
                           onPressed: () => unawaited(_playAll(tracks)),
                           icon: const Icon(Icons.play_arrow),
-                          label: const Text('播放全部'),
+                          // 搜着的时候放的是命中结果，不是这位艺术家的全部
+                          label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
                         ),
                         const SizedBox(width: 12),
                         _buildSelectionToggle(context),
@@ -188,29 +190,39 @@ extension _ArtistsSection on _LibraryPageState {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: TrackListView(
-            // 详情页也要能「定位正在播放」：控制器与高亮路径都跟列表分区共用同一套
-            controller: _artistScroll,
-            flashPath: _flashTrackPath,
-            tracks: tracks,
-            storageKey: PageStorageKey<String>('tracks:artist:${group.name}'),
-            playingPath: _currentTrack?.path,
-            onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
-            favoritePaths: _favoritePaths,
-            onToggleFavorite: (Track track) =>
-                unawaited(_toggleFavorite(track)),
-            onContextAction: (Track track, TrackContextAction action) =>
-                _onTrackContext(tracks, track, action),
-            selectionMode: _selectionMode,
-            onSelectAll: _selectionMode ? _toggleSelectAll : null,
-            selectionAllFavored: _selectionAllFavored,
-            selectedPaths: _selectedPaths,
-            onSelect: (
-              Track track, {
-              required bool toggle,
-              required bool range,
-            }) => _onTrackSelect(tracks, track, toggle: toggle, range: range),
-          ),
+          child: tracks.isEmpty && _query.isNotEmpty
+              ? _searchEmptyState('没有找到匹配的歌曲', scope: '这位艺术家名下')
+              : TrackListView(
+                  // 详情页也要能「定位正在播放」：控制器与高亮路径都跟列表分区共用同一套
+                  controller: _artistScroll,
+                  flashPath: _flashTrackPath,
+                  tracks: tracks,
+                  storageKey: PageStorageKey<String>(
+                    'tracks:artist:${group.name}',
+                  ),
+                  playingPath: _currentTrack?.path,
+                  onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
+                  favoritePaths: _favoritePaths,
+                  onToggleFavorite: (Track track) =>
+                      unawaited(_toggleFavorite(track)),
+                  onContextAction: (Track track, TrackContextAction action) =>
+                      _onTrackContext(tracks, track, action),
+                  selectionMode: _selectionMode,
+                  onSelectAll: _selectionMode ? _toggleSelectAll : null,
+                  selectionAllFavored: _selectionAllFavored,
+                  selectedPaths: _selectedPaths,
+                  onSelect:
+                      (
+                        Track track, {
+                        required bool toggle,
+                        required bool range,
+                      }) => _onTrackSelect(
+                        tracks,
+                        track,
+                        toggle: toggle,
+                        range: range,
+                      ),
+                ),
         ),
       ],
     );
