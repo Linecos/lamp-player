@@ -5,14 +5,17 @@ part of '../library_page.dart';
 /// 音乐分区仍走 FTS（支持拼音、有 500 条上限），其余分区的数据已经在内存里，
 /// 按名称 / 标签做字面 + 拼音匹配即可。
 extension _FilterSection on _LibraryPageState {
-  /// 提示语跟着分区走，用户一眼能看出搜的是哪一层
+  /// 提示语跟着分区走，用户一眼能看出搜的是哪一层。
+  ///
+  /// 进了专辑 / 艺术家 / 歌单详情之后，搜的是**详情里的曲目**而不是列表里的
+  /// 条目，提示语也要跟着换，否则会让人以为搜的还是外面那层。
   String get _searchHint => switch (_section) {
     LibrarySection.music => '搜索音乐',
-    LibrarySection.playlists => '搜索歌单',
+    LibrarySection.playlists => _selectedPlaylistId != null ? '搜索歌单歌曲' : '搜索歌单',
     LibrarySection.history => '搜索历史',
     LibrarySection.favorites => '搜索收藏',
-    LibrarySection.artists => '搜索艺术家',
-    LibrarySection.albums => '搜索专辑',
+    LibrarySection.artists => _selectedArtist != null ? '搜索艺术家歌曲' : '搜索艺术家',
+    LibrarySection.albums => _selectedAlbumKey != null ? '搜索专辑歌曲' : '搜索专辑',
     LibrarySection.settings => '搜索设置项',
   };
 
@@ -81,10 +84,13 @@ extension _FilterSection on _LibraryPageState {
   }
 
   /// 分区内搜索无结果：不要复用「曲库为空」的空态，否则会误导用户去导音乐
-  Widget _searchEmptyState(String title) => EmptyState(
+  ///
+  /// [scope] 说明搜的是哪一层（「当前分区」/「这张专辑」）：详情页里别再说
+  /// 「分区」，那是外面那层。
+  Widget _searchEmptyState(String title, {String scope = '当前分区'}) => EmptyState(
     icon: Icons.search_off,
     title: title,
-    message: '当前分区里没有包含「$_query」的内容。换个关键词，或清除搜索查看全部。',
+    message: '$scope里没有包含「$_query」的内容。换个关键词，或清除搜索查看全部。',
     action: TextButton(onPressed: _clearSearch, child: const Text('清除搜索')),
   );
 }

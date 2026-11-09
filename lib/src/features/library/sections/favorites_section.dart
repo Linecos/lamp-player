@@ -147,7 +147,8 @@ extension _FavoritesSection on _LibraryPageState {
                   ? null
                   : () => unawaited(_playAll(visible)),
               icon: const Icon(Icons.play_arrow),
-              label: const Text('播放全部'),
+              // 搜索时放的是命中结果
+              label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
             ),
             const SizedBox(width: 8),
             _buildSelectionToggle(context),
