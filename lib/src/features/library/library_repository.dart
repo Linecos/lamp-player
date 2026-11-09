@@ -45,6 +45,12 @@ abstract interface class LibraryRepository {
   /// 批量移出歌单；返回真正删掉的条数。整批一个事务，不会删一半
   Future<int> removeTracksFromPlaylist(int id, List<String> paths);
 
+  /// 歌单内拖动排序：把第 [from] 首挪到第 [to] 首
+  ///
+  /// 走仓库而不是直接调 FFI：界面在「正在落库」期间要维持列表控件不变，
+  /// 这个时间窗口只有让测试能拖住（假仓库挂起）才测得到
+  Future<void> movePlaylistTrack(int id, int from, int to);
+
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   ///
   /// 注意：这条路径**真删行**，会级联清掉收藏 / 歌单 / 播放历史，而且
@@ -127,6 +133,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<List<Track>> loadPlaylistTracks(int id) =>
       collections.playlistTracks(id: id);
+
+  @override
+  Future<void> movePlaylistTrack(int id, int from, int to) =>
+      collections.movePlaylistTrack(id: id, from: from, to: to);
 
   @override
   Future<bool> addTrackToPlaylist(int id, String path) =>

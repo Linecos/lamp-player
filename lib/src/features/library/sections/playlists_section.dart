@@ -811,8 +811,13 @@ extension _PlaylistsSection on _LibraryPageState {
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
           _onTrackSelect(_playlistTracks, track, toggle: toggle, range: range),
-      // 多选 / 拖拽互斥：选择模式下行尾让给复选框，不给把手
-      onReorder: _selectionMode || _playlistReordering
+      // 多选 / 拖拽互斥：选择模式下行尾让给复选框，不给把手。
+      //
+      // **落库期间不能把 onReorder 置 null**：TrackListView 就是靠它决定
+      // 用 ReorderableListView 还是普通 ListView，一次拖拽里来回切会整列表
+      // 重建（两个控件类型不同，key 一样也不复用 element），文字重排一次，
+      // 观感就是「拖完抽动一下、像刷新」。改成回调内部防重入。
+      onReorder: _selectionMode
           ? null
           : (int from, int to) =>
                 unawaited(_movePlaylistTrack(playlist, from, to)),
@@ -821,18 +826,21 @@ extension _PlaylistsSection on _LibraryPageState {
 
   /// 拖拽排序：先本地挪（拖完马上看到结果），落库失败再回滚并提示。
   Future<void> _movePlaylistTrack(Playlist playlist, int from, int to) async {
+    // 上一次还在落库：这次直接丢掉（和原来「置 null 禁用把手」等价，
+    // 但不动控件类型，列表不用重建）
+    if (_playlistReordering) {
+      return;
+    }
     if (from == to || from < 0 || from >= _playlistTracks.length) {
       return;
     }
     final List<Track> before = _playlistTracks;
     final List<Track> next = List<Track>.of(before);
     next.insert(to.clamp(0, next.length - 1), next.removeAt(from));
-    _update(() {
-      _playlistTracks = next;
-      _playlistReordering = true;
-    });
+    _playlistReordering = true;
+    _update(() => _playlistTracks = next);
     try {
-      await collections.movePlaylistTrack(id: playlist.id, from: from, to: to);
+      await _repository.movePlaylistTrack(playlist.id.toInt(), from, to);
     } catch (error) {
       if (!mounted) {
         return;
@@ -840,9 +848,7 @@ extension _PlaylistsSection on _LibraryPageState {
       _update(() => _playlistTracks = before);
       _showMessage('排序失败：${ErrorRetry.describe(error)}');
     } finally {
-      if (mounted) {
-        _update(() => _playlistReordering = false);
-      }
+      _playlistReordering = false;
     }
   }
 }

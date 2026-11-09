@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/cover_flight.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
+import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
@@ -611,6 +614,57 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(_playlistDetail(), findsNothing, reason: 'Esc 退回歌单列表');
+  });
+
+  testWidgets('歌单拖拽落库期间不换列表控件（换了文字会抽动一下）', (WidgetTester tester) async {
+    final FakeLibraryRepository repo = await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', path: '/music/夜航.mp3'),
+        sampleTrack(title: '晨光', album: '夜之专辑', path: '/music/晨光.mp3'),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/晨光.mp3');
+      },
+    );
+    await openPlaylists(tester);
+    await tester.tap(find.text('晨间'));
+    await tester.pumpAndSettle();
+
+    // 别的分区（Offstage 常驻）里也有普通 ListView，不能拿「有没有 ListView」
+    // 判断，只看这行曲目挂在哪种列表下
+    Finder rowIn(Finder list) =>
+        find.descendant(of: list, matching: find.text('夜航'));
+    expect(rowIn(find.byType(ReorderableListView)), findsOneWidget);
+
+    // 直接触发回调：模拟拖完一次把手
+    final TrackListView list = tester.widget<TrackListView>(
+      find.byType(TrackListView),
+    );
+    expect(list.onReorder, isNotNull, reason: '歌单里应当能拖拽排序');
+
+    // 把落库挂住：这样才真的停在「正在落库」这个窗口里观察界面
+    repo.movePlaylistGate = Completer<void>();
+    list.onReorder!(0, 1);
+    await tester.pump();
+
+    // 落库还在飞：控件类型不能变。
+    // 原来这里把 onReorder 置 null，TrackListView 会从 ReorderableListView
+    // 换成普通 ListView —— 两个类型不同，key 相同也不复用 element，
+    // 整列表重建、文字重排一次，观感就是「抽动一下、像刷新」
+    expect(
+      rowIn(find.byType(ReorderableListView)),
+      findsOneWidget,
+      reason: '落库期间仍应是可拖拽列表，不能换成普通 ListView',
+    );
+
+    // 落库完成：类型仍然不变
+    repo.movePlaylistGate!.complete();
+    await tester.pumpAndSettle();
+    expect(rowIn(find.byType(ReorderableListView)), findsOneWidget);
+    expect(repo.movePlaylistCalls, <(int, int, int)>[(1, 0, 1)]);
   });
 
   testWidgets('歌单分区可新建歌单并展示卡片', (WidgetTester tester) async {
