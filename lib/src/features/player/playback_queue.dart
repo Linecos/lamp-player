@@ -28,10 +28,15 @@ enum LoopMode {
 /// 只做纯计算，不接触播放器、不依赖 Flutter；页面只负责在 [advance] /
 /// [retreat] 返回新下标后真正加载音频。
 ///
-/// **随机模式是"每次随机抽一首"**：点下一首（或自然播完）就在全队列里等概率
-/// 抽一首，不按预先洗好的顺序走，因此**没有"最后一首"**——可以一直放下去，
-/// 也不需要 [LoopMode] 配合。抽的时候会避开当前这一首，只保证"不会连着放
-/// 同一首歌"，不做整轮去重（那需要记住一轮的播放记录）。
+/// **随机模式用「洗牌袋」**：把整轮下标打乱放进 [_shufflePool]，从袋尾依次取出，
+/// 取空才重洗——所以一轮之内每首正好放一次，不会出现「某首反复来、某首从不来」。
+/// 袋子空了会自动重洗，因此**没有"最后一首"**，可以一直放下去，也不需要
+/// [LoopMode] 配合。
+///
+/// 队列的**显示顺序始终不变**（队列面板按 `tracks` 原序渲染，只高亮当前曲目），
+/// 随机只体现在「下一首跳到哪个下标」，所以从列表上推不出后面会放什么。
+/// 重洗时会把刚播完的那首和最近听过的几首压到袋首（最后才取到），
+/// 避免轮末接轮首时把刚听过的又端上来。
 class PlaybackQueue {
   PlaybackQueue({
     List<Track> tracks = const <Track>[],
@@ -60,6 +65,13 @@ class PlaybackQueue {
   /// [peekNext] 会被连续问好几次（切歌、判定有没有下一首），每次重抽的话
   /// 结果会跳来跳去；抽一次记住，真正切过去之后才清空。
   int? _shuffleNext;
+
+  /// 洗牌袋：一整轮打乱后的下标，从**末尾**取（见 [_pickShuffledNext]）。
+  ///
+  /// 取空才重洗，所以一轮之内每首正好一次；不需要它的时候保持为空即可。
+  /// 队列结构变了（重排 / 删曲 / 插入 / 换队列）要同步维护，否则袋里的下标
+  /// 会指向别的歌——这一点比「只在长度变短时剔越界」（ZeroBit 的做法）更严。
+  final List<int> _shufflePool = <int>[];
 
   /// 队列快照（只读）；UI 只展示，不直接改
   List<Track> get tracks => List<Track>.unmodifiable(_tracks);
@@ -103,18 +115,68 @@ class PlaybackQueue {
     return _repeat == LoopMode.off ? null : 0;
   }
 
-  /// 随机挑一首：避开当前曲目，保证不会连着放同一首。
+  /// 随机挑一首：从洗牌袋尾部取，取空就重洗一整轮。
+  ///
+  /// 只在 [advance] 真正切过去时才把这一首从袋里移除，所以 [peekNext]
+  /// 连问几次结果都稳定，也不会因为问了一次就少放一首。
   int _pickShuffledNext() {
-    if (_tracks.length <= 1) {
+    final int n = _tracks.length;
+    if (n <= 1) {
       return _index < 0 ? 0 : _index;
     }
-    final int at = _index < 0 ? 0 : _index;
-    int pick = _random.nextInt(_tracks.length - 1);
-    // 跳过当前曲目：把 [0, n-2] 映射到"除当前曲目外的 n-1 个下标"
-    if (pick >= at) {
-      pick += 1;
+    if (_shufflePool.isEmpty) {
+      _refillShufflePool();
     }
-    return pick;
+    final int last = _shufflePool.length - 1;
+    // 袋尾正好是当前曲目（手动跳回来过）：随手换一个，别原地重播
+    if (_shufflePool[last] == _index && last > 0) {
+      final int at = _random.nextInt(last);
+      final int tmp = _shufflePool[at];
+      _shufflePool[at] = _shufflePool[last];
+      _shufflePool[last] = tmp;
+    }
+    return _shufflePool[last];
+  }
+
+  /// 重洗一整轮下标。
+  ///
+  /// 两种「别让人觉得在重复」的小处理，都靠把下标压到袋**首**实现——
+  /// 袋尾先播、袋首最后播：
+  /// 1. 当前曲目：否则轮末接轮首时会连放两遍同一首；
+  /// 2. 最近听过的几首（最多 3 首，且不超过队列的四分之一）：
+  ///    免得新一轮开头又把刚听过的端上来。
+  ///
+  /// 压过去的那一撮内部也打乱，不然「最近听过的」会按固定顺序回放。
+  void _refillShufflePool() {
+    final int n = _tracks.length;
+    final List<int> pool = List<int>.generate(n, (int i) => i)
+      ..shuffle(_random);
+
+    final Set<int> deferred = <int>{};
+    if (_index >= 0 && _index < n) {
+      deferred.add(_index);
+    }
+    final int guard = min(3, n ~/ 4);
+    for (
+      int i = _history.length - 1;
+      i >= 0 && deferred.length <= guard;
+      i -= 1
+    ) {
+      final int at = _history[i];
+      if (at >= 0 && at < n) {
+        deferred.add(at);
+      }
+    }
+
+    final List<int> head =
+        pool.where((int index) => deferred.contains(index)).toList()
+          ..shuffle(_random);
+    final List<int> tail = pool
+        .where((int index) => !deferred.contains(index))
+        .toList();
+    _shufflePool
+      ..addAll(head)
+      ..addAll(tail);
   }
 
   /// 上一首会落在哪里；`null` 表示已到队首且不循环。
@@ -148,6 +210,11 @@ class PlaybackQueue {
     }
     _pushHistory();
     _index = next;
+    // 这一首已经播了：从洗牌袋里摘掉（本轮不再出现）。
+    // 袋里没有它也没关系——比如「下一首播放」插进来的那首本来就不在袋里
+    if (_shuffle) {
+      _shufflePool.remove(next);
+    }
     // 抽好的那一首已经播了，下次再抽
     _shuffleNext = null;
     return _index;
@@ -183,6 +250,9 @@ class PlaybackQueue {
     }
     _pushHistory();
     _index = index;
+    if (_shuffle) {
+      _shufflePool.remove(index);
+    }
     _shuffleNext = null;
     return true;
   }
@@ -194,6 +264,7 @@ class PlaybackQueue {
       ..addAll(tracks);
     _index = tracks.isEmpty ? -1 : index.clamp(0, tracks.length - 1);
     _history.clear();
+    _shufflePool.clear();
     _shuffleNext = null;
   }
 
@@ -228,6 +299,9 @@ class PlaybackQueue {
     for (int i = 0; i < _history.length; i += 1) {
       _history[i] = remap(_history[i]);
     }
+    for (int i = 0; i < _shufflePool.length; i += 1) {
+      _shufflePool[i] = remap(_shufflePool[i]);
+    }
     // 下标整体平移了，已经抽好的那一首不再可信，重新抽
     _shuffleNext = null;
   }
@@ -255,6 +329,7 @@ class PlaybackQueue {
           _history[i] = at - 1;
         }
       }
+      _shiftShufflePool(removed: index);
     }
     _shuffleNext = null;
     return wasCurrent;
@@ -265,6 +340,7 @@ class PlaybackQueue {
     _tracks.clear();
     _index = -1;
     _history.clear();
+    _shufflePool.clear();
     _shuffleNext = null;
   }
 
@@ -295,6 +371,18 @@ class PlaybackQueue {
     }
     _removePath(track.path);
     _tracks.insert(_index + 1, track);
+    // 插在当前曲目之后：它后面的下标整体右移一位，历史和洗牌袋都要跟着挪，
+    // 否则「上一首」会跳错歌、袋里也会放重或漏放
+    for (int i = 0; i < _history.length; i += 1) {
+      if (_history[i] > _index) {
+        _history[i] += 1;
+      }
+    }
+    for (int i = 0; i < _shufflePool.length; i += 1) {
+      if (_shufflePool[i] > _index) {
+        _shufflePool[i] += 1;
+      }
+    }
     if (_shuffle) {
       // 随机模式下也要让「下一首播放」点得中：把已经抽好的下一首改成它，
       // 否则下次随机又会抽到别处，点了听不到
@@ -314,6 +402,11 @@ class PlaybackQueue {
       return false;
     }
     _tracks.add(track);
+    // 随机模式：「追加到队尾」对应洗牌袋的袋首（最后才取到）。
+    // 袋子空着说明这一轮已经放完、马上会重洗，届时它会自然被洗进去
+    if (_shuffle && _shufflePool.isNotEmpty) {
+      _shufflePool.insert(0, _tracks.length - 1);
+    }
     return true;
   }
 
@@ -326,6 +419,8 @@ class PlaybackQueue {
       return;
     }
     _shuffle = value;
+    // 重新进入随机时不沿用上一轮的袋子：从这一刻起重新洗一轮更符合直觉
+    _shufflePool.clear();
     _shuffleNext = null;
   }
 
@@ -358,6 +453,22 @@ class PlaybackQueue {
         _history.removeAt(i);
       } else if (at > removed) {
         _history[i] = at - 1;
+      }
+    }
+    _shiftShufflePool(removed: removed);
+  }
+
+  /// 删掉某一首之后收拾洗牌袋：指向它的下标要丢掉，比它大的统一左移。
+  ///
+  /// 不收拾的话袋里的下标会顺移到别的歌上——要么放重、要么漏放，
+  /// 而且从界面上完全看不出来（ZeroBit 只在队列变短时剔越界，就有这个问题）。
+  void _shiftShufflePool({required int removed}) {
+    for (int i = _shufflePool.length - 1; i >= 0; i -= 1) {
+      final int at = _shufflePool[i];
+      if (at == removed) {
+        _shufflePool.removeAt(i);
+      } else if (at > removed) {
+        _shufflePool[i] = at - 1;
       }
     }
   }
