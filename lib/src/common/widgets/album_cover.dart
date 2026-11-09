@@ -189,23 +189,40 @@ class _AlbumCoverState extends State<AlbumCover>
 
     final ImageProvider provider = _providerFor(path);
     final ImageStream stream = provider.resolve(ImageConfiguration.empty);
+
     late final ImageStreamListener listener;
+
+    /// 自己这一次监听用完了：先清引用再摘监听。
+    void settle() {
+      if (identical(_pendingStream, stream)) {
+        _pendingStream = null;
+        _pendingListener = null;
+      }
+      _removeQuietly(stream, listener);
+    }
+
     // 图已经在缓存里时这里会同步回调——也就是在 [didUpdateWidget] 的 build
     // 途中 setState。当前 element 本来就在这次 build 的作用域内，框架允许，
     // 换图当场生效，不多等一帧。
     listener = ImageStreamListener(
       (ImageInfo info, bool synchronousCall) {
-        stream.removeListener(listener);
+        settle();
         _applySwitch(token, path);
       },
       onError: (Object error, StackTrace? stackTrace) {
-        stream.removeListener(listener);
+        settle();
         _applySwitch(token, path);
       },
     );
-    stream.addListener(listener);
+    // **先挂引用、再 addListener**：图已在缓存里时回调会在 addListener 里同步
+    // 跑完（回调自己摘掉监听，流随即 dispose）。挂晚了就等于留下一对指向
+    // 「已经 dispose 的流」的过期引用，之后 dispose 再摘一次会抛
+    // `Bad state: Stream has been disposed`——而它发生在 element 卸载途中，
+    // 会把框架的元素簿记整个搞坏（实测连锁出 Duplicate GlobalKey、
+    // RenderFlex 溢出、播放岛渲染缺块，重启才能恢复）
     _pendingStream = stream;
     _pendingListener = listener;
+    stream.addListener(listener);
 
     // 网络盘 / 大图偶尔解码得慢，等太久不如直接换、让 Image 自己填进来
     _waitTimer = Timer(const Duration(milliseconds: 250), () {
@@ -220,7 +237,23 @@ class _AlbumCoverState extends State<AlbumCover>
     _pendingStream = null;
     _pendingListener = null;
     if (stream != null && listener != null) {
+      _removeQuietly(stream, listener);
+    }
+  }
+
+  /// 摘监听，且容忍「流已经 dispose」。
+  ///
+  /// 一个 ImageStream 在「加过监听、又把监听全摘掉、且没有 keepAlive 句柄」
+  /// 之后就算 dispose 了。我们自己摘掉最后一次监听就会造成这个状态，缓存淘汰
+  /// 也会。此时再摘一次会抛 `Bad state: Stream has been disposed`，而这个
+  /// 异常如果落在 element 卸载途中，会中断框架的卸载流程、把元素簿记搞坏
+  /// （2026-11-09 的现场日志：随后出现 Duplicate GlobalKey、RenderFlex 溢出、
+  /// 刷屏的 `_elements.contains(element)` 断言，播放岛从此渲染缺块）。
+  static void _removeQuietly(ImageStream stream, ImageStreamListener listener) {
+    try {
       stream.removeListener(listener);
+    } on StateError {
+      // 已经 dispose：本来就没有我们的事了
     }
   }
 
