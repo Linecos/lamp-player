@@ -248,7 +248,7 @@ void main() {
     expect(playback.exclusiveCalls, 1);
     expect(playback.exclusive, isTrue);
     expect(store.snapshot.exclusiveOutput, isTrue);
-    expect(find.text('设备由本应用独占，系统混音器不再参与'), findsOneWidget);
+    expect(find.text('正在独占'), findsOneWidget);
   });
 
   testWidgets('启动时按会话恢复独占输出', (WidgetTester tester) async {
@@ -343,7 +343,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(lifecycle.closeToTray, isFalse);
-    expect(find.text('点 × 直接退出应用'), findsOneWidget);
+    expect(find.text('点 × 直接退出'), findsOneWidget);
   });
 
   testWidgets('开启均衡器会下发给引擎并写回会话', (WidgetTester tester) async {

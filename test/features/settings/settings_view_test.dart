@@ -108,7 +108,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.ensureVisible(find.text('正在扫描并入库…'));
+    await tester.ensureVisible(find.text('正在扫描…'));
     await tester.tap(find.text('添加音乐目录'));
     expect(calls, 0);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -300,7 +300,7 @@ void main() {
       findsNothing,
       reason: '切换中显示进度而不是开关',
     );
-    expect(find.text('设备不支持或被占用，当前仍走共享输出'), findsOneWidget);
+    expect(find.text('不支持或被占用，仍走共享'), findsOneWidget);
   });
 
   testWidgets('流光背景开关默认开启并回调', (WidgetTester tester) async {
@@ -388,7 +388,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('关闭窗口时留在托盘'), findsOneWidget);
-    expect(find.text('点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出'), findsOneWidget);
+    expect(find.text('点 × 只隐藏窗口'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-close-to-tray-switch')),
@@ -479,7 +479,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('10 段参数均衡，可存多套预设'), findsOneWidget);
+    expect(find.text('10 段均衡，可存多套'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-0')), findsNothing);
   });
 

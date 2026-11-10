@@ -72,7 +72,7 @@ void main() {
     );
 
     expect(find.text(r'正在扫描 C:\Music'), findsOneWidget);
-    expect(find.text('正在扫描并入库…'), findsOneWidget);
+    expect(find.text('正在扫描…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
 
     await tester.tap(find.text('添加音乐目录'));
