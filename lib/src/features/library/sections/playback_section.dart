@@ -74,8 +74,6 @@ extension _PlaybackSection on _LibraryPageState {
       }
       _update(() => _isPlaying = false);
       _publishProgress();
-      // 独占下失败往往是设备被抢走、引擎已回落共享：把最新输出刷给设置页
-      unawaited(_refreshOutputInfo());
       if (!silent) {
         _showMessage('播放失败：${ErrorRetry.describe(error)}');
       }
@@ -1229,12 +1227,10 @@ extension _PlaybackSection on _LibraryPageState {
         return;
       }
       _showMessage('切换输出设备失败：${ErrorRetry.describe(error)}');
-      unawaited(_refreshOutputInfo());
     } finally {
       if (mounted) {
         _update(() => _switchingOutput = false);
       }
-      unawaited(_refreshOutputInfo());
       unawaited(_refreshDevices());
     }
   }

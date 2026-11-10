@@ -12,9 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../support/fake_library.dart';
 
 Widget _harness({ThemeController? controller}) {
-  final Widget view = Scaffold(
-    body: SettingsView(trackCount: 2, engineAvailable: true),
-  );
+  final Widget view = Scaffold(body: SettingsView(trackCount: 2));
   return controller == null
       ? MaterialApp(theme: AppTheme.light(AppTheme.defaultSeed), home: view)
       : ThemeScope(
@@ -78,11 +76,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
-          body: SettingsView(
-            trackCount: 2,
-            engineAvailable: true,
-            onAddFolder: () => calls += 1,
-          ),
+          body: SettingsView(trackCount: 2, onAddFolder: () => calls += 1),
         ),
       ),
     );
@@ -106,7 +100,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            engineAvailable: true,
             scanning: true,
             onAddFolder: () => calls += 1,
           ),
@@ -207,9 +200,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(
-          body: SettingsView(trackCount: 0, engineAvailable: false),
-        ),
+        home: const Scaffold(body: SettingsView(trackCount: 0)),
       ),
     );
     await tester.pumpAndSettle();
@@ -232,7 +223,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            engineAvailable: true,
             folders: const <String>['D:/Music', 'E:/Songs'],
             onRescanFolder: rescanned.add,
             onRemoveFolder: removed.add,
@@ -266,10 +256,8 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            engineAvailable: true,
             exclusive: false,
             exclusiveActive: false,
-            outputInfo: '共享输出（跟随系统混音格式）',
             onExclusiveChanged: changes.add,
           ),
         ),
@@ -278,7 +266,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('独占输出（WASAPI）'), findsOneWidget);
-    expect(find.text('共享输出（跟随系统混音格式）'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-exclusive-switch')),
@@ -299,7 +286,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            engineAvailable: true,
             exclusive: true,
             switchingOutput: true,
             onExclusiveChanged: (_) {},
@@ -330,7 +316,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             flowBackground: true,
             onFlowBackgroundChanged: changes.add,
           ),
@@ -363,7 +348,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             onCircularCoversChanged: changes.add,
           ),
         ),
@@ -395,7 +379,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             closeToTray: true,
             onCloseToTrayChanged: changes.add,
           ),
@@ -423,9 +406,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        home: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -448,7 +429,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             eqEnabled: true,
             eqGains: List<double>.filled(10, 0),
             eqPresetName: '摇滚',
@@ -491,7 +471,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             eqEnabled: false,
             onEqualizerChanged: (_, _, _) {},
           ),
@@ -521,9 +500,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -582,9 +559,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -648,9 +623,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -686,9 +659,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -732,9 +703,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -763,7 +732,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            engineAvailable: true,
             onAddFolder: () {},
             onExclusiveChanged: (_) {},
             onCloseToTrayChanged: (_) {},
@@ -814,7 +782,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             devices: const <rust.PlayerDevice>[
               rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
               rust.PlayerDevice(index: 2, name: '耳机', isDefault: false),
@@ -891,9 +858,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -953,9 +918,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -996,7 +959,6 @@ void main() {
         home: const Scaffold(
           body: SettingsView(
             trackCount: 2,
-            engineAvailable: true,
             // 曲库页传的就是 PlayerBar.occupiedHeight + 8
             bottomPadding: 116,
           ),

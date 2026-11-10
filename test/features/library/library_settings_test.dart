@@ -15,7 +15,7 @@ import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
 void main() {
-  testWidgets('设置分区展示真实曲库统计与引擎状态', (WidgetTester tester) async {
+  testWidgets('设置分区展示真实曲库统计', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
     await tester.tap(
@@ -25,7 +25,6 @@ void main() {
 
     expect(find.text('曲目数量'), findsOneWidget);
     expect(find.text('2 首'), findsOneWidget);
-    expect(find.text('不可用（未加载 BASS）'), findsOneWidget);
 
     // 新增独占 / 设备 / ReplayGain / 淡变几行后设置页更长，外观分区要滚得更多
     await tester.drag(find.byType(SettingsView), const Offset(0, -700));
@@ -319,24 +318,6 @@ void main() {
           )
           .onChanged,
       isNull,
-    );
-  });
-
-  testWidgets('进入设置页会重新读取输出信息', (WidgetTester tester) async {
-    final FakePlaybackService playback = FakePlaybackService(
-      isAvailable: true,
-      durationSecs: 180,
-    );
-    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
-    final int before = playback.outputInfoCalls;
-
-    await openSettings(tester);
-    await tester.pumpAndSettle();
-
-    expect(
-      playback.outputInfoCalls,
-      greaterThan(before),
-      reason: '空闲释放 / 回落共享都可能改变实际输出，进设置页要重读',
     );
   });
 
