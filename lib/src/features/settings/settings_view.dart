@@ -48,7 +48,9 @@ class SettingsView extends StatelessWidget {
     this.onOutputDeviceChanged,
     this.replayGain = false,
     this.onReplayGainChanged,
-    this.crossfadeSeconds = 0,
+    this.crossfadeEnabled = false,
+    this.crossfadeSeconds = 2,
+    this.onCrossfadeEnabledChanged,
     this.onCrossfadeChanged,
     this.volumeFade = true,
     this.onVolumeFadeChanged,
@@ -138,8 +140,14 @@ class SettingsView extends StatelessWidget {
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
 
-  /// 换曲交叉淡变时长（秒）；0 关闭
+  /// 换曲淡入淡出是否开启（时长为 0 即关闭）
+  final bool crossfadeEnabled;
+
+  /// 淡变时长（秒）；关闭时带的是上次的时长，仅供下拉显示
   final double crossfadeSeconds;
+
+  /// 开关淡变；为空表示当前不可操作
+  final ValueChanged<bool>? onCrossfadeEnabledChanged;
 
   /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
@@ -352,20 +360,29 @@ class SettingsView extends StatelessWidget {
         busy: switchingOutput,
         onChanged: onExclusiveChanged,
       ),
-      _ChoiceRow<int>(
+      _SwitchRow(
         icon: Icons.compare_arrows,
         title: '换曲淡入淡出',
-        subtitle: exclusiveActive ? '独占模式下只做新曲淡入（不重叠）' : '共享模式下新旧曲重叠交叉淡变，避免硬切',
+        switchKey: const ValueKey<String>('settings-crossfade-switch'),
+        subtitle: crossfadeEnabled
+            ? (exclusiveActive ? '独占模式下只做新曲淡入（不重叠）' : '共享模式下新旧曲重叠交叉淡变，避免硬切')
+            : '关闭时换曲直接切换，不做过渡',
+        value: crossfadeEnabled,
+        onChanged: onCrossfadeEnabledChanged,
+      ),
+      _ChoiceRow<int>(
+        icon: Icons.timer_outlined,
+        title: '淡变时长',
+        subtitle: crossfadeEnabled ? '新旧曲重叠的时间长度' : '打开上方开关后生效',
         value: crossfadeSeconds.round(),
         choices: const <(int, String)>[
-          (0, '关闭'),
           (1, '1 秒'),
           (2, '2 秒'),
           (4, '4 秒'),
           (6, '6 秒'),
           (8, '8 秒'),
         ],
-        onChanged: onCrossfadeChanged == null
+        onChanged: onCrossfadeChanged == null || !crossfadeEnabled
             ? null
             : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
         choiceKey: const ValueKey<String>('settings-crossfade'),

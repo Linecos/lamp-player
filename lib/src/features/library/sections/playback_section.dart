@@ -1298,7 +1298,15 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 换曲淡变时长（秒）；0 关闭
+  /// 开关淡变：打开恢复到上次时长，关闭置 0
+  Future<void> _setCrossfadeEnabled(bool enabled) =>
+      _setCrossfade(enabled ? _lastCrossfadeSeconds : 0);
+
   Future<void> _setCrossfade(double seconds) async {
+    // 非零时长记下来，关掉开关再打开时回到上次的值
+    if (seconds > 0) {
+      _lastCrossfadeSeconds = seconds;
+    }
     if (_crossfadeSeconds == seconds) {
       return;
     }
