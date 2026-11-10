@@ -39,6 +39,8 @@ class AlphabetGridView<T> extends StatefulWidget {
   /// 分组 / 排序用的显示名（专辑名、艺术家名）
   final String Function(T item) labelOf;
 
+  /// [index] 是**这一桶里**的序号，不是整列的序号 —— 拿它做 key 会跨段撞车，
+  /// 需要稳定 key 时请用条目自己的标识。
   final Widget Function(BuildContext context, T item, int index) itemBuilder;
 
   final double maxCrossAxisExtent;
@@ -63,15 +65,25 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
   List<AlphabetBucket<T>>? _buckets;
   List<T>? _bucketsFor;
 
-  /// 当前滚动位置落在哪一段，用来给导航条上的字母加重
-  String? _activeLetter;
+  /// 当前滚动位置落在哪一段，用来给导航条上的字母加重。
+  ///
+  /// 用 [ValueNotifier] 而不是 `setState`：跨段时只有导航条那几个字母要重画，
+  /// 整棵网格（二十来个 `SliverGrid` 加它们的 delegate）没必要跟着重建。
+  final ValueNotifier<String?> _active = ValueNotifier<String?>(null);
 
-  /// 最近一次布局用的几何，滚动时算「当前在哪一段」要用
-  AlphabetGridMetrics? _metrics;
+  /// 每段标题的滚动偏移：布局时算一次，滚动通知只查这张表。
+  ///
+  /// 以前是每个滚动通知都重建一遍 counts 列表、再对每一段重新累加
+  /// （O(段数²)），滚动时白扔一堆计算。
+  List<double> _sectionOffsets = const <double>[];
+
+  /// 已经排了一次「按当前偏移补算加重项」的回调
+  bool _syncScheduled = false;
 
   @override
   void dispose() {
     _controller.dispose();
+    _active.dispose();
     super.dispose();
   }
 
@@ -89,13 +101,16 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
     return buckets;
   }
 
-  void _jumpTo(AlphabetGridMetrics metrics, List<int> counts, int index) {
-    if (!_controller.hasClients) {
+  void _jumpTo(int index) {
+    if (!_controller.hasClients ||
+        index < 0 ||
+        index >= _sectionOffsets.length) {
       return;
     }
-    final double target = metrics
-        .offsetOfSection(index, counts)
-        .clamp(0.0, _controller.position.maxScrollExtent);
+    final double target = _sectionOffsets[index].clamp(
+      0.0,
+      _controller.position.maxScrollExtent,
+    );
     _controller.animateTo(
       target,
       duration: const Duration(milliseconds: 220),
@@ -103,36 +118,59 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
     );
   }
 
-  /// 滚动时更新「当前段」：只跨段时才重建，逐帧滚动不触发
-  bool _handleScroll(ScrollNotification notification) {
-    final AlphabetGridMetrics? metrics = _metrics;
+  /// [pixels] 落在哪一段：最后一段起点不超过它的那一段。
+  ///
+  /// 顶部（滚动偏移小于第一段的 [AlphabetGridMetrics.topPadding]）算第一段：
+  /// 以前这里会让循环一次都不进、返回 null，结果停在顶上时导航条没有任何加重项。
+  String? _letterAt(double pixels) {
     final List<AlphabetBucket<T>>? buckets = _buckets;
-    if (metrics == null || buckets == null) {
-      return false;
+    if (buckets == null || buckets.isEmpty || _sectionOffsets.isEmpty) {
+      return null;
     }
-    final List<int> counts = <int>[
-      for (final AlphabetBucket<T> bucket in buckets) bucket.length,
-    ];
-    String? current;
-    for (int i = 0; i < buckets.length; i += 1) {
-      if (notification.metrics.pixels + 1 >=
-          metrics.offsetOfSection(i, counts)) {
+    String current = buckets.first.letter;
+    for (int i = 0; i < _sectionOffsets.length && i < buckets.length; i += 1) {
+      if (pixels + 1 >= _sectionOffsets[i]) {
         current = buckets[i].letter;
       } else {
         break;
       }
     }
-    if (current != _activeLetter) {
-      setState(() => _activeLetter = current);
+    return current;
+  }
+
+  /// 滚动时更新「当前段」：只在跨段时通知一次，逐帧滚动不做事
+  bool _handleScroll(ScrollNotification notification) {
+    if (_sectionOffsets.isEmpty) {
+      return false;
     }
+    _active.value = _letterAt(notification.metrics.pixels);
     return false;
+  }
+
+  /// 布局完按**当前偏移**补算一次加重项。
+  ///
+  /// 两种情况靠它：切分区回来时滚动位置由 PageStorage 恢复（不是从 0 开始），
+  /// 以及窗口变宽变窄后段偏移全变了 —— 这时候没有滚动通知，导航条会一直没有
+  /// 加重项，或者停在上一套几何算出来的字母上。
+  void _scheduleActiveSync() {
+    if (_syncScheduled) {
+      return;
+    }
+    _syncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScheduled = false;
+      if (!mounted || !_controller.hasClients || _sectionOffsets.isEmpty) {
+        return;
+      }
+      _active.value = _letterAt(_controller.offset);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final List<AlphabetBucket<T>> buckets = _grouped();
-    final List<int> counts = <int>[
-      for (final AlphabetBucket<T> bucket in buckets) bucket.length,
+    final List<String> letters = <String>[
+      for (final AlphabetBucket<T> bucket in buckets) bucket.letter,
     ];
 
     return LayoutBuilder(
@@ -147,7 +185,10 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
           headerExtent: alphabetHeaderExtent,
           topPadding: widget.topPadding,
         );
-        _metrics = metrics;
+        _sectionOffsets = metrics.sectionOffsets(<int>[
+          for (final AlphabetBucket<T> bucket in buckets) bucket.length,
+        ]);
+        _scheduleActiveSync();
 
         return Stack(
           children: <Widget>[
@@ -200,18 +241,18 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
               bottom: widget.bottomPadding,
               right: railInset,
               width: railWidth,
-              child: AlphabetRail(
-                letters: <String>[
-                  for (final AlphabetBucket<T> bucket in buckets) bucket.letter,
-                ],
-                active: _activeLetter,
-                onSelect: (String letter) {
-                  final int index = buckets.indexWhere(
-                    (AlphabetBucket<T> bucket) => bucket.letter == letter,
+              // 只有这根导航条关心「现在在哪一段」，让它单独订阅，
+              // 跨段滚动就不会牵动上面那串 sliver
+              child: ValueListenableBuilder<String?>(
+                valueListenable: _active,
+                builder: (BuildContext context, String? active, Widget? _) {
+                  return AlphabetRail(
+                    letters: letters,
+                    active: active,
+                    onSelect: (String letter) {
+                      _jumpTo(letters.indexOf(letter));
+                    },
                   );
-                  if (index >= 0) {
-                    _jumpTo(metrics, counts, index);
-                  }
                 },
               ),
             ),
