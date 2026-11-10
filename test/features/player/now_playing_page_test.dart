@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/formatters/duration.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/common/widgets/marquee_title.dart';
 import 'package:lamp_player/src/app/immersive_chrome.dart';
 import 'package:lamp_player/src/app/title_bar.dart';
 import 'package:lamp_player/src/app/window_controls.dart';
@@ -168,6 +169,50 @@ Future<void> _settleToast(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('歌名长短不影响封面位置（标题只占一行）', (WidgetTester tester) async {
+    final ValueNotifier<NowPlayingData> notifier = await _pump(
+      tester,
+      data: _data(track: sampleTrack(title: '夜航')),
+      size: const Size(1280, 720),
+    );
+
+    Finder titleOf(String title) => find.descendant(
+      of: find.byType(MarqueeTitle),
+      matching: find.text(title),
+    );
+
+    // 长标题会画两份文字来接缝，取第一份就够
+    expect(
+      tester.widget<Text>(titleOf('夜航').first).maxLines,
+      1,
+      reason: '标题固定一行，多了会换行把封面顶下去',
+    );
+    final Rect short = tester.getRect(find.byType(AlbumCover).first);
+
+    // 换成长歌名：真实场景就是切歌
+    notifier.value = _data(
+      track: sampleTrack(title: '这是一首名字特别长的歌曲用来验证换行之后的布局表现究竟如何再多写一些字让它超出去'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            titleOf('这是一首名字特别长的歌曲用来验证换行之后的布局表现究竟如何再多写一些字让它超出去').first,
+          )
+          .maxLines,
+      1,
+    );
+    final Rect long = tester.getRect(find.byType(AlbumCover).first);
+
+    expect(
+      long.top,
+      closeTo(short.top, 0.5),
+      reason: '短歌名 / 长歌名的封面必须在同一高度，否则换歌时封面跳一下',
+    );
+    expect(long.height, closeTo(short.height, 0.5));
+  });
+
   testWidgets('展示曲目信息与无歌词提示', (WidgetTester tester) async {
     await _pump(tester, data: _data());
 
