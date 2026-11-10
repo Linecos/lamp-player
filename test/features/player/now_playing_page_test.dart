@@ -458,7 +458,11 @@ void main() {
       ),
     );
     expect(second.style?.fontWeight, FontWeight.w600, reason: '6 秒时应高亮第二行');
-    expect(second.style?.fontSize, 28, reason: '当前行字号放大');
+    expect(
+      second.style?.fontSize,
+      22,
+      reason: '字号恒定，放大交给外层缩放（改字号会让长句重新折行，换行时整列会跳）',
+    );
     expect(second.style?.color?.a, closeTo(0.96, 0.01), reason: '当前行固定白色');
 
     final Text first = tester.widget<Text>(
