@@ -32,6 +32,7 @@ class AlphabetGridView<T> extends StatefulWidget {
     this.topPadding = 8,
     this.crossAxisSpacing = 16,
     this.mainAxisSpacing = 16,
+    this.columnWidthHint,
   });
 
   final List<T> items;
@@ -52,6 +53,17 @@ class AlphabetGridView<T> extends StatefulWidget {
   final double topPadding;
   final double crossAxisSpacing;
   final double mainAxisSpacing;
+
+  /// 算**列数**时该用的宽度（见 [AlphabetGridMetrics.columnWidth]）。
+  ///
+  /// 传的是「侧栏展开时」的内容区宽度——也就是这个窗口下最窄的那种布局。
+  /// 这么定的原因：列数一旦随内容区宽度变，开关侧栏时就必然要重排列数，
+  /// 而两套列数在同一个宽度下的卡片尺寸差 20% 左右，看上去就是封面
+  /// 「先变大再变小」。把列数钉在窗口宽度上，开关侧栏只改变卡片大小
+  /// （单调、连续），不再跳变。
+  ///
+  /// 空值时退回按当前宽度算（独立使用 / 测试）。
+  final double? columnWidthHint;
 
   @override
   State<AlphabetGridView<T>> createState() => _AlphabetGridViewState<T>();
@@ -130,6 +142,7 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final double? columnWidthHint = widget.columnWidthHint;
     final List<AlphabetBucket<T>> buckets = _grouped();
     final List<int> counts = <int>[
       for (final AlphabetBucket<T> bucket in buckets) bucket.length,
@@ -146,6 +159,10 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
           aspectRatio: widget.aspectRatio,
           headerExtent: alphabetHeaderExtent,
           topPadding: widget.topPadding,
+          // 0 是通知器的初始值（还没算出来）：当成「没给」，别真按 0 去算列数
+          columnWidth: columnWidthHint == null || columnWidthHint <= 0
+              ? null
+              : columnWidthHint - gridRightReserve,
         );
         _metrics = metrics;
 
