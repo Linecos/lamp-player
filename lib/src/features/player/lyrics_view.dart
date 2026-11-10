@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -65,7 +64,7 @@ class LyricsView extends StatefulWidget {
 
 /// 上下淡出的渐变 stops（两端各用三段缓冲，中间全不透明）。
 ///
-/// 直线渐变在「透明→不透明」走完的那一点上斜率突变，文字笔画从糊到清楚是
+/// 直线渐变在「透明→不透明」走完的那一点上斜率突变，文字从看不见到完全实是
 /// 一下子的，看着就是一条看不见的边。改成两段缓冲后，alpha 是 S 形收尾，
 /// 边界感就散了。
 ///
@@ -182,7 +181,7 @@ const double _fadeTop = 120;
 
 /// 死区在行边界上再往下多盖的像素。
 ///
-/// 行内下内边距 9px，最远的行模糊 σ=3.2、高斯支撑约 3σ≈10px：底笔会溢出
+/// 行内下内边距 9px，22px 字的降部与抗锯齿边会溢出
 /// 行框约 1px。死区正好卡在行框边界时，这一截就从渐显段漏出来（顶部那排虚线）。
 const double _deadZoneGuard = 2;
 
@@ -701,28 +700,26 @@ class _LyricsViewState extends State<LyricsView>
 
   /// 用户开始接管滚动（拖动列表 / 鼠标滚轮）。
   ///
-  /// 两件事：暂停自动跟随（不然刚滚开就被拽回当前行），并临时关掉远处行的模糊
-  /// —— 滚动中一行都看不清，糊着只是白费光栅。上下的边界渐隐是外层遮罩，不受影响。
+  /// 只做一件事：暂停自动跟随（不然刚滚开就被拽回当前行）。
+  /// 不 setState——这层状态不参与绘制，重建整列只会白跑一次布局。
   void _beginUserScroll({bool restartTimer = true}) {
     // 旧的计时先作废：拖到一半被「停手 3 秒」拽回去会很突兀
     _resumeTimer?.cancel();
-    if (!_userScrolling) {
-      setState(() => _userScrolling = true);
-    }
+    _userScrolling = true;
     if (restartTimer) {
       // 滚轮每来一格就往后推 3 秒；拖动要等松手（ScrollEnd）才开始计时
       _restartResumeTimer();
     }
   }
 
-  /// 停手满 3 秒就交还控制权：跟回当前行，模糊一起回来
+  /// 停手满 3 秒就交还控制权：跟回当前行
   void _restartResumeTimer() {
     _resumeTimer?.cancel();
     _resumeTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) {
         return;
       }
-      setState(() => _userScrolling = false);
+      _userScrolling = false;
       if (_playing) {
         _jumpToActive();
       } else {
@@ -743,7 +740,7 @@ class _LyricsViewState extends State<LyricsView>
       clipper: _TopInsetClipper(1 / MediaQuery.devicePixelRatioOf(context)),
       child: Listener(
         // 鼠标滚轮 / 触摸板滚动不会带 dragDetails，光看滚动通知认不出「用户在滚」，
-        // 这里补一手指针信号：滚动时同样暂停自动跟随、并临时关掉远处的模糊
+        // 这里补一手指针信号：滚动时同样暂停自动跟随
         onPointerSignal: (PointerSignalEvent event) {
           if (event is PointerScrollEvent) {
             _beginUserScroll();
@@ -811,7 +808,6 @@ class _LyricsViewState extends State<LyricsView>
                                 textTheme: theme.textTheme,
                                 alignment: widget.alignment,
                                 translation: _translation,
-                                blur: !_userScrolling,
                                 edgeOpacity: _edgeOpacityAt(i),
                                 onSeek: widget.onSeek,
                               ),
@@ -1053,7 +1049,6 @@ class _SpringLyricLine extends StatefulWidget {
     required this.textTheme,
     required this.alignment,
     required this.translation,
-    required this.blur,
     required this.edgeOpacity,
     required this.onSeek,
   });
@@ -1079,10 +1074,6 @@ class _SpringLyricLine extends StatefulWidget {
 
   /// 译文的展开进度（1 = 展开，0 = 收起）
   final ValueListenable<double> translation;
-
-  /// 是否给远处的行加模糊。用户正在拖动列表时传 false：
-  /// 滚动中一片糊没有信息量，还每帧都要多跑一遍光栅
-  final bool blur;
 
   /// 这一行的上下渐隐强度（0~1），由它在视口里的位置决定。
   ///
@@ -1209,7 +1200,6 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
             textTheme: widget.textTheme,
             alignment: widget.alignment,
             translation: widget.translation,
-            blur: widget.blur,
             edgeOpacity: edge,
             onSeek: widget.onSeek,
           ),
@@ -1246,7 +1236,6 @@ class _LyricLineView extends StatelessWidget {
     required this.textTheme,
     required this.alignment,
     required this.translation,
-    required this.blur,
     required this.edgeOpacity,
     required this.onSeek,
   });
@@ -1270,9 +1259,6 @@ class _LyricLineView extends StatelessWidget {
   /// 译文的展开进度（1 = 展开，0 = 收起），由整列共用同一个弹簧
   final ValueListenable<double> translation;
 
-  /// 是否给远处行加模糊；拖动列表期间会被关掉（见 [_LyricsViewState]）
-  final bool blur;
-
   /// 上下渐隐：整行统一乘进各段颜色（0 = 完全透明、1 = 原样）
   final double edgeOpacity;
 
@@ -1293,16 +1279,18 @@ class _LyricLineView extends StatelessWidget {
     );
 
     // 歌词固定使用白色系，不跟随主题色；当前行最实，上下按距离淡出。
-    // 有了模糊之后不再一味压低透明度：远处那几行靠「糊」退出焦点，
-    // alpha 压太狠的话糊都看不见，层次只剩「有字 / 没字」两档
     //
     // 边界渐隐（视口上下沿）在这里一起乘进去：改的是颜色 alpha，不是套
-    // `Opacity`/`ShaderMask`——那两者都要离屏图层，而这一层每帧都在重画
+    // `Opacity`/`ShaderMask`——那两者都要离屏图层，而这一层每帧都在重画。
     final double edge = edgeOpacity.clamp(0.0, 1.0);
     Color fade(Color color) =>
         edge >= 0.999 ? color : color.withValues(alpha: color.a * edge);
     final Color white = Colors.white;
     final Color activeColor = fade(white.withValues(alpha: 0.96));
+    // 由近及远逐级压暗。远处行曾经还套一层 `ImageFiltered` 做「糊」，
+    // 但 Impeller 没有光栅缓存：只要窗口里有动画在跑，每帧都会把这几百个
+    // 模糊图层重新算一遍，纹理反复分配、RSS 一路涨到 400MB 以上。
+    // 这些行本来就压到 0.26~0.62 的透明度，只留淡出看不出硬边。
     final Color dim = fade(
       white.withValues(
         alpha: switch (distance) {
@@ -1321,8 +1309,8 @@ class _LyricLineView extends StatelessWidget {
         '♪',
         textAlign: alignment.textAlign,
         style: style.copyWith(
-          color: active ? activeColor : dim,
           fontSize: _lyricFontSize * 0.82,
+          color: active ? activeColor : dim,
         ),
       );
     } else if (active && line.words.length >= 2) {
@@ -1344,41 +1332,25 @@ class _LyricLineView extends StatelessWidget {
       );
     }
 
-    // 越远的行越虚：靠模糊表现「退出焦点」。只压不透明度的话，文字笔画在
-    // 某个 alpha 上还是清清楚楚的，边缘就还是硬的；糊开之后没有了高频细节，
-    // 再叠上遮罩的淡出才是渐进的。
-    //
-    // 从相邻一行就开始给一点糊，一级一级往上加：之前是 1 行全清、2 行直接
-    // σ1.2，一格就跳过去，看着像被分成「清楚」和「不清楚」两半。
-    //
-    // 用户拖动列表时临时关掉：滚动中一片糊没有信息量，而且每一行都要多跑一遍
-    // 模糊光栅。上下的边界渐隐是外层遮罩，跟这里无关，照旧生效。
-    final double blurSigma = !blur
-        ? 0
-        : switch (distance) {
-            0 => 0,
-            1 => 0.5,
-            2 => 1.1,
-            3 => 1.8,
-            4 => 2.5,
-            _ => 3.2,
-          };
-
     final List<String> extras = line.translation
         .split('\n')
         .map((String value) => value.trim())
         .where((String value) => value.isNotEmpty)
         .toList();
 
-    // 译文跟正文一起糊：只糊正文时，未播放的行会出现「上面一团虚、下面
-    // 一行清清楚楚」的割裂感，看着像漏处理
-    Widget soften(Widget child) {
-      if (blurSigma <= 0) {
-        return child;
-      }
-      return ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-        child: child,
+    // 译文的颜色随距离 / 边界渐隐变化，字号按是否中日韩文字分两档
+    TextStyle extraStyle(String extra) {
+      final bool cjk = _hasCjk(extra);
+      return TextStyle(
+        // 译文只比正文略小，避免层级断层；字号同样恒定，
+        // 当前行靠外层那个缩放大一档
+        fontSize: cjk ? 18 : 17,
+        height: 1.4,
+        color: fade(
+          Colors.white.withValues(
+            alpha: active ? (cjk ? 0.72 : 0.58) : (cjk ? 0.34 : 0.24),
+          ),
+        ),
       );
     }
 
@@ -1411,8 +1383,7 @@ class _LyricLineView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            // 模糊层要贴着文字：套在外面的话，整行宽（可能上千像素）都要糊一遍
-            KeyedSubtree(key: anchorKey, child: emphasise(place(soften(main)))),
+            KeyedSubtree(key: anchorKey, child: emphasise(place(main))),
             if (extras.isNotEmpty)
               // 译文跟着一起放大（不然当前行的译文会显得格外小），
               // 它自己成一个缩放：整行一起缩的话，译文收起时整块重心上移，
@@ -1429,24 +1400,10 @@ class _LyricLineView extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 1),
                           child: place(
-                            soften(
-                              Text(
-                                extra,
-                                textAlign: alignment.textAlign,
-                                style: TextStyle(
-                                  // 译文只比正文略小，避免层级断层；字号同样恒定，
-                                  // 当前行靠外层那个缩放大一档
-                                  fontSize: _hasCjk(extra) ? 18 : 17,
-                                  height: 1.4,
-                                  color: fade(
-                                    Colors.white.withValues(
-                                      alpha: active
-                                          ? (_hasCjk(extra) ? 0.72 : 0.58)
-                                          : (_hasCjk(extra) ? 0.34 : 0.24),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                            Text(
+                              extra,
+                              textAlign: alignment.textAlign,
+                              style: extraStyle(extra),
                             ),
                           ),
                         ),
@@ -1472,7 +1429,7 @@ class _LyricLineView extends StatelessWidget {
 /// 高度乘进度、从下沿裁掉（文字本身不会被压扁），和 `AnimatedSize` 的
 /// `clipBehavior` 一个道理。子级一直留在树上——收起时它的自然高度还要用来
 /// 算滚动补偿量，摘掉就量不到了。
-/// 不叠 `Opacity`：这里面的文字压着模糊层，加透明度会逐帧退回 saveLayer。
+/// 不叠 `Opacity`：那会给整块译文再开一层离屏图层，而它的高度每帧都在变。
 class _TranslationBody extends StatelessWidget {
   const _TranslationBody({required this.progress, required this.child});
 
