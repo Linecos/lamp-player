@@ -655,6 +655,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
+  /// 关闭淡变前的时长：重新打开时恢复到它，而不是掉回默认值
+  double _lastCrossfadeSeconds = 2;
+
   /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
   bool _volumeFade = true;
 
@@ -1021,6 +1024,9 @@ class _LibraryPageState extends State<LibraryPage>
         _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
       }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
+      if (snapshot.crossfadeSeconds > 0) {
+        _lastCrossfadeSeconds = snapshot.crossfadeSeconds;
+      }
       _volumeFade = snapshot.volumeFade;
       _desktopLyrics = snapshot.desktopLyrics;
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;

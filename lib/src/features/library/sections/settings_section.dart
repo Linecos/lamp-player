@@ -103,7 +103,13 @@ extension _SettingsSection on _LibraryPageState {
                 : null,
             replayGain: _replayGain,
             onReplayGainChanged: _setReplayGain,
-            crossfadeSeconds: _crossfadeSeconds,
+            crossfadeEnabled: _crossfadeSeconds > 0,
+            crossfadeSeconds: _crossfadeSeconds > 0
+                ? _crossfadeSeconds
+                : _lastCrossfadeSeconds,
+            onCrossfadeEnabledChanged: _isAvailable
+                ? (bool enabled) => unawaited(_setCrossfadeEnabled(enabled))
+                : null,
             onCrossfadeChanged: _isAvailable
                 ? (double seconds) => unawaited(_setCrossfade(seconds))
                 : null,
