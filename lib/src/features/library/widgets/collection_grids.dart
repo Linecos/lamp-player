@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../common/common.dart';
@@ -40,7 +42,10 @@ class ArtistGridView extends StatelessWidget {
         maxCrossAxisExtent: 220,
         mainAxisSpacing: 16,
         crossAxisSpacing: 16,
-        childAspectRatio: 0.86,
+        // 0.86 → 0.76：圆形头像要把「宽度 - 内边距」塞进卡片高度里才够大，
+        // 按原来的比例算下来直径只有 127（1080p 窗口），比专辑封面小一圈。
+        // 卡片略高一点，头像能到 160 左右，两个分区来回切时观感才对得上
+        childAspectRatio: 0.76,
       ),
       itemCount: artists.length,
       itemBuilder: (BuildContext context, int index) {
@@ -69,7 +74,7 @@ class _ArtistCard extends StatelessWidget {
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
 
-  /// 首字母圆：点击时按它量出飞行动画的起点
+  /// 圆形头像：点击时按它量出飞行动画的起点
   final GlobalKey _coverKey = GlobalKey();
 
   @override
@@ -92,11 +97,33 @@ class _ArtistCard extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              KeyedSubtree(
-                key: _coverKey,
-                child: CoverFlightTarget(
-                  hidden: hidden,
-                  child: artistInitialsAvatar(context, artist.name, 96),
+              // 头像吃满卡片剩下的高度，再由宽度封顶。写死尺寸两头不对：
+              // 卡片宽度随窗口列数在 155–220 之间变，96 在宽窗口显得空，
+              // 而按「宽度 - 内边距」算又不一定塞得进 0.86 的卡片高度。
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (BuildContext context, BoxConstraints constraints) {
+                    final double size = math.min(
+                      constraints.maxWidth,
+                      constraints.maxHeight,
+                    );
+                    return Center(
+                      child: SizedBox(
+                        key: _coverKey,
+                        width: size,
+                        height: size,
+                        child: CoverFlightTarget(
+                          hidden: hidden,
+                          child: artistAvatar(
+                            context,
+                            artist.name,
+                            size,
+                            coverPath: artist.coverPath,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 12),

@@ -224,6 +224,29 @@ class ArtistGroup {
   int get albumCount => tracks.map(trackAlbum).toSet().length;
 
   int get trackCount => tracks.length;
+
+  /// 艺术家头像用的封面：组内**第一首有封面的曲目**。
+  ///
+  /// 组内顺序是「专辑 → 曲目号」（见 [groupTracksByArtist]），所以拿到的是
+  /// 这位艺术家最早那张专辑的第一首——换个顺序重算也是同一张，不会每次
+  /// 刷新都换脸。
+  ///
+  /// 全都没有封面时返回 null，交给界面回退首字母头像。
+  String? get coverPath => firstCoverPath(tracks);
+}
+
+/// 一组曲目里第一张可用封面；全都没有时返回 null。
+///
+/// 专辑与艺术家两处共用：口径一致，才不会出现「专辑卡片有图、艺术家头像
+/// 却是字母」这种同一张专辑两种表现。
+String? firstCoverPath(Iterable<Track> tracks) {
+  for (final Track track in tracks) {
+    final String? path = track.coverPath;
+    if (path != null && path.isNotEmpty) {
+      return path;
+    }
+  }
+  return null;
 }
 
 /// 专辑聚合结果
@@ -241,15 +264,7 @@ class AlbumGroup {
   );
 
   /// 组内第一张可用封面；全都没有时返回 null，交给界面回退占位。
-  String? get coverPath {
-    for (final Track track in tracks) {
-      final String? path = track.coverPath;
-      if (path != null && path.isNotEmpty) {
-        return path;
-      }
-    }
-    return null;
-  }
+  String? get coverPath => firstCoverPath(tracks);
 }
 
 int _firstNonZero(List<int> values) {
