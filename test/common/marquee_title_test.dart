@@ -42,6 +42,72 @@ double _titleWidth(WidgetTester tester, String text) => tester
     .width;
 
 void main() {
+  group('右侧渐隐', () {
+    /// 渐隐带厚度（逻辑像素）：取 stops 里「满 → 全透明」那一段
+    double spanOf(LinearGradient g, double width) =>
+        (g.stops![g.colors.length - 2] - g.stops![2]) * width;
+
+    test('带宽固定，不随框宽变窄', () {
+      for (final double width in <double>[180, 240, 420]) {
+        final LinearGradient g = MarqueeTitle.fadeGradient(
+          width: width,
+          leftFade: 0,
+        );
+        expect(
+          spanOf(g, width),
+          closeTo(30, 0.6),
+          reason:
+              '$width 宽的框里渐隐也该有 30px：按百分比算窄框只有十几像素，'
+              '最后一个字会几乎全亮地怼到边上',
+        );
+      }
+    });
+
+    test('收在边界内 1px，且最后一截完全透明', () {
+      const double width = 240;
+      final LinearGradient g = MarqueeTitle.fadeGradient(
+        width: width,
+        leftFade: 0,
+      );
+      final List<double> stops = g.stops!;
+      expect(
+        stops[stops.length - 2],
+        closeTo((width - 1) / width, 1e-9),
+        reason:
+            '透明要提前一个像素到位：裁剪的抗锯齿会漏出边界外不到 1px，'
+            'ShaderMask 遮不到那里，漏出去的就是边上那条亮线',
+      );
+      expect(g.colors.last.a, 0);
+      expect(g.colors[g.colors.length - 2].a, 0);
+      // 单调递增，否则渐变本身就有硬边
+      for (int i = 1; i < stops.length; i += 1) {
+        expect(stops[i], greaterThanOrEqualTo(stops[i - 1]));
+      }
+    });
+
+    test('很窄的位置不超过三分之一，别整条都在淡', () {
+      const double width = 40;
+      final LinearGradient g = MarqueeTitle.fadeGradient(
+        width: width,
+        leftFade: 0,
+      );
+      expect(spanOf(g, width), lessThan(width / 2));
+    });
+
+    test('左淡为 0 时最左边是纯白，不留 1px 硬边', () {
+      final LinearGradient g = MarqueeTitle.fadeGradient(
+        width: 200,
+        leftFade: 0,
+      );
+      expect(g.colors.first.a, 1);
+      // 左淡有值时起步就是透明的
+      expect(
+        MarqueeTitle.fadeGradient(width: 200, leftFade: 0.05).colors.first.a,
+        0,
+      );
+    });
+  });
+
   group('左侧渐隐', () {
     // 一圈 900 像素、ramp 14 像素：滚过 14px 之后左淡就该是满的
     const double cycle = 900;

@@ -43,7 +43,7 @@ void main() {
   testWidgets('艺术家按首字母分段，点字母跳到该段', (WidgetTester tester) async {
     await _pump(
       tester,
-      ArtistGridView(artists: manyArtists, onSelect: (_, _) {}),
+      ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
     );
 
     // 初始只能看到 A 段标题，后面的还没滚到
@@ -71,7 +71,7 @@ void main() {
   testWidgets('字母导航贴最右侧但与滚动条保持距离', (WidgetTester tester) async {
     await _pump(
       tester,
-      ArtistGridView(artists: manyArtists, onSelect: (_, _) {}),
+      ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
     );
 
     final Rect rail = tester.getRect(
@@ -94,7 +94,7 @@ void main() {
           _album('Adele 21', 'Adele'),
           _album('3 Doors', 'Various'),
         ],
-        onSelect: (_, _) {},
+        onSelect: (_, _, _) {},
       ),
     );
 
