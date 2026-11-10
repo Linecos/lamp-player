@@ -15,6 +15,7 @@ import '../../common/memory_log.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
+import '../../common/widgets/marquee_title.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
@@ -194,11 +195,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 45 度线上的最小内边距占窗口短边的比例：小窗口靠它离开角落
   static const double _minInsetRatio = 0.22;
 
-  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时要
-  /// 把它一起留出来，免得整列顶到频谱丝带上
+  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时
+  /// 要把它一起留出来，免得整列顶到频谱丝带上
+  ///
+  /// 按两行标题留的余量：标题现在固定一行，但封面尺寸宁可保守一点，
+  /// 也别让矮窗口下整列顶到频谱丝带上
   static const double _infoReserve = 104;
 
-  /// 封面上面信息块 + 间距的实际高度：歌词当前行要和封面中心线对齐，按它换算。
+  /// 封面上面信息块的高度：歌词当前行要和封面中心线对齐，按它换算。
   /// 比 [_infoReserve] 略小，那 8px 是留给尺寸预算的余量
   static const double _infoBlockHeight = 96;
 
@@ -223,7 +227,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 系数一起缩放。
   static const double _infoCoverGap = 16;
 
-  /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
+  /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去一整块，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
   static const double _infoBlockLift = 48;
 
@@ -1070,6 +1074,17 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final TextScaler textScaler = TextScaler.linear(
       MediaQuery.textScalerOf(context).scale(1) * scale,
     );
+    final TextStyle titleStyle =
+        (theme.textTheme.headlineSmall ?? const TextStyle(fontSize: 24))
+            .copyWith(fontWeight: FontWeight.w600);
+    // 标题固定占两行的高度：歌名长短不该改变封面位置。
+    //
+    // 之前只给 `maxLines: 2`，一行的歌名会让整块信息矮一行，下面的封面就
+    // 跟着往上/下挪 26px —— 换首歌封面就跳一下。这里的行高按 textScaler
+    // 换算（Text 内部也按它缩放字号），多留 1px 免得取整后把第二行裁掉。
+    final double titleLineHeight = textScaler.scale(
+      (titleStyle.fontSize ?? 24) * (titleStyle.height ?? 1.3),
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1094,13 +1109,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               children: <Widget>[
                 // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
                 const SizedBox(height: _infoRefillHeight),
-                Text(
-                  track.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                // 高度写死一行：歌名长短不该改变封面位置（多一行就是 26px，
+                // 换首歌封面跳一下）。放不下时右侧渐隐，鼠标移上去缓慢滚出来
+                SizedBox(
+                  height: titleLineHeight + 1,
+                  child: MarqueeTitle(text: track.title, style: titleStyle),
                 ),
                 SizedBox(height: 6 * scale),
                 _metaLine(context, track),
