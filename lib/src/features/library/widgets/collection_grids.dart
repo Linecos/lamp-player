@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../common/common.dart';
 import '../../player/player_bar.dart';
 import '../library_sort.dart';
+import 'alphabet_grid.dart';
 import 'cover_flight.dart';
 
 /// 艺术家网格：圆形首字封面 + 名字 + 专辑/曲目数
@@ -29,32 +30,19 @@ class ArtistGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      key: storageKey,
-      padding: const EdgeInsets.only(
-        top: 8,
-        // 网格铺到窗口底，卡片可以从播放岛下面穿过；留白保证滚到底时
-        // 最后一行停在岛上方
-        bottom: PlayerBar.occupiedHeight + 8,
-      ),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        // 与专辑网格同宽（220）：两个分区来回切时卡片大小不跳
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        // 0.86 → 0.76：圆形头像要把「宽度 - 内边距」塞进卡片高度里才够大，
-        // 按原来的比例算下来直径只有 127（1080p 窗口），比专辑封面小一圈。
-        // 卡片略高一点，头像能到 160 左右，两个分区来回切时观感才对得上
-        childAspectRatio: 0.76,
-      ),
-      itemCount: artists.length,
-      itemBuilder: (BuildContext context, int index) {
-        final ArtistGroup artist = artists[index];
-        final String tag = artistCoverTag(artist.name);
+    // 按艺术家名首字母分段 + 右侧字母导航；卡片与跳转都复用同一套网格
+    return AlphabetGridView<ArtistGroup>(
+      items: artists,
+      labelOf: (ArtistGroup artist) => artist.name,
+      storageKey: storageKey,
+      maxCrossAxisExtent: 220,
+      aspectRatio: 0.76,
+      bottomPadding: PlayerBar.occupiedHeight + 8,
+      itemBuilder: (BuildContext context, ArtistGroup artist, int index) {
         return _ArtistCard(
           artist: artist,
           onSelect: onSelect,
-          hidden: flyingTag == tag,
+          hidden: flyingTag == artistCoverTag(artist.name),
         );
       },
     );
@@ -171,28 +159,19 @@ class AlbumGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      key: storageKey,
-      padding: const EdgeInsets.only(
-        top: 8,
-        // 网格铺到窗口底，卡片可以从播放岛下面穿过；留白保证滚到底时
-        // 最后一行停在岛上方
-        bottom: PlayerBar.occupiedHeight + 8,
-      ),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 0.72,
-      ),
-      itemCount: albums.length,
-      itemBuilder: (BuildContext context, int index) {
-        final AlbumGroup album = albums[index];
-        final String tag = albumCoverTag(album.key);
+    // 按专辑名首字母分段 + 右侧字母导航
+    return AlphabetGridView<AlbumGroup>(
+      items: albums,
+      labelOf: (AlbumGroup album) => album.title,
+      storageKey: storageKey,
+      maxCrossAxisExtent: 220,
+      aspectRatio: 0.72,
+      bottomPadding: PlayerBar.occupiedHeight + 8,
+      itemBuilder: (BuildContext context, AlbumGroup album, int index) {
         return _AlbumCard(
           album: album,
           onSelect: onSelect,
-          hidden: flyingTag == tag,
+          hidden: flyingTag == albumCoverTag(album.key),
         );
       },
     );
