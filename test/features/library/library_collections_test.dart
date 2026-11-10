@@ -527,7 +527,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // 2) 滚上去一截让卡片被切掉一条边：还是要飞，但被切的那截要渐显
-    await tester.drag(find.byType(GridView), const Offset(0, -120));
+    await tester.drag(
+      find.byType(CustomScrollView).first,
+      const Offset(0, -120),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('夜之专辑 0'));

@@ -31,8 +31,15 @@ class MarqueeTitle extends StatefulWidget {
   /// 归位速度（比滚动快一点，但仍然是「滑回去」而不是瞬移）
   static const double _rewindVelocity = 220;
 
-  /// 右侧渐隐的起点：7% 的宽度用来提示「右边还有内容」
-  static const double _rightFadeStop = 0.93;
+  /// 右侧渐隐的宽度（逻辑像素）。
+  ///
+  /// 原来是「宽度的 7%」：宽标题里差不多，窄窗口里只有十几像素——最后一个字
+  /// 几乎原样亮到边上再突然消失，看着就是被硬切、边上还浮着半块笔画。
+  /// 改成固定厚度之后，大小窗口的渐隐看起来一样。
+  static const double _rightFadeSpan = 30;
+
+  /// 渐隐最多占多宽的比例：很窄的位置（比如最小窗口里的标题栏）不该整条都在淡
+  static const double _rightFadeMaxRatio = 0.35;
 
   /// 左侧渐隐的最大宽度（占视口的比例）
   static const double _leftFadeSpan = 0.05;
@@ -42,6 +49,46 @@ class MarqueeTitle extends StatefulWidget {
   /// 静止时左边根本没有字被推出去，这时候还淡就等于把第一个字啃掉一半，
   /// 看着很怪；所以左淡跟着位移走：开始滚之后十几像素内渐入到满。
   static const double _leftFadeRamp = 14;
+
+  /// 遮罩渐变：左端按 [leftFade] 淡出，右端固定宽度收尾。
+  ///
+  /// 右端收在**离边界还有 1 逻辑像素**处、且最后一截已经是全透明：
+  /// 裁剪的抗锯齿会在边界外漏出不到一像素的笔画，而 `ShaderMask` 只管自己
+  /// 边界以内的部分，漏出来的那一条原样画出去就是边上的亮线 / 半块笔画。
+  ///
+  /// 中间加两个色标（0.8 / 0.3）把收尾做成 S 形：直线渐变在「满 → 0」走完的
+  /// 那一点上斜率突变，最后一个字会先保持全亮再突然消失，看着像被硬切。
+  @visibleForTesting
+  static LinearGradient fadeGradient({
+    required double width,
+    required double leftFade,
+  }) {
+    final double w = width <= 0 ? 1 : width;
+    final double edge = math.max(0, w - 1);
+    final double span = math.min(_rightFadeSpan, edge * _rightFadeMaxRatio);
+    // 一律不早于左淡的终点，stops 才不会反序
+    double at(double px) => (px / w).clamp(leftFade.clamp(0.0, 1.0), 1.0);
+    final double start = at(edge - span);
+    final double knee = at(edge - span * 0.6);
+    final double tail = at(edge - span * 0.25);
+    final double end = at(edge);
+    return LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: <Color>[
+        // 左淡为 0 时用白色起步：两个 stop 重合、颜色又不同的话，
+        // 会在最左边留一条 1px 的硬边
+        leftFade > 0 ? const Color(0x00FFFFFF) : const Color(0xFFFFFFFF),
+        const Color(0xFFFFFFFF),
+        const Color(0xFFFFFFFF),
+        const Color(0xCCFFFFFF),
+        const Color(0x4DFFFFFF),
+        const Color(0x00FFFFFF),
+        const Color(0x00FFFFFF),
+      ],
+      stops: <double>[0, leftFade, start, knee, tail, end, 1],
+    );
+  }
 
   /// 推进一帧的左淡计算（纯函数，方便测试）。
   ///
@@ -271,24 +318,11 @@ class _MarqueeTitleState extends State<MarqueeTitle>
                         _lastValue = step.lastValue;
                         final double leftFade = step.leftFade;
                         return ShaderMask(
-                          shaderCallback: (Rect bounds) => LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            // 左淡为 0 时用白色起步：两个 stop 重合、颜色又不同的话
-                            // 会在最左边留一条 1px 的硬边
-                            colors: <Color>[
-                              leftFade > 0 ? Colors.transparent : Colors.white,
-                              Colors.white,
-                              Colors.white,
-                              Colors.transparent,
-                            ],
-                            stops: <double>[
-                              0,
-                              leftFade,
-                              MarqueeTitle._rightFadeStop,
-                              1,
-                            ],
-                          ).createShader(bounds),
+                          shaderCallback: (Rect bounds) =>
+                              MarqueeTitle.fadeGradient(
+                                width: bounds.width,
+                                leftFade: leftFade,
+                              ).createShader(bounds),
                           blendMode: BlendMode.dstIn,
                           child: Transform.translate(
                             offset: Offset(-offset, 0),
