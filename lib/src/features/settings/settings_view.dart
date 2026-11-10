@@ -340,17 +340,6 @@ class SettingsView extends StatelessWidget {
             ? null
             : Theme.of(context).colorScheme.error,
       ),
-      _SwitchRow(
-        icon: Icons.surround_sound,
-        title: '独占输出（WASAPI）',
-        switchKey: const ValueKey<String>('settings-exclusive-switch'),
-        subtitle: exclusive
-            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
-            : '开启后绕过系统混音器；切换时会短暂中断播放',
-        value: exclusive,
-        busy: switchingOutput,
-        onChanged: onExclusiveChanged,
-      ),
       if (outputInfo.isNotEmpty)
         _OutputRow(
           info: outputInfo,
@@ -372,16 +361,6 @@ class SettingsView extends StatelessWidget {
         onChanged: onOutputDeviceChanged,
         choiceKey: const ValueKey<String>('settings-output-device'),
       ),
-      _SwitchRow(
-        icon: Icons.balance,
-        title: 'ReplayGain 响度归一',
-        switchKey: const ValueKey<String>('settings-replay-gain-switch'),
-        subtitle: replayGain
-            ? '按标签或现场分析的增益统一各首歌的音量，专辑之间不再忽大忽小'
-            : '关闭时按原始音量播放（切换后从下一首起生效）',
-        value: replayGain,
-        onChanged: onReplayGainChanged,
-      ),
       _ChoiceRow<int>(
         icon: Icons.compare_arrows,
         title: '换曲淡入淡出',
@@ -400,27 +379,11 @@ class SettingsView extends StatelessWidget {
             : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
         choiceKey: const ValueKey<String>('settings-crossfade'),
       ),
-      _SwitchRow(
-        icon: Icons.volume_down_outlined,
-        title: '音量过渡',
-        switchKey: const ValueKey<String>('settings-volume-fade-switch'),
-        subtitle: volumeFade ? '播放淡入、暂停与停止淡出时平滑调整音量' : '所有操作直接硬切',
-        value: volumeFade,
-        onChanged: onVolumeFadeChanged,
-      ),
       _ActionRow(
         icon: Icons.keyboard_outlined,
         title: '快捷键',
         subtitle: '点一行再按组合键即可改键，也可以恢复默认',
         onTap: onShowShortcuts,
-      ),
-      _SwitchRow(
-        icon: Icons.minimize,
-        title: '关闭窗口时留在托盘',
-        switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
-        subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
-        value: closeToTray,
-        onChanged: onCloseToTrayChanged,
       ),
       _ActionRow(
         icon: Icons.equalizer,
@@ -431,6 +394,43 @@ class SettingsView extends StatelessWidget {
         onTap: onEqualizerChanged == null
             ? null
             : () => _openEqualizer(context),
+      ),
+      _SwitchRow(
+        icon: Icons.surround_sound,
+        title: '独占输出（WASAPI）',
+        switchKey: const ValueKey<String>('settings-exclusive-switch'),
+        subtitle: exclusive
+            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
+            : '开启后绕过系统混音器；切换时会短暂中断播放',
+        value: exclusive,
+        busy: switchingOutput,
+        onChanged: onExclusiveChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.balance,
+        title: 'ReplayGain 响度归一',
+        switchKey: const ValueKey<String>('settings-replay-gain-switch'),
+        subtitle: replayGain
+            ? '按标签或现场分析的增益统一各首歌的音量，专辑之间不再忽大忽小'
+            : '关闭时按原始音量播放（切换后从下一首起生效）',
+        value: replayGain,
+        onChanged: onReplayGainChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.volume_down_outlined,
+        title: '音量过渡',
+        switchKey: const ValueKey<String>('settings-volume-fade-switch'),
+        subtitle: volumeFade ? '播放淡入、暂停与停止淡出时平滑调整音量' : '所有操作直接硬切',
+        value: volumeFade,
+        onChanged: onVolumeFadeChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.minimize,
+        title: '关闭窗口时留在托盘',
+        switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
+        subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
+        value: closeToTray,
+        onChanged: onCloseToTrayChanged,
       ),
     ]);
     section('外观', <Widget>[
