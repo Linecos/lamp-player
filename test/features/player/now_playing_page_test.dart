@@ -1203,6 +1203,12 @@ void main() {
         greaterThan(80),
         reason: '$size 下整列不能挤在角落',
       );
+      // 间距按封面高度取 1/7：窗口一大一小，比例都得一样
+      expect(
+        (cover.top - info.bottom) / cover.height,
+        closeTo(1 / 7, 0.02),
+        reason: '$size 下信息块与封面的距离应当是封面高度的 1/7',
+      );
     }
   });
 
