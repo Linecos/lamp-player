@@ -15,6 +15,7 @@ import '../../common/memory_log.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
+import '../../common/widgets/marquee_title.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
@@ -194,11 +195,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 45 度线上的最小内边距占窗口短边的比例：小窗口靠它离开角落
   static const double _minInsetRatio = 0.22;
 
-  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时要
-  /// 把它一起留出来，免得整列顶到频谱丝带上
+  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时
+  /// 要把它一起留出来，免得整列顶到频谱丝带上
+  ///
+  /// 按两行标题留的余量：标题现在固定一行，但封面尺寸宁可保守一点，
+  /// 也别让矮窗口下整列顶到频谱丝带上
   static const double _infoReserve = 104;
 
-  /// 封面上面信息块 + 间距的实际高度：歌词当前行要和封面中心线对齐，按它换算。
+  /// 封面上面信息块的高度：歌词当前行要和封面中心线对齐，按它换算。
   /// 比 [_infoReserve] 略小，那 8px 是留给尺寸预算的余量
   static const double _infoBlockHeight = 96;
 
@@ -216,14 +220,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   static const double _infoFontMinScale = 0.72;
   static const double _infoFontMaxScale = 1.25;
 
-  /// 信息块与封面之间的间距（封面 = 342 时的值）。
+  /// 信息块与封面之间的距离 = 封面高度 / 这个除数。
   ///
-  /// 只缩字号不缩间距的话，大窗口里文字长大了、缝还是 16px，字像贴在封面上；
-  /// 小窗口里文字缩了、缝没缩，又显得空。所以它跟 [_infoFontMinScale] 同一套
-  /// 系数一起缩放。
+  /// 取 7：大约 1/7 个封面高（342 时约 49），信息块能喘口气，又不会和封面
+  /// 各看各的。跟着封面缩放，大小窗口比例一致。
+  static const double _infoGapDivisor = 7;
+
+  /// 旧的固定间距（封面 = 342 时 16px）：只用来换算「间距改大之后多了多少」，
+  /// 好把那部分在顶部内边距里让回去，别把整张封面顶下去
   static const double _infoCoverGap = 16;
 
-  /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
+  /// 间距改大之后，封面愿意额外下沉的量（占封面高度的比例）。
+  ///
+  /// 信息块往上、封面往下一点，两者之间的空白才不会全靠压封面换来
+  static const double _coverSinkRatio = 0.028;
+
+  /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去一整块，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
   static const double _infoBlockLift = 48;
 
@@ -901,9 +913,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         // `_body` 从 header 下方开始，换算成窗口坐标要减掉 header 的高度，
         // 否则封面看起来离顶还是比离左更远一截；信息块占了封面上面一截，
         // 再把整列上提 [_infoBlockLift]
+        // 信息块与封面的距离按封面高度算（1/7），比原来的「16 × 缩放」大一截
+        final double infoGap = coverSize / _infoGapDivisor;
+        final double infoScale = (coverSize / _infoFontReferenceCover).clamp(
+          _infoFontMinScale,
+          _infoFontMaxScale,
+        );
+        // 变大之后多出来的高度会把封面往下推，先在顶部内边距里让回去，
+        // 只留 [_coverSinkRatio] 那一点点下沉：信息块上移、封面略微下移
+        final double grownGap = infoGap - _infoCoverGap * infoScale;
         final double topPadding = math.max(
           8,
-          coverInset - _headerHeight - _infoBlockLift,
+          coverInset -
+              _headerHeight -
+              _infoBlockLift -
+              grownGap +
+              coverSize * _coverSinkRatio,
         );
         // 歌词当前行与封面中心线对齐：封面中心在信息行下面，换算成歌词视口的比例
         final double lyricHeight = math.max(
@@ -912,7 +937,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         );
         // 沉浸模式只是把信息块淡出、占位还在，封面位置不变 —— 对齐线照旧
         final double revealAlignment =
-            ((_infoBlockHeight + coverSize / 2) / lyricHeight).clamp(
+            ((_infoBlockHeight + grownGap + coverSize / 2) / lyricHeight).clamp(
               0.35,
               0.68,
             );
@@ -1070,6 +1095,17 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final TextScaler textScaler = TextScaler.linear(
       MediaQuery.textScalerOf(context).scale(1) * scale,
     );
+    final TextStyle titleStyle =
+        (theme.textTheme.headlineSmall ?? const TextStyle(fontSize: 24))
+            .copyWith(fontWeight: FontWeight.w600);
+    // 标题固定占两行的高度：歌名长短不该改变封面位置。
+    //
+    // 之前只给 `maxLines: 2`，一行的歌名会让整块信息矮一行，下面的封面就
+    // 跟着往上/下挪 26px —— 换首歌封面就跳一下。这里的行高按 textScaler
+    // 换算（Text 内部也按它缩放字号），多留 1px 免得取整后把第二行裁掉。
+    final double titleLineHeight = textScaler.scale(
+      (titleStyle.fontSize ?? 24) * (titleStyle.height ?? 1.3),
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1094,13 +1130,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               children: <Widget>[
                 // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
                 const SizedBox(height: _infoRefillHeight),
-                Text(
-                  track.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                // 高度写死一行：歌名长短不该改变封面位置（多一行就是 26px，
+                // 换首歌封面跳一下）。放不下时右侧渐隐，鼠标移上去缓慢滚出来
+                SizedBox(
+                  height: titleLineHeight + 1,
+                  child: MarqueeTitle(text: track.title, style: titleStyle),
                 ),
                 SizedBox(height: 6 * scale),
                 _metaLine(context, track),
@@ -1108,7 +1142,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             ),
           ),
         ),
-        SizedBox(height: _infoCoverGap * scale),
+        // 与布局里的预算同源：都按封面高度取 1/7
+        SizedBox(height: coverSize / _infoGapDivisor),
         // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
         // （900×560 这种最小窗口）。只缩封面不缩文字，文字保持原生字号不发虚。
         Flexible(
