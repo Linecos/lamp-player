@@ -343,8 +343,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(lifecycle.closeToTray, isFalse);
-    // 关闭后不再显示开启态的说明
-    expect(find.text('点 × 只隐藏窗口'), findsNothing);
+    // 说明文字常显，不随开关变化
+    expect(find.text('点 × 只隐藏窗口'), findsOneWidget);
   });
 
   testWidgets('开启均衡器会下发给引擎并写回会话', (WidgetTester tester) async {
