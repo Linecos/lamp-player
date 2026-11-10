@@ -90,20 +90,25 @@ class SettingsView extends StatelessWidget {
   /// 统计页点艺术家：跳到曲库的艺术家详情；为空则行不可点
   final ValueChanged<String>? onOpenStatsArtist;
 
+  /// 是否请求 WASAPI 独占输出（用户偏好）
   final bool exclusive;
 
   /// 引擎当前是否真的在独占（设备不支持时会是 false）
   final bool exclusiveActive;
 
+  /// 正在切换输出，期间禁用开关
   final bool switchingOutput;
 
+  /// 切换独占开关；为空表示当前不可操作
   final ValueChanged<bool>? onExclusiveChanged;
 
+  /// 关闭窗口时是否留在托盘（默认开启）
   final bool closeToTray;
 
-  /// 为空表示未注入 AppLifecycle（测试场景）
+  /// 切换「关闭到托盘」；为空表示当前不可操作（测试或未注入 AppLifecycle）
   final ValueChanged<bool>? onCloseToTrayChanged;
 
+  /// 均衡器开关与各段增益（dB）
   final bool eqEnabled;
   final List<double> eqGains;
 
@@ -117,6 +122,7 @@ class SettingsView extends StatelessWidget {
   final void Function(bool enabled, List<double> gains, String? presetName)?
   onEqualizerChanged;
 
+  /// 自存预设变化
   final ValueChanged<List<EqualizerPreset>>? onEqPresetsChanged;
 
   /// 可选的输出设备；第一项由设置页自己补「系统默认」
@@ -128,8 +134,10 @@ class SettingsView extends StatelessWidget {
   /// 切换输出设备；为空表示当前不可操作
   final ValueChanged<int>? onOutputDeviceChanged;
 
+  /// 是否按标签的 ReplayGain 统一响度
   final bool replayGain;
 
+  /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
 
   /// 换曲淡入淡出是否开启（时长为 0 即关闭）
@@ -138,13 +146,16 @@ class SettingsView extends StatelessWidget {
   /// 淡变时长（秒）；关闭时带的是上次的时长，仅供下拉显示
   final double crossfadeSeconds;
 
+  /// 开关淡变；为空表示当前不可操作
   final ValueChanged<bool>? onCrossfadeEnabledChanged;
 
+  /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
 
   /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
   final bool volumeFade;
 
+  /// 切换音量过渡；为空表示当前不可操作
   final ValueChanged<bool>? onVolumeFadeChanged;
 
   /// 打开「快捷键一览」；不传时这一行禁用（测试 / 精简场景）
@@ -153,47 +164,62 @@ class SettingsView extends StatelessWidget {
   /// 当前键位表：仅用于一览展示，实际绑定由 `LibraryPage.shortcuts` 决定
   final List<ShortcutBinding> shortcuts;
 
+  /// 正在播放页是否启用封面流光背景
   final bool flowBackground;
   final ValueChanged<bool>? onFlowBackgroundChanged;
 
+  /// 封面是否显示成圆形
   final bool circularCovers;
   final ValueChanged<bool>? onCircularCoversChanged;
 
-  /// 底部留白：播放岛压住最后几行时由外部传入岛的占用高度。
+  /// 列表底部留白。设置页被底部播放岛压住时由外部传入岛占用的高度，
+  /// 否则最后一栏（关于）会滚不进可视区。
   final double bottomPadding;
 
   final bool scanning;
 
+  /// 已添加的音乐目录（按添加顺序）
   final List<String> folders;
 
   final VoidCallback? onAddFolder;
 
+  /// 重新扫描某个目录；为空表示当前不可操作（例如正在扫描）
   final ValueChanged<String>? onRescanFolder;
 
   /// 从列表移除某个目录（不删除已入库曲目）
   final ValueChanged<String>? onRemoveFolder;
 
+  /// 当前（或最近一次）扫描的目录，用于进度与结果展示。
   final String? scanFolder;
 
+  /// 本次扫描结果；为 null 表示还没有成功扫描过。
   final ScanReport? scanReport;
 
+  /// 本次扫描失败原因；为 null 表示没有待处理的失败。
   final Object? scanError;
 
+  /// 重新扫描 [scanFolder]；为空时只展示错误，不提供重试。
   final VoidCallback? onRetry;
 
+  /// 正在清理「文件已不存在」的曲库记录
   final bool pruningMissing;
 
+  /// 最近一次清理的条数；为 null 表示还没清理过
   final int? prunedMissingCount;
 
+  /// 清理失败原因；为 null 表示没有待处理的失败
   final Object? pruneMissingError;
 
+  /// 触发清理；为空表示当前不可操作
   final VoidCallback? onPruneMissing;
 
+  /// 常驻搜索框的关键词：非空时只留命中的设置行
   final String query;
 
   /// 自定义匹配（曲库页传拼音匹配进来）；为空时按大小写无关的子串判断
   final bool Function(String text, String query)? matcher;
 
+  /// 清空搜索；为空表示不提供「清除搜索」入口
   final VoidCallback? onClearSearch;
 
   @override
@@ -342,22 +368,16 @@ class SettingsView extends StatelessWidget {
         value: crossfadeEnabled,
         onChanged: onCrossfadeEnabledChanged,
       ),
-      _ChoiceRow<int>(
+      _SliderRow(
         icon: Icons.timer_outlined,
         title: '淡变时长',
         subtitle: crossfadeEnabled ? null : '打开开关后生效',
-        value: crossfadeSeconds.round(),
-        choices: const <(int, String)>[
-          (1, '1 秒'),
-          (2, '2 秒'),
-          (4, '4 秒'),
-          (6, '6 秒'),
-          (8, '8 秒'),
-        ],
-        onChanged: onCrossfadeChanged == null || !crossfadeEnabled
-            ? null
-            : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
-        choiceKey: const ValueKey<String>('settings-crossfade'),
+        value: crossfadeSeconds,
+        min: 1,
+        max: 8,
+        unit: ' 秒',
+        onChanged: crossfadeEnabled ? onCrossfadeChanged : null,
+        sliderKey: const ValueKey<String>('settings-crossfade'),
       ),
       _SwitchRow(
         icon: Icons.balance,
@@ -575,7 +595,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
                   Text(
                     widget.subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -699,6 +719,98 @@ class _SettingsCard extends StatelessWidget {
   }
 }
 
+/// 一行「标题 + 滑块」：用于淡变时长这类连续取值。
+class _SliderRow extends StatelessWidget implements _Searchable {
+  const _SliderRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.subtitle,
+    this.unit = '',
+    this.sliderKey,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final double value;
+  final double min;
+  final double max;
+  final String unit;
+  final ValueChanged<double>? onChanged;
+  final Key? sliderKey;
+
+  @override
+  String get searchText => '$title ${subtitle ?? ''}';
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final double current = value.clamp(min, max);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(title, style: theme.textTheme.bodyLarge),
+                if (subtitle != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.outline,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 200,
+            child: Slider(
+              key: sliderKey,
+              value: current,
+              min: min,
+              max: max,
+              divisions: (max - min).round(),
+              label: '${current.round()}$unit',
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: Text(
+              '${current.round()}$unit',
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 可点击的操作行，样式与只读信息行保持一致。
 /// 带开关的设置行
 class _SwitchRow extends StatelessWidget implements _Searchable {
@@ -757,7 +869,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -829,7 +941,7 @@ class _ActionRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -892,7 +1004,7 @@ class _InfoRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -912,8 +1024,15 @@ class _InfoRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 主题选择行：有 [ThemeScope] 时可点击切换，没有时只读展示。
-/// 用原生 `SegmentedButton`——手拼版会把选中底色画在描边上，盖掉外框与分隔线。
+/// 主题选择行：有 [ThemeScope] 时可点击切换，没有时退化为只读展示。
+///
+/// 不带小标题：卡片里只有这一行是「整组选择」，加个「主题」反而多一层缩进；
+/// 搜索仍能通过 [searchText] 命中「主题」。
+///
+/// 用 MD3 原生 `SegmentedButton`。之前手拼过一版（Container 描边 + 每段
+/// ColoredBox），问题是选中底色画在描边之上，会把选中段自己的外框和分隔线
+/// 盖掉，看起来像浮在控件上的一块灰块；原生组件由 ButtonStyle 统一处理
+/// 描边、分隔线与选中填充的层叠，也自带 MD3 的勾选图标与状态色。
 class _ThemeRow extends StatelessWidget implements _Searchable {
   const _ThemeRow();
 
@@ -1016,7 +1135,7 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -1041,7 +1160,11 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
     );
   }
 
-  /// 配色弹窗：风格下拉 + 色卡网格，选择即时生效，点「完成」关闭。
+  /// 配色选择弹窗：调色板风格下拉 + 四色调圆形色卡网格。
+  ///
+  /// 所有选择即时生效（写回 [ThemeController]），弹窗保持打开供继续预览，
+  /// 点「完成」关闭。风格切换时色卡预览跟着变——预览与主题用同一个
+  /// [AppTheme.schemeOf]，所见即所得。
   static void _pick(BuildContext context, ThemeController controller) {
     unawaited(
       showDialog<void>(
@@ -1208,8 +1331,10 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 色卡：四色调圆形预览 + 选中角标。
-/// 不能用 `surfaceContainerHigh` 当底色——那是 M3 弹窗背景，同色会完全隐形。
+/// 色卡：圆角方形容器 + 四色调圆形预览 + 选中角标（右上角对勾圆）。
+///
+/// 底色与边框不能省：M3 弹窗背景就是 `surfaceContainerHigh`，
+/// 未选中卡再用同色就完全隐形了。
 class _SeedCard extends StatelessWidget {
   const _SeedCard({
     super.key,
@@ -1314,8 +1439,10 @@ class _SeedCard extends StatelessWidget {
   }
 }
 
-/// 四象限圆形：画四个矩形再按圆形裁剪。
-/// 别改回 `ClipOval` + 嵌套 Row/Column——实测那组结构在实机上整批不渲染。
+/// 四象限圆形：直接画四个矩形再按圆形裁剪。
+///
+/// 不要改回 `ClipOval` + 嵌套 `Row`/`Column` 的写法——实测那组结构
+/// 在实机上整批不渲染（布局尺寸正常但画不出来），CustomPaint 无此问题。
 class _ToneQuad extends StatelessWidget {
   const _ToneQuad({required this.colors});
 
@@ -1383,7 +1510,7 @@ class _ScanProgress extends StatelessWidget {
             child: Text(
               '正在扫描 $folder',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.outline,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1436,17 +1563,13 @@ class _ScanSummary extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             folder,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           Text(
             '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
           ),
         ],
       ),
@@ -1574,7 +1697,7 @@ class _FolderRow extends StatelessWidget implements _Searchable {
                 Text(
                   scanning ? '正在扫描…' : '已添加',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                    color: scheme.outline,
                   ),
                 ),
               ],
@@ -1608,7 +1731,10 @@ class _FolderRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 自定义种子色：色轮选色相与饱和度，下方明度滑杆。拖动即时生效，不设「应用」。
+/// 自定义种子色：色轮选色相 + 饱和度（角度 / 半径），下方一条明度滑杆。
+///
+/// 拖动即时生效（和预设色卡一致），不设「应用」按钮——弹窗里所有选择
+/// 都是所见即所得，多一步确认反而打断预览。
 class _CustomSeedPicker extends StatefulWidget {
   const _CustomSeedPicker({required this.controller});
 
@@ -2012,7 +2138,10 @@ class _WheelPainter extends CustomPainter {
   bool shouldRepaint(_WheelPainter oldDelegate) => oldDelegate.hsv != hsv;
 }
 
-/// 「被隐藏的歌曲」：直接读曲库，不依赖曲库页的当前状态。
+/// 「被隐藏的歌曲」列表：从曲库隐藏的曲目，可逐条恢复。
+///
+/// 数据直接从曲库读，不经过曲库页——隐藏列表和当前播放状态无关，
+/// 设置页单独打开也能看。
 class _HiddenTracksDialog extends StatefulWidget {
   const _HiddenTracksDialog();
 
@@ -2131,9 +2260,7 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
             const SizedBox(height: 4),
             Text(
               '在曲目上右键「隐藏歌曲」会放到这里',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
             ),
           ],
         ),
