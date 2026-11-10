@@ -720,7 +720,10 @@ class _SettingsCard extends StatelessWidget {
 }
 
 /// 一行「标题 + 滑块」：用于淡变时长这类连续取值。
-class _SliderRow extends StatelessWidget implements _Searchable {
+///
+/// 拖动只改本地预览、松手才回调：若每次 onChanged 都写会话并下发引擎，
+/// 整页会跟着重建，手感发涩（与取色弹窗里的滑杆同一套做法）。
+class _SliderRow extends StatefulWidget implements _Searchable {
   const _SliderRow({
     required this.icon,
     required this.title,
@@ -747,10 +750,34 @@ class _SliderRow extends StatelessWidget implements _Searchable {
   String get searchText => '$title ${subtitle ?? ''}';
 
   @override
+  State<_SliderRow> createState() => _SliderRowState();
+}
+
+class _SliderRowState extends State<_SliderRow> {
+  late final ValueNotifier<double> _preview = ValueNotifier<double>(
+    widget.value,
+  );
+
+  @override
+  void didUpdateWidget(covariant _SliderRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 外部改了值（会话恢复、开关切换）时跟上，拖动中不打断
+    if (widget.value != oldWidget.value) {
+      _preview.value = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _preview.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final double current = value.clamp(min, max);
+    final bool enabled = widget.onChanged != null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -763,7 +790,7 @@ class _SliderRow extends StatelessWidget implements _Searchable {
               color: scheme.surfaceContainerHigh,
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+            child: Icon(widget.icon, size: 20, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -771,11 +798,11 @@ class _SliderRow extends StatelessWidget implements _Searchable {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(title, style: theme.textTheme.bodyLarge),
-                if (subtitle != null) ...<Widget>[
+                Text(widget.title, style: theme.textTheme.bodyLarge),
+                if (widget.subtitle != null) ...<Widget>[
                   const SizedBox(height: 2),
                   Text(
-                    subtitle!,
+                    widget.subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: scheme.outline,
                     ),
@@ -787,27 +814,46 @@ class _SliderRow extends StatelessWidget implements _Searchable {
           const SizedBox(width: 12),
           SizedBox(
             width: 200,
-            child: Slider(
-              key: sliderKey,
-              value: current,
-              min: min,
-              max: max,
-              divisions: (max - min).round(),
-              label: '${current.round()}$unit',
-              onChanged: onChanged,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _preview,
+              builder: (BuildContext context, double value, Widget? child) =>
+                  Slider(
+                    key: widget.sliderKey,
+                    value: value.clamp(widget.min, widget.max),
+                    min: widget.min,
+                    max: widget.max,
+                    label: '${value.round()}${widget.unit}',
+                    onChanged: enabled ? _onDrag : null,
+                    onChangeEnd: enabled ? _onRelease : null,
+                  ),
             ),
           ),
           SizedBox(
             width: 48,
-            child: Text(
-              '${current.round()}$unit',
-              textAlign: TextAlign.end,
-              style: theme.textTheme.bodyMedium,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _preview,
+              builder: (BuildContext context, double value, Widget? child) =>
+                  Text(
+                    '${value.round()}${widget.unit}',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodyMedium,
+                  ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _onDrag(double next) {
+    _preview.value = next;
+  }
+
+  void _onRelease(double next) {
+    // 松手吸附到整秒：预览先对齐，外部值再跟进，避免回跳两次
+    final double snapped = next.roundToDouble();
+    _preview.value = snapped;
+    widget.onChanged!(snapped);
   }
 }
 

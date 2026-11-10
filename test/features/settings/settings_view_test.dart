@@ -831,10 +831,13 @@ void main() {
     final Slider slider = tester.widget<Slider>(fadeSlider);
     expect(slider.min, 1);
     expect(slider.max, 8);
-    expect(slider.divisions, 7, reason: '每档 1 秒');
-    slider.onChanged!(4);
+    // 拖动只更新本地预览，松手才回调
+    slider.onChanged!(3.4);
     await tester.pumpAndSettle();
-    expect(fades, <double>[4]);
+    expect(fades, isEmpty, reason: '拖动过程中不下发');
+    slider.onChangeEnd!(3.4);
+    await tester.pumpAndSettle();
+    expect(fades, <double>[3], reason: '松手吸附到整秒');
 
     // 淡变开关（默认开，这里点一下关掉）
     final Finder fadeSwitch = find.byKey(
