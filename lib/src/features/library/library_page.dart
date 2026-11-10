@@ -1383,9 +1383,9 @@ class _LibraryPageState extends State<LibraryPage>
       from: coverRect,
       clip: viewport,
       targetKey: _artistDetailCoverKey,
-      // 首字母头像是圆的，没有圆角要插值
+      // 艺术家头像是圆的，没有圆角要插值；有封面时两端都是同一张图
       buildCover: (double size, double radius) =>
-          artistInitialsAvatar(context, artist.name, size),
+          artistAvatar(context, artist.name, size, coverPath: artist.coverPath),
       apply: () => _selectedArtist = artist.name,
     );
   }
@@ -1526,7 +1526,7 @@ class _LibraryPageState extends State<LibraryPage>
       tag: artistCoverTag(group.name),
       detailKey: _artistDetailCoverKey,
       buildCover: (double size, double radius) =>
-          artistInitialsAvatar(context, group.name, size),
+          artistAvatar(context, group.name, size, coverPath: group.coverPath),
       leave: () => _selectedArtist = null,
     );
   }
