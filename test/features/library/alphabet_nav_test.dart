@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/library/alphabet_index.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
+import 'package:lamp_player/src/features/library/widgets/alphabet_grid.dart';
 import 'package:lamp_player/src/features/library/widgets/collection_grids.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
@@ -66,6 +68,122 @@ void main() {
     expect(header, findsOneWidget);
     // 跳转落点：该段标题正好贴着视口顶部
     expect(tester.getTopLeft(header).dy - top, lessThan(2));
+  });
+
+  testWidgets('窗口改宽之后加重项按新几何重算，不会停在旧字母上', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
+    );
+    await tester.pumpAndSettle();
+
+    String bold() => <String>[
+      for (final String letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''))
+        if (tester
+                .widget<Text>(
+                  find.descendant(
+                    of: find.byKey(ValueKey<String>('alphabet-rail-$letter')),
+                    matching: find.byType(Text),
+                  ),
+                )
+                .style
+                ?.fontWeight ==
+            FontWeight.w700)
+          letter,
+    ].first;
+
+    /// 每段一样高（每个字母下都是 3 位艺术家），按宽度算段高
+    double sectionExtent(double width) {
+      final AlphabetGridMetrics metrics = AlphabetGridMetrics(
+        viewportWidth: width - gridRightReserve,
+        maxCrossAxisExtent: 220,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        aspectRatio: 0.76,
+        headerExtent: alphabetHeaderExtent,
+        topPadding: 8,
+      );
+      return alphabetHeaderExtent + metrics.gridExtent(3);
+    }
+
+    String letterAt(double width, double pixels) {
+      final int index = ((pixels - 8) / sectionExtent(width)).floor().clamp(
+        0,
+        25,
+      );
+      return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')[index];
+    }
+
+    final ScrollableState scrollable = tester.state(
+      find.byType(Scrollable).first,
+    );
+    // 停在 C 段中间（避开段边界，差一像素不会判到隔壁）
+    final double pixels = 8 + 2.5 * sectionExtent(800);
+    scrollable.position.jumpTo(pixels);
+    await tester.pump();
+    expect(bold(), 'C');
+
+    // 窗口收窄：列数变了，每段高度翻倍，同一个偏移落在更早的段
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(400, 600);
+    await tester.pumpAndSettle();
+    expect(bold(), letterAt(400, pixels), reason: '换几何之后没有滚动通知，加重项也得按新偏移重算');
+  });
+
+  testWidgets('跨段滚动只动导航条，整棵网格不重建', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
+    );
+    await tester.pumpAndSettle();
+
+    /// 加重（w700）的那个字母
+    FontWeight? weightOf(String letter) => tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(ValueKey<String>('alphabet-rail-$letter')),
+            matching: find.byType(Text),
+          ),
+        )
+        .style
+        ?.fontWeight;
+
+    // 一开始停在顶部，A 段是当前的
+    expect(weightOf('A'), FontWeight.w700);
+    final CustomScrollView before = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView).first,
+    );
+
+    // 往下滚过 A 段：跨段时只该通知导航条
+    await tester.drag(
+      find.byType(CustomScrollView).first,
+      const Offset(0, -420),
+    );
+    await tester.pumpAndSettle();
+
+    final String active = <String>[
+      for (final String letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''))
+        if (weightOf(letter) == FontWeight.w700) letter,
+    ].first;
+    expect(
+      active,
+      isNot('A'),
+      reason:
+          '滚过一段之后加重项要跟着走（以前只有滚动通知里 setState 才更新，'
+          '位置被恢复或窗口改宽时会对不上）',
+    );
+
+    final CustomScrollView after = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView).first,
+    );
+    expect(
+      identical(before, after),
+      isTrue,
+      reason:
+          '跨段时只有导航条要重画：整棵网格跟着 setState 会把二十来个 '
+          'SliverGrid 和它们的 delegate 一起重建',
+    );
   });
 
   testWidgets('字母导航贴最右侧但与滚动条保持距离', (WidgetTester tester) async {

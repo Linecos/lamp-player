@@ -51,8 +51,8 @@ class ArtistGridView extends StatelessWidget {
   }
 }
 
-class _ArtistCard extends StatelessWidget {
-  _ArtistCard({
+class _ArtistCard extends StatefulWidget {
+  const _ArtistCard({
     required this.artist,
     required this.onSelect,
     this.hidden = false,
@@ -65,11 +65,24 @@ class _ArtistCard extends StatelessWidget {
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
 
-  /// 圆形头像：点击时按它量出飞行动画的起点
+  @override
+  State<_ArtistCard> createState() => _ArtistCardState();
+}
+
+class _ArtistCardState extends State<_ArtistCard> {
+  /// 圆形头像：点击时按它量出飞行动画的起点。
+  ///
+  /// 放 State 里、而不是 widget 的字段：卡片是每次 rebuild 都新建的 widget，
+  /// 字段里 new 出来的 `GlobalKey` 每次都不一样，`canUpdate` 判 false 就会把
+  /// 整棵子树（含封面图）丢掉重建——图片重新解析、淡入状态全丢。
   final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
+    final ArtistGroup artist = widget.artist;
+    final bool hidden = widget.hidden;
+    final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+    onSelect = widget.onSelect;
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
@@ -187,8 +200,8 @@ class AlbumGridView extends StatelessWidget {
   }
 }
 
-class _AlbumCard extends StatelessWidget {
-  _AlbumCard({
+class _AlbumCard extends StatefulWidget {
+  const _AlbumCard({
     required this.album,
     required this.onSelect,
     this.hidden = false,
@@ -201,11 +214,23 @@ class _AlbumCard extends StatelessWidget {
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
 
-  /// 封面图：点击时按它量出飞行动画的起点
+  @override
+  State<_AlbumCard> createState() => _AlbumCardState();
+}
+
+class _AlbumCardState extends State<_AlbumCard> {
+  /// 封面图：点击时按它量出飞行动画的起点。
+  ///
+  /// 放 State 里（同 [_ArtistCardState._coverKey]）：放在 widget 字段里的话
+  /// 每次 rebuild 都换 key，整棵封面子树连同图片订阅一起重建。
   final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
+    final AlbumGroup album = widget.album;
+    final bool hidden = widget.hidden;
+    final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+    onSelect = widget.onSelect;
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
