@@ -255,6 +255,86 @@ void main() {
       expect(groupTracksByAlbum(tracks).single.coverPath, isNull);
     });
 
+    test('艺术家头像取组内第一首有封面的曲目', () {
+      final List<Track> tracks = <Track>[
+        // 故意乱序给：组内会按「专辑 → 曲目号」重排
+        sampleTrack(
+          title: '第三首',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 3,
+          coverPath: '/covers/c.jpg',
+        ),
+        sampleTrack(
+          title: '第一首',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 1,
+          coverPath: '/covers/a.jpg',
+        ),
+        sampleTrack(
+          title: '第二首',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 2,
+          coverPath: '/covers/b.jpg',
+        ),
+      ];
+
+      final ArtistGroup group = groupTracksByArtist(tracks).single;
+
+      expect(group.coverPath, '/covers/a.jpg');
+    });
+
+    test('艺术家跨专辑时取最早那张专辑的第一首', () {
+      final List<Track> tracks = <Track>[
+        // 后加入的专辑排在后面，但相册顺序是 A → B，所以取 A 的封面
+        sampleTrack(
+          title: 'B-1',
+          artist: '林间电台',
+          album: 'B 面',
+          trackNum: 1,
+          coverPath: '/covers/b-album.jpg',
+        ),
+        sampleTrack(
+          title: 'A-1',
+          artist: '林间电台',
+          album: 'A 面',
+          trackNum: 1,
+          coverPath: '/covers/a-album.jpg',
+        ),
+      ];
+
+      expect(
+        groupTracksByArtist(tracks).single.coverPath,
+        '/covers/a-album.jpg',
+      );
+    });
+
+    test('第一首没有封面时继续往后找，全都没有才回退空值', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: '一', artist: '林间电台', trackNum: 1),
+        sampleTrack(
+          title: '二',
+          artist: '林间电台',
+          trackNum: 2,
+          coverPath: '/covers/second.jpg',
+        ),
+      ];
+
+      expect(
+        groupTracksByArtist(tracks).single.coverPath,
+        '/covers/second.jpg',
+      );
+      expect(
+        groupTracksByArtist(<Track>[
+          sampleTrack(title: '一', artist: '海岸线', trackNum: 1),
+          sampleTrack(title: '二', artist: '海岸线', trackNum: 2),
+        ]).single.coverPath,
+        isNull,
+      );
+    });
+
     test('专辑内按曲目号排序并累计时长', () {
       final List<Track> tracks = <Track>[
         sampleTrack(

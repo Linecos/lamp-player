@@ -83,7 +83,8 @@ class _ArtistRow extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          // 与艺术家列表 / 详情同一套首字母头像：光秃秃的人形图标认不出是谁
+          // 这里仍用首字母：弹窗只知道名字（没有曲库），而列表里几位候选
+          // 如果都塞同一张「正在播的这首」的封面，反而分不出谁是谁
           leading: artistInitialsAvatar(context, name, 36),
           title: Text(
             name,

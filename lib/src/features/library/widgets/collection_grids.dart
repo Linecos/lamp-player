@@ -96,7 +96,12 @@ class _ArtistCard extends StatelessWidget {
                 key: _coverKey,
                 child: CoverFlightTarget(
                   hidden: hidden,
-                  child: artistInitialsAvatar(context, artist.name, 96),
+                  child: artistAvatar(
+                    context,
+                    artist.name,
+                    96,
+                    coverPath: artist.coverPath,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
