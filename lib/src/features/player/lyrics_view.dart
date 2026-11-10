@@ -204,6 +204,23 @@ const Tolerance _springTolerance = Tolerance(distance: 0.5, velocity: 0.1);
 double _springStiffness(double ratio) => 175 - 20 * ratio;
 double _springDamping(double ratio) => 0.86 - 0.08 * ratio;
 
+/// 歌词在**布局**里的字号：恒定，等于非当前行的字号。
+///
+/// 换行时千万不能改字号——字号一变，长句的折行会跟着变（22px 一行装得下、
+/// 28px 要折成两行），整列的高度就重排了。而换行时每行的弹簧补偿只是一个
+/// **统一的位移**：重排带来的位移它补不掉，画面上就是「整列瞬间跳一下」
+/// （实测折行那句能把下面每行顶下去 41px）。
+///
+/// 当前行的放大改走 [_activeLyricScale] 的 `Transform` 缩放：纯绘制变换，
+/// 布局一点不动，补偿才补得准。
+const double _lyricFontSize = 22;
+
+/// 当前行的视觉放大倍数：22 → 28 的效果，由一个 `AnimatedScale` 渐变过去
+const double _activeLyricScale = 28 / _lyricFontSize;
+
+/// 当前行放大的过渡：600ms 缓出。再快就还是「啪」地变大，再慢会拖到下一句都开唱了
+const Duration _activeScaleDuration = Duration(milliseconds: 600);
+
 /// 一次性大跳（点歌词跳转、切歌定位）用的时长与曲线。
 ///
 /// 那种场景位移动辄几百像素，弹簧反而显得拖；短促地滑过去更干脆。
@@ -1264,9 +1281,13 @@ class _LyricLineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
+    // 字号恒定（见 [_lyricFontSize]）：当前行的放大是外层 `AnimatedScale` 干的，
+    // 这里只能改颜色 / 字重这类「怎么画」而不管「占多大地方」的属性
     final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: active ? 28 : 22,
+      fontSize: _lyricFontSize,
       height: 1.45,
+      // 字重会改字宽，长句理论上还是可能重新折行；中文假名的字宽是等宽的
+      // （em 宽），实际不受影响，所以这一档强调保留
       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
       letterSpacing: 0.2,
     );
@@ -1301,7 +1322,7 @@ class _LyricLineView extends StatelessWidget {
         textAlign: alignment.textAlign,
         style: style.copyWith(
           color: active ? activeColor : dim,
-          fontSize: active ? 24 : 18,
+          fontSize: _lyricFontSize * 0.82,
         ),
       );
     } else if (active && line.words.length >= 2) {
@@ -1366,6 +1387,19 @@ class _LyricLineView extends StatelessWidget {
     Widget place(Widget child) =>
         Align(alignment: alignment.blockAlignment, child: child);
 
+    // 当前行的「放大」：缩放整行文字，不是改字号（见 [_lyricFontSize]）。
+    //
+    // 锚点用 [LyricAlignment.blockAlignment]：横向跟着对齐方式（左对齐时左缘不动），
+    // **竖直取中点**——放大出来的 8.7px 上下各溢出一半，刚好被上下那 9px 内边距
+    // 吃掉，当前行与上下两行的间距才会一样。贴顶的话上面多 8.7、下面少 8.7。
+    Widget emphasise(Widget child) => AnimatedScale(
+      scale: active ? _activeLyricScale : 1,
+      duration: _activeScaleDuration,
+      curve: Curves.easeOutCubic,
+      alignment: alignment.blockAlignment,
+      child: child,
+    );
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => unawaited(onSeek(line.timeMs.toInt() / 1000)),
@@ -1378,42 +1412,46 @@ class _LyricLineView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             // 模糊层要贴着文字：套在外面的话，整行宽（可能上千像素）都要糊一遍
-            KeyedSubtree(key: anchorKey, child: place(soften(main))),
+            KeyedSubtree(key: anchorKey, child: emphasise(place(soften(main)))),
             if (extras.isNotEmpty)
+              // 译文跟着一起放大（不然当前行的译文会显得格外小），
+              // 它自己成一个缩放：整行一起缩的话，译文收起时整块重心上移，
+              // 会把正文带着晃 3px
               _TranslationBody(
                 progress: translation,
-                child: Column(
-                  key: translationKey,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const SizedBox(height: 3),
-                    for (final String extra in extras)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: place(
-                          soften(
-                            Text(
-                              extra,
-                              textAlign: alignment.textAlign,
-                              style: TextStyle(
-                                // 译文只比正文略小，避免层级断层
-                                fontSize: active
-                                    ? (_hasCjk(extra) ? 23 : 21)
-                                    : (_hasCjk(extra) ? 18 : 17),
-                                height: 1.4,
-                                color: fade(
-                                  Colors.white.withValues(
-                                    alpha: active
-                                        ? (_hasCjk(extra) ? 0.72 : 0.58)
-                                        : (_hasCjk(extra) ? 0.34 : 0.24),
+                child: emphasise(
+                  Column(
+                    key: translationKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const SizedBox(height: 3),
+                      for (final String extra in extras)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: place(
+                            soften(
+                              Text(
+                                extra,
+                                textAlign: alignment.textAlign,
+                                style: TextStyle(
+                                  // 译文只比正文略小，避免层级断层；字号同样恒定，
+                                  // 当前行靠外层那个缩放大一档
+                                  fontSize: _hasCjk(extra) ? 18 : 17,
+                                  height: 1.4,
+                                  color: fade(
+                                    Colors.white.withValues(
+                                      alpha: active
+                                          ? (_hasCjk(extra) ? 0.72 : 0.58)
+                                          : (_hasCjk(extra) ? 0.34 : 0.24),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
           ],

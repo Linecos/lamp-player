@@ -32,6 +32,9 @@ enum LyricAlignment {
   };
 
   /// 整块文字的落点：单行时文字宽度就是自身宽度，靠这个把整块推到左 / 中 / 右
+  ///
+  /// 当前行放大（`AnimatedScale`）也用这个锚点：横向跟着对齐方式，竖直取中点，
+  /// 放大出来的那几像素上下各溢出一半，行距才不会被拉偏
   Alignment get blockAlignment => switch (this) {
     center => Alignment.center,
     left => Alignment.centerLeft,
