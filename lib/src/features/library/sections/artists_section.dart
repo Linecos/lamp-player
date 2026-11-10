@@ -131,10 +131,11 @@ extension _ArtistsSection on _LibraryPageState {
               CoverFlightTarget(
                 key: _artistDetailCoverKey,
                 hidden: _coverFlightTag == artistCoverTag(group.name),
-                child: artistInitialsAvatar(
+                child: artistAvatar(
                   context,
                   group.name,
                   detailCoverSize,
+                  coverPath: group.coverPath,
                 ),
               ),
               const SizedBox(width: 24),
