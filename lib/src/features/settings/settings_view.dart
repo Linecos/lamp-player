@@ -353,7 +353,7 @@ class SettingsView extends StatelessWidget {
         switchKey: const ValueKey<String>('settings-exclusive-switch'),
         subtitle: exclusive
             ? (exclusiveActive ? '正在独占' : '不支持或被占用，仍走共享')
-            : '切换时短暂中断',
+            : null,
         value: exclusive,
         busy: switchingOutput,
         onChanged: onExclusiveChanged,
@@ -364,7 +364,7 @@ class SettingsView extends StatelessWidget {
         switchKey: const ValueKey<String>('settings-crossfade-switch'),
         subtitle: crossfadeEnabled
             ? (exclusiveActive ? '只做新曲淡入' : '新旧曲重叠')
-            : '换曲直接切换',
+            : null,
         value: crossfadeEnabled,
         onChanged: onCrossfadeEnabledChanged,
       ),
@@ -375,6 +375,7 @@ class SettingsView extends StatelessWidget {
         value: crossfadeSeconds,
         min: 1,
         max: 8,
+        divisions: 7,
         unit: ' 秒',
         onChanged: crossfadeEnabled ? onCrossfadeChanged : null,
         sliderKey: const ValueKey<String>('settings-crossfade'),
@@ -383,7 +384,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.balance,
         title: 'ReplayGain 响度归一',
         switchKey: const ValueKey<String>('settings-replay-gain-switch'),
-        subtitle: replayGain ? '统一各曲响度' : '按原始音量，下一首生效',
+        subtitle: replayGain ? '统一各曲响度' : null,
         value: replayGain,
         onChanged: onReplayGainChanged,
       ),
@@ -391,7 +392,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.volume_down_outlined,
         title: '音量过渡',
         switchKey: const ValueKey<String>('settings-volume-fade-switch'),
-        subtitle: volumeFade ? '起播淡入，暂停淡出' : '直接切换',
+        subtitle: volumeFade ? '起播淡入，暂停淡出' : null,
         value: volumeFade,
         onChanged: onVolumeFadeChanged,
       ),
@@ -415,7 +416,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.minimize,
         title: '关闭窗口时留在托盘',
         switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
-        subtitle: closeToTray ? '点 × 只隐藏窗口' : '点 × 直接退出',
+        subtitle: closeToTray ? '点 × 只隐藏窗口' : null,
         value: closeToTray,
         onChanged: onCloseToTrayChanged,
       ),
@@ -427,7 +428,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.auto_awesome,
         title: '动态流光背景',
         switchKey: const ValueKey<String>('settings-flow-background-switch'),
-        subtitle: flowBackground ? '随封面颜色缓慢流动' : '已关闭',
+        subtitle: flowBackground ? '随封面颜色缓慢流动' : null,
         value: flowBackground,
         onChanged: onFlowBackgroundChanged,
       ),
@@ -435,7 +436,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.circle_outlined,
         title: '圆形封面',
         switchKey: const ValueKey<String>('settings-circular-cover-switch'),
-        subtitle: circularCovers ? '播放岛与正在播放页用正圆' : '保持圆角方形',
+        subtitle: circularCovers ? '播放岛与正在播放页用正圆' : null,
         value: circularCovers,
         onChanged: onCircularCoversChanged,
       ),
@@ -733,6 +734,7 @@ class _SliderRow extends StatefulWidget implements _Searchable {
     required this.onChanged,
     this.subtitle,
     this.unit = '',
+    this.divisions,
     this.sliderKey,
   });
 
@@ -744,6 +746,7 @@ class _SliderRow extends StatefulWidget implements _Searchable {
   final double max;
   final String unit;
   final ValueChanged<double>? onChanged;
+  final int? divisions;
   final Key? sliderKey;
 
   @override
@@ -822,6 +825,7 @@ class _SliderRowState extends State<_SliderRow> {
                     value: value.clamp(widget.min, widget.max),
                     min: widget.min,
                     max: widget.max,
+                    divisions: widget.divisions,
                     label: '${value.round()}${widget.unit}',
                     onChanged: enabled ? _onDrag : null,
                     onChangeEnd: enabled ? _onRelease : null,
@@ -863,7 +867,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   const _SwitchRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     required this.value,
     this.busy = false,
     this.onChanged,
@@ -872,7 +876,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
 
   final IconData icon;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final bool value;
   final bool busy;
   final ValueChanged<bool>? onChanged;
@@ -881,7 +885,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   final Key? switchKey;
 
   @override
-  String get searchText => '$title $subtitle';
+  String get searchText => '$title ${subtitle ?? ''}';
 
   @override
   Widget build(BuildContext context) {
@@ -911,13 +915,15 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(title, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.outline,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
