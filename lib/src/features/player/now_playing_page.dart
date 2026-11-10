@@ -757,8 +757,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   ),
                                   child: SpectrumWave(
                                     bands: widget.spectrum!,
-                                    // 颜色默认由主题主色派生三段色相渐变
-                                    color: scheme.primary,
+                                    // 配色不在这里指定：频谱自己读主题主色，
+                                    // 只在它附近 ±20° 内换色相，换配色 / 切深浅色
+                                    // 会跟着整排变（见 spectrum_wave.dart）
                                   ),
                                 ),
                               ),
