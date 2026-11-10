@@ -16,6 +16,7 @@ class ArtistGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
+    this.columnWidthHint,
   });
 
   final List<ArtistGroup> artists;
@@ -28,6 +29,9 @@ class ArtistGridView extends StatelessWidget {
   /// 免得飞行层和卡片上的那张同时出现
   final Object? flyingTag;
 
+  /// 算列数用的宽度（侧栏展开时的内容区宽度），见 [AlphabetGridView]
+  final double? columnWidthHint;
+
   @override
   Widget build(BuildContext context) {
     // 按艺术家名首字母分段 + 右侧字母导航；卡片与跳转都复用同一套网格
@@ -37,6 +41,7 @@ class ArtistGridView extends StatelessWidget {
       storageKey: storageKey,
       maxCrossAxisExtent: 220,
       aspectRatio: 0.76,
+      columnWidthHint: columnWidthHint,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, ArtistGroup artist, int index) {
         return _ArtistCard(
@@ -146,6 +151,7 @@ class AlbumGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
+    this.columnWidthHint,
   });
 
   final List<AlbumGroup> albums;
@@ -157,6 +163,9 @@ class AlbumGridView extends StatelessWidget {
   /// 见 [ArtistGridView.flyingTag]
   final Object? flyingTag;
 
+  /// 见 [ArtistGridView.columnWidthHint]
+  final double? columnWidthHint;
+
   @override
   Widget build(BuildContext context) {
     // 按专辑名首字母分段 + 右侧字母导航
@@ -166,6 +175,7 @@ class AlbumGridView extends StatelessWidget {
       storageKey: storageKey,
       maxCrossAxisExtent: 220,
       aspectRatio: 0.72,
+      columnWidthHint: columnWidthHint,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, AlbumGroup album, int index) {
         return _AlbumCard(
@@ -214,20 +224,25 @@ class _AlbumCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              AspectRatio(
-                key: _coverKey,
-                aspectRatio: 1,
-                child: CoverFlightTarget(
-                  hidden: hidden,
-                  child: LayoutBuilder(
-                    builder:
-                        (BuildContext context, BoxConstraints constraints) {
-                          return AlbumCover(
-                            path: album.coverPath,
-                            size: constraints.maxWidth,
-                            radius: albumCardCoverRadius,
-                          );
-                        },
+              // Flexible 是给「侧栏动画开头那几帧」兜底的：那时列数已经按最终
+              // 宽度涨上去了，卡片还窄，正方形封面按宽度撑满会顶掉下面两行字
+              // （溢出 1~8px）。有它就把封面缩一点，字始终看得见。
+              Flexible(
+                child: AspectRatio(
+                  key: _coverKey,
+                  aspectRatio: 1,
+                  child: CoverFlightTarget(
+                    hidden: hidden,
+                    child: LayoutBuilder(
+                      builder:
+                          (BuildContext context, BoxConstraints constraints) {
+                            return AlbumCover(
+                              path: album.coverPath,
+                              size: constraints.maxWidth,
+                              radius: albumCardCoverRadius,
+                            );
+                          },
+                    ),
                   ),
                 ),
               ),
