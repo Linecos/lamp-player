@@ -742,9 +742,6 @@ class _LibraryPageState extends State<LibraryPage>
   List<EqualizerPreset> _eqCustomPresets = const <EqualizerPreset>[];
   bool _switchingOutput = false;
 
-  /// 当前输出的实际描述，来自引擎（含回落原因）
-  String _outputInfo = '';
-
   /// 播放进度单独放进 notifier：轮询只刷新播放条，不重建整个曲库页面。
   final ValueNotifier<_PlaybackProgress> _progress =
       ValueNotifier<_PlaybackProgress>(const _PlaybackProgress());
@@ -1057,8 +1054,6 @@ class _LibraryPageState extends State<LibraryPage>
     // 这一次才是权威值 —— 重复下发对均衡器 / 淡变这类覆盖式设置没有副作用。
     if (_isAvailable) {
       _applyStartupAudio(snapshot.exclusiveOutput);
-    } else {
-      unawaited(_refreshOutputInfo());
     }
     switch (section) {
       case LibrarySection.playlists:
@@ -2121,8 +2116,6 @@ class _LibraryPageState extends State<LibraryPage>
         unawaited(_loadHistory());
       }
       if (section == LibrarySection.settings) {
-        // 空闲释放 / 回落共享都可能改变实际输出，进设置页时重新读一次
-        unawaited(_refreshOutputInfo());
         unawaited(_refreshDevices());
         // 热插拔系统不会通知：设置页开着时低频轮询设备列表
         _deviceTimer?.cancel();

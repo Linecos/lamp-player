@@ -28,14 +28,12 @@ class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
     required this.trackCount,
-    required this.engineAvailable,
     this.onOpenStats,
     this.onPlayStatsTrack,
     this.onOpenStatsArtist,
     this.exclusive = false,
     this.exclusiveActive = false,
     this.switchingOutput = false,
-    this.outputInfo = '',
     this.onExclusiveChanged,
     this.closeToTray = true,
     this.onCloseToTrayChanged,
@@ -80,7 +78,6 @@ class SettingsView extends StatelessWidget {
   });
 
   final int trackCount;
-  final bool engineAvailable;
 
   /// 打开「听歌统计」：它是设置分区里的子界面，具体切换由分区容器负责
   final VoidCallback? onOpenStats;
@@ -99,9 +96,6 @@ class SettingsView extends StatelessWidget {
 
   /// 正在切换输出，期间禁用开关
   final bool switchingOutput;
-
-  /// 引擎给出的输出描述，例如「WASAPI 独占 · 48000 Hz · 2 声道」
-  final String outputInfo;
 
   /// 切换独占开关；为空表示当前不可操作
   final ValueChanged<bool>? onExclusiveChanged;
@@ -332,20 +326,6 @@ class SettingsView extends StatelessWidget {
       }
     }
     section('播放', <Widget>[
-      _InfoRow(
-        icon: Icons.graphic_eq,
-        title: '播放引擎',
-        value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
-        valueColor: engineAvailable
-            ? null
-            : Theme.of(context).colorScheme.error,
-      ),
-      if (outputInfo.isNotEmpty)
-        _OutputRow(
-          info: outputInfo,
-          active: exclusiveActive,
-          available: engineAvailable,
-        ),
       _ChoiceRow<int>(
         icon: Icons.speaker_outlined,
         title: '输出设备',
@@ -360,6 +340,17 @@ class SettingsView extends StatelessWidget {
         ],
         onChanged: onOutputDeviceChanged,
         choiceKey: const ValueKey<String>('settings-output-device'),
+      ),
+      _SwitchRow(
+        icon: Icons.surround_sound,
+        title: '独占输出（WASAPI）',
+        switchKey: const ValueKey<String>('settings-exclusive-switch'),
+        subtitle: exclusive
+            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
+            : '开启后绕过系统混音器；切换时会短暂中断播放',
+        value: exclusive,
+        busy: switchingOutput,
+        onChanged: onExclusiveChanged,
       ),
       _ChoiceRow<int>(
         icon: Icons.compare_arrows,
@@ -379,33 +370,6 @@ class SettingsView extends StatelessWidget {
             : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
         choiceKey: const ValueKey<String>('settings-crossfade'),
       ),
-      _ActionRow(
-        icon: Icons.keyboard_outlined,
-        title: '快捷键',
-        subtitle: '点一行再按组合键即可改键，也可以恢复默认',
-        onTap: onShowShortcuts,
-      ),
-      _ActionRow(
-        icon: Icons.equalizer,
-        title: '均衡器',
-        subtitle: eqEnabled
-            ? '已开启 · ${eqPresetName ?? '自定义曲线'}'
-            : '10 段参数均衡，可存多套预设',
-        onTap: onEqualizerChanged == null
-            ? null
-            : () => _openEqualizer(context),
-      ),
-      _SwitchRow(
-        icon: Icons.surround_sound,
-        title: '独占输出（WASAPI）',
-        switchKey: const ValueKey<String>('settings-exclusive-switch'),
-        subtitle: exclusive
-            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
-            : '开启后绕过系统混音器；切换时会短暂中断播放',
-        value: exclusive,
-        busy: switchingOutput,
-        onChanged: onExclusiveChanged,
-      ),
       _SwitchRow(
         icon: Icons.balance,
         title: 'ReplayGain 响度归一',
@@ -423,6 +387,22 @@ class SettingsView extends StatelessWidget {
         subtitle: volumeFade ? '播放淡入、暂停与停止淡出时平滑调整音量' : '所有操作直接硬切',
         value: volumeFade,
         onChanged: onVolumeFadeChanged,
+      ),
+      _ActionRow(
+        icon: Icons.equalizer,
+        title: '均衡器',
+        subtitle: eqEnabled
+            ? '已开启 · ${eqPresetName ?? '自定义曲线'}'
+            : '10 段参数均衡，可存多套预设',
+        onTap: onEqualizerChanged == null
+            ? null
+            : () => _openEqualizer(context),
+      ),
+      _ActionRow(
+        icon: Icons.keyboard_outlined,
+        title: '快捷键',
+        subtitle: '点一行再按组合键即可改键，也可以恢复默认',
+        onTap: onShowShortcuts,
       ),
       _SwitchRow(
         icon: Icons.minimize,
@@ -812,78 +792,6 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 输出详情：引擎实际用的模式与格式
-class _OutputRow extends StatelessWidget implements _Searchable {
-  const _OutputRow({
-    required this.info,
-    required this.active,
-    required this.available,
-  });
-
-  final String info;
-  final bool active;
-  final bool available;
-
-  @override
-  String get searchText => '输出格式 采样率 声道 $info';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final Color dot = !available
-        ? scheme.outline
-        : (active ? scheme.primary : scheme.onSurfaceVariant);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.tune, size: 20, color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: dot,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text('当前输出', style: theme.textTheme.bodyLarge),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  info,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ActionRow extends StatelessWidget implements _Searchable {
   const _ActionRow({
     required this.icon,
@@ -958,14 +866,12 @@ class _InfoRow extends StatelessWidget implements _Searchable {
     required this.title,
     required this.value,
     this.subtitle,
-    this.valueColor,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String? subtitle;
-  final Color? valueColor;
 
   @override
   String get searchText => '$title ${subtitle ?? ''} $value';
@@ -1010,7 +916,7 @@ class _InfoRow extends StatelessWidget implements _Searchable {
           Text(
             value,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: valueColor ?? scheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],

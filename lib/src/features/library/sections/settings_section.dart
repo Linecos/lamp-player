@@ -83,11 +83,9 @@ extension _SettingsSection on _LibraryPageState {
           child: SettingsView(
             trackCount: _tracks.length,
             onOpenStats: () => _update(() => _settingsStatsOpen = true),
-            engineAvailable: _isAvailable,
             exclusive: _exclusive,
             exclusiveActive: _playback.isExclusive,
             switchingOutput: _switchingOutput,
-            outputInfo: _outputInfo,
             closeToTray: widget.appLifecycle?.closeToTray ?? true,
             onCloseToTrayChanged: widget.appLifecycle == null
                 ? null
