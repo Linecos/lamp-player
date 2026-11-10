@@ -495,6 +495,49 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('飞行层只在卡片被视口切掉时才套遮罩', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        // 够多才滚得动：太少的话网格撑不满视口，拖不动
+        for (int i = 0; i < 24; i += 1)
+          sampleTrack(
+            title: '夜航 $i',
+            album: '夜之专辑 $i',
+            path: '/music/夜航$i.mp3',
+          ),
+      ],
+    );
+    await _openSection(tester, '专辑');
+
+    final Finder cover = find.byKey(const ValueKey<String>('cover-flight'));
+    Finder mask() =>
+        find.ancestor(of: cover, matching: find.byType(ShaderMask));
+
+    // 1) 完全可见的卡片：照常飞，**不套遮罩**。
+    //    以前这里错把「详情头部那张」（本来就在列表视口上方）当成被挡住，
+    //    结果每张卡飞行最后 35% 都被压暗一截，看着就是上面一块灰的在闪
+    await tester.tap(find.text('夜之专辑 0'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(cover, findsOneWidget);
+    expect(mask(), findsNothing, reason: '卡片没被切掉，不该有遮罩（详情那张不受列表视口裁剪）');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+
+    // 2) 滚上去一截让卡片被切掉一条边：还是要飞，但被切的那截要渐显
+    await tester.drag(find.byType(GridView), const Offset(0, -120));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('夜之专辑 0'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(cover, findsOneWidget, reason: '半遮的卡片照飞');
+    expect(mask(), findsOneWidget, reason: '被切掉的那一截要快速渐显');
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('音乐分区的多选按钮与播放全部同行同高', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 

@@ -17,8 +17,10 @@ class ArtistGridView extends StatelessWidget {
 
   final List<ArtistGroup> artists;
 
-  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
-  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
+  /// 第二个参数是卡片封面的屏幕矩形（「封面飞过去」的起点），第三个是它所在
+  /// 滚动视口的可见矩形（用来判断卡片有多少被挡住，见 [flyCover] 的 `clip`）
+  final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+  onSelect;
   final Key? storageKey;
 
   /// 正在飞的那张封面（见 [artistCoverTag]）：对应的卡片先把自己藏起来，
@@ -64,7 +66,8 @@ class _ArtistCard extends StatelessWidget {
   });
 
   final ArtistGroup artist;
-  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
+  final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+  onSelect;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
@@ -85,7 +88,11 @@ class _ArtistCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: () => onSelect(artist, rectOfKey(_coverKey) ?? Rect.zero),
+        onTap: () => onSelect(
+          artist,
+          rectOfKey(_coverKey) ?? Rect.zero,
+          scrollViewportOf(context),
+        ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
@@ -135,8 +142,10 @@ class AlbumGridView extends StatelessWidget {
 
   final List<AlbumGroup> albums;
 
-  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
-  final void Function(AlbumGroup album, Rect coverRect) onSelect;
+  /// 第二个参数是卡片封面的屏幕矩形（「封面飞过去」的起点），第三个是它所在
+  /// 滚动视口的可见矩形
+  final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+  onSelect;
   final Key? storageKey;
 
   /// 见 [ArtistGridView.flyingTag]
@@ -180,7 +189,8 @@ class _AlbumCard extends StatelessWidget {
   });
 
   final AlbumGroup album;
-  final void Function(AlbumGroup album, Rect coverRect) onSelect;
+  final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+  onSelect;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
@@ -201,7 +211,11 @@ class _AlbumCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: () => onSelect(album, rectOfKey(_coverKey) ?? Rect.zero),
+        onTap: () => onSelect(
+          album,
+          rectOfKey(_coverKey) ?? Rect.zero,
+          scrollViewportOf(context),
+        ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.all(10),

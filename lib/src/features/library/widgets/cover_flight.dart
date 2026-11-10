@@ -11,6 +11,37 @@ Rect? rectOfKey(GlobalKey key) {
   return box.localToGlobal(Offset.zero) & box.size;
 }
 
+/// 卡片所在滚动视口的可见矩形（屏幕坐标）；不在滚动区里返回 null。
+///
+/// 用来判断这张卡片有没有被视口切掉一截 —— `rectOfKey` 量到的是整张卡片
+/// （`localToGlobal` 只算变换、不算裁剪），被切掉的那部分要是硬画出来，
+/// 起飞第一帧就会凭空冒头。
+Rect? scrollViewportOf(BuildContext context) {
+  final ScrollableState? viewport = Scrollable.maybeOf(context);
+  if (viewport == null) {
+    return null;
+  }
+  final RenderObject? box = viewport.context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize || !box.attached) {
+    return null;
+  }
+  return box.localToGlobal(Offset.zero) & box.size;
+}
+
+/// [rect] 有没有哪条边探出 [viewport]（判等留 0.5px 容差，浮点误差不算被切）。
+///
+/// 只有**落在列表里那一头**的矩形才该拿进来判：详情头部那张本来就在列表视口
+/// 上方（那是另一个页面，不受列表裁剪），拿它判会把每张卡都算成「被挡住」。
+bool isClippedByViewport(Rect rect, Rect? viewport) {
+  if (viewport == null || viewport.isEmpty) {
+    return false;
+  }
+  return rect.left < viewport.left - 0.5 ||
+      rect.top < viewport.top - 0.5 ||
+      rect.right > viewport.right + 0.5 ||
+      rect.bottom > viewport.bottom + 0.5;
+}
+
 /// 列表卡片与详情头部共用的飞行标识。
 ///
 /// 两处按同一个字符串判断「这次飞行是谁在飞」：详情头部据此藏起自己，
@@ -47,6 +78,8 @@ VoidCallback flyCover(
   required Rect from,
   required Rect to,
   Rect Function()? toNow,
+  Rect? clip,
+  bool clipAtStart = true,
   double fromRadius = 0,
   double toRadius = 0,
   required Widget Function(double size, double radius) buildCover,
@@ -75,6 +108,8 @@ VoidCallback flyCover(
       from: from,
       to: to,
       toNow: toNow,
+      clip: clip,
+      clipAtStart: clipAtStart,
       size: math.max(from.width, to.width),
       fromRadius: fromRadius,
       toRadius: toRadius,
@@ -117,6 +152,8 @@ class _CoverFlight extends StatelessWidget {
     required this.from,
     required this.to,
     required this.toNow,
+    required this.clip,
+    required this.clipAtStart,
     required this.size,
     required this.fromRadius,
     required this.toRadius,
@@ -135,6 +172,15 @@ class _CoverFlight extends StatelessWidget {
   /// 飞行 260ms 落地时真实封面已经高了一截——观感就是「到位后又往上顿一下」。
   final Rect Function()? toNow;
 
+  /// 卡片所在滚动视口的可见矩形（屏幕坐标）
+  final Rect? clip;
+
+  /// 卡片在哪一头：进详情时是起点，回列表时是终点。
+  ///
+  /// **只有落在列表里的那一头**才受列表视口裁剪——详情头部那张本来就在列表视口
+  /// 上方，它不被列表裁（那是另一个页面），拿它去判「被挡住」会误伤每一张卡。
+  final bool clipAtStart;
+
   /// 飞行盒子的边长：两端取大，靠缩放显示
   final double size;
 
@@ -145,6 +191,9 @@ class _CoverFlight extends StatelessWidget {
   final Duration duration;
   final VoidCallback onEnd;
   final Widget Function(double size, double radius) buildCover;
+
+  /// 被挡住那部分渐显 / 渐隐占整段飞行的比例：约 90ms（260ms 的 35%）
+  static const double _revealFraction = 0.35;
 
   /// 这一帧该飞向哪里
   Rect _end() {
@@ -177,7 +226,9 @@ class _CoverFlight extends StatelessWidget {
           final double radius = scale <= 0
               ? visualRadius
               : visualRadius / scale;
-          return Stack(
+
+          /// 整张封面（含它自己的位移 / 缩放）
+          Widget cover() => Stack(
             children: <Widget>[
               Positioned(
                 left: center.dx - size / 2,
@@ -194,8 +245,111 @@ class _CoverFlight extends StatelessWidget {
               ),
             ],
           );
+
+          // 只看**落在列表里那一头**有没有被视口切掉：详情头部那张本来就在列表
+          // 视口上方，拿它判「被挡住」会误伤每一张卡（飞行最后 35% 把封面顶部
+          // 压下去，看着就是上面一截灰的在闪）
+          final Rect card = clipAtStart ? from : to;
+          if (!isClippedByViewport(card, clip)) {
+            return cover();
+          }
+          // 被切掉的那一截：起飞（或落地）的那一小段里从「看不见」快速推到全露，
+          // 边界用 14px 羽化，免得出现一条硬缝
+          final double reveal = Curves.easeOutCubic.transform(
+            (clipAtStart ? t / _revealFraction : (1 - t) / _revealFraction)
+                .clamp(0.0, 1.0),
+          );
+          final Rect viewport = clip!;
+          final bool fromTop =
+              (viewport.top - card.top) >= (card.bottom - viewport.bottom);
+          final double edge = fromTop ? viewport.top : viewport.bottom;
+          return Stack(
+            children: <Widget>[
+              Positioned(
+                left: center.dx - size / 2,
+                top: center.dy - size / 2,
+                width: size,
+                height: size,
+                child: _EdgeFadeMask(
+                  opacity: reveal,
+                  edge: edge - (center.dy - size / 2),
+                  fromTop: fromTop,
+                  child: Transform.scale(
+                    key: const ValueKey<String>('cover-flight'),
+                    scale: scale,
+                    child: buildCover(size, radius),
+                  ),
+                ),
+              ),
+            ],
+          );
         },
       ),
+    );
+  }
+}
+
+/// 遮罩用的渐变：边缘两侧 [feather] 宽的一条过渡带，被挡住那一段落到 [opacity]。
+///
+/// [edge] 是视口边缘在封面盒子里的 y，[height] 是盒子高度。
+LinearGradient flightFadeGradient({
+  required double opacity,
+  required double edge,
+  required bool fromTop,
+  required double height,
+  double feather = _EdgeFadeMask.feather,
+}) {
+  final double h = height <= 0 ? 1 : height;
+  final Color faint = Colors.white.withValues(alpha: opacity.clamp(0.0, 1.0));
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: fromTop
+        ? <Color>[faint, Colors.white]
+        : <Color>[Colors.white, faint],
+    stops: <double>[
+      ((edge - feather) / h).clamp(0.0, 1.0),
+      ((edge + feather) / h).clamp(0.0, 1.0),
+    ],
+  );
+}
+
+/// 把「被视口挡住」那一段的透明度压到 [opacity]，边界用 [feather] 宽的渐变羽化。
+///
+/// 只在卡片真的被切掉时才套这一层；没被切的卡片连遮罩都不建。
+class _EdgeFadeMask extends StatelessWidget {
+  const _EdgeFadeMask({
+    required this.opacity,
+    required this.edge,
+    required this.fromTop,
+    required this.child,
+  });
+
+  /// 羽化宽度（像素）：够宽才不会看出线，又不至于把露出来的那块也糊掉
+  static const double feather = 14;
+
+  /// 被挡住那一段的透明度（1 = 全露，0 = 完全看不见）
+  final double opacity;
+
+  /// 视口边缘在本组件坐标里的 y
+  final double edge;
+
+  /// 挡住的是上面那一段还是下面那一段
+  final bool fromTop;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (Rect bounds) => flightFadeGradient(
+        opacity: opacity,
+        edge: edge,
+        fromTop: fromTop,
+        height: bounds.height,
+      ).createShader(bounds),
+      child: child,
     );
   }
 }
