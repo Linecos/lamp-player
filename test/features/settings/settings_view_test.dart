@@ -823,14 +823,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(gainPicks, <bool>[true]);
 
-    // 淡变时长
-    final Finder fadeRow = find.byKey(
+    // 淡变时长：滑块 1–8 秒
+    final Finder fadeSlider = find.byKey(
       const ValueKey<String>('settings-crossfade'),
     );
-    await tester.ensureVisible(fadeRow);
-    await tester.tap(fadeRow);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('4 秒').last);
+    await tester.ensureVisible(fadeSlider);
+    final Slider slider = tester.widget<Slider>(fadeSlider);
+    expect(slider.min, 1);
+    expect(slider.max, 8);
+    expect(slider.divisions, 7, reason: '每档 1 秒');
+    slider.onChanged!(4);
     await tester.pumpAndSettle();
     expect(fades, <double>[4]);
 
