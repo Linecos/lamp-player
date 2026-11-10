@@ -220,12 +220,20 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   static const double _infoFontMinScale = 0.72;
   static const double _infoFontMaxScale = 1.25;
 
-  /// 信息块与封面之间的间距（封面 = 342 时的值）。
+  /// 信息块与封面之间的距离 = 封面高度 / 这个除数。
   ///
-  /// 只缩字号不缩间距的话，大窗口里文字长大了、缝还是 16px，字像贴在封面上；
-  /// 小窗口里文字缩了、缝没缩，又显得空。所以它跟 [_infoFontMinScale] 同一套
-  /// 系数一起缩放。
+  /// 取 7：大约 1/7 个封面高（342 时约 49），信息块能喘口气，又不会和封面
+  /// 各看各的。跟着封面缩放，大小窗口比例一致。
+  static const double _infoGapDivisor = 7;
+
+  /// 旧的固定间距（封面 = 342 时 16px）：只用来换算「间距改大之后多了多少」，
+  /// 好把那部分在顶部内边距里让回去，别把整张封面顶下去
   static const double _infoCoverGap = 16;
+
+  /// 间距改大之后，封面愿意额外下沉的量（占封面高度的比例）。
+  ///
+  /// 信息块往上、封面往下一点，两者之间的空白才不会全靠压封面换来
+  static const double _coverSinkRatio = 0.028;
 
   /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去一整块，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
@@ -905,9 +913,22 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         // `_body` 从 header 下方开始，换算成窗口坐标要减掉 header 的高度，
         // 否则封面看起来离顶还是比离左更远一截；信息块占了封面上面一截，
         // 再把整列上提 [_infoBlockLift]
+        // 信息块与封面的距离按封面高度算（1/7），比原来的「16 × 缩放」大一截
+        final double infoGap = coverSize / _infoGapDivisor;
+        final double infoScale = (coverSize / _infoFontReferenceCover).clamp(
+          _infoFontMinScale,
+          _infoFontMaxScale,
+        );
+        // 变大之后多出来的高度会把封面往下推，先在顶部内边距里让回去，
+        // 只留 [_coverSinkRatio] 那一点点下沉：信息块上移、封面略微下移
+        final double grownGap = infoGap - _infoCoverGap * infoScale;
         final double topPadding = math.max(
           8,
-          coverInset - _headerHeight - _infoBlockLift,
+          coverInset -
+              _headerHeight -
+              _infoBlockLift -
+              grownGap +
+              coverSize * _coverSinkRatio,
         );
         // 歌词当前行与封面中心线对齐：封面中心在信息行下面，换算成歌词视口的比例
         final double lyricHeight = math.max(
@@ -916,7 +937,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         );
         // 沉浸模式只是把信息块淡出、占位还在，封面位置不变 —— 对齐线照旧
         final double revealAlignment =
-            ((_infoBlockHeight + coverSize / 2) / lyricHeight).clamp(
+            ((_infoBlockHeight + grownGap + coverSize / 2) / lyricHeight).clamp(
               0.35,
               0.68,
             );
@@ -1121,7 +1142,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             ),
           ),
         ),
-        SizedBox(height: _infoCoverGap * scale),
+        // 与布局里的预算同源：都按封面高度取 1/7
+        SizedBox(height: coverSize / _infoGapDivisor),
         // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
         // （900×560 这种最小窗口）。只缩封面不缩文字，文字保持原生字号不发虚。
         Flexible(
