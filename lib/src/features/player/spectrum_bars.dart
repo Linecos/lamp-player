@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../common/paint_cache.dart';
+
 /// 频谱柱：把 [bands] 里的 0~1 幅度画成一排圆角柱。
 ///
 /// 只重绘自己（`RepaintBoundary` + `CustomPaint`）：30fps 刷新时不会带着
@@ -101,6 +103,9 @@ class _SpectrumPainter extends CustomPainter {
   final double minBar;
   final bool stretch;
 
+  /// 全局 Shader 缓存
+  static final GradientShaderCache _shaderCache = GradientShaderCache(maxSize: 20);
+
   @override
   void paint(Canvas canvas, Size size) {
     if (values.isEmpty || size.height <= 0) {
@@ -119,13 +124,15 @@ class _SpectrumPainter extends CustomPainter {
     // 整高渐变只建一次：以前每根柱子各建一个（8 根 × 30fps = 240 个/秒），
     // 每帧柱高都不同，Skia 的渐变缓存永远命中不了，是播放时 CPU 的大头
     final Rect full = Rect.fromLTWH(0, 0, width, size.height);
+    final Gradient gradient = LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: <Color>[color, color.withValues(alpha: 0.45)],
+    );
+    final Shader shader = _shaderCache.shader(gradient: gradient, rect: full);
     final Paint paint = Paint()
       ..isAntiAlias = true
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: <Color>[color, color.withValues(alpha: 0.45)],
-      ).createShader(full);
+      ..shader = shader;
 
     for (int i = 0; i < fit; i += 1) {
       final double value = values[i].clamp(0.0, 1.0);

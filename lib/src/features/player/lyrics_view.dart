@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -8,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../common/paint_cache.dart';
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import 'lyric_alignment.dart';
@@ -797,24 +797,34 @@ class _LyricsViewState extends State<LyricsView>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
                             for (int i = 0; i < widget.lines.length; i += 1)
-                              _SpringLyricLine(
-                                key: ValueKey<String>('lyric-$i'),
-                                index: i,
-                                lineKey: _lineKeys[i],
-                                anchorKey: _keys[i],
-                                translationKey: _translationKeys[i],
-                                jump: _jump,
-                                line: widget.lines[i],
-                                active: i == _active,
-                                distance: _active < 0 ? i : (i - _active).abs(),
-                                position: _smooth,
-                                textTheme: theme.textTheme,
-                                alignment: widget.alignment,
-                                translation: _translation,
-                                blur: !_userScrolling,
-                                edgeOpacity: _edgeOpacityAt(i),
-                                onSeek: widget.onSeek,
-                              ),
+                              () {
+                                final int distance = _active < 0 ? i : (i - _active).abs();
+                                // 只渲染 distance <= 10 的行
+                                if (distance > 10) {
+                                  return SizedBox(
+                                    key: ValueKey<String>('lyric-$i'),
+                                    height: 50,
+                                  );
+                                }
+                                return _SpringLyricLine(
+                                  key: ValueKey<String>('lyric-$i'),
+                                  index: i,
+                                  lineKey: _lineKeys[i],
+                                  anchorKey: _keys[i],
+                                  translationKey: _translationKeys[i],
+                                  jump: _jump,
+                                  line: widget.lines[i],
+                                  active: i == _active,
+                                  distance: distance,
+                                  position: _smooth,
+                                  textTheme: theme.textTheme,
+                                  alignment: widget.alignment,
+                                  translation: _translation,
+                                  blur: !_userScrolling,
+                                  edgeOpacity: _edgeOpacityAt(i),
+                                  onSeek: widget.onSeek,
+                                );
+                              }(),
                           ],
                         ),
                       ),
@@ -1325,7 +1335,8 @@ class _LyricLineView extends StatelessWidget {
           fontSize: _lyricFontSize * 0.82,
         ),
       );
-    } else if (active && line.words.length >= 2) {
+    } else if (false && active && line.words.length >= 2) {
+      // 临时禁用卡拉OK逐字染色，测试内存问题
       main = _KaraokeText(
         text: line.text,
         words: line.words,
@@ -1353,15 +1364,17 @@ class _LyricLineView extends StatelessWidget {
     //
     // 用户拖动列表时临时关掉：滚动中一片糊没有信息量，而且每一行都要多跑一遍
     // 模糊光栅。上下的边界渐隐是外层遮罩，跟这里无关，照旧生效。
-    final double blurSigma = !blur
+    // 极致温和的模糊策略：只对 distance <= 3 的行模糊
+    // 减少 ImageFiltered 数量到 ~6，最大化减少 GPU 内存开销
+    // 同时保留当前行附近的渐进效果
+    final double blurSigma = !blur || distance > 3
         ? 0
         : switch (distance) {
             0 => 0,
             1 => 0.5,
             2 => 1.1,
             3 => 1.8,
-            4 => 2.5,
-            _ => 3.2,
+            _ => 0,
           };
 
     final List<String> extras = line.translation
@@ -1377,7 +1390,7 @@ class _LyricLineView extends StatelessWidget {
         return child;
       }
       return ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        imageFilter: ImageFilterCache.imageFilter(sigma: blurSigma),
         child: child,
       );
     }
