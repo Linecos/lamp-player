@@ -507,7 +507,6 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 退出时列表刚重建、「卡片」还没布局好，量不到；而这个位置在详情期间不会变
   /// （列表本身不滚，滚动位置由 PageStorageKey 接着），直接用记下的就行。
-  final Map<String, Rect> _coverOrigins = <String, Rect>{};
   String? _selectedAlbumKey;
 
   Set<String> _favoritePaths = <String>{};
@@ -1374,13 +1373,39 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
+  /// 这张封面是不是完整落在列表可视区里。
+  ///
+  /// 卡片被滚到视口外（列表顶部被裁）、或者被底部播放岛压着的时候，
+  /// 飞行层的落点在可视区外/被盖住：封面会先飞到看不见的地方，落地瞬间
+  /// 卡片封面又冒出来，艺术家那圈圆形还会被卡片边缘切平一条边。
+  ///
+  /// 这种时候干脆不飞，交给分区那层 `AnimatedSwitcher` 自己的 180ms 淡入淡出
+  /// —— 观感上是"渐隐过去"，不会露出半截封面。
+  bool _isCoverVisible(Rect rect) {
+    if (rect.isEmpty) {
+      return false;
+    }
+    final Size size = MediaQuery.sizeOf(context);
+    final Rect viewport = Rect.fromLTRB(
+      0,
+      0,
+      size.width,
+      size.height - PlayerBar.occupiedHeight,
+    );
+    return viewport.contains(rect.topLeft) &&
+        viewport.contains(rect.bottomRight);
+  }
+
   /// 进艺术家详情，并让首字母头像从卡片的位置飞到头部。
   void _openArtistDetail(ArtistGroup artist, Rect coverRect) {
     _clearSearch();
     _clearSelection();
     final String tag = artistCoverTag(artist.name);
-    // 记下卡片在哪：回列表时要从同一个位置飞回去
-    _coverOrigins[tag] = coverRect;
+    if (!_isCoverVisible(coverRect)) {
+      // 卡片露不全：不做飞行，直接交叉渐隐（见 [_isCoverVisible]）
+      _update(() => _selectedArtist = artist.name);
+      return;
+    }
     _flyCoverInto(
       tag: tag,
       from: coverRect,
@@ -1397,7 +1422,10 @@ class _LibraryPageState extends State<LibraryPage>
     _clearSearch();
     _clearSelection();
     final String tag = albumCoverTag(album.key);
-    _coverOrigins[tag] = coverRect;
+    if (!_isCoverVisible(coverRect)) {
+      _update(() => _selectedAlbumKey = album.key);
+      return;
+    }
     _flyCoverInto(
       tag: tag,
       from: coverRect,
@@ -1461,51 +1489,17 @@ class _LibraryPageState extends State<LibraryPage>
     });
   }
 
-  /// 从详情退回列表：封面按原路飞回卡片。
+  /// 从详情退回列表。
   ///
-  /// 与 [_flyCoverInto] 对称，只是方向相反。起点必须**在切回列表之前**量——
-  /// 切过去之后详情子树就开始淡出了。
-  void _flyCoverBack({
-    required String tag,
-    required GlobalKey detailKey,
-    required Widget Function(double size, double radius) buildCover,
-    double fromRadius = 0,
-    double toRadius = 0,
-    required VoidCallback leave,
-  }) {
-    final Rect? from = rectOfKey(detailKey);
-    final Rect? to = _coverOrigins[tag];
+  /// 这里**不做封面飞行**：落点用的是「点开那一刻」量到的卡片矩形，而列表
+  /// 在那之后只要动过（滚过一截、被底部播放岛压住、窗口变过大小），落地就偏，
+  /// 最后一帧会露出一截没对上的封面——圆形被卡片边缘切平、方角封面上下不对称。
+  /// 退回列表本来就有分区那层 `AnimatedSwitcher` 的 180ms 交叉淡入，直接用它，
+  /// 观感是干净的渐隐，不会有错位。
+  void _flyCoverBack({required VoidCallback leave}) {
     _cancelCoverFlight?.call();
     _cancelCoverFlight = null;
-    if (from == null || to == null) {
-      // 没有起点或没有落点（比如详情是「一步进来」的，没经过列表卡片）：
-      // 不做动画，直接回列表
-      _update(leave);
-      return;
-    }
-    _update(() {
-      _coverFlightTag = tag;
-      leave();
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _coverFlightTag != tag) {
-        return;
-      }
-      _cancelCoverFlight = flyCover(
-        context,
-        from: from,
-        to: to,
-        fromRadius: fromRadius,
-        toRadius: toRadius,
-        buildCover: buildCover,
-        onDone: () {
-          _cancelCoverFlight = null;
-          if (mounted) {
-            _update(() => _coverFlightTag = null);
-          }
-        },
-      );
-    });
+    _update(leave);
   }
 
   /// 从艺术家详情退回列表
@@ -1516,13 +1510,7 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _clearSelection();
-    _flyCoverBack(
-      tag: artistCoverTag(group.name),
-      detailKey: _artistDetailCoverKey,
-      buildCover: (double size, double radius) =>
-          artistAvatar(context, group.name, size, coverPath: group.coverPath),
-      leave: () => _selectedArtist = null,
-    );
+    _flyCoverBack(leave: () => _selectedArtist = null);
   }
 
   /// 从专辑详情退回列表
@@ -1533,15 +1521,7 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _clearSelection();
-    _flyCoverBack(
-      tag: albumCoverTag(group.key),
-      detailKey: _albumDetailCoverKey,
-      fromRadius: albumDetailCoverRadius,
-      toRadius: albumCardCoverRadius,
-      buildCover: (double size, double radius) =>
-          AlbumCover(path: group.coverPath, size: size, radius: radius),
-      leave: () => _selectedAlbumKey = null,
-    );
+    _flyCoverBack(leave: () => _selectedAlbumKey = null);
   }
 
   /// 正在看的那位艺术家的分组（没进详情就是 null）
