@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../paint_cache.dart';
+
 /// 单行标题：放不下时两端渐隐，鼠标悬停后缓慢向左滚，移开再缓慢归位。
 ///
 /// 为什么不用 `TextOverflow.ellipsis`：省略号本身要占掉一个字的位置，长歌名
@@ -153,9 +155,8 @@ class _MarqueeTitleState extends State<MarqueeTitle>
   /// Shader 缓存：避免每帧 `createShader` 造成内存泄漏
   ///
   /// Key 格式："width-leftFade"，例如 "300.0-0.03"。
-  /// 宽度按 0.5px 量化、leftFade 按 0.005 量化（_leftFadeSpan = 0.05，分 10 档），
-  /// 正常使用最多缓存 6~10 个宽度 × 10 个档位 = 60~100 条。
-  final Map<String, Shader> _shaderCache = <String, Shader>{};
+  /// Shader 缓存，使用全局 GradientShaderCache
+  final GradientShaderCache _shaderCache = GradientShaderCache(maxSize: 20);
 
   /// 离散化 leftFade 到最近的 0.005 倍数，减少缓存条目。
   ///
@@ -171,28 +172,12 @@ class _MarqueeTitleState extends State<MarqueeTitle>
   /// leftFade 已在外部量化。
   Shader _getShader(double width, double leftFade) {
     final double quantizedWidth = (width * 2).round() / 2;
-    final String key =
-        '${quantizedWidth.toStringAsFixed(1)}-${leftFade.toStringAsFixed(3)}';
-
-    Shader? cached = _shaderCache[key];
-    if (cached != null) {
-      return cached;
-    }
-
-    // 缓存未命中：创建新 shader
-    final Shader shader = MarqueeTitle.fadeGradient(
+    final Gradient gradient = MarqueeTitle.fadeGradient(
       width: quantizedWidth,
       leftFade: leftFade,
-    ).createShader(Rect.fromLTWH(0, 0, quantizedWidth, 100));
-
-    _shaderCache[key] = shader;
-
-    // 防止缓存无限增长（窗口拖拽会产生不同宽度）：保留最近 100 个
-    if (_shaderCache.length > 100) {
-      _shaderCache.remove(_shaderCache.keys.first);
-    }
-
-    return shader;
+    );
+    final Rect rect = Rect.fromLTWH(0, 0, quantizedWidth, 100);
+    return _shaderCache.shader(gradient: gradient, rect: rect);
   }
 
   @override
@@ -205,6 +190,10 @@ class _MarqueeTitleState extends State<MarqueeTitle>
     _hovering = false;
     _travelled = 0;
     _lastValue = 0;
+    _cachedText = null;
+    _cachedTextWidth = null;
+    // 换歌时清理 Shader 缓存
+    _shaderCache.clear();
     _controller
       ..stop()
       ..value = 0;
@@ -218,9 +207,18 @@ class _MarqueeTitleState extends State<MarqueeTitle>
     super.dispose();
   }
 
+  /// 缓存的文字宽度，避免每帧重新测量
+  double? _cachedTextWidth;
+  String? _cachedText;
+
   /// 量一份文字有多宽。用与 `Text` 完全相同的 style / textScaler，
   /// 否则算出的循环长度和实际渲染差几个像素，接缝处会哆嗦一下
   double _measureText(BuildContext context) {
+    // 缓存文字宽度，避免每帧重新创建 TextPainter
+    if (_cachedText == widget.text && _cachedTextWidth != null) {
+      return _cachedTextWidth!;
+    }
+    
     final TextPainter painter = TextPainter(
       text: TextSpan(
         text: widget.text,
@@ -232,6 +230,9 @@ class _MarqueeTitleState extends State<MarqueeTitle>
     )..layout();
     final double width = painter.width;
     painter.dispose();
+    
+    _cachedText = widget.text;
+    _cachedTextWidth = width;
     return width;
   }
 
