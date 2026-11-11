@@ -1384,14 +1384,8 @@ class _LibraryPageState extends State<LibraryPage>
       clip: viewport,
       targetKey: _artistDetailCoverKey,
       // 艺术家头像是圆的，没有圆角要插值；有封面时两端都是同一张图
-      buildCover: (double size, double radius, double decodeScale) =>
-          artistAvatar(
-            context,
-            artist.name,
-            size,
-            coverPath: artist.coverPath,
-            decodeScale: decodeScale,
-          ),
+      buildCover: (double size, double radius) =>
+          artistAvatar(context, artist.name, size, coverPath: artist.coverPath),
       apply: () => _selectedArtist = artist.name,
     );
   }
@@ -1410,13 +1404,8 @@ class _LibraryPageState extends State<LibraryPage>
       targetKey: _albumDetailCoverKey,
       fromRadius: albumCardCoverRadius,
       toRadius: albumDetailCoverRadius,
-      buildCover: (double size, double radius, double decodeScale) =>
-          AlbumCover(
-            path: album.coverPath,
-            size: size,
-            radius: radius,
-            decodeScale: decodeScale,
-          ),
+      buildCover: (double size, double radius) =>
+          AlbumCover(path: album.coverPath, size: size, radius: radius),
       apply: () => _selectedAlbumKey = album.key,
     );
   }
@@ -1431,8 +1420,7 @@ class _LibraryPageState extends State<LibraryPage>
     required Object tag,
     required Rect from,
     required GlobalKey targetKey,
-    required Widget Function(double size, double radius, double decodeScale)
-    buildCover,
+    required Widget Function(double size, double radius) buildCover,
     Rect? clip,
     double fromRadius = 0,
     double toRadius = 0,
@@ -1482,8 +1470,7 @@ class _LibraryPageState extends State<LibraryPage>
   void _flyCoverBack({
     required String tag,
     required GlobalKey detailKey,
-    required Widget Function(double size, double radius, double decodeScale)
-    buildCover,
+    required Widget Function(double size, double radius) buildCover,
     double fromRadius = 0,
     double toRadius = 0,
     required VoidCallback leave,
@@ -1538,14 +1525,8 @@ class _LibraryPageState extends State<LibraryPage>
     _flyCoverBack(
       tag: artistCoverTag(group.name),
       detailKey: _artistDetailCoverKey,
-      buildCover: (double size, double radius, double decodeScale) =>
-          artistAvatar(
-            context,
-            group.name,
-            size,
-            coverPath: group.coverPath,
-            decodeScale: decodeScale,
-          ),
+      buildCover: (double size, double radius) =>
+          artistAvatar(context, group.name, size, coverPath: group.coverPath),
       leave: () => _selectedArtist = null,
     );
   }
@@ -1563,13 +1544,8 @@ class _LibraryPageState extends State<LibraryPage>
       detailKey: _albumDetailCoverKey,
       fromRadius: albumDetailCoverRadius,
       toRadius: albumCardCoverRadius,
-      buildCover: (double size, double radius, double decodeScale) =>
-          AlbumCover(
-            path: group.coverPath,
-            size: size,
-            radius: radius,
-            decodeScale: decodeScale,
-          ),
+      buildCover: (double size, double radius) =>
+          AlbumCover(path: group.coverPath, size: size, radius: radius),
       leave: () => _selectedAlbumKey = null,
     );
   }

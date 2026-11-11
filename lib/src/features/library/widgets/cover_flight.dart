@@ -82,8 +82,7 @@ VoidCallback flyCover(
   bool clipAtStart = true,
   double fromRadius = 0,
   double toRadius = 0,
-  required Widget Function(double size, double radius, double decodeScale)
-  buildCover,
+  required Widget Function(double size, double radius) buildCover,
   required VoidCallback onDone,
   Duration duration = const Duration(milliseconds: 260),
 }) {
@@ -191,16 +190,7 @@ class _CoverFlight extends StatelessWidget {
 
   final Duration duration;
   final VoidCallback onEnd;
-  final Widget Function(double size, double radius, double decodeScale)
-  buildCover;
-
-  /// 飞行那张按**小端**的解码档来：跟卡片已经解好的那份共享同一档，
-  /// 不给 ImageCache 多塞一条死条目（大端的档位由落地后的真实封面负责）
-  double get _decodeScale =>
-      (math.min(from.width, to.width) / math.max(from.width, to.width)).clamp(
-        0.5,
-        1.0,
-      );
+  final Widget Function(double size, double radius) buildCover;
 
   /// 被挡住那部分渐显 / 渐隐占整段飞行的比例：约 90ms（260ms 的 35%）
   static const double _revealFraction = 0.35;
@@ -250,7 +240,7 @@ class _CoverFlight extends StatelessWidget {
                 child: Transform.scale(
                   key: const ValueKey<String>('cover-flight'),
                   scale: scale,
-                  child: buildCover(size, radius, _decodeScale),
+                  child: buildCover(size, radius),
                 ),
               ),
             ],
@@ -287,7 +277,7 @@ class _CoverFlight extends StatelessWidget {
                   child: Transform.scale(
                     key: const ValueKey<String>('cover-flight'),
                     scale: scale,
-                    child: buildCover(size, radius, _decodeScale),
+                    child: buildCover(size, radius),
                   ),
                 ),
               ),
