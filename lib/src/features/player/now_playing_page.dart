@@ -194,13 +194,17 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 45 度线上的最小内边距占窗口短边的比例：小窗口靠它离开角落
   static const double _minInsetRatio = 0.22;
 
-  /// 封面上方那几行（歌名 / 歌手-专辑）大致占的高度：算封面能长多大时要
-  /// 把它一起留出来，免得整列顶到频谱丝带上
-  static const double _infoReserve = 104;
+  /// 封面上方那两行（歌名 / 歌手-专辑）大致占的高度，不含与封面之间的间距
+  static const double _infoTextHeight = 80;
 
-  /// 封面上面信息块 + 间距的实际高度：歌词当前行要和封面中心线对齐，按它换算。
-  /// 比 [_infoReserve] 略小，那 8px 是留给尺寸预算的余量
-  static const double _infoBlockHeight = 96;
+  /// 尺寸预算里额外留的余量：行高估小了也不至于把封面顶到频谱丝带上
+  static const double _infoReserveSlack = 8;
+
+  /// 信息块与封面之间的间距 = 封面边长的这个比例。
+  ///
+  /// 跟着封面走而不是写死：封面 342 时约 49，窗口缩小、封面收到 240 时约 34，
+  /// 比例不变，整块的呼吸感才一致（以前写死 16，大窗口里字像贴在封面上）。
+  static const double _infoCoverGapRatio = 1 / 7;
 
   /// 沉浸模式切换时两侧控件淡出 / 信息块收起的时长
   static const Duration _chromeFade = Duration(milliseconds: 160);
@@ -215,13 +219,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 缩放上下限：小窗口别小到读不清，大窗口也别让文字压过封面本身
   static const double _infoFontMinScale = 0.72;
   static const double _infoFontMaxScale = 1.25;
-
-  /// 信息块与封面之间的间距（封面 = 342 时的值）。
-  ///
-  /// 只缩字号不缩间距的话，大窗口里文字长大了、缝还是 16px，字像贴在封面上；
-  /// 小窗口里文字缩了、缝没缩，又显得空。所以它跟 [_infoFontMinScale] 同一套
-  /// 系数一起缩放。
-  static const double _infoCoverGap = 16;
 
   /// 信息块挪到封面上方后整列上提的量：不提的话封面会整体矮下去 96，
   /// 视觉重心掉到窗口中部；提一半刚好回到原来的位置感
@@ -890,8 +887,16 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             constraints.maxHeight - _spectrumBottom - _spectrumHeight;
         final double widthBudget =
             (contentWidth * 0.35).clamp(380.0, 560.0) - _coverShadowPad;
+        // 封面 + 它与信息块之间的缝（封面的 1/7）要一起塞进可用高度：
+        // 设封面为 c，则 c + c/7 ≤ 剩余高度，即 c ≤ 剩余 × 7/8
         final double heightBudget =
-            areaHeight + _headerHeight - _infoReserve - coverInset;
+            (areaHeight +
+                _headerHeight -
+                _infoTextHeight -
+                _infoReserveSlack -
+                coverInset) *
+            7 /
+            8;
         final double coverSize = math
             .min(widthBudget, heightBudget)
             .clamp(_minCoverSize, 440.0);
@@ -913,10 +918,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         );
         // 沉浸模式只是把信息块淡出、占位还在，封面位置不变 —— 对齐线照旧
         final double revealAlignment =
-            ((_infoBlockHeight + coverSize / 2) / lyricHeight).clamp(
-              0.35,
-              0.68,
-            );
+            ((_infoTextHeight +
+                        coverSize * _infoCoverGapRatio +
+                        coverSize / 2) /
+                    lyricHeight)
+                .clamp(0.35, 0.68);
         final Widget info = _trackInfo(context, track, wide ? coverSize : 240);
         final Widget lyric = _lyricsView(
           context,
@@ -1109,7 +1115,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             ),
           ),
         ),
-        SizedBox(height: _infoCoverGap * scale),
+        // 间距 = 封面的 1/7（跟着封面缩放，不再是写死的 16）
+        SizedBox(height: coverSize * _infoCoverGapRatio),
         // 剩下的高度都给封面：放不下就自己缩，别把整列顶出可视区
         // （900×560 这种最小窗口）。只缩封面不缩文字，文字保持原生字号不发虚。
         Flexible(

@@ -1544,6 +1544,48 @@ void main() {
       expect(theme.data.valueIndicatorTextStyle?.fontSize, 12);
     }
   });
+
+  testWidgets('信息块与封面的间距是封面的七分之一', (WidgetTester tester) async {
+    await _pump(tester, data: _data());
+
+    final Rect infoRect = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-info')),
+    );
+    final Rect coverRect = tester.getRect(
+      find
+          .descendant(
+            of: find.byType(NowPlayingPage),
+            matching: find.byType(AlbumCover),
+          )
+          .first,
+    );
+    final double gap = coverRect.top - infoRect.bottom;
+
+    expect(
+      gap,
+      closeTo(coverRect.width / 7, 1.5),
+      reason: '间距跟着封面走：封面 ${coverRect.width} → 间距应为 ${coverRect.width / 7}',
+    );
+  });
+
+  testWidgets('小窗口里间距仍按封面的七分之一缩', (WidgetTester tester) async {
+    await _pump(tester, data: _data(), size: const Size(900, 560));
+
+    final Rect infoRect = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-info')),
+    );
+    final Rect coverRect = tester.getRect(
+      find
+          .descendant(
+            of: find.byType(NowPlayingPage),
+            matching: find.byType(AlbumCover),
+          )
+          .first,
+    );
+    final double gap = coverRect.top - infoRect.bottom;
+    // 矮窗口里封面会被压小、间距按名义封面算，给 15% 的余量
+    expect(gap, closeTo(coverRect.width / 7, coverRect.width / 7 * 0.15));
+  });
 }
 
 /// 只记录调用次数的窗口控制假实现
