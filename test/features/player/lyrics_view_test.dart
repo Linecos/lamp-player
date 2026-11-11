@@ -298,7 +298,7 @@ void main() {
     expect(scaleOf('下一行'), 1.0);
   });
 
-  testWidgets('越远的行越淡：从相邻行就开始，逐级递减', (WidgetTester tester) async {
+  testWidgets('越远的行越模糊：从相邻行就开始，逐级递增', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -314,86 +314,59 @@ void main() {
       playing: playing,
     );
 
-    double alphaOf(String text) =>
-        tester.widget<Text>(find.text(text)).style!.color!.a;
-
-    // 当前行之外的 5 行逐级压暗，一级一级往上加，不要「一行清楚、下一行
-    // 直接看不见」那种跳档。越靠下的行还会叠上视口底部的边界渐隐，
-    // 所以只对最近的两级断言严格递减，再往下只要不回头变亮即可
-    expect(alphaOf('第 0 行'), greaterThan(alphaOf('第 1 行')));
-    expect(alphaOf('第 1 行'), greaterThan(alphaOf('第 2 行')));
-    for (int i = 2; i < 5; i += 1) {
-      expect(
-        alphaOf('第 $i 行'),
-        greaterThanOrEqualTo(alphaOf('第 ${i + 1} 行')),
-        reason: '第 $i 行不该比第 ${i + 1} 行还淡',
-      );
-    }
+    // 当前行之外的 5 行都带一点模糊：从相邻行就开始，一级一级往上加，
+    // 不要「1 行全清、下一行直接糊掉」那种跳档
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
   });
 
-  testWidgets('用户拖动期间不跟回当前行，停手 3 秒后跟回', (WidgetTester tester) async {
+  testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
-    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
     addTearDown(playing.dispose);
 
     await _pump(
       tester,
       lines: <LyricLine>[
-        for (int i = 0; i < 12; i += 1)
+        for (int i = 0; i < 6; i += 1)
           _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
       ],
       position: position,
       playing: playing,
     );
-    final ScrollController controller = tester
-        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .controller!;
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
 
     // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
     await tester.drag(find.byType(LyricsView), const Offset(0, -140));
     await tester.pump();
-    final double dragged = controller.offset;
-
-    // 播放推进到下一行：用户还在拖，这时候不能把他拽回当前行
-    position.value = 5.2;
-    await tester.pump(const Duration(milliseconds: 200));
     expect(
-      controller.offset,
-      closeTo(dragged, 0.01),
-      reason: '拖动期间不跟回当前行',
+      find.byType(ImageFiltered),
+      findsNothing,
+      reason: '滚动中不该再糊：一行都看不清，还每帧多跑一遍模糊光栅',
     );
 
-    // 停手满 3 秒才交还控制权
+    // 停手 3 秒后才跟回当前行，这时模糊也一起回来
     await tester.pump(const Duration(seconds: 3));
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      controller.offset,
-      isNot(closeTo(dragged, 0.01)),
-      reason: '停手 3 秒后跟回当前行',
-    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
   });
 
-  testWidgets('鼠标滚轮也算用户滚动：不跟回当前行，停手 3 秒后跟回', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
-    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
     addTearDown(playing.dispose);
 
     await _pump(
       tester,
       lines: <LyricLine>[
-        for (int i = 0; i < 12; i += 1)
+        for (int i = 0; i < 6; i += 1)
           _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
       ],
       position: position,
       playing: playing,
     );
-    final ScrollController controller = tester
-        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .controller!;
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
 
     // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
     // 只靠滚动通知认不出「用户在滚」，得看指针信号
@@ -401,26 +374,14 @@ void main() {
     pointer.hover(tester.getCenter(find.byType(LyricsView)));
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, 90)));
     await tester.pump();
-    final double wheeled = controller.offset;
-
-    position.value = 5.2;
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(
-      controller.offset,
-      closeTo(wheeled, 0.01),
-      reason: '滚轮滚开后不该被拽回当前行',
-    );
+    expect(find.byType(ImageFiltered), findsNothing, reason: '滚轮滚出来的行也要看得清');
 
     await tester.pump(const Duration(seconds: 3));
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      controller.offset,
-      isNot(closeTo(wheeled, 0.01)),
-      reason: '停手 3 秒后跟回当前行',
-    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
   });
 
-  testWidgets('自动跟随换行不算用户滚动：换行后照常居中', (WidgetTester tester) async {
+  testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
     addTearDown(position.dispose);
@@ -429,30 +390,27 @@ void main() {
     await _pump(
       tester,
       lines: <LyricLine>[
-        for (int i = 0; i < 12; i += 1)
+        for (int i = 0; i < 6; i += 1)
           _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
       ],
       position: position,
       playing: playing,
     );
-    final ScrollController controller = tester
-        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .controller!;
-    final double before = controller.offset;
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
 
-    // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」而停下
+    // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
     position.value = 5.2;
     for (int i = 0; i < 40; i += 1) {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(
-      controller.offset,
-      greaterThan(before),
-      reason: '自动换行要跟上去，不能当作用户滚动而停住',
+      find.byType(ImageFiltered),
+      findsNWidgets(5),
+      reason: '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰',
     );
   });
 
-  testWidgets('未播放行的译文与正文一起变淡', (WidgetTester tester) async {
+  testWidgets('未播放行的译文与正文一起模糊', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -468,13 +426,9 @@ void main() {
       playing: playing,
     );
 
-    double alphaOf(String text) =>
-        tester.widget<Text>(find.text(text)).style!.color!.a;
-
-    // 当前行（第 0 行）正文与译文都实；第 1 行两级都要压暗，
-    // 只压正文时译文会孤零零地亮着
-    expect(alphaOf('第 1 行'), lessThan(alphaOf('第 0 行')));
-    expect(alphaOf('译文 1'), lessThan(alphaOf('译文 0')));
+    // 当前行（第 0 行）正文与译文都清晰；第 1 行的正文和译文各套一层模糊，
+    // 只糊正文时译文会孤零零地清楚着
+    expect(find.byType(ImageFiltered), findsNWidgets(2));
   });
 
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {

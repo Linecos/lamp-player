@@ -101,37 +101,3 @@ await windowManager.waitUntilReadyToShow(options, () async {
 拿去和整页数字比，只用于比较两组之间的差额：阴影在 shuttle 里按固定尺寸光栅化一次、
 之后每帧只改 `Transform` 矩阵，所以「boxShadow 每帧重做高斯模糊」的代价只在
 「每帧按新尺寸重画」时才存在，固定尺寸缩放几乎不花钱。
-
-## 歌词的逐行模糊：Impeller 下等于每帧重算（2026-11-11）
-
-正在播放页挂着放歌，RSS 从 214MB 一路涨到 409MB（约 1MB/s）。用探针按
-`PROBE_MODE=full|lyrics|blank` 逐层拆：
-
-| 场景 | RSS | 说明 |
-| --- | --- | --- |
-| `blank`（24 秒） | 85 → 85MB | 排除引擎 / 框架自身 |
-| `lyrics`，去掉模糊（24 秒） | 113 → 114MB | 只剩透明度渐变，平稳 |
-| `lyrics`，原样（24 秒） | 145 → 163MB | 持续上涨 |
-| `lyrics`，冻结进度（24 秒） | 107 → 157MB | 只在首次布局时涨，之后走平 |
-| `full`，原样（5 分钟） | 169 → 228MB（峰值 247） | 持续上涨 |
-| `full`，去掉模糊（5 分钟） | 152 → 169MB | 60 秒后走平 |
-
-结论：**每行一个 `ImageFiltered(ui.ImageFilter.blur)` 就是增长源**。Impeller 没有
-光栅缓存，`RepaintBoundary` 也挡不住——只要窗口里有任何动画在跑（当前行
-`AnimatedScale`、换行回弹、逐字染色），图层树每帧都要重新合成，这几十个模糊图层的
-离屏纹理就跟着反复分配。11-10 的 `4065ebe` 把当前行放大改成 600ms 的 `AnimatedScale`，
-等于每换一句就多出 0.6 秒的持续重绘，把成本放大了：关掉缩放后增速从 +18MB/15s 降到
-+5MB/15s，但没有归零。
-
-试过但不可行的替代：
-
-- `TextStyle.foreground` + `MaskFilter.blur`：Impeller 直接忽略，文字还是清晰的（截图确认）
-- 透明字 + 模糊 `Shadow`：观感接近，但一样要分配纹理，RSS 仍以 +25MB/15s 上涨
-
-最终方案：远处行只按距离压暗，不再模糊。
-
-## 探针本身的两个坑
-
-- `PROBE_MODE=lyrics` 的 24 秒窗口只够看斜率；判断「会不会收敛」得跑 5 分钟以上。
-  这个模式不加载 Rust 引擎，**引擎侧的分配它量不到**，要对照真实进程的 `[mem]` 日志
-- 探针窗口必须 `focus()` + `setAlwaysOnTop(true)`，否则 Windows 会裁工作集，数字偏低
