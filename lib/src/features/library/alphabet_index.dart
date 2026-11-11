@@ -137,6 +137,7 @@ class AlphabetGridMetrics {
     required this.aspectRatio,
     required this.headerExtent,
     required this.topPadding,
+    this.columnWidth,
   });
 
   /// 网格可用的横向宽度（已扣掉字母导航预留的那一条）
@@ -152,9 +153,21 @@ class AlphabetGridMetrics {
   /// 第一段标题之前的内边距
   final double topPadding;
 
+  /// 算**列数**时用的宽度；为空时就用 [viewportWidth]。
+  ///
+  /// 侧边栏展开 / 收起是个 220ms 的宽度动画，内容区每一帧都在变宽。如果按
+  /// 当前宽度算列数，动画走到一半就会多出一列——同一排卡片先被撑大、再被
+  /// 挤回去，看着就是「封面先变大再变小」。传入动画结束后的宽度，列数在整段
+  /// 过渡里保持不变，卡片宽度只是单调变化，落点正好等于最终布局。
+  ///
+  /// 只影响列数：列宽 / 行高仍然按真实的 [viewportWidth] 算，否则过渡期间
+  /// 卡片会超出可用宽度。
+  final double? columnWidth;
+
   int get crossAxisCount => math.max(
     1,
-    (viewportWidth / (maxCrossAxisExtent + crossAxisSpacing)).ceil(),
+    ((columnWidth ?? viewportWidth) / (maxCrossAxisExtent + crossAxisSpacing))
+        .ceil(),
   );
 
   double get childCrossAxisExtent =>

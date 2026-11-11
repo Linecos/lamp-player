@@ -915,6 +915,15 @@ class _LibraryPageState extends State<LibraryPage>
     trimImageCache();
   }
 
+  /// 网格算**列数**时该用的宽度：固定按「侧栏展开」这种最窄的布局算。
+  ///
+  /// 为什么不用当前宽度：列数一变，同一宽度下的卡片尺寸就差 20% 左右，
+  /// 开关侧栏时会先被撑大 / 先被挤小再回落，看起来就是封面「胖一下」。
+  /// 钉在窗口宽度上之后，开关侧栏只让卡片连续地变大变小，列数不动。
+  ///
+  /// 代价：侧栏收起时沿用展开时的列数，卡片会大 10% 左右，而不是多挤一列。
+  double get _gridColumnWidth =>
+      MediaQuery.sizeOf(context).width - LibraryRail.expandedWidth - 32;
   @override
   void dispose() {
     _warmGainsCancelled = true;
