@@ -150,6 +150,51 @@ class _MarqueeTitleState extends State<MarqueeTitle>
   /// 上一帧的 `value`，用来算这一次前进了多少
   double _lastValue = 0;
 
+  /// Shader 缓存：避免每帧 `createShader` 造成内存泄漏
+  ///
+  /// Key 格式："width-leftFade"，例如 "300.0-0.03"。
+  /// 宽度按 0.5px 量化、leftFade 按 0.005 量化（_leftFadeSpan = 0.05，分 10 档），
+  /// 正常使用最多缓存 6~10 个宽度 × 10 个档位 = 60~100 条。
+  final Map<String, Shader> _shaderCache = <String, Shader>{};
+
+  /// 离散化 leftFade 到最近的 0.005 倍数，减少缓存条目。
+  ///
+  /// _leftFadeSpan = 0.05，分 10 档：0 / 0.005 / 0.01 / ... / 0.05，
+  /// 视觉上无感知（每档只差 0.5% 视口宽）。
+  double _quantizeLeftFade(double leftFade) {
+    return (leftFade * 200).round() / 200;
+  }
+
+  /// 获取或创建 Shader，优先命中缓存。
+  ///
+  /// 宽度按 0.5px 量化（窗口拖拽时不至于每个像素都新建一次），
+  /// leftFade 已在外部量化。
+  Shader _getShader(double width, double leftFade) {
+    final double quantizedWidth = (width * 2).round() / 2;
+    final String key =
+        '${quantizedWidth.toStringAsFixed(1)}-${leftFade.toStringAsFixed(3)}';
+
+    Shader? cached = _shaderCache[key];
+    if (cached != null) {
+      return cached;
+    }
+
+    // 缓存未命中：创建新 shader
+    final Shader shader = MarqueeTitle.fadeGradient(
+      width: quantizedWidth,
+      leftFade: leftFade,
+    ).createShader(Rect.fromLTWH(0, 0, quantizedWidth, 100));
+
+    _shaderCache[key] = shader;
+
+    // 防止缓存无限增长（窗口拖拽会产生不同宽度）：保留最近 100 个
+    if (_shaderCache.length > 100) {
+      _shaderCache.remove(_shaderCache.keys.first);
+    }
+
+    return shader;
+  }
+
   @override
   void didUpdateWidget(MarqueeTitle oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -169,6 +214,7 @@ class _MarqueeTitleState extends State<MarqueeTitle>
   void dispose() {
     _token++;
     _controller.dispose();
+    _shaderCache.clear();
     super.dispose();
   }
 
@@ -316,13 +362,12 @@ class _MarqueeTitleState extends State<MarqueeTitle>
                         );
                         _travelled = step.travelled;
                         _lastValue = step.lastValue;
-                        final double leftFade = step.leftFade;
+                        final double leftFade = _quantizeLeftFade(
+                          step.leftFade,
+                        );
                         return ShaderMask(
                           shaderCallback: (Rect bounds) =>
-                              MarqueeTitle.fadeGradient(
-                                width: bounds.width,
-                                leftFade: leftFade,
-                              ).createShader(bounds),
+                              _getShader(bounds.width, leftFade),
                           blendMode: BlendMode.dstIn,
                           child: Transform.translate(
                             offset: Offset(-offset, 0),
