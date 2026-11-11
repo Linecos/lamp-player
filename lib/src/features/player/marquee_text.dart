@@ -152,40 +152,46 @@ class _MarqueeTextState extends State<MarqueeText>
             // 两份文字只是视觉上的接续，读屏读一遍就够
             label: widget.text,
             excludeSemantics: true,
-            // 这里**不加** RepaintBoundary：实测加上反而每帧多花 ~9µs
-            // （多合成一层 342×24 的缓存，比直接重绘这点面积还贵），而且多留
-            // 一张纹理；频谱和歌词各自已经有绘制边界，不会被这边牵连
-            child: ClipRect(
-              child: SizedBox(
-                width: available,
-                height: textHeight,
-                child: AnimatedBuilder(
-                  animation: _controller,
-                  child: line,
-                  builder: (BuildContext context, Widget? child) {
-                    final double shift = _controller.value * cycle;
-                    return ShaderMask(
-                      blendMode: BlendMode.dstIn,
-                      // 只有这一行文字铺离屏图层（约一行高），不是整页
-                      shaderCallback: (Rect rect) => _fadeShader(
-                        rect,
-                        // 滚出去多少，左端就渐隐多少：静止时首字不挨刀
-                        left: math.min(widget.fadeWidth * textScale, shift),
-                        fade: widget.fadeWidth * textScale,
-                      ),
-                      child: Transform.translate(
-                        offset: Offset(-shift, 0),
-                        // 两份文字加起来总比可视宽度长：让它按自然宽度铺开、
-                        // 由外面的 ClipRect 裁，别在 Row 里报溢出
-                        child: OverflowBox(
-                          alignment: Alignment.centerLeft,
-                          maxWidth: double.infinity,
-                          maxHeight: double.infinity,
-                          child: child,
+            // 这一层**不能省**。`RenderShaderMask.paint` 每次被 paint 都会把它
+            // 的子内容重新录一遍再 `saveLayer`，而正在播放页每帧都在 paint
+            // （圆形封面转起来的那条 `Transform` 只改矩阵，重绘会冒到整页
+            // 那层边界），没有自己的边界，挂着放歌时就是每秒 60 次「重录两段
+            // 文本 + 一张离屏图层」——这正是 `CHANGELOG` 里「离屏图层能少一个
+            // 是一个」那条教训。圈成边界后这行字静止时只光栅一次，之后每帧
+            // 只是复用那张 342×24 的图层
+            child: RepaintBoundary(
+              child: ClipRect(
+                child: SizedBox(
+                  width: available,
+                  height: textHeight,
+                  child: AnimatedBuilder(
+                    animation: _controller,
+                    child: line,
+                    builder: (BuildContext context, Widget? child) {
+                      final double shift = _controller.value * cycle;
+                      return ShaderMask(
+                        blendMode: BlendMode.dstIn,
+                        // 只有这一行文字铺离屏图层（约一行高），不是整页
+                        shaderCallback: (Rect rect) => _fadeShader(
+                          rect,
+                          // 滚出去多少，左端就渐隐多少：静止时首字不挨刀
+                          left: math.min(widget.fadeWidth * textScale, shift),
+                          fade: widget.fadeWidth * textScale,
                         ),
-                      ),
-                    );
-                  },
+                        child: Transform.translate(
+                          offset: Offset(-shift, 0),
+                          // 两份文字加起来总比可视宽度长：让它按自然宽度铺开、
+                          // 由外面的 ClipRect 裁，别在 Row 里报溢出
+                          child: OverflowBox(
+                            alignment: Alignment.centerLeft,
+                            maxWidth: double.infinity,
+                            maxHeight: double.infinity,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),

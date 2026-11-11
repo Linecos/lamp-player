@@ -161,6 +161,10 @@ class _BarsPainter extends CustomPainter {
   /// 复用的画笔，别每帧新建
   static final Paint _paint = Paint()..isAntiAlias = true;
 
+  /// 复用的圆角：柱宽不变（只有窗口缩放才变），不必每根柱子新建一个 `Radius`
+  static Radius _radius = Radius.zero;
+  static double _radiusFor = -1;
+
   /// 分档路径池：柱身一批、亮顶一批，每帧先 reset 再攒
   static final List<Path> _bodyPaths = List<Path>.generate(
     _tintBuckets * _alphaLevels,
@@ -198,6 +202,12 @@ class _BarsPainter extends CustomPainter {
     _syncBuckets();
     final int count = geometry.count;
     final double bar = geometry.barWidth;
+    // 整个 1280 宽要画 ~142 根柱子 × 2，每根都用同一个圆角
+    if (_radiusFor != bar) {
+      _radiusFor = bar;
+      _radius = Radius.circular(bar / 2);
+    }
+    final Radius radius = _radius;
     final double maxHeight = math.min(maxBarHeight, size.height);
     final int last = values.length - 1;
 
@@ -228,20 +238,22 @@ class _BarsPainter extends CustomPainter {
       final double top = size.height - height;
       final int bucket = geometry.bucket[i];
       final int slot = bucket * _alphaLevels + _alphaLevel(alpha);
+      // `fromLTRBR` 直接吃四个 double，省掉每根柱子一个 `Rect` + 一个
+      // `Radius`——1280 宽下每秒 30 帧 × 142 根 × 2 次，光这两样就是几 MB/s
       _bodyPaths[slot].addRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, top, bar, height),
-          Radius.circular(bar / 2),
-        ),
+        RRect.fromLTRBR(x, top, x + bar, top + height, radius),
       );
       _bodyUsed[slot] = 1;
       // 柱顶压一小段更亮的块：一排亮顶比整根纯色更有「频谱」的力量感
       if (height > 3) {
         final int topSlot = bucket * _alphaLevels + _alphaLevel(alpha * 1.45);
         _topPaths[topSlot].addRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(x, top, bar, math.min(2.2, height * 0.35)),
-            Radius.circular(bar / 2),
+          RRect.fromLTRBR(
+            x,
+            top,
+            x + bar,
+            top + math.min(2.2, height * 0.35),
+            radius,
           ),
         );
         _topUsed[topSlot] = 1;

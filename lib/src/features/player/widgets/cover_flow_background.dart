@@ -259,6 +259,10 @@ class _MeshWave {
   final List<double> sine = <double>[];
   final List<double> cosine = <double>[];
 
+  /// 复用的权重缓冲：每帧每个顶点都会算一次，但在 `paint` 里用完即弃，
+  /// 没必要每次新建一个 List（273 个顶点 × 15fps 就是每秒四千个）
+  final List<double> _weights = List<double>.filled(4, 0);
+
   List<double> weights(List<double> timeSin, List<double> timeCos) {
     double field(int start) {
       double sum = 0;
@@ -277,7 +281,11 @@ class _MeshWave {
     final double c = weight(n1 * (1 - n2));
     final double d = weight((1 - n1) * (1 - n2));
     final double sum = a + b + c + d;
-    return <double>[a / sum, b / sum, c / sum, d / sum];
+    _weights[0] = a / sum;
+    _weights[1] = b / sum;
+    _weights[2] = c / sum;
+    _weights[3] = d / sum;
+    return _weights;
   }
 }
 
@@ -338,12 +346,15 @@ class _MeshPainter extends CustomPainter {
     final List<double> timeSin = phases.map(math.sin).toList();
     final List<double> timeCos = phases.map(math.cos).toList();
     final List<Color> colors = <Color>[];
+    // 两个复用缓冲：换色板过渡时要同时算新旧两份
+    final List<double> current = List<double>.filled(3, 0);
+    final List<double> oldColor = List<double>.filled(3, 0);
     for (final _MeshWave wave in geometry.waves) {
       final List<double> weights = wave.weights(timeSin, timeCos);
-      final List<double> current = _blendLab(_lab, weights);
+      _blendLabInto(_lab, weights, current);
       final List<List<double>>? old = _previousLab;
       if (old != null) {
-        final List<double> oldColor = _blendLab(old, weights);
+        _blendLabInto(old, weights, oldColor);
         for (int k = 0; k < 3; k += 1) {
           current[k] = oldColor[k] + (current[k] - oldColor[k]) * m;
         }
@@ -402,14 +413,21 @@ class _MeshGeometry {
 }
 
 /// 按权重混合四个 OKLab 颜色
-List<double> _blendLab(List<List<double>> lab, List<double> weights) {
-  return <double>[
-    for (int k = 0; k < 3; k += 1)
-      lab[0][k] * weights[0] +
-          lab[1][k] * weights[1] +
-          lab[2][k] * weights[2] +
-          lab[3][k] * weights[3],
-  ];
+///
+/// 写进调用方给的 [out]（长度 3）而不是新建：这个函数每帧要被调
+/// 「顶点数 × 2」次，返回新 List 的话就是每秒上万个小对象
+void _blendLabInto(
+  List<List<double>> lab,
+  List<double> weights,
+  List<double> out,
+) {
+  for (int k = 0; k < 3; k += 1) {
+    out[k] =
+        lab[0][k] * weights[0] +
+        lab[1][k] * weights[1] +
+        lab[2][k] * weights[2] +
+        lab[3][k] * weights[3];
+  }
 }
 
 /// 按封面的面积占比排主色/副色，并保留色相差异较大的颜色。

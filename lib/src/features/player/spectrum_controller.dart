@@ -122,6 +122,10 @@ class SpectrumController {
 
   List<double> _smoothed = const <double>[];
 
+  /// 与 [_smoothed] 交替使用的第二块缓冲：平滑值要留给下一帧当输入、
+  /// 同时又要交给 UI 画，两块轮换才不会每帧都新建一个 List
+  List<double> _spare = const <double>[];
+
   /// 是否正在采集（测试用）
   bool get isListening => _subscription != null || _polling;
 
@@ -366,6 +370,7 @@ class SpectrumController {
     _subscription = null;
     unawaited(subscription?.cancel());
     _smoothed = const <double>[];
+    _spare = const <double>[];
     _silentFrames = 0;
     if (bands.value.isNotEmpty) {
       bands.value = const <double>[];
@@ -383,8 +388,11 @@ class SpectrumController {
     }
     if (_smoothed.length != frame.length) {
       _smoothed = List<double>.filled(frame.length, 0);
+      _spare = List<double>.filled(frame.length, 0);
     }
-    final List<double> next = List<double>.filled(frame.length, 0);
+    // 两块缓冲轮换：这一帧写进「备用」那块，下一帧它们互换身份。
+    // 30fps × 24 段看着不多，但它是全局单例、放着歌就一直在分配
+    final List<double> next = _spare;
     double loudest = 0;
     for (int i = 0; i < frame.length; i += 1) {
       final double value = frame[i].clamp(0.0, 1.0);
@@ -396,6 +404,7 @@ class SpectrumController {
         loudest = smoothed;
       }
     }
+    _spare = _smoothed;
     _smoothed = next;
     _pending = next;
 
