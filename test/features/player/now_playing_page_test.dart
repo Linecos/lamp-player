@@ -1586,6 +1586,49 @@ void main() {
     // 矮窗口里封面会被压小、间距按名义封面算，给 15% 的余量
     expect(gap, closeTo(coverRect.width / 7, coverRect.width / 7 * 0.15));
   });
+
+  testWidgets('歌名再长也只占一行，不会把封面往下顶', (WidgetTester tester) async {
+    const String longTitle =
+        'Under the Starlight (feat. Adam Christopher) — Live at the Roundhouse';
+
+    Future<(double, double)> measure(String title) async {
+      // 先清空再铺：页面在 initState 里读一次曲目，直接换 data 不会更新
+      await tester.pumpWidget(const SizedBox());
+      await _pump(
+        tester,
+        data: _data(
+          track: sampleTrack(title: title, artist: '林间电台', album: '夜之专辑'),
+        ),
+      );
+      return (
+        tester
+            .getSize(find.byKey(const ValueKey<String>('now-playing-title')))
+            .height,
+        tester
+            .getRect(
+              find
+                  .descendant(
+                    of: find.byType(NowPlayingPage),
+                    matching: find.byType(AlbumCover),
+                  )
+                  .first,
+            )
+            .top,
+      );
+    }
+
+    final (double shortHeight, double shortCoverTop) = await measure('夜航');
+    final (double longHeight, double longCoverTop) = await measure(longTitle);
+
+    expect(longHeight, closeTo(shortHeight, 0.5), reason: '一行高，不折行');
+    expect(
+      longCoverTop,
+      closeTo(shortCoverTop, 0.5),
+      reason: '长歌名不该把封面挤下去（以前折成两行就会）',
+    );
+    // 放不下时铺两份，一份滚完接上另一份
+    expect(find.text(longTitle), findsNWidgets(2));
+  });
 }
 
 /// 只记录调用次数的窗口控制假实现

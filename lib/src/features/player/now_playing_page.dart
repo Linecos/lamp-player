@@ -26,6 +26,7 @@ import 'cover_palette.dart';
 import 'cover_spin.dart';
 import 'lyric_alignment.dart';
 import 'lyrics_view.dart';
+import 'marquee_text.dart';
 import 'output_device_dialog.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
@@ -1101,10 +1102,11 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               children: <Widget>[
                 // 专辑并入歌手行后少了一行：标题下移补位，封面位置不跟着上移
                 const SizedBox(height: _infoRefillHeight),
-                Text(
-                  track.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                // 歌名固定一行：长标题不再折成两行把封面往下顶（以前标题
+                // 一长，整列就变高、封面被挤小），放不下时改成悬停循环滚动
+                MarqueeText(
+                  key: const ValueKey<String>('now-playing-title'),
+                  text: track.title,
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
