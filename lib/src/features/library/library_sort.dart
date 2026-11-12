@@ -1,3 +1,4 @@
+import '../../common/text/pinyin_key.dart';
 import '../../rust/api/model.dart';
 
 /// 缺少艺术家标签时的展示名
@@ -94,21 +95,23 @@ List<String> splitArtistTag(String tag) {
 String albumGroupKey(Track track) =>
     '${trackArtist(track)}\u0000${trackAlbum(track)}';
 
-/// 排序用的一次性键：小写串只算一遍。
+/// 排序用的一次性键。
 ///
-/// 比较函数里直接 `toLowerCase()` 在万级曲库上是几十万次临时字符串分配
-/// （一次排序约 n log n 次比较、每次两份），排序反而成了次要开销。
-/// 这里每首曲目只算 3 次，之后比较全是 `compareTo`。
+/// 比较函数里直接 `toLowerCase()` / 现算拼音，在万级曲库上是几十万次临时
+/// 字符串分配（一次排序约 n log n 次比较、每次两份），排序反而成了次要开销。
+/// 这里每首曲目只算一遍，之后比较全是 `compareTo`。
+///
+/// 三个键都用 `late final`：按哪种顺序排、才建哪种键。「标题」排序不会白算
+/// 艺术家与专辑的拼音。
 class _SortEntry {
-  _SortEntry(this.track)
-    : title = track.title.toLowerCase(),
-      artist = trackArtist(track).toLowerCase(),
-      album = trackAlbum(track).toLowerCase();
+  _SortEntry(this.track);
 
   final Track track;
-  final String title;
-  final String artist;
-  final String album;
+
+  /// 拼音排序键：汉字转全拼、英文转小写，中英混排落在同一把尺子上。
+  late final String titleKey = pinyinSortKey(track.title);
+  late final String artistKey = pinyinSortKey(trackArtist(track));
+  late final String albumKey = pinyinSortKey(trackAlbum(track));
 }
 
 /// 按指定方式排序，返回新列表（不改动入参）。
@@ -127,15 +130,18 @@ List<Track> sortTracks(
   entries.sort((_SortEntry a, _SortEntry b) {
     // 每种模式先按「升序」定义，方向由 ascending 统一翻转
     final int primary = switch (mode) {
-      LibrarySort.title => a.title.compareTo(b.title),
+      // 标题、艺术家、专辑都按**拼音**比：直接比码位的话，中文列表会排成
+      // 「城市低语 → 夜航 → 天台 → 归途」这种看不懂的顺序（UTF-8 码位序），
+      // 和右侧字母导航的拼音分段也对不上。
+      LibrarySort.title => a.titleKey.compareTo(b.titleKey),
       LibrarySort.artist => _firstNonZero(<int>[
-        a.artist.compareTo(b.artist),
-        a.album.compareTo(b.album),
+        a.artistKey.compareTo(b.artistKey),
+        a.albumKey.compareTo(b.albumKey),
         _compareNumber(a.track.trackNum, b.track.trackNum),
       ]),
       LibrarySort.album => _firstNonZero(<int>[
-        a.album.compareTo(b.album),
-        a.artist.compareTo(b.artist),
+        a.albumKey.compareTo(b.albumKey),
+        a.artistKey.compareTo(b.artistKey),
         _compareNumber(a.track.trackNum, b.track.trackNum),
       ]),
       LibrarySort.duration => a.track.durationSecs.compareTo(
@@ -148,7 +154,7 @@ List<Track> sortTracks(
     }
     // 同值时用标题、路径兜底，保证顺序稳定、可预期
     return _firstNonZero(<int>[
-      a.title.compareTo(b.title),
+      a.titleKey.compareTo(b.titleKey),
       a.track.path.compareTo(b.track.path),
     ]);
   });
@@ -281,7 +287,13 @@ int _firstNonZero(List<int> values) {
   return 0;
 }
 
-int _compareText(String a, String b) =>
-    a.toLowerCase().compareTo(b.toLowerCase());
+/// 两段文本比较：先比拼音（中文按拼音、英文按小写），拼音相同再比原文。
+///
+/// 分组（艺术家 / 专辑）走这里，列表排序走 [_SortEntry] 里预算好的键 ——
+/// 同一套规则，两处出口才不会一个按拼音、一个按码位。
+int _compareText(String a, String b) {
+  final int primary = pinyinSortKey(a).compareTo(pinyinSortKey(b));
+  return primary != 0 ? primary : a.toLowerCase().compareTo(b.toLowerCase());
+}
 
 int _compareNumber(int? a, int? b) => (a ?? 0).compareTo(b ?? 0);
