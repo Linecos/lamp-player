@@ -211,6 +211,9 @@ void main() {
   });
 
   testWidgets('逐字染色的当前行跟着一起对齐', (WidgetTester tester) async {
+    // 卡拉 OK 默认关着（见 karaokeEnabled），这条专门验它的对齐，单独打开
+    karaokeEnabled = true;
+    addTearDown(() => karaokeEnabled = false);
     final ValueNotifier<double> position = ValueNotifier<double>(6.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -282,20 +285,22 @@ void main() {
     expect(active.style?.color?.a, closeTo(0.96, 0.01));
     expect(inactive.style?.color?.a, closeTo(0.62, 0.01));
 
-    /// 整行外层那个缩放的**目标**倍数
-    double scaleOf(String text) => tester
-        .widget<AnimatedScale>(
-          find
-              .ancestor(
-                of: find.text(text),
-                matching: find.byType(AnimatedScale),
-              )
-              .first,
-        )
-        .scale;
+    /// 整行外层那个缩放的**目标**倍数；没挂缩放层时返回 null
+    double? scaleOf(String text) {
+      final Finder finder = find.ancestor(
+        of: find.text(text),
+        matching: find.byType(AnimatedScale),
+      );
+      if (finder.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<AnimatedScale>(finder.first).scale;
+    }
 
     expect(scaleOf('当前行'), closeTo(28 / 22, 1e-9), reason: '放大到 28 的视觉效果');
-    expect(scaleOf('下一行'), 1.0);
+    // 其余行不挂：`AnimatedScale` 每行一层 `Transform`，叠在 `RepaintBoundary`
+    // 上会让光栅缓存翻倍（release 实测 60 行多 42MB）
+    expect(scaleOf('下一行'), isNull, reason: '非当前行不该有缩放层');
   });
 
   testWidgets('越远的行越模糊：从相邻行就开始，逐级递增', (WidgetTester tester) async {
@@ -314,9 +319,9 @@ void main() {
       playing: playing,
     );
 
-    // 当前行之外的 5 行都带一点模糊：从相邻行就开始，一级一级往上加，
-    // 不要「1 行全清、下一行直接糊掉」那种跳档
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    // 只有 distance 1~3 那 3 行带模糊（更远的行已经淡到看不清细节，
+    // 再糊只是白烧 GPU）；级别仍然是逐级递增，不要「1 行全清、下一行糊死」
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
   });
 
   testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
@@ -334,7 +339,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '静止时远处行是糊的');
 
     // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
     await tester.drag(find.byType(LyricsView), const Offset(0, -140));
@@ -348,7 +353,7 @@ void main() {
     // 停手 3 秒后才跟回当前行，这时模糊也一起回来
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '恢复后照旧逐级模糊');
   });
 
   testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
@@ -366,7 +371,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
 
     // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
     // 只靠滚动通知认不出「用户在滚」，得看指针信号
@@ -378,7 +383,7 @@ void main() {
 
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '停手 3 秒后恢复');
   });
 
   testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
@@ -396,7 +401,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
 
     // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
     position.value = 5.2;
@@ -405,8 +410,10 @@ void main() {
     }
     expect(
       find.byType(ImageFiltered),
-      findsNWidgets(5),
-      reason: '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰',
+      findsNWidgets(4),
+      reason:
+          '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰'
+          '（换行后当前行在中间，distance 1 上下各一行，共 4 层）',
     );
   });
 
@@ -432,6 +439,8 @@ void main() {
   });
 
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
+    karaokeEnabled = true;
+    addTearDown(() => karaokeEnabled = false);
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -909,10 +918,9 @@ void main() {
         _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行的歌词'),
     ];
 
-    /// 歌词区的滚动控制器（`SingleChildScrollView` 只有一个）
-    ScrollController controllerOf(WidgetTester tester) => tester
-        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .controller!;
+    /// 歌词区的滚动控制器（滚动列表只有一个）
+    ScrollController controllerOf(WidgetTester tester) =>
+        tester.widget<ListView>(find.byType(ListView)).controller!;
 
     testWidgets('拖到边界是橡皮筋回弹，不是贴住', (WidgetTester tester) async {
       final ValueNotifier<double> position = ValueNotifier<double>(0);
@@ -927,9 +935,7 @@ void main() {
         playing: playing,
       );
 
-      final SingleChildScrollView view = tester.widget<SingleChildScrollView>(
-        find.byType(SingleChildScrollView),
-      );
+      final ListView view = tester.widget<ListView>(find.byType(ListView));
       expect(view.physics, isA<BouncingScrollPhysics>());
     });
 
