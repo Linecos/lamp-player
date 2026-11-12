@@ -1,32 +1,35 @@
-# Lamp Player 🎵
+<p align="center">
+  <img src="docs/images/banner.jpg" alt="Lamp Player：一款现代化的本地音乐播放器" width="100%">
+</p>
 
-基于 **Flutter + Rust + BASS** 的本地音乐播放器。
+<h1 align="center">Lamp Player</h1>
 
-[![CI](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Linecos/lamp-player/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows11&logoColor=white">
+  <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white">
+  <img alt="Rust core" src="https://img.shields.io/badge/Rust-core-000000?logo=rust&logoColor=white">
+  <img alt="BASS 2.4" src="https://img.shields.io/badge/BASS-2.4-FFB300">
+  <a href="https://github.com/Linecos/lamp-player/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/Linecos/lamp-player/actions/workflows/ci.yml/badge.svg">
+  </a>
+  <a href="LICENSE">
+    <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
+  </a>
+</p>
+
+<p align="center">基于 <b>Flutter + Rust + BASS</b> 的本地音乐播放器。</p>
 
 > **当前状态**：M1 曲库闭环（含目录导入）与 M2 播放链路已完成；歌单 / 历史 / 收藏页面已接入，
 > 播放队列、快捷键、会话恢复与专辑封面就位，正在进入 M3 打磨与发布。任务清单见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 界面预览
 
-<p align="center">
-  <img src="docs/images/music.png" alt="曲库列表：封面、排序、收藏与播放条" width="860">
-</p>
-
-<p align="center">
-  <img src="docs/images/playlists.png" alt="歌单" width="420">
-  <img src="docs/images/favorites.png" alt="收藏" width="420">
-</p>
-
-<p align="center">
-  <img src="docs/images/history.png" alt="播放历史" width="420">
-  <img src="docs/images/artists.png" alt="艺术家" width="420">
-</p>
-
-<p align="center">
-  <img src="docs/images/settings.png" alt="设置：曲库、目录与播放选项" width="860">
-</p>
+| 浅色主题 | 深色主题 |
+|:---:|:---:|
+| ![浅色主题：曲库列表、排序与播放条](docs/images/light-music.png) | ![深色主题：曲库列表、排序与播放条](docs/images/dark-music.png) |
+| ![浅色主题：歌单](docs/images/light-playlists.png) | ![深色主题：歌单](docs/images/dark-playlists.png) |
+| ![浅色主题：专辑，右侧字母导航](docs/images/light-albums.jpg) | ![深色主题：专辑，右侧字母导航](docs/images/dark-albums.jpg) |
+| ![浅色主题：设置](docs/images/light-settings.png) | ![深色主题：设置](docs/images/dark-settings.png) |
 
 ## 特性
 
@@ -127,7 +130,7 @@ cargo fetch --manifest-path rust/Cargo.toml
 ├── integration_test/          桌面端集成测试（需真实原生库）
 ├── windows/                   Windows 宿主工程
 ├── scripts/                   环境与检查脚本
-├── docs/                      架构、接口契约、路线图
+├── docs/                      架构、接口契约、性能报告、路线图
 └── third_party/               第三方二进制（BASS，不入库）
 ```
 
