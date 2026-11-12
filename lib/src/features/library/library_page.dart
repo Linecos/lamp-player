@@ -554,6 +554,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 没进来没必要留着。
   bool _settingsStatsOpen = false;
 
+  /// 设置分区里是否正开着「音乐库」子界面
+  bool _settingsLibraryOpen = false;
+
   Track? _currentTrack;
   bool _isPlaying = false;
   bool _isAvailable = false;
@@ -1740,6 +1743,10 @@ class _LibraryPageState extends State<LibraryPage>
       _update(() => _settingsStatsOpen = false);
       return true;
     }
+    if (_settingsLibraryOpen) {
+      _update(() => _settingsLibraryOpen = false);
+      return true;
+    }
     if (_selectedPlaylistId != null) {
       _clearSelection();
       _update(() => _selectedPlaylistId = null);
@@ -2029,6 +2036,7 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
           _settingsStatsOpen = false;
+          _settingsLibraryOpen = false;
           select();
         });
         _clearSelection();

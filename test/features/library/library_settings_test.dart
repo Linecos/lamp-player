@@ -23,10 +23,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // 曲目数量收在「音乐库」子界面里
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('曲目数量'), findsOneWidget);
     expect(find.text('2 首'), findsOneWidget);
 
-    // 新增独占 / 设备 / ReplayGain / 淡变几行后设置页更长，外观分区要滚得更多
+    await tester.tap(find.byKey(const ValueKey<String>('library-back')));
+    await tester.pumpAndSettle();
+
+    // 设置页很长，外观分区要滚得更多
     await tester.drag(find.byType(SettingsView), const Offset(0, -700));
     await tester.pumpAndSettle();
     expect(find.text('跟随系统'), findsOneWidget);
@@ -53,7 +61,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ListeningStatsView), findsNothing);
-    expect(find.text('曲目数量'), findsOneWidget, reason: '回到设置列表');
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+      reason: '回到设置列表',
+    );
     expect(find.byType(LibraryRail), findsOneWidget);
   });
 
@@ -73,7 +85,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ListeningStatsView), findsNothing, reason: 'Esc 退回设置列表');
-    expect(find.text('曲目数量'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('打开统计是淡入过渡，不是硬切换', (WidgetTester tester) async {
@@ -89,13 +104,20 @@ void main() {
 
     // 过渡的第一帧：新旧两份都在（旧的正在淡出）
     expect(find.byType(ListeningStatsView), findsOneWidget);
-    expect(find.text('曲目数量'), findsOneWidget, reason: '设置列表正在淡出');
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+      reason: '设置列表正在淡出',
+    );
 
     await tester.pumpAndSettle();
 
     // 结束后只剩统计，淡出的那份被丢掉
     expect(find.byType(ListeningStatsView), findsOneWidget);
-    expect(find.text('曲目数量'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsNothing,
+    );
   });
 
   testWidgets('离开设置分区后再回来，统计子界面已经收起', (WidgetTester tester) async {
@@ -118,7 +140,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ListeningStatsView), findsNothing);
-    expect(find.text('曲目数量'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('统计里点艺术家一步进详情，不先露出艺术家列表', (WidgetTester tester) async {
@@ -177,7 +202,7 @@ void main() {
       tracks: twoTracks(),
       folderStore: store,
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
     expect(find.text(r'D:\Music'), findsOneWidget);
     expect(find.text(r'E:\Songs'), findsOneWidget);
@@ -193,7 +218,7 @@ void main() {
       folders: <String>[r'D:\Music'],
     );
     await pumpLibrary(tester, tracks: twoTracks(), folderStore: store);
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
     await tester.tap(find.byTooltip('从列表移除'));
     await tester.pumpAndSettle();
@@ -211,7 +236,7 @@ void main() {
       folderStore: store,
       directoryPicker: () async => r'F:\NewMusic',
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
     await tester.ensureVisible(find.text('添加音乐目录'));
     await tester.tap(find.text('添加音乐目录'));
@@ -438,7 +463,7 @@ void main() {
         repo.prunedPaths.add('/music/夜航.mp3');
       },
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
     await tester.tap(find.text('清理缺失文件'));
     await tester.pumpAndSettle();
@@ -457,7 +482,7 @@ void main() {
         repo.pruneError = StateError('曲库目录似乎不可用，已拒绝清理');
       },
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
     await tester.tap(find.text('清理缺失文件'));
     await tester.pumpAndSettle();

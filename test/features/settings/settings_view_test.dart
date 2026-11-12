@@ -76,7 +76,11 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
-          body: SettingsView(trackCount: 2, onAddFolder: () => calls += 1),
+          body: SettingsView(
+            libraryOpen: true,
+            trackCount: 2,
+            onAddFolder: () => calls += 1,
+          ),
         ),
       ),
     );
@@ -99,6 +103,7 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
+            libraryOpen: true,
             trackCount: 2,
             scanning: true,
             onAddFolder: () => calls += 1,
@@ -200,7 +205,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(body: SettingsView(trackCount: 0)),
+        home: const Scaffold(
+          body: SettingsView(libraryOpen: true, trackCount: 0),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -222,6 +229,7 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
+            libraryOpen: true,
             trackCount: 3,
             folders: const <String>['D:/Music', 'E:/Songs'],
             onRescanFolder: rescanned.add,
@@ -732,6 +740,7 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
+            onOpenLibrary: () {},
             onAddFolder: () {},
             onExclusiveChanged: (_) {},
             onCloseToTrayChanged: (_) {},
@@ -741,12 +750,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final String label in <String>[
-      '添加音乐目录',
-      '独占输出（WASAPI）',
-      '关闭窗口时留在托盘',
-      '强调色',
-    ]) {
+    for (final String label in <String>['独占输出（WASAPI）', '关闭窗口时留在托盘', '强调色']) {
       final Finder row = find
           .ancestor(of: find.text(label), matching: find.byType(InkWell))
           .first;
@@ -759,7 +763,7 @@ void main() {
 
     // 最近的 Material 必须是卡片本身，否则水波纹会被卡片底色盖住
     final Finder rowInk = find
-        .ancestor(of: find.text('添加音乐目录'), matching: find.byType(InkWell))
+        .ancestor(of: find.text('独占输出（WASAPI）'), matching: find.byType(InkWell))
         .first;
     final Material card = tester.widget<Material>(
       find.ancestor(of: rowInk, matching: find.byType(Material)).first,
