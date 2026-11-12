@@ -5,7 +5,6 @@ import 'package:flutter/painting.dart';
 /// ImageFilter 缓存类
 ///
 /// 全局静态缓存，sigma 量化到 0.5 步长以减少缓存条目。
-/// 参考 ZeroBit-Player 的实现。
 class ImageFilterCache {
   const ImageFilterCache._();
 

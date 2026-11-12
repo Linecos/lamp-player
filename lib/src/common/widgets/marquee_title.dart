@@ -218,7 +218,7 @@ class _MarqueeTitleState extends State<MarqueeTitle>
     if (_cachedText == widget.text && _cachedTextWidth != null) {
       return _cachedTextWidth!;
     }
-    
+
     final TextPainter painter = TextPainter(
       text: TextSpan(
         text: widget.text,
@@ -230,7 +230,7 @@ class _MarqueeTitleState extends State<MarqueeTitle>
     )..layout();
     final double width = painter.width;
     painter.dispose();
-    
+
     _cachedText = widget.text;
     _cachedTextWidth = width;
     return width;

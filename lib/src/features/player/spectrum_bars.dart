@@ -104,7 +104,9 @@ class _SpectrumPainter extends CustomPainter {
   final bool stretch;
 
   /// 全局 Shader 缓存
-  static final GradientShaderCache _shaderCache = GradientShaderCache(maxSize: 20);
+  static final GradientShaderCache _shaderCache = GradientShaderCache(
+    maxSize: 20,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
