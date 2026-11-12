@@ -12,9 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../support/fake_library.dart';
 
 Widget _harness({ThemeController? controller}) {
-  final Widget view = Scaffold(
-    body: SettingsView(trackCount: 2, engineAvailable: true),
-  );
+  final Widget view = Scaffold(body: SettingsView(trackCount: 2));
   return controller == null
       ? MaterialApp(theme: AppTheme.light(AppTheme.defaultSeed), home: view)
       : ThemeScope(
@@ -79,8 +77,8 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
+            libraryOpen: true,
             trackCount: 2,
-            engineAvailable: true,
             onAddFolder: () => calls += 1,
           ),
         ),
@@ -105,8 +103,8 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
+            libraryOpen: true,
             trackCount: 2,
-            engineAvailable: true,
             scanning: true,
             onAddFolder: () => calls += 1,
           ),
@@ -115,7 +113,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.ensureVisible(find.text('正在扫描并入库…'));
+    await tester.ensureVisible(find.text('正在扫描…'));
     await tester.tap(find.text('添加音乐目录'));
     expect(calls, 0);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -208,7 +206,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
-          body: SettingsView(trackCount: 0, engineAvailable: false),
+          body: SettingsView(libraryOpen: true, trackCount: 0),
         ),
       ),
     );
@@ -231,8 +229,8 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
+            libraryOpen: true,
             trackCount: 3,
-            engineAvailable: true,
             folders: const <String>['D:/Music', 'E:/Songs'],
             onRescanFolder: rescanned.add,
             onRemoveFolder: removed.add,
@@ -266,10 +264,8 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            engineAvailable: true,
             exclusive: false,
             exclusiveActive: false,
-            outputInfo: '共享输出（跟随系统混音格式）',
             onExclusiveChanged: changes.add,
           ),
         ),
@@ -278,7 +274,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('独占输出（WASAPI）'), findsOneWidget);
-    expect(find.text('共享输出（跟随系统混音格式）'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-exclusive-switch')),
@@ -299,7 +294,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 3,
-            engineAvailable: true,
             exclusive: true,
             switchingOutput: true,
             onExclusiveChanged: (_) {},
@@ -314,7 +308,7 @@ void main() {
       findsNothing,
       reason: '切换中显示进度而不是开关',
     );
-    expect(find.text('设备不支持或被占用，当前仍走共享输出'), findsOneWidget);
+    expect(find.text('不支持或被占用，仍走共享'), findsOneWidget);
   });
 
   testWidgets('流光背景开关默认开启并回调', (WidgetTester tester) async {
@@ -330,7 +324,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             flowBackground: true,
             onFlowBackgroundChanged: changes.add,
           ),
@@ -363,7 +356,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             onCircularCoversChanged: changes.add,
           ),
         ),
@@ -395,7 +387,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             closeToTray: true,
             onCloseToTrayChanged: changes.add,
           ),
@@ -405,7 +396,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('关闭窗口时留在托盘'), findsOneWidget);
-    expect(find.text('点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出'), findsOneWidget);
+    expect(find.text('点 × 只隐藏窗口'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-close-to-tray-switch')),
@@ -423,9 +414,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        home: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -448,7 +437,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             eqEnabled: true,
             eqGains: List<double>.filled(10, 0),
             eqPresetName: '摇滚',
@@ -491,7 +479,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             eqEnabled: false,
             onEqualizerChanged: (_, _, _) {},
           ),
@@ -500,7 +487,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('10 段参数均衡，可存多套预设'), findsOneWidget);
+    expect(find.text('10 段均衡，可存多套'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('eq-band-0')), findsNothing);
   });
 
@@ -521,9 +508,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -582,9 +567,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -648,9 +631,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -686,9 +667,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -732,9 +711,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(
-            body: SettingsView(trackCount: 1, engineAvailable: true),
-          ),
+          home: const Scaffold(body: SettingsView(trackCount: 1)),
         ),
       ),
     );
@@ -763,7 +740,7 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 2,
-            engineAvailable: true,
+            onOpenLibrary: () {},
             onAddFolder: () {},
             onExclusiveChanged: (_) {},
             onCloseToTrayChanged: (_) {},
@@ -773,12 +750,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final String label in <String>[
-      '添加音乐目录',
-      '独占输出（WASAPI）',
-      '关闭窗口时留在托盘',
-      '强调色',
-    ]) {
+    for (final String label in <String>['独占输出（WASAPI）', '关闭窗口时留在托盘', '强调色']) {
       final Finder row = find
           .ancestor(of: find.text(label), matching: find.byType(InkWell))
           .first;
@@ -791,7 +763,7 @@ void main() {
 
     // 最近的 Material 必须是卡片本身，否则水波纹会被卡片底色盖住
     final Finder rowInk = find
-        .ancestor(of: find.text('添加音乐目录'), matching: find.byType(InkWell))
+        .ancestor(of: find.text('独占输出（WASAPI）'), matching: find.byType(InkWell))
         .first;
     final Material card = tester.widget<Material>(
       find.ancestor(of: rowInk, matching: find.byType(Material)).first,
@@ -807,6 +779,7 @@ void main() {
     final List<int> devicePicks = <int>[];
     final List<bool> gainPicks = <bool>[];
     final List<double> fades = <double>[];
+    final List<bool> fadeSwitches = <bool>[];
     final List<bool> fadeToggles = <bool>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -814,7 +787,6 @@ void main() {
         home: Scaffold(
           body: SettingsView(
             trackCount: 1,
-            engineAvailable: true,
             devices: const <rust.PlayerDevice>[
               rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
               rust.PlayerDevice(index: 2, name: '耳机', isDefault: false),
@@ -823,7 +795,9 @@ void main() {
             onOutputDeviceChanged: devicePicks.add,
             replayGain: false,
             onReplayGainChanged: gainPicks.add,
-            crossfadeSeconds: 0,
+            crossfadeEnabled: true,
+            crossfadeSeconds: 2,
+            onCrossfadeEnabledChanged: fadeSwitches.add,
             onCrossfadeChanged: fades.add,
             volumeFade: true,
             onVolumeFadeChanged: fadeToggles.add,
@@ -853,16 +827,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(gainPicks, <bool>[true]);
 
-    // 淡变时长
-    final Finder fadeRow = find.byKey(
+    // 淡变时长：滑块 1–8 秒
+    final Finder fadeSlider = find.byKey(
       const ValueKey<String>('settings-crossfade'),
     );
-    await tester.ensureVisible(fadeRow);
-    await tester.tap(fadeRow);
+    await tester.ensureVisible(fadeSlider);
+    final Slider slider = tester.widget<Slider>(fadeSlider);
+    expect(slider.min, 1);
+    expect(slider.max, 8);
+    // 拖动只更新本地预览，松手才回调
+    slider.onChanged!(3.4);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('4 秒').last);
+    expect(fades, isEmpty, reason: '拖动过程中不下发');
+    slider.onChangeEnd!(3.4);
     await tester.pumpAndSettle();
-    expect(fades, <double>[4]);
+    expect(fades, <double>[3], reason: '松手吸附到整秒');
+
+    // 淡变开关（默认开，这里点一下关掉）
+    final Finder fadeSwitch = find.byKey(
+      const ValueKey<String>('settings-crossfade-switch'),
+    );
+    await tester.ensureVisible(fadeSwitch);
+    await tester.tap(fadeSwitch);
+    await tester.pumpAndSettle();
+    expect(fadeSwitches, <bool>[false]);
 
     // 音量过渡开关（默认开，这里点一下关掉）
     final Finder volumeFadeSwitch = find.byKey(
@@ -891,9 +879,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -953,9 +939,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(
-          body: SettingsView(trackCount: 1, engineAvailable: true),
-        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
       ),
     );
     await tester.pumpAndSettle();
@@ -996,7 +980,6 @@ void main() {
         home: const Scaffold(
           body: SettingsView(
             trackCount: 2,
-            engineAvailable: true,
             // 曲库页传的就是 PlayerBar.occupiedHeight + 8
             bottomPadding: 116,
           ),

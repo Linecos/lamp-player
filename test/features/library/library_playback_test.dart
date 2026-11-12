@@ -1032,26 +1032,6 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('播放失败后会刷新输出信息', (WidgetTester tester) async {
-    final FakePlaybackService playback = FakePlaybackService(
-      isAvailable: true,
-      durationSecs: 180,
-    )..playError = StateError('设备被其他程序占用');
-    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
-    final int before = playback.outputInfoCalls;
-
-    await tester.tap(find.text('夜航').first);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(find.textContaining('播放失败'), findsOneWidget);
-    expect(
-      playback.outputInfoCalls,
-      greaterThan(before),
-      reason: '失败后引擎可能已回落共享，设置页要拿到最新状态',
-    );
-  });
-
   testWidgets('自然播完遇到打不开的曲目会继续跳到下一首', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

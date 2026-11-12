@@ -558,6 +558,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 没进来没必要留着。
   bool _settingsStatsOpen = false;
 
+  /// 设置分区里是否正开着「音乐库」子界面
+  bool _settingsLibraryOpen = false;
+
   Track? _currentTrack;
   bool _isPlaying = false;
   bool _isAvailable = false;
@@ -659,6 +662,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
+  /// 关闭淡变前的时长：重新打开时恢复到它，而不是掉回默认值
+  double _lastCrossfadeSeconds = 2;
+
   /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
   bool _volumeFade = true;
 
@@ -745,9 +751,6 @@ class _LibraryPageState extends State<LibraryPage>
   /// 用户自存的预设（内置 5 套不在此列）
   List<EqualizerPreset> _eqCustomPresets = const <EqualizerPreset>[];
   bool _switchingOutput = false;
-
-  /// 当前输出的实际描述，来自引擎（含回落原因）
-  String _outputInfo = '';
 
   /// 播放进度单独放进 notifier：轮询只刷新播放条，不重建整个曲库页面。
   final ValueNotifier<_PlaybackProgress> _progress =
@@ -1037,6 +1040,9 @@ class _LibraryPageState extends State<LibraryPage>
         _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
       }
       _crossfadeSeconds = snapshot.crossfadeSeconds;
+      if (snapshot.crossfadeSeconds > 0) {
+        _lastCrossfadeSeconds = snapshot.crossfadeSeconds;
+      }
       _volumeFade = snapshot.volumeFade;
       _desktopLyrics = snapshot.desktopLyrics;
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
@@ -1070,8 +1076,6 @@ class _LibraryPageState extends State<LibraryPage>
     // 这一次才是权威值 —— 重复下发对均衡器 / 淡变这类覆盖式设置没有副作用。
     if (_isAvailable) {
       _applyStartupAudio(snapshot.exclusiveOutput);
-    } else {
-      unawaited(_refreshOutputInfo());
     }
     switch (section) {
       case LibrarySection.playlists:
@@ -1763,6 +1767,10 @@ class _LibraryPageState extends State<LibraryPage>
       _update(() => _settingsStatsOpen = false);
       return true;
     }
+    if (_settingsLibraryOpen) {
+      _update(() => _settingsLibraryOpen = false);
+      return true;
+    }
     if (_selectedPlaylistId != null) {
       _clearSelection();
       _update(() => _selectedPlaylistId = null);
@@ -2052,6 +2060,7 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
           _settingsStatsOpen = false;
+          _settingsLibraryOpen = false;
           select();
         });
         _clearSelection();
@@ -2145,8 +2154,6 @@ class _LibraryPageState extends State<LibraryPage>
         unawaited(_loadHistory());
       }
       if (section == LibrarySection.settings) {
-        // 空闲释放 / 回落共享都可能改变实际输出，进设置页时重新读一次
-        unawaited(_refreshOutputInfo());
         unawaited(_refreshDevices());
         // 热插拔系统不会通知：设置页开着时低频轮询设备列表
         _deviceTimer?.cancel();

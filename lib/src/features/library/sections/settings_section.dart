@@ -6,6 +6,7 @@ part of '../library_page.dart';
 extension _SettingsSection on _LibraryPageState {
   Widget _buildSettingsSection(BuildContext context) {
     final bool statsOpen = _settingsStatsOpen;
+    final bool libraryOpen = _settingsLibraryOpen;
 
     // 设置列表 ↔ 统计子界面之间做个淡入上滑：直接换掉太突兀，而这个过渡
     // 只动不透明度与位移，两份子树各自 RepaintBoundary，不会每帧重画。
@@ -39,7 +40,7 @@ extension _SettingsSection on _LibraryPageState {
       },
       child: KeyedSubtree(
         // key 一变才会触发过渡；两种内容的根 key 必须不同
-        key: ValueKey<bool>(statsOpen),
+        key: ValueKey<String>('$statsOpen-$libraryOpen'),
         // 各包一层绘制边界：淡入淡出就只是图层透明度变化，不必每帧把整块
         // 内容重新光栅化
         child: RepaintBoundary(
@@ -83,11 +84,12 @@ extension _SettingsSection on _LibraryPageState {
           child: SettingsView(
             trackCount: _tracks.length,
             onOpenStats: () => _update(() => _settingsStatsOpen = true),
-            engineAvailable: _isAvailable,
+            libraryOpen: _settingsLibraryOpen,
+            onOpenLibrary: () => _update(() => _settingsLibraryOpen = true),
+            onCloseLibrary: () => _update(() => _settingsLibraryOpen = false),
             exclusive: _exclusive,
             exclusiveActive: _playback.isExclusive,
             switchingOutput: _switchingOutput,
-            outputInfo: _outputInfo,
             closeToTray: widget.appLifecycle?.closeToTray ?? true,
             onCloseToTrayChanged: widget.appLifecycle == null
                 ? null
@@ -105,7 +107,13 @@ extension _SettingsSection on _LibraryPageState {
                 : null,
             replayGain: _replayGain,
             onReplayGainChanged: _setReplayGain,
-            crossfadeSeconds: _crossfadeSeconds,
+            crossfadeEnabled: _crossfadeSeconds > 0,
+            crossfadeSeconds: _crossfadeSeconds > 0
+                ? _crossfadeSeconds
+                : _lastCrossfadeSeconds,
+            onCrossfadeEnabledChanged: _isAvailable
+                ? (bool enabled) => unawaited(_setCrossfadeEnabled(enabled))
+                : null,
             onCrossfadeChanged: _isAvailable
                 ? (double seconds) => unawaited(_setCrossfade(seconds))
                 : null,
