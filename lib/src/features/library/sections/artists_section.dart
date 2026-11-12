@@ -90,6 +90,8 @@ extension _ArtistsSection on _LibraryPageState {
               : _buildCollectionBody(context, groups.isEmpty, () {
                   return ArtistGridView(
                     artists: groups,
+                    // 侧栏动画期间列数保持不变（否则封面会先变大再变小）
+                    columnWidthHint: _gridColumnWidth,
                     storageKey: const PageStorageKey<String>('grid:artists'),
                     // 带上卡片封面的矩形，详情页用它做「头像飞过去」的起点
                     onSelect: _openArtistDetail,
@@ -131,10 +133,11 @@ extension _ArtistsSection on _LibraryPageState {
               CoverFlightTarget(
                 key: _artistDetailCoverKey,
                 hidden: _coverFlightTag == artistCoverTag(group.name),
-                child: artistInitialsAvatar(
+                child: artistAvatar(
                   context,
                   group.name,
                   detailCoverSize,
+                  coverPath: group.coverPath,
                 ),
               ),
               const SizedBox(width: 24),

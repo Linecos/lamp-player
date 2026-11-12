@@ -613,4 +613,58 @@ void main() {
       expect(clip.borderRadius, BorderRadius.circular(16));
     });
   });
+
+  group('艺术家头像', () {
+    // 头像要拿 context 取主题色，必须在下一次 build 里构造
+    Future<void> pumpAvatar(
+      WidgetTester tester,
+      String name,
+      double size, {
+      String? coverPath,
+    }) {
+      return tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (BuildContext context) =>
+                  artistAvatar(context, name, size, coverPath: coverPath),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('没有封面时回退到首字母', (WidgetTester tester) async {
+      await pumpAvatar(tester, '林间电台', 96);
+
+      expect(find.text('林'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+    });
+
+    testWidgets('空字符串路径同样回退首字母', (WidgetTester tester) async {
+      await pumpAvatar(tester, 'Overspace', 96, coverPath: '  ');
+
+      expect(find.text('O'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+    });
+
+    testWidgets('有封面时显示封面并裁成正圆', (WidgetTester tester) async {
+      late Directory dir;
+      late File file;
+      await tester.runAsync(() async {
+        dir = await Directory.systemTemp.createTemp('lamp_artist');
+        file = File('${dir.path}/cover.png');
+        await file.writeAsBytes(base64Decode(_onePixelPng));
+      });
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      await pumpAvatar(tester, '林间电台', 96, coverPath: file.path);
+      await tester.pump();
+
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.text('林'), findsNothing);
+      // 圆形走 ClipOval：飞行层把图塞进任意尺寸的紧约束时也不会变圆角方块
+      expect(find.byType(ClipOval), findsOneWidget);
+    });
+  });
 }

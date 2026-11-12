@@ -3,6 +3,36 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+/// 横向渐变两端相对基准色各推开多少色相（度）。
+///
+/// 以前是 +40° / +90°：暖黄主题会画出「黄 → 绿 → 青」一条墙，一眼看不出
+/// 跟当前配色有什么关系，换主题时也不像「跟着变」。十几度足够看出渐变，
+/// 又仍然落在同一个色相家族里（蓝是「青蓝 → 蓝 → 靛」，暖黄是
+/// 「橙 → 琥珀 → 黄」）；再大就会开始往邻色跑（暖黄偏绿）。
+const double spectrumHueSpread = 14;
+
+/// 频谱横向渐变的三段色：`左端 → 基准色 → 右端`。
+///
+/// 只转色相，**明度与饱和度原样保留**：深浅两套主题拿到的分别是各自的
+/// 主色；`Monochrome` 这类无彩色配色饱和度是 0，转色相等于没转，整排
+/// 老老实实跟着变灰——这才是「跟随主题」，而不是硬塞一组鲜艳的颜色。
+///
+/// [start] / [end] 给调用方留了覆盖口子（比如以后想用手动配色）。
+List<Color> spectrumTints(Color base, {Color? start, Color? end}) {
+  return <Color>[
+    start ?? _shiftHue(base, -spectrumHueSpread),
+    base,
+    end ?? _shiftHue(base, spectrumHueSpread),
+  ];
+}
+
+/// 同明度、同饱和度地旋转色相
+Color _shiftHue(Color color, double degrees) {
+  final HSLColor hsl = HSLColor.fromColor(color);
+  // `%` 在 Dart 里对负数也返回非负值（-20 % 360 == 340），不用再修正
+  return hsl.withHue((hsl.hue + degrees) % 360).toColor();
+}
+
 /// 正在播放页底部的柱形频谱：一排细柱，随音乐实时起伏。
 ///
 /// 设计取舍：
@@ -11,8 +41,10 @@ import 'package:flutter/material.dart';
 ///   看起来像「装饰动画」而不是频谱，这里不再有那层；
 /// * **铺满全宽**——24 段频谱按 Catmull-Rom 插值重采样成宽度允许的柱数
 ///   （1280 宽约 200 根），原来的定宽柱子模式最多只占屏幕左边 2/3；
-/// * **色彩**——每根柱子按横向位置在 `color → colorMid → colorEnd` 之间取色，
-///   越高的柱子越亮，整排看过去是一条色相渐变的墙；
+/// * **色彩跟随主题**——取主题的 `primary` 作基准色，只把色相往两侧各推开
+///   [spectrumHueSpread] 度，明度与饱和度原样保留。换配色 / 切深浅色时整排
+///   跟着变，而且始终是「主题的那个颜色」；不再像以前那样把色相硬转 +40° /
+///   +90°，暖黄主题画出一条「黄 → 绿 → 青」的墙，看不出跟主题有什么关系；
 /// * **尺度**——整块只有 [height] 高（默认 72），柱子最高 [maxBarHeight]，
 ///   贴着控制区上方，不抢歌词的视线；
 /// * **只做背景**——内部 `IgnorePointer` 不吃手势，也不占布局高度
@@ -22,7 +54,7 @@ class SpectrumWave extends StatelessWidget {
     super.key,
     required this.bands,
     this.color,
-    this.colorMid,
+    this.colorStart,
     this.colorEnd,
     this.height = 72,
     this.maxBarHeight = 64,
@@ -32,13 +64,13 @@ class SpectrumWave extends StatelessWidget {
   /// 各段幅度（0~1）；空列表表示没在放歌，整排淡出
   final ValueListenable<List<double>> bands;
 
-  /// 左端色；默认取主题主色
+  /// 基准色；默认取主题主色，整排颜色都由它派生
   final Color? color;
 
-  /// 中段色；默认由 [color] 的色相 +40° 派生
-  final Color? colorMid;
+  /// 左端色；默认是基准色色相 −[spectrumHueSpread]
+  final Color? colorStart;
 
-  /// 右端色；默认由 [color] 的色相 +90° 派生
+  /// 右端色；默认是基准色色相 +[spectrumHueSpread]
   final Color? colorEnd;
 
   /// 整块高度
@@ -50,22 +82,14 @@ class SpectrumWave extends StatelessWidget {
   /// 整体不透明度系数（0~1）
   final double intensity;
 
-  /// 同亮度、同饱和度地旋转色相
-  static Color _rotate(Color color, double degrees) {
-    final HSLColor hsl = HSLColor.fromColor(color);
-    return hsl
-        .withHue((hsl.hue + degrees) % 360)
-        .withSaturation(hsl.saturation.clamp(0.55, 1.0))
-        .toColor();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final Color left = color ?? Theme.of(context).colorScheme.primary;
-    // 色相按 0° / +40° / +90° 推开：三色跨度够大才有渐变感，
-    // 直接用主题的 primary/tertiary/secondary 常常撞在同一个色相上
-    final Color mid = colorMid ?? _rotate(left, 40);
-    final Color right = colorEnd ?? _rotate(left, 90);
+    final Color base = color ?? Theme.of(context).colorScheme.primary;
+    final List<Color> stops = spectrumTints(
+      base,
+      start: colorStart,
+      end: colorEnd,
+    );
     return IgnorePointer(
       child: Align(
         alignment: Alignment.bottomCenter,
@@ -85,7 +109,7 @@ class SpectrumWave extends StatelessWidget {
                     size: Size.infinite,
                     painter: _BarsPainter(
                       values: values,
-                      colors: <Color>[left, mid, right],
+                      colors: stops,
                       maxBarHeight: maxBarHeight,
                       intensity: intensity,
                     ),

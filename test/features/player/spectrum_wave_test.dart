@@ -111,4 +111,117 @@ void main() {
     await tester.pumpAndSettle();
     expect(scroll.offset, greaterThan(0));
   });
+
+  group('配色跟随主题', () {
+    test('两端只在基准色附近换色相，明度与饱和度不动', () {
+      const Color base = Color(0xFF2196F3);
+      final HSLColor baseHsl = HSLColor.fromColor(base);
+      final List<Color> tints = spectrumTints(base);
+
+      expect(tints.length, 3);
+      expect(tints[1], base, reason: '中段就是主题色本身');
+      expect(
+        HSLColor.fromColor(tints[0]).hue,
+        closeTo(baseHsl.hue - spectrumHueSpread, 1),
+      );
+      expect(
+        HSLColor.fromColor(tints[2]).hue,
+        closeTo(baseHsl.hue + spectrumHueSpread, 1),
+      );
+      for (final Color tint in <Color>[tints[0], tints[2]]) {
+        final HSLColor hsl = HSLColor.fromColor(tint);
+        expect(hsl.lightness, closeTo(baseHsl.lightness, 0.02));
+        expect(hsl.saturation, closeTo(baseHsl.saturation, 0.02));
+      }
+    });
+
+    test('无彩色主题不会被染上颜色', () {
+      // Monochrome 配色下 primary 是灰的：转色相等于没转，整排跟着变灰才对
+      const Color grey = Color(0xFF8A8A8A);
+      final HSLColor greyHsl = HSLColor.fromColor(grey);
+      for (final Color tint in spectrumTints(grey)) {
+        final HSLColor hsl = HSLColor.fromColor(tint);
+        expect(hsl.saturation, lessThan(0.02));
+        expect(hsl.lightness, closeTo(greyHsl.lightness, 0.02));
+      }
+    });
+
+    testWidgets('不传颜色时取当前主题主色', (WidgetTester tester) async {
+      final ValueNotifier<List<double>> bands = ValueNotifier<List<double>>(
+        _bands(),
+      );
+      addTearDown(bands.dispose);
+
+      late ColorScheme scheme;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(AppTheme.defaultSeed),
+          home: Builder(
+            builder: (BuildContext context) {
+              scheme = Theme.of(context).colorScheme;
+              return Scaffold(body: SpectrumWave(bands: bands));
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final CustomPaint paint = tester.widget<CustomPaint>(
+        find.descendant(
+          of: find.byType(SpectrumWave),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      final List<Color> colors =
+          (paint.painter! as dynamic).colors as List<Color>;
+
+      expect(colors[1], scheme.primary);
+      expect(
+        HSLColor.fromColor(colors[0]).hue,
+        closeTo(HSLColor.fromColor(scheme.primary).hue - spectrumHueSpread, 1),
+      );
+    });
+
+    testWidgets('换主题后整排颜色跟着换', (WidgetTester tester) async {
+      final ValueNotifier<List<double>> bands = ValueNotifier<List<double>>(
+        _bands(),
+      );
+      addTearDown(bands.dispose);
+
+      Future<Color> midColor(ThemeData theme) async {
+        late ColorScheme scheme;
+        await tester.pumpWidget(
+          MaterialApp(
+            // 用内层 Theme 直接覆盖：MaterialApp 的 theme 走的是
+            // AnimatedTheme，一次 pump 只到过渡中间，读到的还是旧配色
+            home: Theme(
+              data: theme,
+              child: Builder(
+                builder: (BuildContext context) {
+                  scheme = Theme.of(context).colorScheme;
+                  return Scaffold(body: SpectrumWave(bands: bands));
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final CustomPaint paint = tester.widget<CustomPaint>(
+          find.descendant(
+            of: find.byType(SpectrumWave),
+            matching: find.byType(CustomPaint),
+          ),
+        );
+        final List<Color> colors =
+            (paint.painter! as dynamic).colors as List<Color>;
+        expect(colors[1], scheme.primary);
+        return colors[1];
+      }
+
+      final Color warm = await midColor(AppTheme.dark(AppTheme.defaultSeed));
+      final Color blue = await midColor(AppTheme.dark(AppTheme.presetSeeds[7]));
+
+      expect(warm, isNot(blue), reason: '换配色后中段色应当跟着变');
+    });
+  });
 }

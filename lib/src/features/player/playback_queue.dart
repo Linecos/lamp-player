@@ -70,7 +70,7 @@ class PlaybackQueue {
   ///
   /// 取空才重洗，所以一轮之内每首正好一次；不需要它的时候保持为空即可。
   /// 队列结构变了（重排 / 删曲 / 插入 / 换队列）要同步维护，否则袋里的下标
-  /// 会指向别的歌——这一点比「只在长度变短时剔越界」（ZeroBit 的做法）更严。
+  /// 会指向别的歌——这一点比「只在长度变短时剔越界」更严。
   final List<int> _shufflePool = <int>[];
 
   /// 队列快照（只读）；UI 只展示，不直接改
@@ -461,7 +461,6 @@ class PlaybackQueue {
   /// 删掉某一首之后收拾洗牌袋：指向它的下标要丢掉，比它大的统一左移。
   ///
   /// 不收拾的话袋里的下标会顺移到别的歌上——要么放重、要么漏放，
-  /// 而且从界面上完全看不出来（ZeroBit 只在队列变短时剔越界，就有这个问题）。
   void _shiftShufflePool({required int removed}) {
     for (int i = _shufflePool.length - 1; i >= 0; i -= 1) {
       final int at = _shufflePool[i];

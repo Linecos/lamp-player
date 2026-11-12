@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -8,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../common/paint_cache.dart';
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import 'lyric_alignment.dart';
@@ -191,6 +191,27 @@ const double _deadZoneGuard = 2;
 double deadZoneBoundary(double nextTop, double height) =>
     (nextTop + _deadZoneGuard).clamp(0.0, height * 0.42);
 
+/// 隔了 [distance] 行的模糊强度 σ（0 = 不糊）。
+///
+/// 一级一级往上加，中间不能有空档：之前排查内存时把 4 行以外的 σ 归零，
+/// 结果第 3 行是糊的、第 4 行突然变清楚，画面上是「糊 → 清楚 → 再淡」的
+/// 断档，看着像漏了处理。最远那几行本来就被边界渐隐压得很淡，糊一点即可。
+@visibleForTesting
+double lyricBlurSigma(int distance) => switch (distance) {
+  0 => 0,
+  1 => 0.5,
+  2 => 1.1,
+  3 => 1.8,
+  4 => 2.5,
+  _ => 3.2,
+};
+
+/// 逐字染色（卡拉 OK）总开关。
+///
+/// 暂时关掉：它是唯一一条要在每帧重建 TextPainter / 逐字矩形路径的分支，
+/// 量内存时先摘掉。恢复时把这里改成 true 即可，下面的分支是完整的。
+bool karaokeEnabled = false;
+
 /// 换行时的逐行回弹。
 ///
 /// 换行时整列 `jumpTo` 到新行居中，每行再用 `Transform` 推回 `deltaY`（视觉上
@@ -203,6 +224,23 @@ const Tolerance _springTolerance = Tolerance(distance: 0.5, velocity: 0.1);
 /// 刚度 / 阻尼比随行在可视区里的位置递减：越靠下越软、越慢
 double _springStiffness(double ratio) => 175 - 20 * ratio;
 double _springDamping(double ratio) => 0.86 - 0.08 * ratio;
+
+/// 歌词在**布局**里的字号：恒定，等于非当前行的字号。
+///
+/// 换行时千万不能改字号——字号一变，长句的折行会跟着变（22px 一行装得下、
+/// 28px 要折成两行），整列的高度就重排了。而换行时每行的弹簧补偿只是一个
+/// **统一的位移**：重排带来的位移它补不掉，画面上就是「整列瞬间跳一下」
+/// （实测折行那句能把下面每行顶下去 41px）。
+///
+/// 当前行的放大改走 [_activeLyricScale] 的 `Transform` 缩放：纯绘制变换，
+/// 布局一点不动，补偿才补得准。
+const double _lyricFontSize = 22;
+
+/// 当前行的视觉放大倍数：22 → 28 的效果，由一个 `AnimatedScale` 渐变过去
+const double _activeLyricScale = 28 / _lyricFontSize;
+
+/// 当前行放大的过渡：600ms 缓出。再快就还是「啪」地变大，再慢会拖到下一句都开唱了
+const Duration _activeScaleDuration = Duration(milliseconds: 600);
 
 /// 一次性大跳（点歌词跳转、切歌定位）用的时长与曲线。
 ///
@@ -277,7 +315,8 @@ class _LyricsViewState extends State<LyricsView>
   int _jumpId = 0;
 
   double _base = 0;
-  int _active = -1;
+  late final ValueNotifier<int> _activeNotifier = ValueNotifier<int>(-1);
+  int get _active => _activeNotifier.value;
   bool _playing = false;
   bool _userScrolling = false;
   Timer? _resumeTimer;
@@ -310,7 +349,7 @@ class _LyricsViewState extends State<LyricsView>
     _base = widget.position.value;
     _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
-    _active = _indexAt(_base);
+    _activeNotifier.value = _indexAt(_base);
     _playing = widget.playing.value;
     widget.position.addListener(_onPosition);
     widget.playing.addListener(_onPlaying);
@@ -351,9 +390,9 @@ class _LyricsViewState extends State<LyricsView>
       _lineKeys = _buildKeys();
       _translationKeys = _buildKeys();
       _firstVisible = 0;
-      _active = -1;
+      _activeNotifier.value = -1;
       _smooth.value = _base;
-      _active = _indexAt(_base);
+      _activeNotifier.value = _indexAt(_base);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToActive(animate: false);
         _refreshRowOpacity();
@@ -385,6 +424,7 @@ class _LyricsViewState extends State<LyricsView>
     _smooth.dispose();
     _jump.dispose();
     _translation.dispose();
+    _activeNotifier.dispose();
     for (final ValueNotifier<double> notifier in _rowOpacity) {
       notifier.dispose();
     }
@@ -510,7 +550,7 @@ class _LyricsViewState extends State<LyricsView>
     if (next == _active) {
       return;
     }
-    setState(() => _active = next);
+    _activeNotifier.value = next; // 只更新 notifier，不 setState
     // 切换中途换行的话，等这一帧跳完再按新布局重算补偿起点，别拿旧锚点继续补
     if (_translation.isAnimating) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -651,6 +691,10 @@ class _LyricsViewState extends State<LyricsView>
     final ScrollPosition position = _scroll.position;
     final double target = _revealOffset(_active);
     if (target.isNaN) {
+      // 虚拟化之后「从没进过视口」的行没有 RenderObject，量不到精确偏移
+      // （切歌、拖进度条、点远处歌词都会走到这）。先按平均行高估个大概，
+      // 等这一帧布局完再精确对一次。
+      _guessScrollToActive();
       return;
     }
     final double clamped = target.clamp(
@@ -668,6 +712,41 @@ class _LyricsViewState extends State<LyricsView>
           .animateTo(clamped, duration: _jumpDuration, curve: _jumpCurve)
           .whenComplete(_scheduleOpacityRefresh),
     );
+  }
+
+  /// 目标行还没布局时的粗略定位：平均行高 × 序号，落地后再精确修正
+  void _guessScrollToActive() {
+    if (!_scroll.hasClients) {
+      return;
+    }
+    final ScrollPosition position = _scroll.position;
+    final double estimate = _averageLineExtent() * _active;
+    position.jumpTo(
+      estimate.clamp(position.minScrollExtent, position.maxScrollExtent),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) {
+        return;
+      }
+      final ScrollPosition pos = _scroll.position;
+      final double target = _revealOffset(_active);
+      if (target.isNaN) {
+        return;
+      }
+      pos.jumpTo(target.clamp(pos.minScrollExtent, pos.maxScrollExtent));
+      _scheduleOpacityRefresh();
+    });
+  }
+
+  /// 已布局行里随便取一行的高度当平均行高（歌词行高基本一致）
+  double _averageLineExtent() {
+    for (final GlobalKey key in _lineKeys) {
+      final RenderObject? box = key.currentContext?.findRenderObject();
+      if (box is RenderBox && box.hasSize && box.size.height > 1) {
+        return box.size.height;
+      }
+    }
+    return 64;
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
@@ -762,7 +841,15 @@ class _LyricsViewState extends State<LyricsView>
                     .copyWith(scrollbars: false),
                 child: NotificationListener<ScrollNotification>(
                   onNotification: _onScrollNotification,
-                  child: SingleChildScrollView(
+                  // 只建视口附近的行。以前是 `SingleChildScrollView + Column`：
+                  // 整首歌几十上百行全部建成 widget / RenderObject，一行一份
+                  // 排版对象和图层，歌词一多就是几十 MB（release 实测 60 行比
+                  // 无歌词多 65MB，且与行数无关的那部分全压在滚动上）。
+                  //
+                  // `addRepaintBoundaries: false`：行内自己已经有一层
+                  // `RepaintBoundary`（弹动复用光栅），再让 ListView 包一层是
+                  // 两层边界、两张位图。
+                  child: ListView.builder(
                     controller: _scroll,
                     // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
                     // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
@@ -773,32 +860,30 @@ class _LyricsViewState extends State<LyricsView>
                       left: _scrollPaddingX,
                       right: _scrollPaddingX,
                     ),
-                    child: Center(
+                    // 视口外多留几行（400px ≈ 6 行）：换行时相邻行要能被弹簧推到，
+                    // 留太少会看到「从无到有」地冒出来
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(400),
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    itemCount: widget.lines.length,
+                    itemBuilder: (BuildContext context, int index) => Center(
                       child: SizedBox(
                         width: band,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            for (int i = 0; i < widget.lines.length; i += 1)
-                              _SpringLyricLine(
-                                key: ValueKey<String>('lyric-$i'),
-                                index: i,
-                                lineKey: _lineKeys[i],
-                                anchorKey: _keys[i],
-                                translationKey: _translationKeys[i],
-                                jump: _jump,
-                                line: widget.lines[i],
-                                active: i == _active,
-                                distance: _active < 0 ? i : (i - _active).abs(),
-                                position: _smooth,
-                                textTheme: theme.textTheme,
-                                alignment: widget.alignment,
-                                translation: _translation,
-                                blur: !_userScrolling,
-                                edgeOpacity: _edgeOpacityAt(i),
-                                onSeek: widget.onSeek,
-                              ),
-                          ],
+                        child: _LyricLineWrapper(
+                          index: index,
+                          activeNotifier: _activeNotifier,
+                          lineKey: _lineKeys[index],
+                          anchorKey: _keys[index],
+                          translationKey: _translationKeys[index],
+                          jump: _jump,
+                          line: widget.lines[index],
+                          position: _smooth,
+                          textTheme: theme.textTheme,
+                          alignment: widget.alignment,
+                          translation: _translation,
+                          userScrolling: _userScrolling,
+                          edgeOpacity: _edgeOpacityAt(index),
+                          onSeek: widget.onSeek,
                         ),
                       ),
                     ),
@@ -1015,6 +1100,73 @@ class _LineJump {
   /// 可视区首行 / 末行
   final int top;
   final int bottom;
+}
+
+/// 歌词行包装器：监听 `_active` 变化，只有 distance 变了才重建这一行。
+///
+/// 视口外的行由外层 `ListView.builder` 自己回收，这里不必再按距离截断。
+/// 之前为了省内存把 15 行以外换成占位 `SizedBox`，结果「还没唱到第一句」
+/// （active = -1，distance 退化成行号）和用户手动滚远时，屏幕上是一排空行。
+class _LyricLineWrapper extends StatelessWidget {
+  const _LyricLineWrapper({
+    required this.index,
+    required this.activeNotifier,
+    required this.lineKey,
+    required this.anchorKey,
+    required this.translationKey,
+    required this.jump,
+    required this.line,
+    required this.position,
+    required this.textTheme,
+    required this.alignment,
+    required this.translation,
+    required this.userScrolling,
+    required this.edgeOpacity,
+    required this.onSeek,
+  });
+
+  final int index;
+  final ValueNotifier<int> activeNotifier;
+  final GlobalKey lineKey;
+  final GlobalKey anchorKey;
+  final GlobalKey translationKey;
+  final ValueNotifier<_LineJump> jump;
+  final lyrics_api.LyricLine line;
+  final ValueNotifier<double> position;
+  final TextTheme textTheme;
+  final LyricAlignment alignment;
+  final Animation<double> translation;
+  final bool userScrolling;
+  final ValueListenable<double> edgeOpacity;
+  final Future<void> Function(double) onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: activeNotifier,
+      builder: (context, active, _) {
+        final int distance = active < 0 ? index : (index - active).abs();
+        return _SpringLyricLine(
+          key: ValueKey<String>('lyric-$index'),
+          index: index,
+          lineKey: lineKey,
+          anchorKey: anchorKey,
+          translationKey: translationKey,
+          jump: jump,
+          line: line,
+          active: index == active,
+          distance: distance,
+          position: position,
+          textTheme: textTheme,
+          alignment: alignment,
+          translation: translation,
+          blur: !userScrolling,
+          edgeOpacity: edgeOpacity,
+          onSeek: onSeek,
+        );
+      },
+    );
+  }
 }
 
 /// 一行歌词 + 它自己的回弹位移。
@@ -1264,9 +1416,13 @@ class _LyricLineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
+    // 字号恒定（见 [_lyricFontSize]）：当前行的放大是外层 `AnimatedScale` 干的，
+    // 这里只能改颜色 / 字重这类「怎么画」而不管「占多大地方」的属性
     final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: active ? 28 : 22,
+      fontSize: _lyricFontSize,
       height: 1.45,
+      // 字重会改字宽，长句理论上还是可能重新折行；中文假名的字宽是等宽的
+      // （em 宽），实际不受影响，所以这一档强调保留
       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
       letterSpacing: 0.2,
     );
@@ -1301,10 +1457,10 @@ class _LyricLineView extends StatelessWidget {
         textAlign: alignment.textAlign,
         style: style.copyWith(
           color: active ? activeColor : dim,
-          fontSize: active ? 24 : 18,
+          fontSize: _lyricFontSize * 0.82,
         ),
       );
-    } else if (active && line.words.length >= 2) {
+    } else if (karaokeEnabled && active && line.words.length >= 2) {
       main = _KaraokeText(
         text: line.text,
         words: line.words,
@@ -1332,16 +1488,11 @@ class _LyricLineView extends StatelessWidget {
     //
     // 用户拖动列表时临时关掉：滚动中一片糊没有信息量，而且每一行都要多跑一遍
     // 模糊光栅。上下的边界渐隐是外层遮罩，跟这里无关，照旧生效。
-    final double blurSigma = !blur
-        ? 0
-        : switch (distance) {
-            0 => 0,
-            1 => 0.5,
-            2 => 1.1,
-            3 => 1.8,
-            4 => 2.5,
-            _ => 3.2,
-          };
+    //
+    // 强度曲线见 [lyricBlurSigma]，**不按距离截断**：断在第 3 行的效果是画面上
+    // 出现「糊 → 清楚 → 再淡」的断档。模糊本身每行只是一次小面积离屏；当年
+    // 真正吃内存的是每行多挂的一层 `Transform`（见 [emphasise]）
+    final double blurSigma = blur ? lyricBlurSigma(distance) : 0;
 
     final List<String> extras = line.translation
         .split('\n')
@@ -1349,14 +1500,14 @@ class _LyricLineView extends StatelessWidget {
         .where((String value) => value.isNotEmpty)
         .toList();
 
-    // 译文跟正文一起糊：只糊正文时，未播放的行会出现「上面一团虚、下面
-    // 一行清清楚楚」的割裂感，看着像漏处理
+    /// 译文跟正文一起糊：只糊正文时，未播放的行会出现「上面一团虚、下面
+    /// 一行清清楚楚」的割裂感，看着像漏处理
     Widget soften(Widget child) {
       if (blurSigma <= 0) {
         return child;
       }
       return ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        imageFilter: ImageFilterCache.imageFilter(sigma: blurSigma),
         child: child,
       );
     }
@@ -1365,6 +1516,21 @@ class _LyricLineView extends StatelessWidget {
     // 自身宽度，它在 Column 里本来就贴着中线摆，文字对齐方式无从发挥
     Widget place(Widget child) =>
         Align(alignment: alignment.blockAlignment, child: child);
+
+    // 当前行的「放大」：缩放整行文字，不是改字号（见 [_lyricFontSize]）。
+    //
+    // 锚点用 [LyricAlignment.blockAlignment]：横向跟着对齐方式（左对齐时左缘不动），
+    // **竖直取中点**——放大出来的 8.7px 上下各溢出一半，刚好被上下那 9px 内边距
+    // 吃掉，当前行与上下两行的间距才会一样。贴顶的话上面多 8.7、下面少 8.7。
+    Widget emphasise(Widget child) => !active
+        ? child
+        : AnimatedScale(
+            scale: _activeLyricScale,
+            duration: _activeScaleDuration,
+            curve: Curves.easeOutCubic,
+            alignment: alignment.blockAlignment,
+            child: child,
+          );
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1378,42 +1544,46 @@ class _LyricLineView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             // 模糊层要贴着文字：套在外面的话，整行宽（可能上千像素）都要糊一遍
-            KeyedSubtree(key: anchorKey, child: place(soften(main))),
+            KeyedSubtree(key: anchorKey, child: emphasise(place(soften(main)))),
             if (extras.isNotEmpty)
+              // 译文跟着一起放大（不然当前行的译文会显得格外小），
+              // 它自己成一个缩放：整行一起缩的话，译文收起时整块重心上移，
+              // 会把正文带着晃 3px
               _TranslationBody(
                 progress: translation,
-                child: Column(
-                  key: translationKey,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const SizedBox(height: 3),
-                    for (final String extra in extras)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: place(
-                          soften(
-                            Text(
-                              extra,
-                              textAlign: alignment.textAlign,
-                              style: TextStyle(
-                                // 译文只比正文略小，避免层级断层
-                                fontSize: active
-                                    ? (_hasCjk(extra) ? 23 : 21)
-                                    : (_hasCjk(extra) ? 18 : 17),
-                                height: 1.4,
-                                color: fade(
-                                  Colors.white.withValues(
-                                    alpha: active
-                                        ? (_hasCjk(extra) ? 0.72 : 0.58)
-                                        : (_hasCjk(extra) ? 0.34 : 0.24),
+                child: emphasise(
+                  Column(
+                    key: translationKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const SizedBox(height: 3),
+                      for (final String extra in extras)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: place(
+                            soften(
+                              Text(
+                                extra,
+                                textAlign: alignment.textAlign,
+                                style: TextStyle(
+                                  // 译文只比正文略小，避免层级断层；字号同样恒定，
+                                  // 当前行靠外层那个缩放大一档
+                                  fontSize: _hasCjk(extra) ? 18 : 17,
+                                  height: 1.4,
+                                  color: fade(
+                                    Colors.white.withValues(
+                                      alpha: active
+                                          ? (_hasCjk(extra) ? 0.72 : 0.58)
+                                          : (_hasCjk(extra) ? 0.34 : 0.24),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
           ],

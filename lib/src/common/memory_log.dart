@@ -1,25 +1,53 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart';
+import 'package:flutter/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../features/player/cover_palette.dart';
 import '../features/player/cover_spin.dart';
 
-/// 内存日志：默认关闭，`--dart-define=LAMP_MEM_LOG=true` 才打印。
+/// 内存日志：默认关闭。两种打开方式：
 ///
-/// 只打**可归因**的那几项：图片缓存持有多少张解码后的位图、共多少字节，
-/// 配色 LRU 有多少条。进程工作集要用外部工具看（Windows 上
-/// `Get-Process lamp_player` 的 `WorkingSet64`），这里不做 FFI。
+/// - 编译时：`--dart-define=LAMP_MEM_LOG=true`
+/// - **运行时**：环境变量 `LAMP_MEM_LOG=1`（release 包也能用）
 ///
-/// 判断口径：如果「图片缓存」这一项随时间涨到接近上限（见
-/// `image_cache_config.dart` 的 40MB）并稳定在那里，那涨的内存就是它；
-/// 如果它一直很小而工作集还在涨，那要去查 Rust / GPU 侧。
-const bool memoryLogEnabled =
-    String.fromEnvironment('LAMP_MEM_LOG') == 'true' ||
-    String.fromEnvironment('LAMP_MEM_LOG') == '1';
+/// 打出来的内容只挑**可归因**的那几项：进程 RSS、图片缓存持有多少张 / 多少
+/// 字节 / 其中多少张是「活着」的（live image 不占缓存上限，也不会被淘汰）、
+/// 配色 LRU 条数，以及各类「要开离屏图层」的 widget 有多少个。
+///
+/// 判断口径：
+/// - 图片缓存到顶（40MB，见 `image_cache_config.dart`）但 RSS 还在涨 →
+///   涨的是 live image 或引擎侧的东西；
+/// - `图片缓存` 很小、图层数却很多 → 涨的是离屏图层 / 光栅缓存；
+/// - 两者都很小 RSS 还是高 → 去查 Rust / GPU 驱动侧。
+///
+/// 运行时打开还会额外写一份 `%TEMP%\lamp-player-mem.log`：Windows 的 GUI 程序
+/// 没有控制台，release 下 `debugPrint` 是看不见的，只有落文件才能事后翻。
+final bool memoryLogEnabled = _memoryLogRequested();
+
+bool _memoryLogRequested() {
+  const String compiled = String.fromEnvironment('LAMP_MEM_LOG');
+  if (compiled == 'true' || compiled == '1') {
+    return true;
+  }
+  final String? runtime = Platform.environment['LAMP_MEM_LOG'];
+  return runtime == 'true' || runtime == '1';
+}
+
+/// 日志落盘的位置；只在 [memoryLogEnabled] 时用到
+String get memoryLogPath => _logPath;
+final String _logPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}lamp-player-mem.log';
+
+void _emit(String line) {
+  debugPrint(line);
+  try {
+    File(_logPath).writeAsStringSync('$line\n', mode: FileMode.append);
+  } catch (_) {
+    // 临时目录不可写：只留控制台输出，不影响功能
+  }
+}
 
 /// 采样间隔。
 ///
@@ -47,6 +75,13 @@ void startMemoryLog() {
   // 数字偏低，据此下结论会跑偏（跟 `tool/hero_flight_bench.dart` 同一个坑）
   unawaited(_keepForeground());
   _lastRssBytes = ProcessInfo.currentRss;
+  // 每次启动重写：只留这一次会话，免得旧日志越攒越大、翻的时候还得找
+  try {
+    File(_logPath).writeAsStringSync('');
+  } catch (_) {
+    // 写不了就算了，下面每行也会再试一次
+  }
+  _emit('[mem] 开始记录，落盘到 $_logPath');
   _timer = Timer.periodic(_interval, (_) => _tick());
 }
 
@@ -55,7 +90,7 @@ void _tick() {
   final int jump = rss - _lastRssBytes;
   _lastRssBytes = rss;
   if (jump >= _spikeBytes) {
-    debugPrint(
+    _emit(
       '[mem] 突增 +${(jump / (1024 * 1024)).toStringAsFixed(0)}MB'
       '（现在 ${(rss / (1024 * 1024)).toStringAsFixed(0)}MB）',
     );
@@ -91,7 +126,7 @@ void printMemory(String tag) {
   final double mb = cache.currentSizeBytes / (1024 * 1024);
   // 进程 RSS：跟任务管理器看到的是同一个数（工作集），省得再开外部工具
   final double rss = ProcessInfo.currentRss / (1024 * 1024);
-  debugPrint(
+  _emit(
     '[mem] $tag｜RSS ${rss.toStringAsFixed(1)}MB'
     '｜图片缓存 ${cache.currentSize} 张 / ${mb.toStringAsFixed(1)}MB'
     '（上限 ${cache.maximumSize} 张 / '
@@ -100,6 +135,43 @@ void printMemory(String tag) {
     '｜配色 ${CoverPaletteCache.length} 条'
     // 转场 / 开关页面之后 CPU 下不去时先看这一项：还在「60fps」说明
     // 有个来源没被撤掉，时钟一直以 16ms 跑
-    '｜旋转 ${CoverSpin.debugTicking ? '60fps' : '停'}（来源 ${CoverSpin.debugOwners}）',
+    '｜旋转 ${CoverSpin.debugTicking ? '60fps' : '停'}（来源 ${CoverSpin.debugOwners}）'
+    '｜${_widgetStats()}',
   );
+}
+
+/// 数一数那些「要开离屏图层 / 要逐帧重绘」的 widget 有多少个。
+///
+/// 只看数量就够定位了：内存涨而 `图片缓存` 不动时，先看是不是图层类的
+/// widget 变多了（每个 [ImageFiltered] / [ShaderMask] 都是一次 saveLayer，
+/// 每个 [Opacity] 不到 1 时也是）。
+String _widgetStats() {
+  int blur = 0;
+  int mask = 0;
+  int fade = 0;
+  int transform = 0;
+  int boundary = 0;
+
+  void walk(Element element) {
+    final Widget widget = element.widget;
+    if (widget is ImageFiltered) {
+      blur += 1;
+    } else if (widget is ShaderMask) {
+      mask += 1;
+    } else if (widget is Opacity) {
+      fade += 1;
+    } else if (widget is Transform) {
+      transform += 1;
+    } else if (widget is RepaintBoundary) {
+      boundary += 1;
+    }
+    element.visitChildren(walk);
+  }
+
+  final Element? root = WidgetsBinding.instance.rootElement;
+  if (root == null) {
+    return '控件 树未建';
+  }
+  walk(root);
+  return '控件 模糊 $blur / 遮罩 $mask / 半透明 $fade / 变换 $transform / 边界 $boundary';
 }
