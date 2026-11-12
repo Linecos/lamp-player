@@ -232,10 +232,11 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    await tester.tap(find.text('夜航'));
+    // 拼音序下潮汐是第一首，夜航是第二首
+    await tester.tap(find.text('潮汐'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.playedPaths, <String>['/music/潮汐.mp3']);
 
     // 模拟 BASS 自然播完：状态 stopped、位置停在结尾
     playback
@@ -245,8 +246,8 @@ void main() {
     await tester.pump();
 
     expect(playback.playedPaths, <String>[
-      '/music/夜航.mp3',
       '/music/潮汐.mp3',
+      '/music/夜航.mp3',
     ], reason: '自然播完应自动播放队列下一首');
     expect(find.byIcon(Icons.pause), findsOneWidget);
 
@@ -317,13 +318,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+    // 标题排序按拼音：潮汐(chaoxi) 在 夜航(yehang) 之前
+    expect(playback.playedPaths, <String>['/music/潮汐.mp3']);
 
     await tester.tap(find.byTooltip('下一首 (Ctrl+→)'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+    expect(playback.playedPaths.last, '/music/夜航.mp3');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
@@ -416,7 +418,7 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    await tester.tap(find.text('夜航'));
+    await tester.tap(find.text('潮汐'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -432,14 +434,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(playback.playedPaths, <String>[
-      '/music/夜航.mp3',
       '/music/潮汐.mp3',
+      '/music/夜航.mp3',
     ], reason: 'Ctrl+→ 应切到下一首');
 
     await _pressWithCtrl(tester, LogicalKeyboardKey.arrowLeft);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    expect(playback.playedPaths.last, '/music/夜航.mp3', reason: 'Ctrl+← 应回到上一首');
+    expect(playback.playedPaths.last, '/music/潮汐.mp3', reason: 'Ctrl+← 应回到上一首');
 
     await _pressWithCtrl(tester, LogicalKeyboardKey.arrowDown);
     await tester.pump();
@@ -467,7 +469,8 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    await tester.tap(find.text('潮汐'));
+    // 从队列最后一首（夜航）往回退
+    await tester.tap(find.text('夜航'));
     await tester.pump();
     // 等一次位置轮询，让进度落在 60 秒（旧逻辑会因此只做 seek(0)）
     await tester.pump(const Duration(milliseconds: 600));
@@ -477,8 +480,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(playback.playedPaths, <String>[
-      '/music/潮汐.mp3',
       '/music/夜航.mp3',
+      '/music/潮汐.mp3',
     ], reason: '播放到一半点上一首，应直接切到上一首');
     expect(playback.seekCalls, isEmpty, reason: '不该只是回到本曲开头');
 
@@ -586,7 +589,7 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    await tester.tap(find.text('夜航'));
+    await tester.tap(find.text('潮汐'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -599,7 +602,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('queue-item-1')));
     await tester.pumpAndSettle();
 
-    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+    expect(playback.playedPaths.last, '/music/夜航.mp3');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
@@ -958,8 +961,8 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    // 播最后一首，然后手动点「下一首」
-    await tester.tap(find.text('潮汐').first);
+    // 播最后一首（拼音序下夜航在最后），然后手动点「下一首」
+    await tester.tap(find.text('夜航').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -968,7 +971,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(playback.playedPaths, <String>[
-      '/music/潮汐.mp3',
+      '/music/夜航.mp3',
     ], reason: '队列到头时不该换曲');
     expect(
       playback.current,
@@ -993,7 +996,7 @@ void main() {
     );
     await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
 
-    await tester.tap(find.text('夜航'));
+    await tester.tap(find.text('潮汐'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -1012,7 +1015,7 @@ void main() {
 
     expect(find.byKey(const ValueKey<String>('queue-item-0')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('queue-item-1')), findsNothing);
-    expect(playback.playedPaths.last, '/music/潮汐.mp3');
+    expect(playback.playedPaths.last, '/music/夜航.mp3');
 
     await tester.tap(find.byTooltip('清空队列'));
     await tester.pumpAndSettle();
@@ -1036,7 +1039,7 @@ void main() {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
-    )..failingPaths.add('/music/潮汐.mp3');
+    )..failingPaths.add('/music/灯下.mp3');
     await pumpLibrary(
       tester,
       tracks: <Track>[
@@ -1048,10 +1051,11 @@ void main() {
       playback: playback,
     );
 
-    await tester.tap(find.text('夜航'));
+    // 拼音序：潮汐 → 灯下 → 夜航；灯下打不开，从潮汐播完应跳过它落到夜航
+    await tester.tap(find.text('潮汐'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    expect(playback.playedPaths, <String>['/music/夜航.mp3']);
+    expect(playback.playedPaths, <String>['/music/潮汐.mp3']);
 
     // 模拟自然播完：状态 stopped、位置停在结尾
     playback
@@ -1062,9 +1066,9 @@ void main() {
     await tester.pump();
 
     expect(playback.playedPaths, <String>[
+      '/music/潮汐.mp3',
       '/music/夜航.mp3',
-      '/music/灯下.mp3',
-    ], reason: '潮汐打不开，应自动跳到再下一首');
+    ], reason: '灯下打不开，应自动跳到再下一首');
     expect(find.textContaining('已跳过 1 首'), findsOneWidget);
     expect(
       find.descendant(

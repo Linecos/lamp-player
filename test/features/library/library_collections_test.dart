@@ -1096,7 +1096,8 @@ void main() {
     await tester.tap(find.text('完成'));
     await tester.pumpAndSettle();
 
-    expect(find.text('夜航'), findsOneWidget);
+    // 弹窗里第一行（拼音序）是潮汐
+    expect(find.text('潮汐'), findsOneWidget);
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
@@ -1139,7 +1140,8 @@ void main() {
 
     await openFavorites(tester);
     expect(find.text('1 首收藏'), findsOneWidget);
-    expect(find.text('夜航'), findsOneWidget);
+    // 列表按拼音排，第一行是潮汐
+    expect(find.text('潮汐'), findsOneWidget);
     expect(find.byTooltip('取消收藏'), findsOneWidget);
 
     await tester.tap(find.byTooltip('取消收藏'));

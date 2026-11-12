@@ -90,17 +90,18 @@ void main() {
       playback: playback,
     );
 
+    // 拼音序：潮汐 → 灯下 → 夜航；锚点选第一首、Shift 落到最后一首才跨满三行
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.tap(find.text('夜航'));
+    await tester.tap(find.text('潮汐'));
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
 
-    expect(_rowBox('/music/夜航.mp3'), findsOneWidget);
+    expect(_rowBox('/music/潮汐.mp3'), findsOneWidget);
     expect(find.text('已选 1 首'), findsOneWidget);
     expect(playback.playedPaths, isEmpty, reason: 'Ctrl 点击不应触发播放');
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-    await tester.tap(find.text('灯下'));
+    await tester.tap(find.text('夜航'));
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pumpAndSettle();
 
