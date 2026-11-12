@@ -246,7 +246,7 @@ void main() {
               height: 600,
               child: AlbumGridView(
                 albums: albums,
-                onSelect: (_, _) {},
+                onSelect: (_, _, _) {},
                 columnWidthHint: widthHint,
               ),
             ),
