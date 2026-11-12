@@ -34,6 +34,8 @@ Future<void> _pumpSettings(
       home: Scaffold(
         body: SettingsView(
           trackCount: 3,
+          // 目录与扫描相关都在「音乐库」子界面里
+          libraryOpen: true,
           scanning: scanning,
           scanFolder: folder,
           scanReport: report,

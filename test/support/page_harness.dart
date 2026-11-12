@@ -107,6 +107,13 @@ Future<void> openSettings(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// 进设置后点「音乐库」，进入曲库管理子界面（目录、隐藏、清理都在里面）
+Future<void> openLibrarySettings(WidgetTester tester) async {
+  await openSettings(tester);
+  await tester.tap(find.byKey(const ValueKey<String>('settings-open-library')));
+  await tester.pumpAndSettle();
+}
+
 Future<void> openHistory(WidgetTester tester) async {
   await tester.tap(
     find.descendant(of: find.byType(LibraryRail), matching: find.text('历史')),

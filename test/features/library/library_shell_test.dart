@@ -312,11 +312,18 @@ void main() {
     // 交叉淡变会让两份全屏列表同时布局绘制（切换必掉帧），
     // 所以旧分区立即移除、只让新分区淡入
     expect(find.text('2 首音乐'), findsNothing, reason: '旧分区应立即移除');
-    expect(find.text('曲目数量'), findsOneWidget, reason: '新分区应已挂载');
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+      reason: '新分区应已挂载',
+    );
 
     await tester.pumpAndSettle();
     expect(find.text('2 首音乐'), findsNothing);
-    expect(find.text('曲目数量'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('从详情点击当前分区返回列表也有过渡', (WidgetTester tester) async {

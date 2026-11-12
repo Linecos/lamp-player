@@ -29,6 +29,9 @@ class SettingsView extends StatelessWidget {
     super.key,
     required this.trackCount,
     this.onOpenStats,
+    this.libraryOpen = false,
+    this.onOpenLibrary,
+    this.onCloseLibrary,
     this.onPlayStatsTrack,
     this.onOpenStatsArtist,
     this.exclusive = false,
@@ -83,6 +86,15 @@ class SettingsView extends StatelessWidget {
 
   /// 打开「听歌统计」：它是设置分区里的子界面，具体切换由分区容器负责
   final VoidCallback? onOpenStats;
+
+  /// 是否正开着「音乐库」子界面
+  final bool libraryOpen;
+
+  /// 打开「音乐库」子界面
+  final VoidCallback? onOpenLibrary;
+
+  /// 从子界面退回设置列表
+  final VoidCallback? onCloseLibrary;
 
   /// 统计页点歌曲：整份榜单当队列播出去；为空则行不可点
   final void Function(List<Track> queue, Track track)? onPlayStatsTrack;
@@ -224,8 +236,10 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (libraryOpen) {
+      return _buildLibraryPage(context);
+    }
     final String query = this.query.trim();
-    final bool searching = query.isNotEmpty;
     final List<Widget> children = <Widget>[];
 
     // 一组设置 = 分区标题 + 卡片；整组都没命中就一起收起来
@@ -239,10 +253,12 @@ class SettingsView extends StatelessWidget {
     }
 
     section('音乐库', <Widget>[
-      _InfoRow(
+      _ActionRow(
+        key: const ValueKey<String>('settings-open-library'),
         icon: Icons.library_music_outlined,
-        title: '曲目数量',
-        value: '$trackCount 首',
+        title: '音乐库',
+        subtitle: '$trackCount 首曲目，目录与清理',
+        onTap: onOpenLibrary,
       ),
       _ActionRow(
         icon: Icons.insights_outlined,
@@ -250,89 +266,7 @@ class SettingsView extends StatelessWidget {
         subtitle: '累计时长与次数排行',
         onTap: onOpenStats,
       ),
-      _ActionRow(
-        icon: Icons.create_new_folder_outlined,
-        title: '添加音乐目录',
-        subtitle: scanning ? '正在扫描…' : '递归扫描，增量入库',
-        onTap: scanning ? null : onAddFolder,
-        trailing: scanning
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
-      _ActionRow(
-        icon: Icons.visibility_off_outlined,
-        title: '被隐藏的歌曲',
-        subtitle: '扫描时跳过，可在这里恢复',
-        onTap: () => unawaited(_openHiddenTracks(context)),
-      ),
-      _ActionRow(
-        icon: Icons.cleaning_services_outlined,
-        title: '清理缺失文件',
-        subtitle: pruningMissing ? '正在检查…' : '只删库记录，不动音频文件',
-        onTap: pruningMissing ? null : onPruneMissing,
-        trailing: pruningMissing
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
     ]);
-    // 扫描 / 清理的进度与结果属于临时状态，搜索时让路
-    if (!searching) {
-      if (!pruningMissing &&
-          pruneMissingError != null &&
-          onPruneMissing != null) {
-        children.add(
-          ErrorRetry(
-            title: '清理失败',
-            error: pruneMissingError!,
-            onRetry: onPruneMissing!,
-          ),
-        );
-      }
-      if (!pruningMissing &&
-          pruneMissingError == null &&
-          prunedMissingCount != null) {
-        children.add(_PruneSummary(count: prunedMissingCount!));
-      }
-    }
-    section('音乐目录', <Widget>[
-      if (folders.isEmpty)
-        const _EmptyFolders()
-      else
-        for (final String folder in folders)
-          _FolderRow(
-            folder: folder,
-            scanning: scanning && folder == scanFolder,
-            onRescan: onRescanFolder == null
-                ? null
-                : () => onRescanFolder!(folder),
-            onRemove: onRemoveFolder == null
-                ? null
-                : () => onRemoveFolder!(folder),
-          ),
-    ]);
-    if (!searching) {
-      if (scanning && scanFolder != null) {
-        children.add(_ScanProgress(folder: scanFolder!));
-      }
-      if (!scanning && scanError != null && onRetry != null) {
-        children.add(
-          ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-        );
-      }
-      if (!scanning && scanError == null && scanReport != null) {
-        children.add(
-          _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
-        );
-      }
-    }
     section('播放', <Widget>[
       _ChoiceRow<int>(
         icon: Icons.speaker_outlined,
@@ -466,6 +400,111 @@ class SettingsView extends StatelessWidget {
     );
   }
 
+  /// 音乐库子界面：曲目数量、目录管理、隐藏与清理都收在这里。
+  ///
+  /// 与听歌统计同一套「分区内切换」：左侧栏与播放岛不动，返回只换内容。
+  Widget _buildLibraryPage(BuildContext context) {
+    final List<Widget> children = <Widget>[];
+
+    void section(String label, List<Widget> rows) {
+      children.add(_SectionLabel(label));
+      children.add(_SettingsCard(children: rows));
+    }
+
+    section('音乐库', <Widget>[
+      _InfoRow(
+        icon: Icons.library_music_outlined,
+        title: '曲目数量',
+        value: '$trackCount 首',
+      ),
+      _ActionRow(
+        icon: Icons.create_new_folder_outlined,
+        title: '添加音乐目录',
+        subtitle: scanning ? '正在扫描…' : '递归扫描，增量入库',
+        onTap: scanning ? null : onAddFolder,
+        trailing: scanning
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+      _ActionRow(
+        icon: Icons.visibility_off_outlined,
+        title: '被隐藏的歌曲',
+        subtitle: '扫描时跳过，可在这里恢复',
+        onTap: () => unawaited(_openHiddenTracks(context)),
+      ),
+      _ActionRow(
+        icon: Icons.cleaning_services_outlined,
+        title: '清理缺失文件',
+        subtitle: pruningMissing ? '正在检查…' : '只删库记录，不动音频文件',
+        onTap: pruningMissing ? null : onPruneMissing,
+        trailing: pruningMissing
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+    ]);
+    if (!pruningMissing &&
+        pruneMissingError != null &&
+        onPruneMissing != null) {
+      children.add(
+        ErrorRetry(
+          title: '清理失败',
+          error: pruneMissingError!,
+          onRetry: onPruneMissing!,
+        ),
+      );
+    }
+    if (!pruningMissing &&
+        pruneMissingError == null &&
+        prunedMissingCount != null) {
+      children.add(_PruneSummary(count: prunedMissingCount!));
+    }
+
+    section('音乐目录', <Widget>[
+      if (folders.isEmpty)
+        const _EmptyFolders()
+      else
+        for (final String folder in folders)
+          _FolderRow(
+            folder: folder,
+            scanning: scanning && folder == scanFolder,
+            onRescan: onRescanFolder == null
+                ? null
+                : () => onRescanFolder!(folder),
+            onRemove: onRemoveFolder == null
+                ? null
+                : () => onRemoveFolder!(folder),
+          ),
+    ]);
+    if (scanning && scanFolder != null) {
+      children.add(_ScanProgress(folder: scanFolder!));
+    }
+    if (!scanning && scanError != null && onRetry != null) {
+      children.add(
+        ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
+      );
+    }
+    if (!scanning && scanError == null && scanReport != null) {
+      children.add(_ScanSummary(report: scanReport!, folder: scanFolder ?? ''));
+    }
+
+    return ListView(
+      padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
+      children: <Widget>[
+        _LibraryBackHeader(onBack: onCloseLibrary),
+        const SizedBox(height: 6),
+        ...children,
+      ],
+    );
+  }
+
   /// 搜索时只留命中的行；没命中的行（含状态类小组件）一起收起来
   List<Widget> _filterRows(List<Widget> rows, String query) {
     if (query.isEmpty) {
@@ -509,6 +548,41 @@ class SettingsView extends StatelessWidget {
       customPresets: eqCustomPresets,
       onChanged: onEqualizerChanged,
       onCustomPresetsChanged: onEqPresetsChanged,
+    );
+  }
+}
+
+/// 设置子页的返回头：56 的点击区 + 大标题，与听歌统计保持一致。
+class _LibraryBackHeader extends StatelessWidget {
+  const _LibraryBackHeader({this.onBack});
+
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 56,
+          height: 56,
+          child: IconButton(
+            key: const ValueKey<String>('library-back'),
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back),
+            tooltip: '返回设置',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 56, height: 56),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '音乐库',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -943,6 +1017,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
 
 class _ActionRow extends StatelessWidget implements _Searchable {
   const _ActionRow({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
