@@ -34,7 +34,8 @@ Future<void> _pumpSettings(
       home: Scaffold(
         body: SettingsView(
           trackCount: 3,
-          engineAvailable: true,
+          // 目录与扫描相关都在「音乐库」子界面里
+          libraryOpen: true,
           scanning: scanning,
           scanFolder: folder,
           scanReport: report,
@@ -73,7 +74,7 @@ void main() {
     );
 
     expect(find.text(r'正在扫描 C:\Music'), findsOneWidget);
-    expect(find.text('正在扫描并入库…'), findsOneWidget);
+    expect(find.text('正在扫描…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
 
     await tester.tap(find.text('添加音乐目录'));

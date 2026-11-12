@@ -15,29 +15,6 @@ extension _OutputSection on _LibraryPageState {
         debugPrint('恢复独占输出失败：$error');
       }
     }
-    await _refreshOutputInfo();
-  }
-
-  Future<void> _refreshOutputInfo() async {
-    if (!_isAvailable) {
-      if (!mounted) {
-        return;
-      }
-      _update(() => _outputInfo = '引擎不可用');
-      return;
-    }
-    try {
-      final String info = await _playback.outputInfo();
-      if (!mounted) {
-        return;
-      }
-      _update(() => _outputInfo = info);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      _update(() => _outputInfo = '读取输出信息失败：${ErrorRetry.describe(error)}');
-    }
   }
 
   /// 切换独占：切换期间曲目会重新打开，位置与播放状态由引擎保留
@@ -52,7 +29,6 @@ extension _OutputSection on _LibraryPageState {
     _saveSessionNow();
     try {
       await _playback.setExclusive(value);
-      await _refreshOutputInfo();
       if (!mounted) {
         return;
       }

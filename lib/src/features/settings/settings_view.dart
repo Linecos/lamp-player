@@ -28,14 +28,15 @@ class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
     required this.trackCount,
-    required this.engineAvailable,
     this.onOpenStats,
+    this.libraryOpen = false,
+    this.onOpenLibrary,
+    this.onCloseLibrary,
     this.onPlayStatsTrack,
     this.onOpenStatsArtist,
     this.exclusive = false,
     this.exclusiveActive = false,
     this.switchingOutput = false,
-    this.outputInfo = '',
     this.onExclusiveChanged,
     this.closeToTray = true,
     this.onCloseToTrayChanged,
@@ -50,7 +51,9 @@ class SettingsView extends StatelessWidget {
     this.onOutputDeviceChanged,
     this.replayGain = false,
     this.onReplayGainChanged,
-    this.crossfadeSeconds = 0,
+    this.crossfadeEnabled = false,
+    this.crossfadeSeconds = 2,
+    this.onCrossfadeEnabledChanged,
     this.onCrossfadeChanged,
     this.volumeFade = true,
     this.onVolumeFadeChanged,
@@ -80,10 +83,18 @@ class SettingsView extends StatelessWidget {
   });
 
   final int trackCount;
-  final bool engineAvailable;
 
   /// 打开「听歌统计」：它是设置分区里的子界面，具体切换由分区容器负责
   final VoidCallback? onOpenStats;
+
+  /// 是否正开着「音乐库」子界面
+  final bool libraryOpen;
+
+  /// 打开「音乐库」子界面
+  final VoidCallback? onOpenLibrary;
+
+  /// 从子界面退回设置列表
+  final VoidCallback? onCloseLibrary;
 
   /// 统计页点歌曲：整份榜单当队列播出去；为空则行不可点
   final void Function(List<Track> queue, Track track)? onPlayStatsTrack;
@@ -99,9 +110,6 @@ class SettingsView extends StatelessWidget {
 
   /// 正在切换输出，期间禁用开关
   final bool switchingOutput;
-
-  /// 引擎给出的输出描述，例如「WASAPI 独占 · 48000 Hz · 2 声道」
-  final String outputInfo;
 
   /// 切换独占开关；为空表示当前不可操作
   final ValueChanged<bool>? onExclusiveChanged;
@@ -144,8 +152,14 @@ class SettingsView extends StatelessWidget {
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
 
-  /// 换曲交叉淡变时长（秒）；0 关闭
+  /// 换曲淡入淡出是否开启（时长为 0 即关闭）
+  final bool crossfadeEnabled;
+
+  /// 淡变时长（秒）；关闭时带的是上次的时长，仅供下拉显示
   final double crossfadeSeconds;
+
+  /// 开关淡变；为空表示当前不可操作
+  final ValueChanged<bool>? onCrossfadeEnabledChanged;
 
   /// 调整淡变时长；为空表示当前不可操作
   final ValueChanged<double>? onCrossfadeChanged;
@@ -222,8 +236,10 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (libraryOpen) {
+      return _buildLibraryPage(context);
+    }
     final String query = this.query.trim();
-    final bool searching = query.isNotEmpty;
     final List<Widget> children = <Widget>[];
 
     // 一组设置 = 分区标题 + 卡片；整组都没命中就一起收起来
@@ -237,132 +253,25 @@ class SettingsView extends StatelessWidget {
     }
 
     section('音乐库', <Widget>[
-      _InfoRow(
+      _ActionRow(
+        key: const ValueKey<String>('settings-open-library'),
         icon: Icons.library_music_outlined,
-        title: '曲目数量',
-        value: '$trackCount 首',
+        title: '音乐库',
+        subtitle: '$trackCount 首曲目，目录与清理',
+        onTap: onOpenLibrary,
       ),
       _ActionRow(
         icon: Icons.insights_outlined,
         title: '听歌统计',
-        subtitle: '累计时长、播放次数排行与每日热力图',
+        subtitle: '累计时长与次数排行',
         onTap: onOpenStats,
       ),
-      _ActionRow(
-        icon: Icons.create_new_folder_outlined,
-        title: '添加音乐目录',
-        subtitle: scanning ? '正在扫描并入库…' : '递归扫描子目录，按改动增量入库',
-        onTap: scanning ? null : onAddFolder,
-        trailing: scanning
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
-      _ActionRow(
-        icon: Icons.visibility_off_outlined,
-        title: '被隐藏的歌曲',
-        subtitle: '从曲库隐藏的曲目，扫描时自动跳过，可在这里恢复',
-        onTap: () => unawaited(_openHiddenTracks(context)),
-      ),
-      _ActionRow(
-        icon: Icons.cleaning_services_outlined,
-        title: '清理缺失文件',
-        subtitle: pruningMissing ? '正在检查曲库记录…' : '移除磁盘上已不存在的曲目记录，不会删除音频文件',
-        onTap: pruningMissing ? null : onPruneMissing,
-        trailing: pruningMissing
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
     ]);
-    // 扫描 / 清理的进度与结果属于临时状态，搜索时让路
-    if (!searching) {
-      if (!pruningMissing &&
-          pruneMissingError != null &&
-          onPruneMissing != null) {
-        children.add(
-          ErrorRetry(
-            title: '清理失败',
-            error: pruneMissingError!,
-            onRetry: onPruneMissing!,
-          ),
-        );
-      }
-      if (!pruningMissing &&
-          pruneMissingError == null &&
-          prunedMissingCount != null) {
-        children.add(_PruneSummary(count: prunedMissingCount!));
-      }
-    }
-    section('音乐目录', <Widget>[
-      if (folders.isEmpty)
-        const _EmptyFolders()
-      else
-        for (final String folder in folders)
-          _FolderRow(
-            folder: folder,
-            scanning: scanning && folder == scanFolder,
-            onRescan: onRescanFolder == null
-                ? null
-                : () => onRescanFolder!(folder),
-            onRemove: onRemoveFolder == null
-                ? null
-                : () => onRemoveFolder!(folder),
-          ),
-    ]);
-    if (!searching) {
-      if (scanning && scanFolder != null) {
-        children.add(_ScanProgress(folder: scanFolder!));
-      }
-      if (!scanning && scanError != null && onRetry != null) {
-        children.add(
-          ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-        );
-      }
-      if (!scanning && scanError == null && scanReport != null) {
-        children.add(
-          _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
-        );
-      }
-    }
     section('播放', <Widget>[
-      _InfoRow(
-        icon: Icons.graphic_eq,
-        title: '播放引擎',
-        value: engineAvailable ? '已接入' : '不可用（未加载 BASS）',
-        valueColor: engineAvailable
-            ? null
-            : Theme.of(context).colorScheme.error,
-      ),
-      _SwitchRow(
-        icon: Icons.surround_sound,
-        title: '独占输出（WASAPI）',
-        switchKey: const ValueKey<String>('settings-exclusive-switch'),
-        subtitle: exclusive
-            ? (exclusiveActive ? '设备由本应用独占，系统混音器不再参与' : '设备不支持或被占用，当前仍走共享输出')
-            : '开启后绕过系统混音器；切换时会短暂中断播放',
-        value: exclusive,
-        busy: switchingOutput,
-        onChanged: onExclusiveChanged,
-      ),
-      if (outputInfo.isNotEmpty)
-        _OutputRow(
-          info: outputInfo,
-          active: exclusiveActive,
-          available: engineAvailable,
-        ),
       _ChoiceRow<int>(
         icon: Icons.speaker_outlined,
         title: '输出设备',
-        subtitle: exclusiveActive
-            ? '独占模式下固定用系统默认设备，关掉独占后生效'
-            : '共享输出使用哪块声卡；切换时曲目会重新打开',
+        subtitle: exclusiveActive ? '独占时固定用系统默认' : '切换后曲目会重新打开',
         value: outputDevice,
         choices: <(int, String)>[
           (-1, '系统默认'),
@@ -373,64 +282,75 @@ class SettingsView extends StatelessWidget {
         choiceKey: const ValueKey<String>('settings-output-device'),
       ),
       _SwitchRow(
+        icon: Icons.surround_sound,
+        title: '独占输出（WASAPI）',
+        switchKey: const ValueKey<String>('settings-exclusive-switch'),
+        subtitle: exclusive
+            ? (exclusiveActive ? '正在独占' : '不支持或被占用，仍走共享')
+            : '独占设备，绕过系统混音',
+        value: exclusive,
+        busy: switchingOutput,
+        onChanged: onExclusiveChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.compare_arrows,
+        title: '换曲淡入淡出',
+        switchKey: const ValueKey<String>('settings-crossfade-switch'),
+        subtitle: exclusiveActive ? '只做新曲淡入' : '新旧曲重叠',
+        value: crossfadeEnabled,
+        onChanged: onCrossfadeEnabledChanged,
+      ),
+      _SliderRow(
+        icon: Icons.timer_outlined,
+        title: '淡变时长',
+        subtitle: crossfadeEnabled ? null : '打开开关后生效',
+        value: crossfadeSeconds,
+        min: 1,
+        max: 8,
+        divisions: 7,
+        unit: ' 秒',
+        onChanged: crossfadeEnabled ? onCrossfadeChanged : null,
+        sliderKey: const ValueKey<String>('settings-crossfade'),
+      ),
+      _SwitchRow(
         icon: Icons.balance,
         title: 'ReplayGain 响度归一',
         switchKey: const ValueKey<String>('settings-replay-gain-switch'),
-        subtitle: replayGain
-            ? '按标签或现场分析的增益统一各首歌的音量，专辑之间不再忽大忽小'
-            : '关闭时按原始音量播放（切换后从下一首起生效）',
+        subtitle: '统一各曲响度',
         value: replayGain,
         onChanged: onReplayGainChanged,
-      ),
-      _ChoiceRow<int>(
-        icon: Icons.compare_arrows,
-        title: '换曲淡入淡出',
-        subtitle: exclusiveActive ? '独占模式下只做新曲淡入（不重叠）' : '共享模式下新旧曲重叠交叉淡变，避免硬切',
-        value: crossfadeSeconds.round(),
-        choices: const <(int, String)>[
-          (0, '关闭'),
-          (1, '1 秒'),
-          (2, '2 秒'),
-          (4, '4 秒'),
-          (6, '6 秒'),
-          (8, '8 秒'),
-        ],
-        onChanged: onCrossfadeChanged == null
-            ? null
-            : (int seconds) => onCrossfadeChanged!(seconds.toDouble()),
-        choiceKey: const ValueKey<String>('settings-crossfade'),
       ),
       _SwitchRow(
         icon: Icons.volume_down_outlined,
         title: '音量过渡',
         switchKey: const ValueKey<String>('settings-volume-fade-switch'),
-        subtitle: volumeFade ? '播放淡入、暂停与停止淡出时平滑调整音量' : '所有操作直接硬切',
+        subtitle: '起播淡入，暂停淡出',
         value: volumeFade,
         onChanged: onVolumeFadeChanged,
-      ),
-      _ActionRow(
-        icon: Icons.keyboard_outlined,
-        title: '快捷键',
-        subtitle: '点一行再按组合键即可改键，也可以恢复默认',
-        onTap: onShowShortcuts,
-      ),
-      _SwitchRow(
-        icon: Icons.minimize,
-        title: '关闭窗口时留在托盘',
-        switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
-        subtitle: closeToTray ? '点 × 只隐藏窗口，音乐继续播放；从托盘菜单退出' : '点 × 直接退出应用',
-        value: closeToTray,
-        onChanged: onCloseToTrayChanged,
       ),
       _ActionRow(
         icon: Icons.equalizer,
         title: '均衡器',
         subtitle: eqEnabled
             ? '已开启 · ${eqPresetName ?? '自定义曲线'}'
-            : '10 段参数均衡，可存多套预设',
+            : '10 段均衡，可存多套',
         onTap: onEqualizerChanged == null
             ? null
             : () => _openEqualizer(context),
+      ),
+      _ActionRow(
+        icon: Icons.keyboard_outlined,
+        title: '快捷键',
+        subtitle: '点一行再按组合键改键',
+        onTap: onShowShortcuts,
+      ),
+      _SwitchRow(
+        icon: Icons.minimize,
+        title: '关闭窗口时留在托盘',
+        switchKey: const ValueKey<String>('settings-close-to-tray-switch'),
+        subtitle: '点 × 只隐藏窗口',
+        value: closeToTray,
+        onChanged: onCloseToTrayChanged,
       ),
     ]);
     section('外观', <Widget>[
@@ -440,7 +360,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.auto_awesome,
         title: '动态流光背景',
         switchKey: const ValueKey<String>('settings-flow-background-switch'),
-        subtitle: flowBackground ? '正在播放页跟随封面颜色缓慢流动' : '已关闭流光，只保留静态封面取色背景',
+        subtitle: '随封面颜色缓慢流动',
         value: flowBackground,
         onChanged: onFlowBackgroundChanged,
       ),
@@ -448,9 +368,7 @@ class SettingsView extends StatelessWidget {
         icon: Icons.circle_outlined,
         title: '圆形封面',
         switchKey: const ValueKey<String>('settings-circular-cover-switch'),
-        subtitle: circularCovers
-            ? '播放岛与正在播放页的封面裁成正圆，正在播放页的阴影也跟着变圆；列表、歌单等仍是方形'
-            : '封面保持圆角方形',
+        subtitle: '播放岛与正在播放页用正圆',
         value: circularCovers,
         onChanged: onCircularCoversChanged,
       ),
@@ -479,6 +397,111 @@ class SettingsView extends StatelessWidget {
       // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
       padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
       children: children,
+    );
+  }
+
+  /// 音乐库子界面：曲目数量、目录管理、隐藏与清理都收在这里。
+  ///
+  /// 与听歌统计同一套「分区内切换」：左侧栏与播放岛不动，返回只换内容。
+  Widget _buildLibraryPage(BuildContext context) {
+    final List<Widget> children = <Widget>[];
+
+    void section(String label, List<Widget> rows) {
+      children.add(_SectionLabel(label));
+      children.add(_SettingsCard(children: rows));
+    }
+
+    section('音乐库', <Widget>[
+      _InfoRow(
+        icon: Icons.library_music_outlined,
+        title: '曲目数量',
+        value: '$trackCount 首',
+      ),
+      _ActionRow(
+        icon: Icons.create_new_folder_outlined,
+        title: '添加音乐目录',
+        subtitle: scanning ? '正在扫描…' : '递归扫描，增量入库',
+        onTap: scanning ? null : onAddFolder,
+        trailing: scanning
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+      _ActionRow(
+        icon: Icons.visibility_off_outlined,
+        title: '被隐藏的歌曲',
+        subtitle: '扫描时跳过，可在这里恢复',
+        onTap: () => unawaited(_openHiddenTracks(context)),
+      ),
+      _ActionRow(
+        icon: Icons.cleaning_services_outlined,
+        title: '清理缺失文件',
+        subtitle: pruningMissing ? '正在检查…' : '只删库记录，不动音频文件',
+        onTap: pruningMissing ? null : onPruneMissing,
+        trailing: pruningMissing
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+      ),
+    ]);
+    if (!pruningMissing &&
+        pruneMissingError != null &&
+        onPruneMissing != null) {
+      children.add(
+        ErrorRetry(
+          title: '清理失败',
+          error: pruneMissingError!,
+          onRetry: onPruneMissing!,
+        ),
+      );
+    }
+    if (!pruningMissing &&
+        pruneMissingError == null &&
+        prunedMissingCount != null) {
+      children.add(_PruneSummary(count: prunedMissingCount!));
+    }
+
+    section('音乐目录', <Widget>[
+      if (folders.isEmpty)
+        const _EmptyFolders()
+      else
+        for (final String folder in folders)
+          _FolderRow(
+            folder: folder,
+            scanning: scanning && folder == scanFolder,
+            onRescan: onRescanFolder == null
+                ? null
+                : () => onRescanFolder!(folder),
+            onRemove: onRemoveFolder == null
+                ? null
+                : () => onRemoveFolder!(folder),
+          ),
+    ]);
+    if (scanning && scanFolder != null) {
+      children.add(_ScanProgress(folder: scanFolder!));
+    }
+    if (!scanning && scanError != null && onRetry != null) {
+      children.add(
+        ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
+      );
+    }
+    if (!scanning && scanError == null && scanReport != null) {
+      children.add(_ScanSummary(report: scanReport!, folder: scanFolder ?? ''));
+    }
+
+    return ListView(
+      padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
+      children: <Widget>[
+        _LibraryBackHeader(onBack: onCloseLibrary),
+        const SizedBox(height: 6),
+        ...children,
+      ],
     );
   }
 
@@ -529,6 +552,41 @@ class SettingsView extends StatelessWidget {
   }
 }
 
+/// 设置子页的返回头：56 的点击区 + 大标题，与听歌统计保持一致。
+class _LibraryBackHeader extends StatelessWidget {
+  const _LibraryBackHeader({this.onBack});
+
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 56,
+          height: 56,
+          child: IconButton(
+            key: const ValueKey<String>('library-back'),
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back),
+            tooltip: '返回设置',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 56, height: 56),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '音乐库',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 设置行的搜索索引：常驻搜索框按 [searchText] 过滤本页的行。
 ///
 /// 索引直接取行自己展示的标题 / 副标题，改文案时不会漏更新。
@@ -541,7 +599,7 @@ class _ChoiceRow<T> extends StatefulWidget implements _Searchable {
   const _ChoiceRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     required this.value,
     required this.choices,
     required this.onChanged,
@@ -550,14 +608,14 @@ class _ChoiceRow<T> extends StatefulWidget implements _Searchable {
 
   final IconData icon;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final T value;
   final List<(T, String)> choices;
   final ValueChanged<T>? onChanged;
   final Key? choiceKey;
 
   @override
-  String get searchText => '$title $subtitle';
+  String get searchText => '$title ${subtitle ?? ''}';
 
   @override
   State<_ChoiceRow<T>> createState() => _ChoiceRowState<T>();
@@ -605,13 +663,15 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(widget.title, style: theme.textTheme.bodyLarge),
-                const SizedBox(height: 2),
-                Text(
-                  widget.subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                if (widget.subtitle != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.subtitle!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.outline,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -732,13 +792,154 @@ class _SettingsCard extends StatelessWidget {
   }
 }
 
+/// 一行「标题 + 滑块」：用于淡变时长这类连续取值。
+///
+/// 拖动只改本地预览、松手才回调：若每次 onChanged 都写会话并下发引擎，
+/// 整页会跟着重建，手感发涩（与取色弹窗里的滑杆同一套做法）。
+class _SliderRow extends StatefulWidget implements _Searchable {
+  const _SliderRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.subtitle,
+    this.unit = '',
+    this.divisions,
+    this.sliderKey,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final double value;
+  final double min;
+  final double max;
+  final String unit;
+  final ValueChanged<double>? onChanged;
+  final int? divisions;
+  final Key? sliderKey;
+
+  @override
+  String get searchText => '$title ${subtitle ?? ''}';
+
+  @override
+  State<_SliderRow> createState() => _SliderRowState();
+}
+
+class _SliderRowState extends State<_SliderRow> {
+  late final ValueNotifier<double> _preview = ValueNotifier<double>(
+    widget.value,
+  );
+
+  @override
+  void didUpdateWidget(covariant _SliderRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 外部改了值（会话恢复、开关切换）时跟上，拖动中不打断
+    if (widget.value != oldWidget.value) {
+      _preview.value = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _preview.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool enabled = widget.onChanged != null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(widget.icon, size: 20, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(widget.title, style: theme.textTheme.bodyLarge),
+                if (widget.subtitle != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.subtitle!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.outline,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 200,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _preview,
+              builder: (BuildContext context, double value, Widget? child) =>
+                  Slider(
+                    key: widget.sliderKey,
+                    value: value.clamp(widget.min, widget.max),
+                    min: widget.min,
+                    max: widget.max,
+                    divisions: widget.divisions,
+                    label: '${value.round()}${widget.unit}',
+                    onChanged: enabled ? _onDrag : null,
+                    onChangeEnd: enabled ? _onRelease : null,
+                  ),
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _preview,
+              builder: (BuildContext context, double value, Widget? child) =>
+                  Text(
+                    '${value.round()}${widget.unit}',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onDrag(double next) {
+    _preview.value = next;
+  }
+
+  void _onRelease(double next) {
+    // 松手吸附到整秒：预览先对齐，外部值再跟进，避免回跳两次
+    final double snapped = next.roundToDouble();
+    _preview.value = snapped;
+    widget.onChanged!(snapped);
+  }
+}
+
 /// 可点击的操作行，样式与只读信息行保持一致。
 /// 带开关的设置行
 class _SwitchRow extends StatelessWidget implements _Searchable {
   const _SwitchRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     required this.value,
     this.busy = false,
     this.onChanged,
@@ -747,7 +948,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
 
   final IconData icon;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final bool value;
   final bool busy;
   final ValueChanged<bool>? onChanged;
@@ -756,7 +957,7 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   final Key? switchKey;
 
   @override
-  String get searchText => '$title $subtitle';
+  String get searchText => '$title ${subtitle ?? ''}';
 
   @override
   Widget build(BuildContext context) {
@@ -786,13 +987,15 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(title, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.outline,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -812,80 +1015,9 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 输出详情：引擎实际用的模式与格式
-class _OutputRow extends StatelessWidget implements _Searchable {
-  const _OutputRow({
-    required this.info,
-    required this.active,
-    required this.available,
-  });
-
-  final String info;
-  final bool active;
-  final bool available;
-
-  @override
-  String get searchText => '输出格式 采样率 声道 $info';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final Color dot = !available
-        ? scheme.outline
-        : (active ? scheme.primary : scheme.onSurfaceVariant);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.tune, size: 20, color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: dot,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text('当前输出', style: theme.textTheme.bodyLarge),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  info,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ActionRow extends StatelessWidget implements _Searchable {
   const _ActionRow({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -934,7 +1066,7 @@ class _ActionRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -958,14 +1090,12 @@ class _InfoRow extends StatelessWidget implements _Searchable {
     required this.title,
     required this.value,
     this.subtitle,
-    this.valueColor,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String? subtitle;
-  final Color? valueColor;
 
   @override
   String get searchText => '$title ${subtitle ?? ''} $value';
@@ -999,7 +1129,7 @@ class _InfoRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -1010,7 +1140,7 @@ class _InfoRow extends StatelessWidget implements _Searchable {
           Text(
             value,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: valueColor ?? scheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -1130,7 +1260,7 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: scheme.outline,
                     ),
                   ),
                 ],
@@ -1505,7 +1635,7 @@ class _ScanProgress extends StatelessWidget {
             child: Text(
               '正在扫描 $folder',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.outline,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1558,17 +1688,13 @@ class _ScanSummary extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             folder,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           Text(
             '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
           ),
         ],
       ),
@@ -1696,7 +1822,7 @@ class _FolderRow extends StatelessWidget implements _Searchable {
                 Text(
                   scanning ? '正在扫描…' : '已添加',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                    color: scheme.outline,
                   ),
                 ),
               ],
@@ -2259,9 +2385,7 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
             const SizedBox(height: 4),
             Text(
               '在曲目上右键「隐藏歌曲」会放到这里',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
             ),
           ],
         ),
