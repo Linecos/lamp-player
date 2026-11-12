@@ -292,7 +292,7 @@ class _BenchState extends State<_Bench> {
         bands: _bands,
         height: _h,
         color: const Color(0xFF7C6BF5),
-        colorMid: const Color(0xFFB36BF5),
+        colorStart: const Color(0xFF7C6BF5),
         colorEnd: const Color(0xFFF56BE0),
       ),
     };
