@@ -21,8 +21,10 @@ class ArtistGridView extends StatelessWidget {
 
   final List<ArtistGroup> artists;
 
-  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
-  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
+  /// 第二个参数是卡片封面的屏幕矩形（「封面飞过去」的起点），第三个是它所在
+  /// 滚动视口的可见矩形（用来判断卡片有多少被挡住，见 [flyCover] 的 `clip`）
+  final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+  onSelect;
   final Key? storageKey;
 
   /// 正在飞的那张封面（见 [artistCoverTag]）：对应的卡片先把自己藏起来，
@@ -54,24 +56,38 @@ class ArtistGridView extends StatelessWidget {
   }
 }
 
-class _ArtistCard extends StatelessWidget {
-  _ArtistCard({
+class _ArtistCard extends StatefulWidget {
+  const _ArtistCard({
     required this.artist,
     required this.onSelect,
     this.hidden = false,
   });
 
   final ArtistGroup artist;
-  final void Function(ArtistGroup artist, Rect coverRect) onSelect;
+  final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+  onSelect;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
 
-  /// 圆形头像：点击时按它量出飞行动画的起点
+  @override
+  State<_ArtistCard> createState() => _ArtistCardState();
+}
+
+class _ArtistCardState extends State<_ArtistCard> {
+  /// 圆形头像：点击时按它量出飞行动画的起点。
+  ///
+  /// 放 State 里、而不是 widget 的字段：卡片是每次 rebuild 都新建的 widget，
+  /// 字段里 new 出来的 `GlobalKey` 每次都不一样，`canUpdate` 判 false 就会把
+  /// 整棵子树（含封面图）丢掉重建——图片重新解析、淡入状态全丢。
   final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
+    final ArtistGroup artist = widget.artist;
+    final bool hidden = widget.hidden;
+    final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
+    onSelect = widget.onSelect;
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
@@ -83,7 +99,11 @@ class _ArtistCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: () => onSelect(artist, rectOfKey(_coverKey) ?? Rect.zero),
+        onTap: () => onSelect(
+          artist,
+          rectOfKey(_coverKey) ?? Rect.zero,
+          scrollViewportOf(context),
+        ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
@@ -156,8 +176,10 @@ class AlbumGridView extends StatelessWidget {
 
   final List<AlbumGroup> albums;
 
-  /// 第二个参数是卡片封面的屏幕矩形：详情页拿它做「封面飞过去」的起点
-  final void Function(AlbumGroup album, Rect coverRect) onSelect;
+  /// 第二个参数是卡片封面的屏幕矩形（「封面飞过去」的起点），第三个是它所在
+  /// 滚动视口的可见矩形
+  final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+  onSelect;
   final Key? storageKey;
 
   /// 见 [ArtistGridView.flyingTag]
@@ -188,24 +210,37 @@ class AlbumGridView extends StatelessWidget {
   }
 }
 
-class _AlbumCard extends StatelessWidget {
-  _AlbumCard({
+class _AlbumCard extends StatefulWidget {
+  const _AlbumCard({
     required this.album,
     required this.onSelect,
     this.hidden = false,
   });
 
   final AlbumGroup album;
-  final void Function(AlbumGroup album, Rect coverRect) onSelect;
+  final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+  onSelect;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
 
-  /// 封面图：点击时按它量出飞行动画的起点
+  @override
+  State<_AlbumCard> createState() => _AlbumCardState();
+}
+
+class _AlbumCardState extends State<_AlbumCard> {
+  /// 封面图：点击时按它量出飞行动画的起点。
+  ///
+  /// 放 State 里（同 [_ArtistCardState._coverKey]）：放在 widget 字段里的话
+  /// 每次 rebuild 都换 key，整棵封面子树连同图片订阅一起重建。
   final GlobalKey _coverKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
+    final AlbumGroup album = widget.album;
+    final bool hidden = widget.hidden;
+    final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
+    onSelect = widget.onSelect;
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
@@ -217,7 +252,11 @@ class _AlbumCard extends StatelessWidget {
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: () => onSelect(album, rectOfKey(_coverKey) ?? Rect.zero),
+        onTap: () => onSelect(
+          album,
+          rectOfKey(_coverKey) ?? Rect.zero,
+          scrollViewportOf(context),
+        ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.all(10),

@@ -508,6 +508,10 @@ class _LibraryPageState extends State<LibraryPage>
   /// 退出时列表刚重建、「卡片」还没布局好，量不到；而这个位置在详情期间不会变
   /// （列表本身不滚，滚动位置由 PageStorageKey 接着），直接用记下的就行。
   final Map<String, Rect> _coverOrigins = <String, Rect>{};
+
+  /// 起飞时卡片所在滚动视口的可见矩形。返程时用它把被挡住的那半边渐隐回去，
+  /// 落在卡片上的那一帧才和真实封面（被视口切过）严丝合缝
+  final Map<String, Rect?> _coverViewports = <String, Rect?>{};
   String? _selectedAlbumKey;
 
   Set<String> _favoritePaths = <String>{};
@@ -1375,15 +1379,18 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   /// 进艺术家详情，并让首字母头像从卡片的位置飞到头部。
-  void _openArtistDetail(ArtistGroup artist, Rect coverRect) {
+  void _openArtistDetail(ArtistGroup artist, Rect coverRect, Rect? viewport) {
     _clearSearch();
     _clearSelection();
     final String tag = artistCoverTag(artist.name);
-    // 记下卡片在哪：回列表时要从同一个位置飞回去
+    // 记下卡片在哪、它所在滚动视口长什么样：回列表时从同一个位置飞回去，
+    // 且被挡住的那半边要渐隐回去
     _coverOrigins[tag] = coverRect;
+    _coverViewports[tag] = viewport;
     _flyCoverInto(
       tag: tag,
       from: coverRect,
+      clip: viewport,
       targetKey: _artistDetailCoverKey,
       // 艺术家头像是圆的，没有圆角要插值；有封面时两端都是同一张图
       buildCover: (double size, double radius) =>
@@ -1393,14 +1400,16 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   /// 进专辑详情，封面同样飞过去。
-  void _openAlbumDetail(AlbumGroup album, Rect coverRect) {
+  void _openAlbumDetail(AlbumGroup album, Rect coverRect, Rect? viewport) {
     _clearSearch();
     _clearSelection();
     final String tag = albumCoverTag(album.key);
     _coverOrigins[tag] = coverRect;
+    _coverViewports[tag] = viewport;
     _flyCoverInto(
       tag: tag,
       from: coverRect,
+      clip: viewport,
       targetKey: _albumDetailCoverKey,
       fromRadius: albumCardCoverRadius,
       toRadius: albumDetailCoverRadius,
@@ -1421,6 +1430,7 @@ class _LibraryPageState extends State<LibraryPage>
     required Rect from,
     required GlobalKey targetKey,
     required Widget Function(double size, double radius) buildCover,
+    Rect? clip,
     double fromRadius = 0,
     double toRadius = 0,
     required VoidCallback apply,
@@ -1445,6 +1455,7 @@ class _LibraryPageState extends State<LibraryPage>
         context,
         from: from,
         to: to,
+        clip: clip,
         // 详情头部自己还在这 180ms 里上浮（AnimatedSwitcher 的 SlideTransition），
         // 每帧重新量一次终点，落地时才严丝合缝
         toNow: () => rectOfKey(targetKey) ?? to,
@@ -1483,6 +1494,7 @@ class _LibraryPageState extends State<LibraryPage>
       _update(leave);
       return;
     }
+
     _update(() {
       _coverFlightTag = tag;
       leave();
@@ -1495,6 +1507,9 @@ class _LibraryPageState extends State<LibraryPage>
         context,
         from: from,
         to: to,
+        clip: _coverViewports[tag],
+        // 回列表时卡片在终点
+        clipAtStart: false,
         fromRadius: fromRadius,
         toRadius: toRadius,
         buildCover: buildCover,

@@ -86,13 +86,12 @@ void main() {
 
     test('每段偏移 = 顶部留白 + 之前所有段的高度', () {
       final List<int> counts = <int>[5, 10, 2];
-      expect(metrics.offsetOfSection(0, counts), 8);
+      final List<double> offsets = metrics.sectionOffsets(counts);
+      expect(offsets, hasLength(3));
+      expect(offsets[0], 8);
+      expect(offsets[1], closeTo(8 + 34 + metrics.gridExtent(5), 0.001));
       expect(
-        metrics.offsetOfSection(1, counts),
-        closeTo(8 + 34 + metrics.gridExtent(5), 0.001),
-      );
-      expect(
-        metrics.offsetOfSection(2, counts),
+        offsets[2],
         closeTo(
           8 + 34 * 2 + metrics.gridExtent(5) + metrics.gridExtent(10),
           0.001,
