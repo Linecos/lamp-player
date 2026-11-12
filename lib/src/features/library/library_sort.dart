@@ -221,7 +221,11 @@ class ArtistGroup {
   final String name;
   final List<Track> tracks;
 
-  int get albumCount => tracks.map(trackAlbum).toSet().length;
+  /// 专辑数。
+  ///
+  /// 懒算一次就存住：卡片上的「N 张专辑 · M 首」是每次重建都要读的，
+  /// 而这里是 `tracks.map(...).toSet()`——几百首的艺术家每次重建都白建一个集合。
+  late final int albumCount = tracks.map(trackAlbum).toSet().length;
 
   int get trackCount => tracks.length;
 
@@ -232,7 +236,8 @@ class ArtistGroup {
   /// 刷新都换脸。
   ///
   /// 全都没有封面时返回 null，交给界面回退首字母头像。
-  String? get coverPath => firstCoverPath(tracks);
+  /// 同样懒算一次：没有封面的那组否则每次重建都要把 tracks 走完。
+  late final String? coverPath = firstCoverPath(tracks);
 }
 
 /// 一组曲目里第一张可用封面；全都没有时返回 null。

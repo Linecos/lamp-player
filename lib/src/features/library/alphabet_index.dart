@@ -185,12 +185,17 @@ class AlphabetGridMetrics {
     return rows * childMainAxisExtent + (rows - 1) * mainAxisSpacing;
   }
 
-  /// 第 [index] 段标题的滚动偏移
-  double offsetOfSection(int index, List<int> counts) {
+  /// 每段标题的滚动偏移（按 [counts] 逐段累加）。
+  ///
+  /// 布局时算一次存起来，滚动通知只查表。以前是每个滚动事件都对每一段重新
+  /// 从头累加一遍（O(段数²)），滚一下白算几百次。
+  List<double> sectionOffsets(Iterable<int> counts) {
+    final List<double> offsets = <double>[];
     double offset = topPadding;
-    for (int i = 0; i < index && i < counts.length; i += 1) {
-      offset += headerExtent + gridExtent(counts[i]);
+    for (final int count in counts) {
+      offsets.add(offset);
+      offset += headerExtent + gridExtent(count);
     }
-    return offset;
+    return offsets;
   }
 }

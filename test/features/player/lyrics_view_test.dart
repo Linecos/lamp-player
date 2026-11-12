@@ -131,6 +131,51 @@ void main() {
     );
   });
 
+  testWidgets('当前行放大后，与上下两行的间距仍然相等', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 8; i += 1)
+          _line(start: i * 5000, end: i * 5000 + 5000, text: '第$i行'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    // 等缩放跑完（600ms）
+    for (int i = 0; i < 45; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // getRect 会带上祖先那个放大变换，量到的是**看起来**的框
+    final Rect previous = tester.getRect(find.text('第1行'));
+    final Rect active = tester.getRect(find.text('第2行'));
+    final Rect next = tester.getRect(find.text('第3行'));
+
+    expect(
+      active.height,
+      greaterThan(previous.height * 1.2),
+      reason: '当前行确实放大了',
+    );
+    expect(previous.bottom, lessThan(active.top), reason: '放大不该压到上一行');
+    expect(next.top, greaterThan(active.bottom), reason: '放大不该压到下一行');
+    expect(
+      active.top - previous.bottom,
+      closeTo(next.top - active.bottom, 0.5),
+      reason: '上下各溢出一半，间距才一样；贴顶放大时上面会多出 8.7px',
+    );
+
+    // 视觉中心要和排版中心重合，居中滚动那套对齐线才不用改
+    final Rect layout = tester.getRect(
+      find.byKey(const ValueKey<String>('lyric-2')),
+    );
+    expect(active.center.dy, closeTo(layout.center.dy, 0.5));
+  });
+
   testWidgets('超过列宽的一行折行，三种对齐的折法一致', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0.5);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
@@ -144,7 +189,9 @@ void main() {
       _line(start: 5000, end: 9000, text: '短行'),
     ];
 
-    Future<Rect> rectFor(LyricAlignment value) async {
+    // 量排版尺寸（`getSize` 拿的是自己的盒子，不含当前行那个放大变换），
+    // 折行只跟排版宽度有关
+    Future<Size> sizeFor(LyricAlignment value) async {
       await _pump(
         tester,
         lines: lines,
@@ -152,11 +199,11 @@ void main() {
         playing: playing,
         lyricAlign: value,
       );
-      return tester.getRect(find.text(longLine));
+      return tester.getSize(find.text(longLine));
     }
 
-    final Rect center = await rectFor(LyricAlignment.center);
-    final Rect left = await rectFor(LyricAlignment.left);
+    final Size center = await sizeFor(LyricAlignment.center);
+    final Size left = await sizeFor(LyricAlignment.left);
 
     expect(center.width, closeTo(616, 0.5), reason: '折到列宽为止（640 - 两侧 12）');
     expect(center.height, greaterThan(60), reason: '这么长的行必须折行');
@@ -164,6 +211,9 @@ void main() {
   });
 
   testWidgets('逐字染色的当前行跟着一起对齐', (WidgetTester tester) async {
+    // 卡拉 OK 默认关着（见 karaokeEnabled），这条专门验它的对齐，单独打开
+    karaokeEnabled = true;
+    addTearDown(() => karaokeEnabled = false);
     final ValueNotifier<double> position = ValueNotifier<double>(6.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -206,7 +256,7 @@ void main() {
     expect(right.right, closeTo(758, 0.5));
   });
 
-  testWidgets('歌词固定白色并放大，当前行更实', (WidgetTester tester) async {
+  testWidgets('当前行靠缩放放大，字号恒定不变', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -225,13 +275,32 @@ void main() {
     final Text active = tester.widget<Text>(find.text('当前行'));
     final Text inactive = tester.widget<Text>(find.text('下一行'));
 
-    expect(active.style?.fontSize, 28);
+    // 字号必须恒定：改字号会让长句重新折行（22 一行装得下、28 要折两行），
+    // 整列高度重排，换行时那套统一的位移补偿就补不准了
+    expect(active.style?.fontSize, 22, reason: '当前行不再改字号');
     expect(inactive.style?.fontSize, 22);
     expect(active.style?.color?.r, 1);
     expect(active.style?.color?.g, 1);
     expect(active.style?.color?.b, 1);
     expect(active.style?.color?.a, closeTo(0.96, 0.01));
     expect(inactive.style?.color?.a, closeTo(0.62, 0.01));
+
+    /// 整行外层那个缩放的**目标**倍数；没挂缩放层时返回 null
+    double? scaleOf(String text) {
+      final Finder finder = find.ancestor(
+        of: find.text(text),
+        matching: find.byType(AnimatedScale),
+      );
+      if (finder.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<AnimatedScale>(finder.first).scale;
+    }
+
+    expect(scaleOf('当前行'), closeTo(28 / 22, 1e-9), reason: '放大到 28 的视觉效果');
+    // 其余行不挂：`AnimatedScale` 每行一层 `Transform`，叠在 `RepaintBoundary`
+    // 上会让光栅缓存翻倍（release 实测 60 行多 42MB）
+    expect(scaleOf('下一行'), isNull, reason: '非当前行不该有缩放层');
   });
 
   testWidgets('越远的行越模糊：从相邻行就开始，逐级递增', (WidgetTester tester) async {
@@ -250,9 +319,9 @@ void main() {
       playing: playing,
     );
 
-    // 当前行之外的 5 行都带一点模糊：从相邻行就开始，一级一级往上加，
-    // 不要「1 行全清、下一行直接糊掉」那种跳档
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    // 只有 distance 1~3 那 3 行带模糊（更远的行已经淡到看不清细节，
+    // 再糊只是白烧 GPU）；级别仍然是逐级递增，不要「1 行全清、下一行糊死」
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
   });
 
   testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
@@ -270,7 +339,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '静止时远处行是糊的');
 
     // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
     await tester.drag(find.byType(LyricsView), const Offset(0, -140));
@@ -284,7 +353,7 @@ void main() {
     // 停手 3 秒后才跟回当前行，这时模糊也一起回来
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '恢复后照旧逐级模糊');
   });
 
   testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
@@ -302,7 +371,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
 
     // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
     // 只靠滚动通知认不出「用户在滚」，得看指针信号
@@ -314,7 +383,7 @@ void main() {
 
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
+    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '停手 3 秒后恢复');
   });
 
   testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
@@ -332,7 +401,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(find.byType(ImageFiltered), findsNWidgets(3));
 
     // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
     position.value = 5.2;
@@ -341,8 +410,10 @@ void main() {
     }
     expect(
       find.byType(ImageFiltered),
-      findsNWidgets(5),
-      reason: '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰',
+      findsNWidgets(4),
+      reason:
+          '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰'
+          '（换行后当前行在中间，distance 1 上下各一行，共 4 层）',
     );
   });
 
@@ -368,6 +439,8 @@ void main() {
   });
 
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
+    karaokeEnabled = true;
+    addTearDown(() => karaokeEnabled = false);
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -479,7 +552,8 @@ void main() {
     expect(find.text('o to na wa zu tto'), findsOneWidget);
     expect(find.text('大人一直说'), findsOneWidget);
 
-    // 译文只比正文略小，比例约 0.83，不能断层
+    // 译文只比正文略小，比例约 0.8，不能断层。正文恒为 22（当前行靠缩放放大，
+    // 见 [_lyricFontSize]），译文跟着这个基准走
     final double body = tester
         .widget<Text>(find.text('大人はずっと'))
         .style!
@@ -489,7 +563,7 @@ void main() {
         .style!
         .fontSize!;
     final double cjk = tester.widget<Text>(find.text('大人一直说')).style!.fontSize!;
-    expect(body, 28);
+    expect(body, 22);
     expect(latin / body, greaterThan(0.7), reason: '罗马音不能比正文小太多');
     expect(cjk / body, greaterThan(0.75), reason: '译文不能比正文小太多');
     expect(cjk, lessThan(body), reason: '译文仍需略小于正文');
@@ -844,10 +918,9 @@ void main() {
         _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行的歌词'),
     ];
 
-    /// 歌词区的滚动控制器（`SingleChildScrollView` 只有一个）
-    ScrollController controllerOf(WidgetTester tester) => tester
-        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .controller!;
+    /// 歌词区的滚动控制器（滚动列表只有一个）
+    ScrollController controllerOf(WidgetTester tester) =>
+        tester.widget<ListView>(find.byType(ListView)).controller!;
 
     testWidgets('拖到边界是橡皮筋回弹，不是贴住', (WidgetTester tester) async {
       final ValueNotifier<double> position = ValueNotifier<double>(0);
@@ -862,9 +935,7 @@ void main() {
         playing: playing,
       );
 
-      final SingleChildScrollView view = tester.widget<SingleChildScrollView>(
-        find.byType(SingleChildScrollView),
-      );
+      final ListView view = tester.widget<ListView>(find.byType(ListView));
       expect(view.physics, isA<BouncingScrollPhysics>());
     });
 
@@ -895,6 +966,62 @@ void main() {
         const ScrollableDetails(direction: AxisDirection.down),
       );
       expect(identical(built, probe), isTrue, reason: '不该再包一层滚动条');
+    });
+
+    testWidgets('换到会折行的长句，下面的行不被整列顶下去', (WidgetTester tester) async {
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      // 第 11 行很长：22px 下一行装得下，28px 就要折成两行。
+      // 以前当前行是改字号的，这一折行会把下面每一行瞬间顶下去 40 多像素，
+      // 也就是「整列跳一下」的真身
+      await _pump(
+        tester,
+        lines: <LyricLine>[
+          for (int i = 0; i < 24; i += 1)
+            _line(
+              start: i * 5000,
+              end: (i + 1) * 5000,
+              text: i == 11 ? '这一句特别长' * 5 : '第 $i 行的歌词',
+            ),
+        ],
+        position: position,
+        playing: playing,
+      );
+
+      /// 行内的 RepaintBoundary 在弹簧 Transform 里面，画的位置带上了弹簧位移
+      double paintedAt(int index) => tester
+          .getRect(
+            find
+                .descendant(
+                  of: find.byKey(ValueKey<String>('lyric-$index')),
+                  matching: find.byType(RepaintBoundary),
+                )
+                .first,
+          )
+          .center
+          .dy;
+
+      playing.value = true;
+      await tester.pump();
+
+      final double activeBefore = paintedAt(11);
+      final double belowBefore = paintedAt(15);
+
+      position.value = 57; // 换到第 11 行
+      await tester.pump();
+
+      expect(
+        paintedAt(15),
+        closeTo(belowBefore, 1),
+        reason: '折行不再重排整列：下面的行这一帧不该动',
+      );
+      expect(paintedAt(11), closeTo(activeBefore, 1), reason: '当前行自己也不该跳');
+
+      playing.value = false;
+      await tester.pump();
     });
 
     testWidgets('换行时整列瞬时归位，各行错峰弹回来', (WidgetTester tester) async {
