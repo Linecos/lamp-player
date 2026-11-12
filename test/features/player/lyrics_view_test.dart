@@ -319,9 +319,9 @@ void main() {
       playing: playing,
     );
 
-    // 只有 distance 1~3 那 3 行带模糊（更远的行已经淡到看不清细节，
-    // 再糊只是白烧 GPU）；级别仍然是逐级递增，不要「1 行全清、下一行糊死」
-    expect(find.byType(ImageFiltered), findsNWidgets(3));
+    // distance 1~5 各一行，全都带模糊：级别逐级递增，不能「1 行全清、下一行糊死」，
+    // 也不能到某一档就突然变清楚（那样屏幕上会出现「糊 → 清楚 → 再淡」的断档）
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
   });
 
   testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
@@ -339,7 +339,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '静止时远处行是糊的');
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
 
     // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
     await tester.drag(find.byType(LyricsView), const Offset(0, -140));
@@ -353,7 +353,7 @@ void main() {
     // 停手 3 秒后才跟回当前行，这时模糊也一起回来
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '恢复后照旧逐级模糊');
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
   });
 
   testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
@@ -371,7 +371,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(3));
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
 
     // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
     // 只靠滚动通知认不出「用户在滚」，得看指针信号
@@ -383,7 +383,7 @@ void main() {
 
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(3), reason: '停手 3 秒后恢复');
+    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
   });
 
   testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
@@ -401,7 +401,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(3));
+    expect(find.byType(ImageFiltered), findsNWidgets(5));
 
     // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
     position.value = 5.2;
@@ -410,10 +410,10 @@ void main() {
     }
     expect(
       find.byType(ImageFiltered),
-      findsNWidgets(4),
+      findsNWidgets(5),
       reason:
           '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰'
-          '（换行后当前行在中间，distance 1 上下各一行，共 4 层）',
+          '（换行后当前行在中间，distance 1 上下各一行，再往上一级级往上，共 5 层）',
     );
   });
 
@@ -826,6 +826,23 @@ void main() {
     expect(deadZoneBoundary(0, 700), closeTo(2, 1e-9));
     // 上限仍按歌词区高度的 42% 夹住
     expect(deadZoneBoundary(600, 700), closeTo(700 * 0.42, 1e-9));
+  });
+
+  test('模糊强度逐级递增，中间不许有空档', () {
+    expect(lyricBlurSigma(0), 0, reason: '当前行必须清楚');
+    // 每一档都比上一档更糊：中间某一档归零的话，屏幕上会出现
+    // 「糊 → 清楚 → 再淡」的断档，看着像漏处理（排查内存时真这么干过）
+    for (int d = 1; d <= 5; d += 1) {
+      expect(
+        lyricBlurSigma(d),
+        greaterThan(lyricBlurSigma(d - 1)),
+        reason: '第 $d 行要比第 ${d - 1} 行更糊',
+      );
+    }
+    expect(lyricBlurSigma(1), closeTo(0.5, 1e-9), reason: '相邻行只给一点糊');
+    expect(lyricBlurSigma(4), closeTo(2.5, 1e-9));
+    expect(lyricBlurSigma(5), closeTo(3.2, 1e-9));
+    expect(lyricBlurSigma(20), lyricBlurSigma(5), reason: '最远处封顶，别继续加厚');
   });
 
   test('歌词区很矮时过渡收缩到下限，不越过顶部淡出', () {

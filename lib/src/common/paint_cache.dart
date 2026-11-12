@@ -4,7 +4,10 @@ import 'package:flutter/painting.dart';
 
 /// ImageFilter 缓存类
 ///
-/// 全局静态缓存，sigma 量化到 0.5 步长以减少缓存条目。
+/// 全局静态缓存，sigma 量化到 0.1 步长以减少缓存条目。
+///
+/// 步长不能再放粗：调用方给的是调出来的数值（0.5 / 1.1 / 1.8 / 2.5 / 3.2），
+/// 按 0.5 量化会把 1.1 变成 1.0、3.2 变成 3.0，模糊的层次感就变了。
 class ImageFilterCache {
   const ImageFilterCache._();
 
@@ -14,12 +17,12 @@ class ImageFilterCache {
   static const int _maxBlurCacheSize = 32;
 
   /// 带缓存的 [ui.ImageFilter.blur]。
-  /// sigma 会被量化到 0.5 的步长
+  /// sigma 会被量化到 0.1 的步长
   static ui.ImageFilter imageFilter({
     required double sigma,
     ui.TileMode tileMode = ui.TileMode.clamp,
   }) {
-    final int quantized = (sigma * 2).round();
+    final int quantized = (sigma * 10).round();
     final int key = (quantized << 4) | tileMode.index;
 
     final ui.ImageFilter? cached = _blurCache[key];
@@ -28,8 +31,8 @@ class ImageFilterCache {
     if (_blurCache.length >= _maxBlurCacheSize) _blurCache.clear();
 
     final ui.ImageFilter filter = ui.ImageFilter.blur(
-      sigmaX: quantized / 2,
-      sigmaY: quantized / 2,
+      sigmaX: sigma,
+      sigmaY: sigma,
       tileMode: tileMode,
     );
     _blurCache[key] = filter;
