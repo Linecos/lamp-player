@@ -191,6 +191,21 @@ const double _deadZoneGuard = 2;
 double deadZoneBoundary(double nextTop, double height) =>
     (nextTop + _deadZoneGuard).clamp(0.0, height * 0.42);
 
+/// 隔了 [distance] 行的模糊强度 σ（0 = 不糊）。
+///
+/// 一级一级往上加，中间不能有空档：之前排查内存时把 4 行以外的 σ 归零，
+/// 结果第 3 行是糊的、第 4 行突然变清楚，画面上是「糊 → 清楚 → 再淡」的
+/// 断档，看着像漏了处理。最远那几行本来就被边界渐隐压得很淡，糊一点即可。
+@visibleForTesting
+double lyricBlurSigma(int distance) => switch (distance) {
+  0 => 0,
+  1 => 0.5,
+  2 => 1.1,
+  3 => 1.8,
+  4 => 2.5,
+  _ => 3.2,
+};
+
 /// 逐字染色（卡拉 OK）总开关。
 ///
 /// 暂时关掉：它是唯一一条要在每帧重建 TextPainter / 逐字矩形路径的分支，
@@ -845,9 +860,9 @@ class _LyricsViewState extends State<LyricsView>
                       left: _scrollPaddingX,
                       right: _scrollPaddingX,
                     ),
-                    // 视口外多留几行：换行时相邻行要能被弹簧推到，留太少会看到
-                    // 「从无到有」地冒出来
-                    cacheExtent: 400,
+                    // 视口外多留几行（400px ≈ 6 行）：换行时相邻行要能被弹簧推到，
+                    // 留太少会看到「从无到有」地冒出来
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(400),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: widget.lines.length,
@@ -1087,11 +1102,11 @@ class _LineJump {
   final int bottom;
 }
 
-/// 歌词行包装器：监听 _active 变化，只有当 distance 变化时才重建
+/// 歌词行包装器：监听 `_active` 变化，只有 distance 变了才重建这一行。
 ///
-/// 避免每次 setState 都重建所有行。只有以下情况才重建：
-/// - 进入/退出可见范围（distance 从 >15 变成 <=15，或反之）
-/// - 变成/不再是当前行（active 状态变化）
+/// 视口外的行由外层 `ListView.builder` 自己回收，这里不必再按距离截断。
+/// 之前为了省内存把 15 行以外换成占位 `SizedBox`，结果「还没唱到第一句」
+/// （active = -1，distance 退化成行号）和用户手动滚远时，屏幕上是一排空行。
 class _LyricLineWrapper extends StatelessWidget {
   const _LyricLineWrapper({
     required this.index,
@@ -1131,14 +1146,6 @@ class _LyricLineWrapper extends StatelessWidget {
       valueListenable: activeNotifier,
       builder: (context, active, _) {
         final int distance = active < 0 ? index : (index - active).abs();
-        // 只渲染当前行前后各 15 行
-        if (distance > 15) {
-          return SizedBox(
-            key: ValueKey<String>('lyric-placeholder-$index'),
-            height: 50,
-          );
-        }
-        // 恢复完整的 _SpringLyricLine
         return _SpringLyricLine(
           key: ValueKey<String>('lyric-$index'),
           index: index,
@@ -1481,16 +1488,11 @@ class _LyricLineView extends StatelessWidget {
     //
     // 用户拖动列表时临时关掉：滚动中一片糊没有信息量，而且每一行都要多跑一遍
     // 模糊光栅。上下的边界渐隐是外层遮罩，跟这里无关，照旧生效。
-    // 只对 distance <= 3 的行模糊：再往外已经淡到看不清细节，糊了只是白烧 GPU
-    final double blurSigma = !blur || distance > 3
-        ? 0
-        : switch (distance) {
-            0 => 0,
-            1 => 0.5,
-            2 => 1.1,
-            3 => 1.8,
-            _ => 0,
-          };
+    //
+    // 强度曲线见 [lyricBlurSigma]，**不按距离截断**：断在第 3 行的效果是画面上
+    // 出现「糊 → 清楚 → 再淡」的断档。模糊本身每行只是一次小面积离屏；当年
+    // 真正吃内存的是每行多挂的一层 `Transform`（见 [emphasise]）
+    final double blurSigma = blur ? lyricBlurSigma(distance) : 0;
 
     final List<String> extras = line.translation
         .split('\n')
