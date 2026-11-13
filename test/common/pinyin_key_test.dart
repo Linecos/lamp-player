@@ -29,4 +29,24 @@ void main() {
   test('normalizePinyinQuery 去空白并转小写', () {
     expect(normalizePinyinQuery('  Y H '), 'yh');
   });
+
+  group('pinyinSortKey', () {
+    test('汉字转全拼、不带分隔与声调', () {
+      expect(pinyinSortKey('夜航'), 'yehang');
+      expect(pinyinSortKey('玻璃海'), 'bolihai');
+    });
+
+    test('英文转小写，中英混排落在同一把尺子上', () {
+      expect(pinyinSortKey('Blue Archive'), 'blue archive');
+      expect(pinyinSortKey('夜航 Live'), 'yehang live');
+    });
+
+    test('同形不同音的排序结果是稳定的（同一输入两次调用一致）', () {
+      expect(pinyinSortKey('长夜'), pinyinSortKey('长夜'));
+    });
+
+    test('转换不出来的字符原样保留，不抛异常', () {
+      expect(pinyinSortKey('夜航🙂'), contains('yehang'));
+    });
+  });
 }

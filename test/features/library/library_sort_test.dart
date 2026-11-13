@@ -32,9 +32,59 @@ void main() {
 
       expect(LibrarySort.defaultSort, LibrarySort.title);
       expect(LibrarySort.defaultSort.defaultAscending, isTrue);
+      // 按拼音：甲 jia 在 乙 yi 之前（按码位会是 乙 在前，那是旧行为）
       expect(
         sortTracks(tracks, LibrarySort.defaultSort).map((Track t) => t.title),
-        <String>['乙', '甲'],
+        <String>['甲', '乙'],
+      );
+    });
+
+    test('中文标题按拼音排，不按 UTF-8 码位', () {
+      final List<Track> tracks = <Track>[
+        for (final String title in <String>[
+          '城市低语',
+          '夜航',
+          '天台',
+          '归途',
+          '末班地铁',
+          '潮汐',
+          '灯下',
+          '玻璃海',
+          '雨停之后',
+        ])
+          sampleTrack(title: title),
+      ];
+
+      final List<String> sorted = sortTracks(
+        tracks,
+        LibrarySort.title,
+      ).map((Track t) => t.title).toList();
+
+      // 拼音：bolihai / chaoxi / chengshidiyu / dengxia / guitu /
+      //       mobanditie / tiantai / yehang / yutingzhihou
+      expect(sorted, <String>[
+        '玻璃海',
+        '潮汐',
+        '城市低语',
+        '灯下',
+        '归途',
+        '末班地铁',
+        '天台',
+        '夜航',
+        '雨停之后',
+      ]);
+    });
+
+    test('中英混排时按拼音与字母一起排', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(title: '玻璃海'),
+        sampleTrack(title: 'Blue Archive'),
+        sampleTrack(title: '潮汐'),
+      ];
+
+      expect(
+        sortTracks(tracks, LibrarySort.title).map((Track t) => t.title),
+        <String>['Blue Archive', '玻璃海', '潮汐'],
       );
     });
 
@@ -201,12 +251,13 @@ void main() {
       final List<ArtistGroup> groups = groupTracksByArtist(tracks);
 
       expect(groups.length, 2);
-      // 中文按码位排序：林(U+6797) 在 海(U+6D77) 之前
-      expect(groups.first.name, '林间电台');
+      // 按拼音排序：海岸线(hai) 在 林间电台(lin) 之前
+      expect(groups.first.name, '海岸线');
       expect(groups.first.albumCount, 1);
-      expect(groups.first.trackCount, 2);
-      expect(groups.last.name, '海岸线');
-      expect(groups.last.trackCount, 1);
+      expect(groups.first.trackCount, 1);
+      expect(groups.last.name, '林间电台');
+      expect(groups.last.albumCount, 1);
+      expect(groups.last.trackCount, 2);
     });
 
     test('同名专辑属于不同艺术家时不合并', () {
