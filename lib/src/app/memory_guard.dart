@@ -31,8 +31,12 @@ import 'memory_trim.dart';
 class MemoryGuard {
   MemoryGuard._();
 
-  /// 检查间隔。太短会频繁换页（每换一次都要重新读盘），太长则阈值形同虚设。
-  static const Duration interval = Duration(seconds: 120);
+  /// 检查间隔。
+  ///
+  /// 太短会频繁换页（每换一次都要重新读盘），太长则阈值形同虚设：换歌那一刻
+  /// 抬上去的 5~15MB 得等满一个周期才被按回去。60 秒是折中——正常使用时
+  /// 峰值撑不到阈值，超了也能在半分钟内收掉。
+  static const Duration interval = Duration(seconds: 60);
 
   /// 前台阈值：超过就修剪
   static const int visibleLimitBytes = 230 << 20;
@@ -41,6 +45,9 @@ class MemoryGuard {
   static const int hiddenLimitBytes = 150 << 20;
 
   static Timer? _timer;
+
+  /// 额外的一次性检查（换歌、退出播放页之后用）
+  static Timer? _soon;
 
   /// 启动看门（重复调用无副作用）
   static void start() {
@@ -54,6 +61,28 @@ class MemoryGuard {
   static void stop() {
     _timer?.cancel();
     _timer = null;
+    _soon?.cancel();
+    _soon = null;
+  }
+
+  /// 在 [delay] 之后补查一次。
+  ///
+  /// 常规检查是每 [interval] 一次，抓不住「换歌那一刻」的峰值：新封面刚解完、
+  /// 整页刚画完，RSS 正好在这几百毫秒里跳到最高，然后要等下一个周期才被处理。
+  /// 这个接口就是给这种**有明确结束时点**的操作补一刀。连发多次只保留最后一次。
+  ///
+  /// 看门没启动时直接返回：那说明这个进程里根本不需要修剪（widget 测试、
+  /// 非桌面平台），排一个没人收的定时器只会让测试报
+  /// 「A Timer is still pending even after the widget tree was disposed」。
+  static void checkSoon({Duration delay = const Duration(seconds: 3)}) {
+    if (_timer == null) {
+      return;
+    }
+    _soon?.cancel();
+    _soon = Timer(delay, () {
+      _soon = null;
+      unawaited(_tick());
+    });
   }
 
   /// 当前 RSS 是否已经超过该状态下的阈值
