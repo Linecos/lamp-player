@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -218,8 +219,11 @@ List<double> _toOklab(Color color) {
   ];
 }
 
-/// OKLab → sRGB，顺带按 [_meshDim] 压暗
-Color _fromOklab(double lightness, double a, double b) {
+/// OKLab → sRGB，顺带按 [_meshDim] 压暗；直接写成一个 32 位 ARGB。
+///
+/// 每帧要给 425 个顶点取色，返回 [Color] 等于每帧新建 425 个对象；这里只产出
+/// 一个 int，直接写进复用的颜色缓冲。
+int _oklabArgb(double lightness, double a, double b) {
   final double lc = lightness + 0.3963377774 * a + 0.2158037573 * b;
   final double mc = lightness - 0.1055613458 * a - 0.0638541728 * b;
   final double sc = lightness - 0.0894841775 * a - 1.2914855480 * b;
@@ -228,12 +232,16 @@ Color _fromOklab(double lightness, double a, double b) {
   final double s = sc * sc * sc;
   double channel(double linear) =>
       (_toSrgb(linear.clamp(0.0, 1.0)) * _meshDim).clamp(0.0, 1.0);
-  return Color.from(
-    alpha: 1,
-    red: channel(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    green: channel(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    blue: channel(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-  );
+  final int r =
+      (channel(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) * 255)
+          .round();
+  final int g =
+      (channel(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) * 255)
+          .round();
+  final int b2 =
+      (channel(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s) * 255)
+          .round();
+  return 0xFF000000 | (r << 16) | (g << 8) | b2;
 }
 
 /// 单个行波会让整片颜色平移；三组不同方向/速度的波叠加后原地变形。
@@ -258,27 +266,6 @@ class _MeshWave {
 
   final List<double> sine = <double>[];
   final List<double> cosine = <double>[];
-
-  List<double> weights(List<double> timeSin, List<double> timeCos) {
-    double field(int start) {
-      double sum = 0;
-      for (int i = 0; i < 3; i += 1) {
-        final int index = start + i;
-        sum += sine[index] * timeCos[i] + cosine[index] * timeSin[i];
-      }
-      return (0.5 + sum / 6).clamp(0.0, 1.0);
-    }
-
-    final double n1 = field(0);
-    final double n2 = field(3);
-    double weight(double x) => _lookup(_weightLookup, x);
-    final double a = weight((1 - n1) * n2);
-    final double b = weight(n1 * n2);
-    final double c = weight(n1 * (1 - n2));
-    final double d = weight((1 - n1) * (1 - n2));
-    final double sum = a + b + c + d;
-    return <double>[a / sum, b / sum, c / sum, d / sum];
-  }
 }
 
 /// 整屏网格渐变，每帧一次 `drawVertices`。
@@ -307,6 +294,9 @@ class _MeshPainter extends CustomPainter {
   // 网格拓扑及顶点坐标只随窗口尺寸变化。
   static _MeshGeometry? _geometry;
 
+  /// 描边参数恒定，建一次就够（每帧 new 一个 Paint 也是白扔）
+  static final Paint _paint = Paint();
+
   /// 当前色板（固定 4 色）
   final List<Color> palette;
 
@@ -322,6 +312,7 @@ class _MeshPainter extends CustomPainter {
   /// 相位零点（[UiClock.slow] 秒）
   final double origin;
 
+  // 顶点色与渐变几何都写进 [_MeshGeometry] 的复用缓冲；每帧只读标量。
   @override
   void paint(Canvas canvas, Size size) {
     final double seconds = animate ? UiClock.slow.seconds - origin : 0;
@@ -330,36 +321,87 @@ class _MeshPainter extends CustomPainter {
         ? _geometry!
         : (_geometry = _MeshGeometry(size));
     final double turns = seconds * math.pi * 2;
-    final List<double> phases = <double>[
-      turns * 0.13,
-      -turns * 0.10,
-      turns * 0.17,
-    ];
-    final List<double> timeSin = phases.map(math.sin).toList();
-    final List<double> timeCos = phases.map(math.cos).toList();
-    final List<Color> colors = <Color>[];
-    for (final _MeshWave wave in geometry.waves) {
-      final List<double> weights = wave.weights(timeSin, timeCos);
-      final List<double> current = _blendLab(_lab, weights);
-      final List<List<double>>? old = _previousLab;
-      if (old != null) {
-        final List<double> oldColor = _blendLab(old, weights);
-        for (int k = 0; k < 3; k += 1) {
-          current[k] = oldColor[k] + (current[k] - oldColor[k]) * m;
-        }
+    // 三组波的时间相位：每帧只算 6 次三角函数
+    final double s0 = math.sin(turns * 0.13);
+    final double s1 = math.sin(-turns * 0.10);
+    final double s2 = math.sin(turns * 0.17);
+    final double c0 = math.cos(turns * 0.13);
+    final double c1 = math.cos(-turns * 0.10);
+    final double c2 = math.cos(turns * 0.17);
+
+    final List<_MeshWave> waves = geometry.waves;
+    final Int32List colors = geometry.colors32;
+    final List<List<double>> lab = _lab;
+    final List<List<double>>? previous = _previousLab;
+    final List<double> l0 = lab[0];
+    final List<double> l1 = lab[1];
+    final List<double> l2 = lab[2];
+    final List<double> l3 = lab[3];
+    final bool blending = previous != null && m < 1;
+    final List<double>? p0 = blending ? previous[0] : null;
+    final List<double>? p1 = blending ? previous[1] : null;
+    final List<double>? p2 = blending ? previous[2] : null;
+    final List<double>? p3 = blending ? previous[3] : null;
+
+    for (int i = 0; i < waves.length; i += 1) {
+      final _MeshWave wave = waves[i];
+      final List<double> sine = wave.sine;
+      final List<double> cosine = wave.cosine;
+      // 两个行波场；sin(a+b) = sin a cos b + cos a sin b
+      final double n1 =
+          (0.5 +
+                  (sine[0] * c0 +
+                          cosine[0] * s0 +
+                          sine[1] * c1 +
+                          cosine[1] * s1 +
+                          sine[2] * c2 +
+                          cosine[2] * s2) /
+                      6)
+              .clamp(0.0, 1.0);
+      final double n2 =
+          (0.5 +
+                  (sine[3] * c0 +
+                          cosine[3] * s0 +
+                          sine[4] * c1 +
+                          cosine[4] * s1 +
+                          sine[5] * c2 +
+                          cosine[5] * s2) /
+                      6)
+              .clamp(0.0, 1.0);
+      final double wa = _lookup(_weightLookup, (1 - n1) * n2);
+      final double wb = _lookup(_weightLookup, n1 * n2);
+      final double wc = _lookup(_weightLookup, n1 * (1 - n2));
+      final double wd = _lookup(_weightLookup, (1 - n1) * (1 - n2));
+      final double inv = 1 / (wa + wb + wc + wd);
+      final double a0 = wa * inv;
+      final double a1 = wb * inv;
+      final double a2 = wc * inv;
+      final double a3 = wd * inv;
+
+      double lightness = l0[0] * a0 + l1[0] * a1 + l2[0] * a2 + l3[0] * a3;
+      double axisA = l0[1] * a0 + l1[1] * a1 + l2[1] * a2 + l3[1] * a3;
+      double axisB = l0[2] * a0 + l1[2] * a1 + l2[2] * a2 + l3[2] * a3;
+      if (blending) {
+        final double oldL =
+            p0![0] * a0 + p1![0] * a1 + p2![0] * a2 + p3![0] * a3;
+        final double oldA = p0[1] * a0 + p1[1] * a1 + p2[1] * a2 + p3[1] * a3;
+        final double oldB = p0[2] * a0 + p1[2] * a1 + p2[2] * a2 + p3[2] * a3;
+        lightness = oldL + (lightness - oldL) * m;
+        axisA = oldA + (axisA - oldA) * m;
+        axisB = oldB + (axisB - oldB) * m;
       }
-      colors.add(_fromOklab(current[0], current[1], current[2]));
+      colors[i] = _oklabArgb(lightness, axisA, axisB);
     }
 
     canvas.drawVertices(
-      ui.Vertices(
+      ui.Vertices.raw(
         ui.VertexMode.triangles,
-        geometry.positions,
+        geometry.positions32,
         colors: colors,
-        indices: geometry.indices,
+        indices: geometry.indices16,
       ),
       BlendMode.src,
-      Paint(),
+      _paint,
     );
   }
 
@@ -374,6 +416,10 @@ class _MeshPainter extends CustomPainter {
 }
 
 /// 网格坐标与三角形索引只在尺寸变化时生成，动画帧只更新顶点色。
+///
+/// 坐标 / 索引 / 颜色都存成**可复用的类型化数组**：`ui.Vertices` 的构造函数
+/// 会把手里的 `List<Offset>` / `List<Color>` 重新编码成 Float32List / Int32List，
+/// 每帧做一次等于每秒扔掉上百 KB 的临时缓冲；坐标和索引明明一帧都不变。
 class _MeshGeometry {
   _MeshGeometry(this.size) {
     for (int j = 0; j <= _meshRows; j += 1) {
@@ -393,23 +439,28 @@ class _MeshGeometry {
         indices.addAll(<int>[a, b, c, b, d, c]);
       }
     }
+
+    final int count = positions.length;
+    positions32 = Float32List(count * 2);
+    for (int i = 0; i < count; i += 1) {
+      positions32[i * 2] = positions[i].dx;
+      positions32[i * 2 + 1] = positions[i].dy;
+    }
+    indices16 = Uint16List.fromList(indices);
+    // 每帧原地改写，不再新建
+    colors32 = Int32List(count);
   }
 
   final Size size;
   final List<Offset> positions = <Offset>[];
   final List<_MeshWave> waves = <_MeshWave>[];
   final List<int> indices = <int>[];
-}
 
-/// 按权重混合四个 OKLab 颜色
-List<double> _blendLab(List<List<double>> lab, List<double> weights) {
-  return <double>[
-    for (int k = 0; k < 3; k += 1)
-      lab[0][k] * weights[0] +
-          lab[1][k] * weights[1] +
-          lab[2][k] * weights[2] +
-          lab[3][k] * weights[3],
-  ];
+  late final Float32List positions32;
+  late final Uint16List indices16;
+
+  /// 顶点色缓冲：每帧被 [_MeshPainter.paint] 原地覆盖
+  late final Int32List colors32;
 }
 
 /// 按封面的面积占比排主色/副色，并保留色相差异较大的颜色。

@@ -34,9 +34,16 @@ abstract final class CoverPaletteCache {
 
     ui.Codec? codec;
     ui.Image? image;
+    ui.ImmutableBuffer? buffer;
+    ui.ImageDescriptor? descriptor;
     try {
-      codec = await ui.instantiateImageCodec(
-        await file.readAsBytes(),
+      // 不要 `file.readAsBytes()`：封面缓存里常有 1~5MB 的原图，为了取一张
+      // 48×48 的缩略图把整份字节读进 Dart 堆，等于每换一首歌就多扔一份几 MB
+      // 的临时缓冲（还要跨一个 await，minor GC 收不掉）。`fromFilePath` 只
+      // 把文件映射进来，解码缩放交给引擎。
+      buffer = await ui.ImmutableBuffer.fromFilePath(path);
+      descriptor = await ui.ImageDescriptor.encoded(buffer);
+      codec = await descriptor.instantiateCodec(
         targetWidth: 48,
         targetHeight: 48,
       );
@@ -91,6 +98,8 @@ abstract final class CoverPaletteCache {
     } finally {
       image?.dispose();
       codec?.dispose();
+      descriptor?.dispose();
+      buffer?.dispose();
     }
   }
 
