@@ -327,55 +327,61 @@ class _MarqueeTitleState extends State<MarqueeTitle>
             height: constraints.maxHeight,
             child: !overflow
                 ? single
-                : ClipRect(
-                    child: AnimatedBuilder(
-                      animation: _controller,
-                      // 内容比视口宽得多，得让它不受约束地铺开：
-                      // 直接放 Row 会报 RenderFlex overflow，这里用 OverflowBox
-                      // 只放开宽度，自己仍然是视口大小（ShaderMask 按它取渐变）。
-                      // 整份内容当 child 传进来，动画每帧只换位移，不重建文字。
-                      child: OverflowBox(
-                        alignment: Alignment.centerLeft,
-                        maxWidth: double.infinity,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            single,
-                            SizedBox(width: gap),
-                            single,
-                          ],
-                        ),
-                      ),
-                      // 两份文字 + 中间空白：位移走完一段就回到 0，
-                      // 那一刻第二份的开头正好落在第一份的起点，看不出接缝
-                      builder: (BuildContext context, Widget? child) {
-                        final double offset = _controller.value * cycle;
-                        final ({
-                          double leftFade,
-                          double travelled,
-                          double lastValue,
-                        })
-                        step = MarqueeTitle.stepLeftFade(
-                          value: _controller.value,
-                          lastValue: _lastValue,
-                          cycle: cycle,
-                          travelled: _travelled,
-                        );
-                        _travelled = step.travelled;
-                        _lastValue = step.lastValue;
-                        final double leftFade = _quantizeLeftFade(
-                          step.leftFade,
-                        );
-                        return ShaderMask(
-                          shaderCallback: (Rect bounds) =>
-                              _getShader(bounds.width, leftFade),
-                          blendMode: BlendMode.dstIn,
-                          child: Transform.translate(
-                            offset: Offset(-offset, 0),
-                            child: child,
+                // 滚动时每帧都要重画（`ShaderMask` 还带一次 saveLayer）。圈成
+                // 自己的一层，否则这份重绘会一路 invalidate 到页面上最近的那个
+                // 边界——播放页那一层是整屏，等于为了滚一个歌名把整屏重新
+                // 光栅化一遍
+                : RepaintBoundary(
+                    child: ClipRect(
+                      child: AnimatedBuilder(
+                        animation: _controller,
+                        // 内容比视口宽得多，得让它不受约束地铺开：
+                        // 直接放 Row 会报 RenderFlex overflow，这里用 OverflowBox
+                        // 只放开宽度，自己仍然是视口大小（ShaderMask 按它取渐变）。
+                        // 整份内容当 child 传进来，动画每帧只换位移，不重建文字。
+                        child: OverflowBox(
+                          alignment: Alignment.centerLeft,
+                          maxWidth: double.infinity,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              single,
+                              SizedBox(width: gap),
+                              single,
+                            ],
                           ),
-                        );
-                      },
+                        ),
+                        // 两份文字 + 中间空白：位移走完一段就回到 0，
+                        // 那一刻第二份的开头正好落在第一份的起点，看不出接缝
+                        builder: (BuildContext context, Widget? child) {
+                          final double offset = _controller.value * cycle;
+                          final ({
+                            double leftFade,
+                            double travelled,
+                            double lastValue,
+                          })
+                          step = MarqueeTitle.stepLeftFade(
+                            value: _controller.value,
+                            lastValue: _lastValue,
+                            cycle: cycle,
+                            travelled: _travelled,
+                          );
+                          _travelled = step.travelled;
+                          _lastValue = step.lastValue;
+                          final double leftFade = _quantizeLeftFade(
+                            step.leftFade,
+                          );
+                          return ShaderMask(
+                            shaderCallback: (Rect bounds) =>
+                                _getShader(bounds.width, leftFade),
+                            blendMode: BlendMode.dstIn,
+                            child: Transform.translate(
+                              offset: Offset(-offset, 0),
+                              child: child,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
           ),
