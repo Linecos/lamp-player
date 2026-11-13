@@ -16,6 +16,86 @@ const double gridRightReserve = railWidth + railInset + 12;
 /// 每段标题占的高度（含上下空隙）
 const double alphabetHeaderExtent = 34;
 
+/// 视口顶部那一条的位置：哪一段、段内第几条、以及在那一行里已经滚过去了多少。
+///
+/// 只记「像素偏移」是不够的：开关侧栏时列数不变但卡片会变宽，行高跟着变，
+/// 同一个像素在新布局里指向的是另一条，而且越往下累计误差越大。存下条目本身的
+/// 位置，几何一变就能把同一条重新放回视口顶部。
+@immutable
+class AlphabetScrollAnchor {
+  const AlphabetScrollAnchor(this.section, this.item, this.fraction);
+
+  final int section;
+  final int item;
+  final double fraction;
+}
+
+/// [pixels] 处视口顶部是哪一条（[AlphabetGridMetrics] 的几何是均匀的，
+/// 段内按行折算即可）。
+///
+/// 返回 `null` 表示还没有可用的几何信息。
+@visibleForTesting
+AlphabetScrollAnchor? alphabetAnchorAt(
+  AlphabetGridMetrics metrics,
+  List<double> sectionOffsets,
+  List<int> counts,
+  double pixels,
+) {
+  if (sectionOffsets.isEmpty || counts.isEmpty) {
+    return null;
+  }
+  int section = 0;
+  for (int i = 0; i < sectionOffsets.length && i < counts.length; i += 1) {
+    if (pixels + 0.5 >= sectionOffsets[i]) {
+      section = i;
+    } else {
+      break;
+    }
+  }
+  final double rowExtent =
+      metrics.childMainAxisExtent + metrics.mainAxisSpacing;
+  final double into = pixels - (sectionOffsets[section] + metrics.headerExtent);
+  if (into <= 0 || rowExtent <= 0) {
+    // 还停在段标题（甚至更上面）：记成第一行的「负偏移」，换算回去才是原位置。
+    // 直接填 0 的话顶部 40 来个像素会被吃掉，收起侧栏时列表会往下跳一格
+    return AlphabetScrollAnchor(section, 0, into <= 0 ? into : 0);
+  }
+  final int row = into ~/ rowExtent;
+  final int count = counts[section];
+  // 只记「这一行的第一条」：横向位置不在滚动偏移里，同一行里是哪一列无从得知，
+  // 而恢复时只要保证同一条还在顶上就够了
+  final int item = math.min(
+    row * metrics.crossAxisCount,
+    math.max(0, count - 1),
+  );
+  return AlphabetScrollAnchor(section, item, into - row * rowExtent);
+}
+
+/// 把锚点换算成新几何下的滚动偏移。
+@visibleForTesting
+double alphabetOffsetOf(
+  AlphabetGridMetrics metrics,
+  List<double> sectionOffsets,
+  AlphabetScrollAnchor anchor,
+) {
+  if (sectionOffsets.isEmpty) {
+    return 0;
+  }
+  final int section = anchor.section.clamp(0, sectionOffsets.length - 1);
+  final double rowExtent =
+      metrics.childMainAxisExtent + metrics.mainAxisSpacing;
+  final int row = metrics.crossAxisCount <= 0
+      ? 0
+      : anchor.item ~/ metrics.crossAxisCount;
+  // 行变矮之后原来的行内偏移可能超出一行，夹回一行之内；
+  // 负值（停在段标题上方）是合法的，不夹
+  final double fraction = math.min(anchor.fraction, math.max(0.0, rowExtent));
+  return sectionOffsets[section] +
+      metrics.headerExtent +
+      row * rowExtent +
+      fraction;
+}
+
 /// 按首字母分段、带右侧字母导航的网格。
 ///
 /// 专辑与艺术家共用：两边只是卡片不同，分组、跳转、贴边规则完全一致。
@@ -71,8 +151,79 @@ class AlphabetGridView<T> extends StatefulWidget {
   State<AlphabetGridView<T>> createState() => _AlphabetGridViewState<T>();
 }
 
+/// 能在**布局阶段**修正滚动像素的控制器。
+///
+/// 侧栏展开 / 收起是个 220ms 的宽度动画，内容区每帧都在变宽变窄，行高跟着变，
+/// 同一个像素每帧都指向别的位置。要是等这一帧画完再 `jumpTo` 去修，屏幕上就会
+/// 先出现一帧错位、下一帧再跳回来——每帧一次，看起来是「卡片快速上下浮动」。
+/// 这里把修正放到 [ScrollPosition.applyContentDimensions]：布局刚知道新的滚动
+/// 范围、还没落笔，直接改 `pixels`，这一帧画出来的就是修正后的位置。
+class _AnchorScrollController extends ScrollController {
+  /// 下一次布局要落到的像素（build 阶段按新几何算好），用掉即清
+  double? pendingPixels;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) {
+    return _AnchorScrollPosition(
+      physics: physics,
+      context: context,
+      initialPixels: initialScrollOffset,
+      keepScrollOffset: keepScrollOffset,
+      oldPosition: oldPosition,
+      debugLabel: debugLabel,
+      controller: this,
+    );
+  }
+}
+
+class _AnchorScrollPosition extends ScrollPositionWithSingleContext {
+  _AnchorScrollPosition({
+    required super.physics,
+    required super.context,
+    super.initialPixels,
+    super.keepScrollOffset,
+    super.oldPosition,
+    super.debugLabel,
+    required this.controller,
+  });
+
+  final _AnchorScrollController controller;
+
+  @override
+  bool correctForNewDimensions(
+    ScrollMetrics oldPosition,
+    ScrollMetrics newPosition,
+  ) {
+    // 先让默认逻辑按新尺寸调整一次（越界回收、边界回弹那些）
+    final bool settled = super.correctForNewDimensions(
+      oldPosition,
+      newPosition,
+    );
+    final double? target = controller.pendingPixels;
+    if (target == null) {
+      return settled;
+    }
+    controller.pendingPixels = null;
+    final double clamped = target.clamp(
+      newPosition.minScrollExtent,
+      newPosition.maxScrollExtent,
+    );
+    if ((clamped - pixels).abs() <= 0.01) {
+      return settled;
+    }
+    correctPixels(clamped);
+    // 返回 false = 「位置变了，请用新偏移再排一次」。视口会在**同一帧内**
+    // 重排，所以屏幕上不会出现「先画在旧位置、下一帧再跳回来」那一帧
+    return false;
+  }
+}
+
 class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
-  final ScrollController _controller = ScrollController();
+  final _AnchorScrollController _controller = _AnchorScrollController();
 
   List<AlphabetBucket<T>>? _buckets;
   List<T>? _bucketsFor;
@@ -91,6 +242,11 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
 
   /// 已经排了一次「按当前偏移补算加重项」的回调
   bool _syncScheduled = false;
+
+  /// 上一次布局用的几何与分段偏移：开关侧栏 / 拉动窗口时靠它还原锚点
+  AlphabetGridMetrics? _lastMetrics;
+  List<double> _lastSectionOffsets = const <double>[];
+  List<int> _lastCounts = const <int>[];
 
   @override
   void dispose() {
@@ -178,6 +334,29 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
     });
   }
 
+  /// 按新几何把「顶上那一条」换算成新的滚动像素，交给 [ScrollPosition] 在
+  /// **布局阶段**落笔（见 [_AnchorScrollPosition]）。
+  ///
+  /// 不在帧后再 jumpTo：那样这一帧会先画错、下一帧才跳回来，侧栏动画里每帧
+  /// 一次，看起来就是卡片快速上下浮动。
+  void _queueAnchorRestore(
+    AlphabetGridMetrics previous,
+    AlphabetGridMetrics metrics,
+    List<double> offsets,
+  ) {
+    final double before = _controller.offset;
+    final AlphabetScrollAnchor? anchor = alphabetAnchorAt(
+      previous,
+      _lastSectionOffsets,
+      _lastCounts,
+      before,
+    );
+    if (anchor == null) {
+      return;
+    }
+    _controller.pendingPixels = alphabetOffsetOf(metrics, offsets, anchor);
+  }
+
   @override
   Widget build(BuildContext context) {
     final double? columnWidthHint = widget.columnWidthHint;
@@ -202,9 +381,31 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
               ? null
               : columnWidthHint - gridRightReserve,
         );
-        _sectionOffsets = metrics.sectionOffsets(<int>[
+        final List<int> counts = <int>[
           for (final AlphabetBucket<T> bucket in buckets) bucket.length,
-        ]);
+        ];
+        final List<double> offsets = metrics.sectionOffsets(counts);
+
+        // 几何变了（开关侧栏时行高连续变化、拉窗口时列数也可能变）：先记下
+        // 「现在顶上是谁」，布局完再放回去。每帧都取一次当前偏移、换算回同一个
+        // 锚点，所以是一条自洽的迭代，不会越修越偏。
+        //
+        // 判据是「宽度有没有变」，**不能**用「行高变化超过半像素」：侧栏是缓动
+        // 曲线，首尾每帧只变零点几像素，那种帧会被漏掉、错位攒起来，表现为
+        // 动画开头和结尾各跳一小下。
+        final AlphabetGridMetrics? previous = _lastMetrics;
+        if (previous != null &&
+            _lastSectionOffsets.isNotEmpty &&
+            _controller.hasClients &&
+            (previous.viewportWidth != metrics.viewportWidth ||
+                previous.crossAxisCount != metrics.crossAxisCount ||
+                previous.aspectRatio != metrics.aspectRatio)) {
+          _queueAnchorRestore(previous, metrics, offsets);
+        }
+        _lastMetrics = metrics;
+        _lastSectionOffsets = offsets;
+        _lastCounts = counts;
+        _sectionOffsets = offsets;
         _scheduleActiveSync();
 
         return Stack(
