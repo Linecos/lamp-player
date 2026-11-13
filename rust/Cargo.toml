@@ -13,6 +13,15 @@ dunce = "1.0.4"
 # 歌词旁载文件常见 GBK / GB18030 编码（Windows 记事本另存为 ANSI）
 encoding_rs = "0.8.35"
 flutter_rust_bridge = "=2.13.0"
+# 提取封面时缩到 1024 以内再落盘：曲库里常有 3000px / 5MB 的原始封面，
+# PNG 没有 DCT 缩放，引擎会先整张解出来再缩——一次几十 MB 的瞬时占用。
+# 只开需要的那几个解码器，不拉 bmp/tiff/webp 这些用不上的。
+image = { version = "0.25", default-features = false, features = [
+    "bmp",
+    "gif",
+    "jpeg",
+    "png",
+] }
 # M2：BASS 用运行时动态加载，免链接 .lib
 libloading = "0.9.0"
 lofty = "0.25.4"

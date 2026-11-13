@@ -5,6 +5,7 @@
 
 use crate::api::model::Track;
 use anyhow::{Context, Result};
+use image::ImageEncoder;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{Accessor, ItemKey, Tag};
@@ -288,12 +289,64 @@ fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str) -> Option<
         return None;
     }
     fs::create_dir_all(covers_dir).ok()?;
-    let name = format!("{:016x}.{extension}", content_hash(data));
+    // 先归一化再落盘：之后每次显示都是「小图」，引擎不必从 3000px 的原图解起。
+    // 归一化失败（编码不支持 / 文件损坏）就退回原始字节，绝不能因此丢封面。
+    let (bytes, extension) = match normalize_cover(data) {
+        Some(jpeg) => (jpeg, "jpg"),
+        None => (data.to_vec(), extension),
+    };
+    let name = format!("{:016x}.{extension}", content_hash(&bytes));
     let path = covers_dir.join(name);
     if !path.exists() {
-        fs::write(&path, data).ok()?;
+        fs::write(&path, &bytes).ok()?;
     }
     path.to_str().map(str::to_owned)
+}
+
+/// 封面最长边上限（设备像素）。
+///
+/// 播放页那个大封面在 440 逻辑像素、2x 屏下也只有 880，1024 已经留了余量；
+/// 再大就是白白占解码内存和磁盘。
+const COVER_MAX_EDGE: u32 = 1024;
+
+/// 小于这个就不重新编码：已经够小，重编只会掉画质。
+const COVER_MAX_BYTES_KEEP: usize = 300 * 1024;
+
+/// JPEG 编码质量：q85 在缩过的封面上肉眼与原始无差，体积只有几分之一。
+const COVER_JPEG_QUALITY: u8 = 85;
+
+/// 把原始封面缩到 [`COVER_MAX_EDGE`] 以内并统一转成 JPEG。
+///
+/// 返回 `None` 表示「不需要处理」或「处理失败」，调用方应原样使用原始字节：
+/// - 已经是小图（边 ≤ 1024 且体积 ≤ 300KB）：不动它，避免无谓的重新编码
+/// - 解码失败（少见格式 / 损坏）：交回原图，至少还能显示
+///
+/// 为什么要重编码而不是只缩尺寸：PNG 没有 DCT 按比例解码，引擎会先解出整张
+/// 3000×3000（约 36MB）再缩到显示尺寸，那一下就是一次几十 MB 的瞬时尖峰。
+/// 统一成 JPEG 后源图本身就小，解码过程也就没有这个东西了。
+fn normalize_cover(data: &[u8]) -> Option<Vec<u8>> {
+    let decoded = image::load_from_memory(data).ok()?;
+    let oversized = decoded.width().max(decoded.height()) > COVER_MAX_EDGE;
+    if !oversized && data.len() <= COVER_MAX_BYTES_KEEP {
+        return None;
+    }
+    let scaled = if oversized {
+        // thumbnail 保持长宽比，只做快速盒式缩小
+        decoded.thumbnail(COVER_MAX_EDGE, COVER_MAX_EDGE)
+    } else {
+        decoded
+    };
+    let rgb = scaled.into_rgb8();
+    let mut out: Vec<u8> = Vec::with_capacity(128 * 1024);
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, COVER_JPEG_QUALITY)
+        .write_image(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .ok()?;
+    Some(out)
 }
 
 /// 带目录缓存的 [`sidecar_cover`]。
@@ -447,9 +500,10 @@ fn path_key_with(path: &str, windows: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_hash, parse_replay_gain, path_key_with, sidecar_cover, sidecar_cover_cached,
-        store_cover,
+        content_hash, normalize_cover, parse_replay_gain, path_key_with, sidecar_cover,
+        sidecar_cover_cached, store_cover, store_cover_bytes, COVER_MAX_EDGE,
     };
+    use image::ImageEncoder;
     use lofty::picture::{MimeType, Picture, PictureType};
     use std::collections::HashMap;
     use std::fs;
@@ -503,6 +557,55 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("创建临时目录");
         dir
+    }
+
+    #[test]
+    fn oversized_cover_is_downscaled_and_reencoded_as_jpeg() {
+        // 造一张 1600×1600 的 PNG：模拟曲库里那种 3000px 的原始封面。
+        // 用噪声而不是渐变：渐变 PNG 压得比 JPEG 还小，比体积会失真。
+        let mut seed: u32 = 0x1234_5678;
+        let big = image::RgbImage::from_fn(1600, 1600, |_, _| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let b = (seed >> 24) as u8;
+            image::Rgb([b, b.wrapping_add(37), b.wrapping_add(91)])
+        });
+        let mut png: Vec<u8> = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(big.as_raw(), 1600, 1600, image::ExtendedColorType::Rgb8)
+            .expect("编码 png");
+
+        let out = normalize_cover(&png).expect("超尺寸的封面应该被归一化");
+        assert!(out.starts_with(&[0xFF, 0xD8, 0xFF]), "应重编码成 JPEG");
+        let back = image::load_from_memory(&out).expect("归一化结果应能解码");
+        assert_eq!(
+            back.width().max(back.height()),
+            COVER_MAX_EDGE,
+            "最长边应缩到上限"
+        );
+        assert!(out.len() < png.len(), "归一化后体积应该更小");
+    }
+
+    #[test]
+    fn small_cover_is_left_untouched() {
+        let small = image::RgbImage::from_pixel(64, 64, image::Rgb([10, 20, 30]));
+        let mut png: Vec<u8> = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(small.as_raw(), 64, 64, image::ExtendedColorType::Rgb8)
+            .expect("编码 png");
+
+        // 已经够小：不重新编码，避免白白掉画质
+        assert!(normalize_cover(&png).is_none());
+    }
+
+    #[test]
+    fn broken_cover_bytes_fall_back_to_raw() {
+        // 解不出来时不能让封面消失：store_cover_bytes 会退回原始字节
+        let dir = temp_dir("broken_cover");
+        let covers = dir.join("covers");
+        let path = store_cover_bytes(&covers, &[0xFF, 0xD8, 0xFF, 0x01], "jpg")
+            .expect("损坏的图也要能存下来");
+        assert!(std::path::Path::new(&path).exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
