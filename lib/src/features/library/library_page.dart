@@ -10,6 +10,7 @@ import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, LogicalKeyboardKey;
 import 'package:path/path.dart' as p;
 
+import '../../app/memory_guard.dart';
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';

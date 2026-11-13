@@ -101,6 +101,9 @@ extension _PlaybackSection on _LibraryPageState {
     unawaited(_recordPlay(track.path));
     _saveSessionNow();
     _syncMediaSession();
+    // 换歌那一下是内存台阶的所在（新封面解码 + 整页第一次画）。等它画完
+    // 补查一次，别等常规周期
+    MemoryGuard.checkSoon();
     // 无标签增益且没算过：后台补算，算完写回曲库，从下一次起播开始生效。
     // 不在播放中途改音量——分析要 1~2 秒，那 1~2 秒会明显偏响再突然变小。
     if (_replayGain &&
@@ -349,6 +352,8 @@ extension _PlaybackSection on _LibraryPageState {
           _nowPlayingOpen = false;
           _nowPlayingDeviceTimer?.cancel();
           _nowPlayingDeviceTimer = null;
+          // 这一页是内存大头（流光 + 大封面 + 歌词），关掉之后立刻补查一次
+          MemoryGuard.checkSoon(delay: const Duration(seconds: 1));
         });
   }
 
