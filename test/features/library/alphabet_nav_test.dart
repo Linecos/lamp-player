@@ -73,7 +73,7 @@ void main() {
     expect(tester.getTopLeft(header).dy - top, lessThan(2));
   });
 
-  testWidgets('窗口改宽之后加重项按新几何重算，不会停在旧字母上', (WidgetTester tester) async {
+  testWidgets('窗口变窄后位置跟着内容走，加重项还是同一段', (WidgetTester tester) async {
     await _pump(
       tester,
       ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
@@ -109,14 +109,6 @@ void main() {
       return alphabetHeaderExtent + metrics.gridExtent(3);
     }
 
-    String letterAt(double width, double pixels) {
-      final int index = ((pixels - 8) / sectionExtent(width)).floor().clamp(
-        0,
-        25,
-      );
-      return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')[index];
-    }
-
     final ScrollableState scrollable = tester.state(
       find.byType(Scrollable).first,
     );
@@ -126,12 +118,101 @@ void main() {
     await tester.pump();
     expect(bold(), 'C');
 
-    // 窗口收窄：列数变了，每段高度翻倍，同一个偏移落在更早的段
+    // 窗口收窄：列数变了、每段高度翻倍。位置按「你看到的那一条」换算过去，
+    // 所以加重项还是 C，只是滚动偏移跟着变大了——不再是「偏移不动、
+    // 同一个像素指向别的段」
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.physicalSize = const Size(400, 600);
     await tester.pumpAndSettle();
-    expect(bold(), letterAt(400, pixels), reason: '换几何之后没有滚动通知，加重项也得按新偏移重算');
+    expect(bold(), 'C', reason: '换几何后位置跟着内容走，看到的还是同一段');
+    expect(
+      scrollable.position.pixels,
+      greaterThan(pixels),
+      reason: '每段变高了，同一个锚点对应的偏移也要变大',
+    );
+  });
+
+  testWidgets('侧栏动画逐帧变宽时，视口顶上那一条始终不动', (WidgetTester tester) async {
+    // 侧栏是 220ms 的缓动动画，内容区每帧都在变宽，行高跟着变。
+    // 两个要求：
+    //   1. 修正必须落在**同一帧**（帧后 jumpTo 会先画错再跳）；
+    //   2. 缓动曲线首尾每帧只变零点几像素，那种帧也必须修，否则错位会攒起来，
+    //      表现为动画开头和结尾各跳一小下。
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(1400, 700);
+    tester.view.devicePixelRatio = 1;
+
+    final ValueNotifier<double> width = ValueNotifier<double>(900);
+    addTearDown(width.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: Center(
+            child: ValueListenableBuilder<double>(
+              valueListenable: width,
+              builder: (BuildContext context, double w, Widget? _) => SizedBox(
+                width: w,
+                height: 600,
+                child: ArtistGridView(
+                  artists: manyArtists,
+                  onSelect: (_, _, _) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final ScrollableState scrollable = tester.state(
+      find.byType(Scrollable).first,
+    );
+    scrollable.position.jumpTo(2000);
+    await tester.pump();
+
+    // 每个字母下都是 3 位艺术家
+    final List<int> counts = List<int>.filled(26, 3);
+    AlphabetGridMetrics metricsAt(double w) => AlphabetGridMetrics(
+      viewportWidth: w - gridRightReserve,
+      maxCrossAxisExtent: 220,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      aspectRatio: 0.76,
+      headerExtent: alphabetHeaderExtent,
+      topPadding: 8,
+    );
+
+    final AlphabetScrollAnchor anchor = alphabetAnchorAt(
+      metricsAt(900),
+      metricsAt(900).sectionOffsets(counts),
+      counts,
+      scrollable.position.pixels,
+    )!;
+
+    // easeInOutCubic：首尾几乎不动，正是「只变了零点几像素」的那些帧
+    double easeInOut(double t) => t < 0.5
+        ? 4 * t * t * t
+        : 1 - 2 * (2 - 2 * t) * (2 - 2 * t) * (2 - 2 * t) / 2;
+
+    for (int step = 1; step <= 20; step += 1) {
+      width.value = 900 + 300 * easeInOut(step / 20);
+      await tester.pump(const Duration(milliseconds: 16));
+
+      final AlphabetGridMetrics metrics = metricsAt(width.value);
+      final List<double> offsets = metrics.sectionOffsets(counts);
+      final double expected = alphabetOffsetOf(metrics, offsets, anchor);
+      expect(
+        (scrollable.position.pixels - expected).abs(),
+        lessThan(1),
+        reason:
+            '第 $step 帧偏了 ${(scrollable.position.pixels - expected).abs()} 像素',
+      );
+    }
   });
 
   testWidgets('跨段滚动只动导航条，整棵网格不重建', (WidgetTester tester) async {
