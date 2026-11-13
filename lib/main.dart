@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
+import 'package:lamp_player/src/app/memory_guard.dart';
 import 'package:lamp_player/src/app/memory_trim.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
@@ -89,6 +90,8 @@ Future<void> main() async {
 
   _AppWindowListener(windowStore, lifecycle, tray).attach();
   _watchActivationRequests();
+  // 常驻内存看门：RSS 越过阈值就把空闲页交还系统（见 memory_guard.dart）
+  MemoryGuard.start();
 
   // `--dart-define=LAMP_MEM_LOG=true` 才真正开始打点
   startMemoryLog();
