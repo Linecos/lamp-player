@@ -20,6 +20,8 @@ class SessionSnapshot {
     this.lastPositionSecs = 0,
     this.repeat = LoopMode.off,
     this.shuffle = false,
+    this.queuePaths,
+    this.queueIndex = -1,
     this.section,
     this.railExpanded = true,
     this.sort = LibrarySort.defaultSort,
@@ -60,6 +62,15 @@ class SessionSnapshot {
   final double lastPositionSecs;
   final LoopMode repeat;
   final bool shuffle;
+
+  /// 播放队列的曲目路径（按队列顺序）；`null` 表示这次保存不碰存档里的队列。
+  ///
+  /// 队列结构没变时传 `null`：几千首的路径串每次切歌都重写一遍没意义，
+  /// 而 [queueIndex] 每次都写，足以记住放到第几首。
+  final List<String>? queuePaths;
+
+  /// 队列当前下标；空队列为 -1。`null` 表示这次保存不碰存档里的下标。
+  final int? queueIndex;
 
   /// `LibrarySection.name`；页面恢复时按名字查回枚举
   final String? section;
@@ -168,6 +179,8 @@ class PrefsSessionStore implements SessionStore {
   static const String lastPositionKey = 'player_last_position';
   static const String repeatKey = 'player_repeat';
   static const String shuffleKey = 'player_shuffle';
+  static const String queuePathsKey = 'player_queue_paths';
+  static const String queueIndexKey = 'player_queue_index';
   static const String sectionKey = 'ui_section';
   static const String railExpandedKey = 'ui_rail_expanded';
   static const String exclusiveKey = 'player_exclusive_output';
@@ -239,6 +252,8 @@ class PrefsSessionStore implements SessionStore {
         ),
         repeat: _parseRepeat(prefs.getString(repeatKey)),
         shuffle: prefs.getBool(shuffleKey) ?? false,
+        queuePaths: prefs.getStringList(queuePathsKey),
+        queueIndex: prefs.getInt(queueIndexKey) ?? -1,
         section: prefs.getString(sectionKey),
         railExpanded: prefs.getBool(railExpandedKey) ?? true,
         exclusiveOutput: prefs.getBool(exclusiveKey) ?? false,
@@ -305,6 +320,15 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setBool(circularCoversKey, snapshot.circularCovers);
       await prefs.setString(repeatKey, snapshot.repeat.name);
       await prefs.setBool(shuffleKey, snapshot.shuffle);
+      // 队列路径只在结构变化时才带过来，见 [SessionSnapshot.queuePaths]
+      final List<String>? queuePaths = snapshot.queuePaths;
+      if (queuePaths != null) {
+        await prefs.setStringList(queuePathsKey, queuePaths);
+      }
+      final int? queueIndex = snapshot.queueIndex;
+      if (queueIndex != null) {
+        await prefs.setInt(queueIndexKey, queueIndex);
+      }
       final String? section = snapshot.section;
       if (section == null || section.isEmpty) {
         await prefs.remove(sectionKey);

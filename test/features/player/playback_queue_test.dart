@@ -383,4 +383,39 @@ void main() {
     expect(queue.advance(), isNull);
     expect(queue.retreat(), isNull);
   });
+
+  test('修订号只在队列结构变化时前进，切歌与换模式不动它', () {
+    final PlaybackQueue queue = PlaybackQueue(tracks: _tracks());
+    final int start = queue.structureRevision;
+
+    queue.advance();
+    queue.retreat();
+    queue.jumpTo(2);
+    queue.setRepeat(LoopMode.all);
+    queue.setShuffle(true);
+    queue.refreshTracks(_tracks());
+    expect(queue.structureRevision, start, reason: '路径没变：会话只需要补写下标，不必重写整串路径');
+
+    queue.move(0, 2);
+    final int afterMove = queue.structureRevision;
+    expect(afterMove, greaterThan(start));
+
+    queue.append(sampleTrack(title: 'D'));
+    final int afterAppend = queue.structureRevision;
+    expect(afterAppend, greaterThan(afterMove));
+
+    queue.insertNext(sampleTrack(title: 'E'));
+    final int afterInsert = queue.structureRevision;
+    expect(afterInsert, greaterThan(afterAppend));
+
+    queue.removeAt(0);
+    final int afterRemove = queue.structureRevision;
+    expect(afterRemove, greaterThan(afterInsert));
+
+    queue.reset(<Track>[sampleTrack(title: 'X')]);
+    expect(queue.structureRevision, greaterThan(afterRemove));
+
+    queue.clear();
+    expect(queue.structureRevision, greaterThan(afterRemove + 1));
+  });
 }
