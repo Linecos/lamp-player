@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
@@ -76,10 +77,9 @@ pub fn collect_tracks_incremental(
 
     let mut collected = Collected::default();
     let added_at = now_secs();
-    // 外挂封面按目录缓存：一个 500 首的专辑目录只有一张 folder.jpg，
-    // 不缓存的话每首都 read_dir 一遍目录、再把整张图读进来算哈希
-    // （8 MB 的图 × 500 次 ≈ 4 GB IO），首扫会卡在磁盘上。
-    let mut sidecar_cache: SidecarCache = HashMap::new();
+    // 遍历阶段只取指纹，解析留给线程池：walkdir + metadata 是顺序 IO，
+    // 解析（读标签、解封面）才是耗时的大头。
+    let mut pending: Vec<Candidate> = Vec::new();
 
     // 不跟随软链接，避免目录环导致无限遍历
     for entry in WalkDir::new(folder).follow_links(false) {
@@ -137,20 +137,97 @@ pub fn collect_tracks_incremental(
             continue;
         }
 
-        match read_track_guarded(
-            path,
-            added_at,
+        pending.push(Candidate {
+            path: path.to_path_buf(),
             mtime_ns,
             size,
-            covers_dir,
-            &mut sidecar_cache,
-        ) {
-            Ok(track) => collected.tracks.push(track),
-            Err(_) => collected.failed += 1,
-        }
+        });
     }
 
+    // 外挂封面按目录缓存：一个 500 首的专辑目录只有一张 folder.jpg，
+    // 不缓存的话每首都 read_dir 一遍目录、再把整张图读进来算哈希
+    // （8 MB 的图 × 500 次 ≈ 4 GB IO），首扫会卡在磁盘上。
+    let sidecar_cache: Mutex<SidecarCache> = Mutex::new(HashMap::new());
+    let (tracks, failed) = parse_candidates(&pending, added_at, covers_dir, &sidecar_cache);
+    collected.tracks = tracks;
+    collected.failed = failed;
+
     Ok(collected)
+}
+
+/// 并行解析的线程上限。
+///
+/// 本机（20 线程）实测 101 首真实曲库：串行 7.0s → 4 线程 2.3s → 8 线程 1.4s，
+/// 再往上收益已经很小。不能只按核数开：封面归一化每条线程都要解一张原图
+/// （3000px 的图瞬时几十 MB），线程越多扫描峰值内存越高。核数少的机器
+/// `available_parallelism` 会给更小的值，自然降下来。
+const PARSE_THREADS_MAX: usize = 8;
+
+/// 遍历阶段收集到的待解析文件
+struct Candidate {
+    path: PathBuf,
+    mtime_ns: i64,
+    size: i64,
+}
+
+/// 并行解析候选文件，结果顺序与 `pending` 一致。
+fn parse_candidates(
+    pending: &[Candidate],
+    added_at: i64,
+    covers_dir: Option<&Path>,
+    cache: &Mutex<SidecarCache>,
+) -> (Vec<ScannedTrack>, usize) {
+    let threads = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .clamp(1, PARSE_THREADS_MAX)
+        .min(pending.len().max(1));
+    if threads <= 1 {
+        return parse_range(pending, added_at, covers_dir, cache);
+    }
+
+    let chunk = pending.len().div_ceil(threads);
+    let mut tracks = Vec::with_capacity(pending.len());
+    let mut failed = 0;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = pending
+            .chunks(chunk)
+            .map(|slice| scope.spawn(move || parse_range(slice, added_at, covers_dir, cache)))
+            .collect();
+        for handle in handles {
+            // 单个文件的 panic 已在 read_track_guarded 里兜住；这里再兜一层，
+            // 线程真挂了也只丢这一批，不能让整个扫描崩掉
+            let (mut chunk_tracks, chunk_failed) = handle.join().unwrap_or_default();
+            tracks.append(&mut chunk_tracks);
+            failed += chunk_failed;
+        }
+    });
+    (tracks, failed)
+}
+
+/// 解析一段候选，返回（成功解析的曲目，失败数）
+fn parse_range(
+    slice: &[Candidate],
+    added_at: i64,
+    covers_dir: Option<&Path>,
+    cache: &Mutex<SidecarCache>,
+) -> (Vec<ScannedTrack>, usize) {
+    let mut tracks = Vec::with_capacity(slice.len());
+    let mut failed = 0;
+    for candidate in slice {
+        match read_track_guarded(
+            &candidate.path,
+            added_at,
+            candidate.mtime_ns,
+            candidate.size,
+            covers_dir,
+            cache,
+        ) {
+            Ok(track) => tracks.push(track),
+            Err(_) => failed += 1,
+        }
+    }
+    (tracks, failed)
 }
 
 /// 按扩展名判断是否是候选音频文件（不区分大小写）
@@ -178,7 +255,7 @@ fn read_track_guarded(
     mtime_ns: i64,
     size: i64,
     covers_dir: Option<&Path>,
-    sidecar_cache: &mut SidecarCache,
+    sidecar_cache: &Mutex<SidecarCache>,
 ) -> Result<ScannedTrack> {
     match catch_unwind(AssertUnwindSafe(|| {
         read_track(path, added_at, mtime_ns, size, covers_dir, sidecar_cache)
@@ -197,7 +274,7 @@ fn read_track(
     mtime_ns: i64,
     size: i64,
     covers_dir: Option<&Path>,
-    sidecar_cache: &mut SidecarCache,
+    sidecar_cache: &Mutex<SidecarCache>,
 ) -> Result<ScannedTrack> {
     let tagged = lofty::read_from_path(path)
         .with_context(|| format!("解析元数据失败: {}", path.display()))?;
@@ -354,18 +431,28 @@ fn normalize_cover(data: &[u8]) -> Option<Vec<u8>> {
 /// 同一目录下的曲目共用一张外挂封面，命中一次就够：缓存的是「找到 + 落盘」
 /// 之后的缓存文件名，后续曲目直接复用，不再 `read_dir` 目录、也不再整张读图。
 /// 只在单次扫描内有效——扫描期间用户换封面属极少见，下次扫描自然纠正。
+///
+/// 缓存要跨解析线程共享，读盘那一段放在锁外：一张 8 MB 的外挂图不该把
+/// 其它线程堵在锁上。两个线程同时首次命中同一目录时最多各读一遍，结果相同。
 fn sidecar_cover_cached(
     path: &Path,
     covers_dir: &Path,
-    cache: &mut SidecarCache,
+    cache: &Mutex<SidecarCache>,
 ) -> Option<String> {
     let dir = path.parent()?;
-    if let Some(cached) = cache.get(dir) {
+    if let Some(cached) = lock_cache(cache).get(dir) {
         return cached.clone();
     }
     let found = sidecar_cover(path, covers_dir);
-    cache.insert(dir.to_path_buf(), found.clone());
-    found
+    lock_cache(cache)
+        .entry(dir.to_path_buf())
+        .or_insert(found)
+        .clone()
+}
+
+/// 取缓存锁；锁中毒（某个解析线程 panic）时继续用，不能让一次 panic 毁掉整次扫描。
+fn lock_cache(cache: &Mutex<SidecarCache>) -> MutexGuard<'_, SidecarCache> {
+    cache.lock().unwrap_or_else(|err| err.into_inner())
 }
 
 /// 同目录外挂封面兜底：`cover.jpg` / `folder.jpg` / `album.png` 之类。
@@ -500,7 +587,7 @@ fn path_key_with(path: &str, windows: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_hash, normalize_cover, parse_replay_gain, path_key_with, sidecar_cover,
+        content_hash, lock_cache, normalize_cover, parse_replay_gain, path_key_with, sidecar_cover,
         sidecar_cover_cached, store_cover, store_cover_bytes, COVER_MAX_EDGE,
     };
     use image::ImageEncoder;
@@ -508,6 +595,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -654,14 +742,14 @@ mod tests {
         let cover = dir.join("cover.jpg");
         fs::write(&cover, [0xFF, 0xD8, 0xFF, 0x33]).expect("写 cover.jpg");
 
-        let mut cache = HashMap::new();
-        let first = sidecar_cover_cached(&track, &covers, &mut cache).expect("首次应命中");
+        let cache = Mutex::new(HashMap::new());
+        let first = sidecar_cover_cached(&track, &covers, &cache).expect("首次应命中");
 
         // 删掉原图：缓存生效时第二次仍返回同一结果，说明没有再读盘
         fs::remove_file(&cover).expect("删除原图");
         assert_eq!(
             Some(first),
-            sidecar_cover_cached(&track, &covers, &mut cache),
+            sidecar_cover_cached(&track, &covers, &cache),
             "同一目录第二次应走缓存",
         );
 
@@ -669,8 +757,11 @@ mod tests {
         let empty = temp_dir("sidecar_cache_empty");
         let bare = empty.join("b.mp3");
         fs::write(&bare, b"x").expect("写曲目占位");
-        assert!(sidecar_cover_cached(&bare, &covers, &mut cache).is_none());
-        assert!(cache.contains_key(empty.as_path()), "空结果也应缓存");
+        assert!(sidecar_cover_cached(&bare, &covers, &cache).is_none());
+        assert!(
+            lock_cache(&cache).contains_key(empty.as_path()),
+            "空结果也应缓存"
+        );
 
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&empty);
