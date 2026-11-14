@@ -55,6 +55,7 @@
 | 深色/浅色主题在真实曲库下走查 | Dart `theme/` + 页面 | 小 | 待认领 |
 | 万级曲库扫描与列表性能压测，出数据 | 全体 | 中 | 待认领 |
 | Windows release 构建实测 + 打包 zip（含 bass.dll 与许可说明） | 构建 | 中 | 待认领 |
+| 全局媒体键（`RegisterHotKey`，SMTC 会话被抢时兜底） | Rust `global_hotkeys` + Dart `features/player` | 中 | **已撤回**：空闲时会独占别的播放器的键，暂停后释放又让播放键落不到本应用；媒体键统一交给 SMTC，热键代码已删除 |
 | 打 tag + 发布 workflow（`v*` 触发，产物挂 Release） | CI | 中 | 待认领 |
 | README 补截图 / GIF | 文档 | 小 | **[入门]** 待认领 |
 

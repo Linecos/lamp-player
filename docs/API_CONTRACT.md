@@ -1,8 +1,14 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.12（2026-11-05）**
+> **当前版本：v0.14（2026-11-14）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.14 变更：**删除** `media_hotkeys_supported` / `media_hotkey_commands` 与
+> `MediaHotkeyCommand`（全局媒体键 `RegisterHotKey` 整体移除）。媒体键统一交给 SMTC
+> 按「谁在播放」路由：暂停后按播放会回到本应用，应用空闲时也不会抢占别的播放器。
+>
+> v0.13 变更（已撤回）：曾新增上述三个符号，同日移除。
 >
 > v0.12 变更：新增 `player_set_volume_fade`（音量过渡开关，默认开）。开启时暂停 /
 > 停止先淡出再收尾（状态立即生效），起播与定位后淡入，定位是「瞬间静音 → 跳转 →
@@ -369,8 +375,9 @@
 
 ## 10. 系统集成 `api::media`
 
-Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、没有也能用」：
-非 Windows 或系统不支持时返回错误 / 安全默认值，调用方忽略即可，**不能影响播放**。
+Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与单实例。这些功能都是
+「有更好、没有也能用」：非 Windows 或系统不支持时返回错误 / 安全默认值，调用方忽略
+即可，**不能影响播放**。
 
 | Rust 签名 | Dart 签名 | sync | 状态 |
 |---|---|---|---|
@@ -391,6 +398,12 @@ Windows 系统媒体控制（SMTC）与单实例。两者都是「有更好、�
 - `media_set_track` 的 `cover_path` 指向本地图片，读不到时只用文字（不报错）。
 - `media_commands` **只能订阅一次**：重复注册会让每个媒体键触发多次。
   命令含义：`play` / `pause` / `next` / `previous` / `stop`（`stop` 只停音频、保留曲目）。
+- **媒体键只走 SMTC 一条路，没有全局注册**：`RegisterHotKey` 会让应用空闲时全局
+  独占、吃掉别的播放器的媒体键；改成「只在出声时占用」又在暂停后把键交还系统，
+  再按播放常常落不到本应用。交给系统按「谁在播放」路由后，暂停时 SMTC 会话仍在，
+  按播放会回到本应用。曾经的 `media_hotkeys_supported` / `media_hotkey_commands`
+  与 `MediaHotkeyCommand` 已从接口面删除（v0.14）。
+- 代价（已知并接受）：SMTC 会话被别的播放器抢走时，本应用收不到媒体键。
 - `single_instance_acquire` 返回 `false` 表示已有实例：调用 `single_instance_signal_existing`
   （命名事件）通知它把窗口亮出来，然后退出即可。互斥体句柄活到进程结束，
   同一进程内重复调用恒为 `true`。
