@@ -582,27 +582,32 @@ void main() {
     );
     expect(customCard, findsOneWidget, reason: '笔形色卡在系统格之后');
     expect(
-      find.byKey(const ValueKey<String>('custom-seed-wheel')),
+      find.byKey(const ValueKey<String>('custom-seed-field')),
       findsNothing,
-      reason: '未点开前不展示色轮',
+      reason: '未点开前不展示色域方块',
     );
 
     await tester.tap(customCard);
     await tester.pumpAndSettle();
 
-    final Finder wheel = find.byKey(
-      const ValueKey<String>('custom-seed-wheel'),
+    final Finder field = find.byKey(
+      const ValueKey<String>('custom-seed-field'),
     );
-    expect(wheel, findsOneWidget, reason: '色轮在独立弹窗里');
+    expect(field, findsOneWidget, reason: '色域方块在独立弹窗里');
     expect(find.text('自定义颜色'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('custom-seed-value')),
+      find.byKey(const ValueKey<String>('custom-seed-hue')),
       findsOneWidget,
-      reason: '明度单独一条滑杆',
+      reason: '色相单独一条滑杆',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('custom-seed-value')),
+      findsNothing,
+      reason: '明度已经在方块的纵轴上，不再单独给滑杆',
     );
 
-    // 点色轮右侧（红/橙区靠外圈）：种子色应立刻离开默认暖黄
-    final Offset center = tester.getCenter(wheel);
+    // 点方块右侧：饱和度拉满，种子色应立刻离开默认暖黄
+    final Offset center = tester.getCenter(field);
     await tester.tapAt(center + const Offset(60, 0));
     await tester.pumpAndSettle();
 
@@ -891,12 +896,16 @@ void main() {
     await tester.pumpAndSettle();
 
     // AlertDialog 的 content 是有界高度：Column 一旦用 max 就会把弹窗撑满，
-    // 中间留一大片空白。这里卡住「滑杆到底部按钮」的间距
-    final Rect slider = tester.getRect(
-      find.byKey(const ValueKey<String>('custom-seed-value')),
+    // 中间留一大片空白。这里卡住「取色区最后一行到底部按钮」的间距
+    final Rect lastRow = tester.getRect(
+      find.byKey(const ValueKey<String>('custom-seed-hex')),
     );
     final Rect done = tester.getRect(find.text('完成').last);
-    expect(done.top - slider.bottom, lessThan(90), reason: '滑杆与底部按钮之间不该有大片空白');
+    expect(
+      done.top - lastRow.bottom,
+      lessThan(90),
+      reason: '最后一行与底部按钮之间不该有大片空白',
+    );
 
     // 拖动中不推主题：每次 setSeedColor 都会触发 200ms 主题过渡动画，
     // 连续推等于让动画永不结束、整棵树每帧插值重建
@@ -904,7 +913,7 @@ void main() {
     controller.addListener(() => notifies += 1);
 
     final Offset center = tester.getCenter(
-      find.byKey(const ValueKey<String>('custom-seed-wheel')),
+      find.byKey(const ValueKey<String>('custom-seed-field')),
     );
     final TestGesture drag = await tester.startGesture(
       center + const Offset(40, 0),
@@ -920,6 +929,93 @@ void main() {
     await tester.pumpAndSettle();
     expect(notifies, 1, reason: '松手提交一次');
     expect(controller.seedColor, isNotNull);
+  });
+
+  testWidgets('二维色域方块：左上近白、右下近黑，横向就是饱和度', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
+    await tester.pumpAndSettle();
+
+    final Rect field = tester.getRect(
+      find.byKey(const ValueKey<String>('custom-seed-field')),
+    );
+    expect(field.width, greaterThan(200), reason: '方块应该横满弹窗');
+    expect(field.height, greaterThan(100));
+
+    int channel(Color color, int shift) => (color.toARGB32() >> shift) & 0xFF;
+    bool nearWhite(Color color) =>
+        channel(color, 16) > 235 &&
+        channel(color, 8) > 235 &&
+        channel(color, 0) > 235;
+    bool nearBlack(Color color) =>
+        channel(color, 16) < 20 &&
+        channel(color, 8) < 20 &&
+        channel(color, 0) < 20;
+
+    // 左上角：饱和度 0、明度 1 → 白
+    await tester.tapAt(field.topLeft + const Offset(2, 2));
+    await tester.pumpAndSettle();
+    expect(nearWhite(controller.seedColor!), isTrue, reason: '左上应是白');
+
+    // 右下角：饱和度 1、明度 0 → 黑
+    await tester.tapAt(field.bottomRight - const Offset(2, 2));
+    await tester.pumpAndSettle();
+    expect(nearBlack(controller.seedColor!), isTrue, reason: '右下应是黑');
+
+    // 同一行（明度相同）里横向往右：最小通道被压下去 = 饱和度在涨
+    List<int> channels(Color color) => <int>[
+      (color.toARGB32() >> 16) & 0xFF,
+      (color.toARGB32() >> 8) & 0xFF,
+      color.toARGB32() & 0xFF,
+    ];
+    int brightest(Color color) =>
+        channels(color).reduce((int a, int b) => a > b ? a : b);
+    int darkest(Color color) =>
+        channels(color).reduce((int a, int b) => a < b ? a : b);
+
+    await tester.tapAt(
+      Offset(field.left + field.width * 0.15, field.center.dy),
+    );
+    await tester.pumpAndSettle();
+    final Color pale = controller.seedColor!;
+
+    await tester.tapAt(Offset(field.left + field.width * 0.9, field.center.dy));
+    await tester.pumpAndSettle();
+    final Color vivid = controller.seedColor!;
+
+    expect(
+      (brightest(vivid) - brightest(pale)).abs(),
+      lessThan(30),
+      reason: '同一行明度不该变',
+    );
+    expect(
+      darkest(vivid),
+      lessThan(darkest(pale) - 40),
+      reason: '越靠右越浓，最小通道该被压下去',
+    );
   });
 
   testWidgets('自定义取色：十六进制输入可应用，非法码只染红边框', (WidgetTester tester) async {
