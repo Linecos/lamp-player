@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/widgets/toast_pill.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_revision.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
@@ -448,7 +449,7 @@ void main() {
 
     expect(repository.scannedFolders, <String>[r'D:\Music']);
     expect(session.snapshot.coverBackfillAttempted, isTrue);
-    expect(find.byType(SnackBar), findsNothing, reason: '补扫应静默进行');
+    expect(find.byType(ToastPill), findsNothing, reason: '补扫应静默进行');
   });
 
   testWidgets('已尝试过补扫时启动不再自动扫描', (WidgetTester tester) async {

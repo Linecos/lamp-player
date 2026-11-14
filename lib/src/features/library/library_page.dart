@@ -11,6 +11,7 @@ import 'package:flutter/services.dart'
 import 'package:path/path.dart' as p;
 
 import '../../app/memory_guard.dart';
+import '../../app/app_toast.dart';
 import '../../app/session_store.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
@@ -278,7 +279,9 @@ class _LibraryPageState extends State<LibraryPage>
 
   /// 只驱动侧栏展开 / 收起的通知器：折叠时整页不重建，
   /// 内容区宽度交给 Row 的重新布局，不必走一遍 build
-  final ValueNotifier<bool> _railNotifier = ValueNotifier<bool>(true);
+  /// 侧栏展开状态的**真实来源**；`LibraryRail.expandedNotifier` 是给曲库页之外
+  /// 的浮层用的镜像，两处必须一起写（见 [_toggleRailExpanded]）
+  final ValueNotifier<bool> _railNotifier = LibraryRail.expandedNotifier;
 
   /// 内容区实际显示的分区。
   ///
@@ -949,7 +952,6 @@ class _LibraryPageState extends State<LibraryPage>
     _sectionFade.dispose();
     _sleepTimer.dispose();
     _sectionNotifier.dispose();
-    _railNotifier.dispose();
     _devicesNotifier.dispose();
     _outputDeviceNotifier.dispose();
     if (_spectrumActive) {
