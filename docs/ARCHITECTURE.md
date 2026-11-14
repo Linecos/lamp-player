@@ -55,7 +55,8 @@
 | `rust/src/api/` | 对 Dart 的接口面 | 每个模块一个文件 |
 | `rust/src/scanner.rs` | 目录遍历 + 标签解析（walkdir + lofty） | 内部模块，不经 frb 导出，便于脱离数据库测试 |
 | `rust/src/bass.rs` | 对外公开 API 与 `State`（薄壳，按平台 `#[path]` 选实现） | 只暴露函数，不含实现 |
-| `rust/src/lyrics.rs` | 歌词读取（旁载 `.lrc` / 内嵌标签）与 LRC 解析 | 纯逻辑，可单测；`api::lyrics` 只做类型转换 |
+| `rust/src/lyrics.rs` | 歌词读取（旁载 `.lrc` / `.ttml` / 内嵌标签）与 LRC 解析 | 纯逻辑，可单测；`api::lyrics` 只做类型转换 |
+| `rust/src/lyrics_ttml.rs` | TTML 歌词解析（`<p>` 行 / `<span>` 逐字 / `x-translation` 译文） | 自带小型 XML 扫描器，不引外部 crate |
 | `rust/src/smtc.rs` | Windows 系统媒体控制（媒体键 / 任务栏按钮 / 音量浮层） | 借静音 `MediaPlayer` 取 SMTC；非 Windows 不编译 |
 | `rust/src/single_instance.rs` | 命名互斥体 + 唤起已有窗口 | 句柄活到进程结束 |
 | `rust/src/media_platform.rs` | 上面两者的平台门面（含非 Windows 空实现） | 放在 `api/` 之外，避免被 frb 当成导出接口 |
