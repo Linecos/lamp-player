@@ -203,6 +203,123 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('重启后恢复上次的播放队列，而不是整个曲库', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    // 上次是从只有「潮汐」的队列里放的（比如歌单），重启后不该变成整个曲库
+    final FakeSessionStore store = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        coverBackfillAttempted: true,
+        lastTrackPath: '/music/潮汐.mp3',
+        lastPositionSecs: 30,
+        queuePaths: <String>['/music/潮汐.mp3'],
+        queueIndex: 0,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: store,
+    );
+
+    expect(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('潮汐')),
+      findsOneWidget,
+    );
+    expect(find.text('00:30'), findsOneWidget, reason: '位置也照旧续上');
+    expect(playback.preloadedPaths, <String>['/music/潮汐.mp3']);
+
+    await tester.tap(find.byTooltip('播放队列'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('queue-item-0')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('queue-item-1')),
+      findsNothing,
+      reason: '队列应只有存档里的那一首，不该用整个曲库重排',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('队列里已被删掉的曲目跳过，当前曲目缺失就从 0 开始', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    // 下标 1 的那首文件没了：当前曲目跟着顶上来的「夜航」，位置不能沿用旧的
+    final FakeSessionStore store = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        coverBackfillAttempted: true,
+        lastTrackPath: '/music/已删除.mp3',
+        lastPositionSecs: 42,
+        queuePaths: <String>['/music/夜航.mp3', '/music/已删除.mp3'],
+        queueIndex: 1,
+      ),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: store,
+    );
+
+    expect(
+      find.descendant(of: find.byType(PlayerBar), matching: find.text('夜航')),
+      findsOneWidget,
+    );
+    expect(find.text('00:00'), findsOneWidget, reason: '换成了另一首，不能跳到上次的位置');
+    expect(playback.preloadedPaths, <String>['/music/夜航.mp3']);
+
+    await tester.tap(find.byTooltip('播放队列'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('queue-item-0')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('queue-item-1')),
+      findsNothing,
+      reason: '对不上的路径直接跳过',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('起播后把队列路径与下标写进会话', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    final FakeSessionStore store = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+      sessionStore: store,
+    );
+
+    await tester.tap(find.text('潮汐'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final List<String>? paths = store.snapshot.queuePaths;
+    expect(
+      paths,
+      containsAll(<String>['/music/夜航.mp3', '/music/潮汐.mp3']),
+      reason: '从曲库起播时整个曲库就是队列',
+    );
+    final int? index = store.snapshot.queueIndex;
+    expect(index, isNotNull);
+    expect(paths![index!], '/music/潮汐.mp3', reason: '下标要指向正在播的那首');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('播放成功会写入播放历史', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

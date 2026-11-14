@@ -73,6 +73,14 @@ class PlaybackQueue {
   /// 会指向别的歌——这一点比「只在长度变短时剔越界」更严。
   final List<int> _shufflePool = <int>[];
 
+  /// 曲目列表的修订号：只有重排 / 删曲 / 插入 / 换队列才加一。
+  ///
+  /// 会话持久化拿它判断「队列结构变了没有」——没变就只写下标，不必每次
+  /// 切歌都把整串路径重新落盘（几千首的路径一次几百 KB）。
+  int _structureRevision = 0;
+
+  int get structureRevision => _structureRevision;
+
   /// 队列快照（只读）；UI 只展示，不直接改
   List<Track> get tracks => List<Track>.unmodifiable(_tracks);
 
@@ -266,6 +274,7 @@ class PlaybackQueue {
     _history.clear();
     _shufflePool.clear();
     _shuffleNext = null;
+    _structureRevision += 1;
   }
 
   /// 移除队列里第 [index] 首，返回被移除的是否是当前曲目。
@@ -304,6 +313,7 @@ class PlaybackQueue {
     }
     // 下标整体平移了，已经抽好的那一首不再可信，重新抽
     _shuffleNext = null;
+    _structureRevision += 1;
   }
 
   bool removeAt(int index) {
@@ -332,6 +342,7 @@ class PlaybackQueue {
       _shiftShufflePool(removed: index);
     }
     _shuffleNext = null;
+    _structureRevision += 1;
     return wasCurrent;
   }
 
@@ -342,6 +353,7 @@ class PlaybackQueue {
     _history.clear();
     _shufflePool.clear();
     _shuffleNext = null;
+    _structureRevision += 1;
   }
 
   /// 用同一批路径的新曲目对象替换队列里的旧对象（扫描后封面等字段会更新）。
@@ -388,6 +400,7 @@ class PlaybackQueue {
       // 否则下次随机又会抽到别处，点了听不到
       _shuffleNext = _index + 1;
     }
+    _structureRevision += 1;
     return true;
   }
 
@@ -407,6 +420,7 @@ class PlaybackQueue {
     if (_shuffle && _shufflePool.isNotEmpty) {
       _shufflePool.insert(0, _tracks.length - 1);
     }
+    _structureRevision += 1;
     return true;
   }
 

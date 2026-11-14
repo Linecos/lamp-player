@@ -257,6 +257,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 播放队列：曲目顺序、循环 / 随机、上一首历史都在里面
   final PlaybackQueue _queue = PlaybackQueue();
 
+  /// 队列结构上次落盘时的修订号；`-1` 表示还没写过（第一次保存必带路径）
+  int _savedQueueRevision = -1;
+
+  /// 会话恢复完成前不写队列：那时 `_queue` 还是空的，写下去会把存档里的队列冲掉
+  bool _sessionLoaded = false;
+
   Timer? _debounce;
   Timer? _positionTimer;
   Timer? _volumeTimer;
@@ -1069,6 +1075,7 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _restoreLastTrack(snapshot);
+    _sessionLoaded = true;
     _maybePreloadRestoredTrack();
     unawaited(_restoreDesktopLyrics());
 
@@ -1096,25 +1103,34 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
+  /// 恢复上次的播放队列、当前曲目与进度。
+  ///
+  /// 队列优先：上次从歌单 / 专辑开始放的，队列就是那一小份，重启后不该变成
+  /// 整个曲库。队列里的路径要按曲库重建 `Track`（扫描后封面等字段会更新），
+  /// 对不上的曲目（文件被删）直接跳过，当前下标跟着往前挪。
+  ///
+  /// 老存档没有队列：退回「整个曲库 + 上次曲目下标」的老做法。
   void _restoreLastTrack(SessionSnapshot snapshot) {
-    final String? path = snapshot.lastTrackPath;
-    if (path == null || path.isEmpty) {
+    final Track? fromQueue = _restoreQueue(snapshot);
+    final Track? track = fromQueue ?? _trackByPath(snapshot.lastTrackPath);
+    if (track == null) {
       return;
     }
-    final int index = _tracks.indexWhere(
-      (Track track) => _samePath(track.path, path),
-    );
-    if (index < 0) {
-      return;
-    }
-    final Track track = _tracks[index];
     final double duration = track.durationSecs;
-    final bool finished =
-        duration > 0 && snapshot.lastPositionSecs >= duration - 2;
-    final double position = finished
-        ? 0
-        : snapshot.lastPositionSecs.clamp(0.0, max(duration, 0));
-    _queue.reset(_tracks, index: index);
+    // 位置只在恢复出来的正是上次那首时续上；当前曲目被删、顶上来的成了另一首，
+    // 就从 0 开始
+    final String? savedPath = snapshot.lastTrackPath;
+    final double saved = savedPath != null && _samePath(track.path, savedPath)
+        ? snapshot.lastPositionSecs
+        : 0;
+    final bool finished = duration > 0 && saved >= duration - 2;
+    final double position = finished ? 0 : saved.clamp(0.0, max(duration, 0));
+    if (fromQueue == null) {
+      final int index = _tracks.indexWhere(
+        (Track item) => _samePath(item.path, track.path),
+      );
+      _queue.reset(_tracks, index: index < 0 ? 0 : index);
+    }
     setState(() {
       _currentTrack = track;
       _duration = duration;
@@ -1123,6 +1139,58 @@ class _LibraryPageState extends State<LibraryPage>
       _isPlaying = false;
     });
     _publishProgress();
+  }
+
+  /// 按存档里的路径重建播放队列，返回恢复出来的当前曲目。
+  ///
+  /// 返回 `null` 表示没有可恢复的队列（老存档 / 路径全对不上），调用方走老路。
+  Track? _restoreQueue(SessionSnapshot snapshot) {
+    final List<String>? paths = snapshot.queuePaths;
+    if (paths == null) {
+      return null;
+    }
+    final Map<String, Track> byPath = <String, Track>{
+      for (final Track track in _tracks) _pathKey(track.path): track,
+    };
+    final int savedIndex = snapshot.queueIndex ?? -1;
+    final List<Track> restored = <Track>[];
+    int index = 0;
+    bool currentFound = false;
+    int droppedBefore = 0;
+    for (int i = 0; i < paths.length; i += 1) {
+      final Track? track = byPath[_pathKey(paths[i])];
+      if (track == null) {
+        if (i < savedIndex) {
+          droppedBefore += 1;
+        }
+        continue;
+      }
+      if (i == savedIndex) {
+        index = restored.length;
+        currentFound = true;
+      }
+      restored.add(track);
+    }
+    if (restored.isEmpty) {
+      return null;
+    }
+    if (!currentFound) {
+      index = (savedIndex - droppedBefore).clamp(0, restored.length - 1);
+    }
+    _queue.reset(restored, index: index);
+    return _queue.current;
+  }
+
+  Track? _trackByPath(String? path) {
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+    for (final Track track in _tracks) {
+      if (_samePath(track.path, path)) {
+        return track;
+      }
+    }
+    return null;
   }
 
   LibrarySection _sectionFromName(String? name) {
@@ -1166,6 +1234,16 @@ class _LibraryPageState extends State<LibraryPage>
   Future<void> _saveSession() {
     // 窗口位置不在 Dart 侧维护：拖动由系统处理，只能问窗口线程要
     final (int, int)? lyricPosition = _currentDesktopLyricPosition();
+    // 队列结构没变就只写下标：几千首的路径每次切歌都重写一遍没意义。
+    // 曲库读失败时 `_queue` 必然是空的，这时候写下去等于把存档里的队列冲掉
+    final bool writeQueue = _sessionLoaded && _error == null;
+    final int queueRevision = _queue.structureRevision;
+    final List<String>? queuePaths =
+        !writeQueue || queueRevision == _savedQueueRevision
+        ? null
+        : _queue.tracks
+              .map((Track track) => track.path)
+              .toList(growable: false);
     final SessionSnapshot snapshot = SessionSnapshot(
       volume: _volume,
       lastVolume: _lastVolume,
@@ -1173,6 +1251,8 @@ class _LibraryPageState extends State<LibraryPage>
       lastPositionSecs: _currentTrack == null ? 0 : _position,
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,
+      queuePaths: queuePaths,
+      queueIndex: writeQueue ? _queue.index : null,
       section: _section.name,
       railExpanded: _railExpanded,
       sort: _sort,
@@ -1211,6 +1291,7 @@ class _LibraryPageState extends State<LibraryPage>
     _saveChain = _saveChain.then((_) async {
       try {
         await _sessionStore.save(snapshot);
+        _savedQueueRevision = queueRevision;
       } catch (error) {
         debugPrint('保存会话失败：$error');
       }

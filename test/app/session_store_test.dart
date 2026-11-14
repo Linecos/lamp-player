@@ -226,6 +226,37 @@ void main() {
     expect(snapshot.eqGains, <double>[1.5, -2.5, 0, 0, 0, 3, 0, 0, -1, 0]);
   });
 
+  test('播放队列的路径与下标可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    expect((await store.load()).queuePaths, isNull, reason: '没存过 = 老存档，恢复时走老路');
+
+    await store.save(
+      const SessionSnapshot(
+        queuePaths: <String>['/music/a.mp3', '/music/b.mp3'],
+        queueIndex: 1,
+      ),
+    );
+    final SessionSnapshot loaded = await store.load();
+    expect(loaded.queuePaths, <String>['/music/a.mp3', '/music/b.mp3']);
+    expect(loaded.queueIndex, 1);
+
+    // 结构没变时只带下标：路径要沿用上一次那份，不能被冲掉
+    await store.save(const SessionSnapshot(queueIndex: 0));
+    final SessionSnapshot again = await store.load();
+    expect(again.queuePaths, <String>['/music/a.mp3', '/music/b.mp3']);
+    expect(again.queueIndex, 0);
+
+    // 清空队列要落成空列表，而不是「没存过」
+    await store.save(
+      const SessionSnapshot(queuePaths: <String>[], queueIndex: -1),
+    );
+    final SessionSnapshot cleared = await store.load();
+    expect(cleared.queuePaths, isEmpty);
+    expect(cleared.queueIndex, -1);
+  });
+
   _volumeCurveMigrationTests();
 }
 
