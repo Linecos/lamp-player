@@ -127,11 +127,15 @@ class _ArtistCardState extends State<_ArtistCard> {
                         height: size,
                         child: CoverFlightTarget(
                           hidden: hidden,
+                          // 网格里的小头像按 0.75 档解码：圆外全被裁掉，显示又
+                          // 只有一两百逻辑像素，满档解码是纯浪费（位图 + GPU
+                          // 纹理各按 0.75² ≈ 0.56 算，两边各省近一半）
                           child: artistAvatar(
                             context,
                             artist.name,
                             size,
                             coverPath: artist.coverPath,
+                            decodeScale: 0.75,
                           ),
                         ),
                       ),

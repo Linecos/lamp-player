@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/features/library/widgets/cover_flight.dart';
 
 /// 写一张 8×8 的 PNG 出来：封面要走真实文件才会建 `Image`，
 /// 路径不存在会变成解码错误。
@@ -75,5 +76,77 @@ void main() {
     await tester.pumpWidget(_wrap(AlbumCover(path: path, size: 620)));
     await tester.pumpAndSettle();
     expect(_decodeWidth(tester), greaterThan(first));
+  });
+
+  testWidgets('decodeScale 按显示尺寸打折解码：圆头像省掉被裁掉的那圈', (WidgetTester tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final String path = await _writePng(tester);
+    addTearDown(() => File(path).deleteSync());
+
+    await tester.pumpWidget(_wrap(AlbumCover(path: path, size: 240)));
+    await tester.pumpAndSettle();
+    final int full = _decodeWidth(tester);
+
+    await tester.pumpWidget(
+      _wrap(AlbumCover(path: path, size: 240, decodeScale: 0.75)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      _decodeWidth(tester),
+      coverDecodeWidth(180, 1),
+      reason: '0.75 档：按 180 取档，位图与纹理都只剩一半左右',
+    );
+    expect(_decodeWidth(tester), lessThan(full));
+
+    // 再小就没意义了（头像糊成一片），下限夹在 0.3
+    await tester.pumpWidget(
+      _wrap(AlbumCover(path: path, size: 240, decodeScale: 0.05)),
+    );
+    await tester.pumpAndSettle();
+    expect(_decodeWidth(tester), coverDecodeWidth(72, 1));
+  });
+
+  testWidgets('封面飞行按小端取解码档，不往缓存里塞大端死条目', (WidgetTester tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final String path = await _writePng(tester);
+    addTearDown(() => File(path).deleteSync());
+
+    late BuildContext host;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) {
+            host = context;
+            return const Scaffold(body: SizedBox.expand());
+          },
+        ),
+      ),
+    );
+
+    // 卡片 160 → 详情头部 240：飞行盒子取 240，但解码该按 160 那一档
+    final VoidCallback cancel = flyCover(
+      host,
+      from: const Rect.fromLTWH(0, 0, 160, 160),
+      to: const Rect.fromLTWH(300, 200, 240, 240),
+      buildCover: (double size, double radius, double scale) => AlbumCover(
+        path: path,
+        size: size,
+        radius: radius,
+        decodeScale: scale,
+      ),
+      onDone: () {},
+    );
+    addTearDown(cancel);
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
+    expect(
+      _decodeWidth(tester),
+      coverDecodeWidth(160, 1),
+      reason: '飞行那张按小端解，落地后再由真实封面按大端解',
+    );
+    await tester.pumpAndSettle();
   });
 }

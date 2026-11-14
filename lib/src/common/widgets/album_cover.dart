@@ -57,6 +57,7 @@ class AlbumCover extends StatefulWidget {
     this.transitionDuration = const Duration(milliseconds: 340),
     this.transitionScale = 1.06,
     this.circular = false,
+    this.decodeScale = 1,
   });
 
   /// 封面缓存文件路径；空字符串或 `null` 表示没有封面。
@@ -79,6 +80,14 @@ class AlbumCover extends StatefulWidget {
   /// 新封面淡入时的起始缩放：1.0 表示不做缩放动画。幅度大了像「弹出来」，
   /// 1.05~1.08 左右是「浮上来落定」
   final double transitionScale;
+
+  /// 解码宽度相对显示尺寸的缩放（0.3~1，见 [_AlbumCoverState._decodeWidthFor]）。
+  ///
+  /// 位图的内存代价是「解码位图 + GPU 纹理」两份，缩到 0.7 就是两边各省一半。
+  /// 只适合**被裁掉一圈 / 本身只是缩略图**的场景——艺术家圆头像就是：圆外的
+  /// 像素全被裁掉，显示又只有一两百逻辑像素，按满档解码纯属浪费。列表行、
+  /// 专辑卡这些直出的地方保持 1。
+  final double decodeScale;
 
   /// 是否跟随「圆形封面」设置。
   ///
@@ -117,7 +126,8 @@ class _AlbumCoverState extends State<AlbumCover>
   /// 等于每帧把可见封面全部重新解一遍（这正是那个内存 / CPU 尖刺的来源）。
   /// 一代按 20% 的偏差，缩略图放大显示几乎看不出来。
   int _decodeWidthFor(double size) {
-    final int wanted = coverDecodeWidth(size, _devicePixelRatio);
+    final double shown = size * widget.decodeScale.clamp(0.3, 1.0);
+    final int wanted = coverDecodeWidth(shown, _devicePixelRatio);
     final int current = _decodeWidth;
     if (current == 0 || wanted > current * 1.2 || wanted < current / 1.2) {
       _decodeWidth = wanted;
