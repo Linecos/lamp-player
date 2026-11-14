@@ -208,9 +208,10 @@ double lyricBlurSigma(int distance) => switch (distance) {
 
 /// 逐字染色（卡拉 OK）总开关。
 ///
-/// 暂时关掉：它是唯一一条要在每帧重建 TextPainter / 逐字矩形路径的分支，
-/// 量内存时先摘掉。恢复时把这里改成 true 即可，下面的分支是完整的。
-bool karaokeEnabled = false;
+/// 这是歌词区最贵的一条分支：每帧都要重建 TextPainter 和逐字矩形路径。之前排查
+/// 常驻内存时临时摘掉过，结论是**它不是泄漏源**（关掉后 RSS 曲线没有变化），
+/// 所以保持打开。以后真要再旁路整条分支，把它改回 false 即可。
+bool karaokeEnabled = true;
 
 /// 换行时的逐行回弹。
 ///

@@ -211,9 +211,7 @@ void main() {
   });
 
   testWidgets('逐字染色的当前行跟着一起对齐', (WidgetTester tester) async {
-    // 卡拉 OK 默认关着（见 karaokeEnabled），这条专门验它的对齐，单独打开
-    karaokeEnabled = true;
-    addTearDown(() => karaokeEnabled = false);
+    expect(karaokeEnabled, isTrue, reason: '逐字染色默认是开的');
     final ValueNotifier<double> position = ValueNotifier<double>(6.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
@@ -439,8 +437,6 @@ void main() {
   });
 
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
-    karaokeEnabled = true;
-    addTearDown(() => karaokeEnabled = false);
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
     addTearDown(position.dispose);
