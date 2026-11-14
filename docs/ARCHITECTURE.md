@@ -130,6 +130,22 @@ Dart: 播放成功后 recordPlay(path) + 写入会话快照
 队列规则都在纯 Dart 的 `PlaybackQueue` 里：顺序 / 随机洗牌（保留原始列表）、列表循环 / 单曲循环、`insertNext` / `append`、上一首历史。
 手动切歌不受单曲循环影响；单曲队列自然播完停在末尾，再按播放从头重播。
 
+**系统媒体键**
+
+```
+Keyboard / 耳机线控 / 任务栏缩略图
+  → SMTC ButtonPressed（系统把按键交给「正在播放」的媒体会话）
+  → Dart：SmtcBridge → 播放动作（toggle / next / previous / stop）
+```
+
+媒体键只走 SMTC 一条路，**不做 `RegisterHotKey`**：全局注册会在应用空闲时独占、
+吃掉别的播放器的键；只在出声时占用又会在暂停后把键交还系统，再按播放可能落不到本应用。
+交给系统按「谁在播放」路由后，暂停（SMTC 会话仍在）按播放会回到本应用。
+
+代价是会话被别的播放器抢走时本应用收不到媒体键（已知并接受）。曾实现过的热键版
+（`global_hotkeys.rs` / `echo_gate.rs` / Dart `GlobalHotkeys`）已整体删除。
+系统完全不支持（非 Windows、精简系统关掉 SMTC）时只剩页面内快捷键，播放本身不受影响。
+
 **快捷键**
 
 ```
@@ -157,6 +173,7 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 |---|---|
 | BASS 用 `libloading` 运行时加载 | 免链接 `.lib`，绕开工具链格式问题；DLL 缺失时可降级而不是启动失败 |
 | BASS 调用收敛到专用线程 | frb 的 async 函数跑在线程池，线程不固定；BASS 的初始化和通道操作要求同线程 |
+| 媒体键只走 SMTC，不做 `RegisterHotKey` | 全局注册会在空闲时独占、吃掉别的播放器的键；只在出声时占用又会让暂停后按播放落不到本应用。交给系统按「谁在播放」路由最省事，代价是会话被抢时收不到键（已接受）；热键版代码已删除 |
 | BASS DLL 优先从 exe 同级目录加载 | 构建时由 CMake 拷入，开发态再从 `third_party` 回退，避免发布版找不到 DLL |
 | SQLite 用 `rusqlite` bundled | 自带编译的 SQLite 保证 FTS5 可用，不依赖系统库 |
 | 曲库结构带 `PRAGMA user_version` | 加字段时能升级老库并重建索引，`CREATE TABLE IF NOT EXISTS` 做不到 |
