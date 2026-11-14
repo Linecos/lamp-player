@@ -174,6 +174,7 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 | BASS 用 `libloading` 运行时加载 | 免链接 `.lib`，绕开工具链格式问题；DLL 缺失时可降级而不是启动失败 |
 | BASS 调用收敛到专用线程 | frb 的 async 函数跑在线程池，线程不固定；BASS 的初始化和通道操作要求同线程 |
 | 媒体键只走 SMTC，不做 `RegisterHotKey` | 全局注册会在空闲时独占、吃掉别的播放器的键；只在出声时占用又会让暂停后按播放落不到本应用。交给系统按「谁在播放」路由最省事，代价是会话被抢时收不到键（已接受）；热键版代码已删除 |
+| 播放态改动不推进 `_stateVersion` | 分区快照只关心内容（列表数据与 `_currentTrack` → `playingPath`），没有分区在 build 里读播放态；若走 `_update`，播放 / 暂停 / 停止每按一次就把上千行列表整份重建，换歌还会重建两次（起播前后各一次，内容相同）。`_updatePlayer` 只 `setState` |
 | BASS DLL 优先从 exe 同级目录加载 | 构建时由 CMake 拷入，开发态再从 `third_party` 回退，避免发布版找不到 DLL |
 | SQLite 用 `rusqlite` bundled | 自带编译的 SQLite 保证 FTS5 可用，不依赖系统库 |
 | 曲库结构带 `PRAGMA user_version` | 加字段时能升级老库并重建索引，`CREATE TABLE IF NOT EXISTS` 做不到 |

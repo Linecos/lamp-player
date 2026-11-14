@@ -46,6 +46,7 @@ extension _PlaybackSection on _LibraryPageState {
       return false;
     }
     final double duration = track.durationSecs;
+    // 换曲：`_currentTrack` 变了，分区要跟着换高亮，这一条必须推进版本
     _update(() {
       _currentTrack = track;
       _duration = duration;
@@ -72,7 +73,7 @@ extension _PlaybackSection on _LibraryPageState {
       if (!mounted) {
         return false;
       }
-      _update(() => _isPlaying = false);
+      _updatePlayer(() => _isPlaying = false);
       _publishProgress();
       if (!silent) {
         _showMessage('播放失败：${ErrorRetry.describe(error)}');
@@ -88,14 +89,16 @@ extension _PlaybackSection on _LibraryPageState {
         if (!mounted) {
           return false;
         }
-        _update(() => _position = 0);
+        _updatePlayer(() => _position = 0);
         _showMessage('从上次位置继续失败，已从头播放：${ErrorRetry.describe(error)}');
       }
     }
     if (!mounted) {
       return false;
     }
-    _update(() => _isPlaying = true);
+    // 这里只翻播放态：曲目已经在上面的 `_update` 里换过了，再推进版本
+    // 只会把分区（列表 / 网格）整份重建一遍，内容还完全相同
+    _updatePlayer(() => _isPlaying = true);
     _publishProgress();
     _startPositionPolling();
     unawaited(_recordPlay(track.path));
@@ -284,7 +287,7 @@ extension _PlaybackSection on _LibraryPageState {
     if (!mounted) {
       return;
     }
-    _update(() => _isPlaying = false);
+    _updatePlayer(() => _isPlaying = false);
     _publishProgress();
     _saveSessionNow();
     _syncMediaSession(stopped: true);
@@ -490,7 +493,7 @@ extension _PlaybackSection on _LibraryPageState {
       if (!mounted) {
         return;
       }
-      _update(() => _isPlaying = !_isPlaying);
+      _updatePlayer(() => _isPlaying = !_isPlaying);
       _publishProgress();
       _syncMediaSession();
       if (_isPlaying) {
@@ -537,7 +540,7 @@ extension _PlaybackSection on _LibraryPageState {
         if (!mounted) {
           return;
         }
-        _update(() {
+        _updatePlayer(() {
           _isPlaying = false;
           _position = _duration;
         });
@@ -567,7 +570,7 @@ extension _PlaybackSection on _LibraryPageState {
         if (!mounted) {
           return;
         }
-        _update(() => _isPlaying = false);
+        _updatePlayer(() => _isPlaying = false);
         _publishProgress();
         _saveSessionNow();
         _syncMediaSession(stopped: true);
