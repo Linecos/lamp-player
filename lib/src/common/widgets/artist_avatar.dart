@@ -20,12 +20,18 @@ Widget artistAvatar(
   String name,
   double size, {
   String? coverPath,
+  double decodeScale = 1,
 }) {
   final String? path = coverPath?.trim();
   if (path != null && path.isNotEmpty) {
     // 内层圆角给 0：形状完全由外层 ClipOval 决定，避免两层各自裁一次
     return ClipOval(
-      child: AlbumCover(path: path, size: size, radius: 0),
+      child: AlbumCover(
+        path: path,
+        size: size,
+        radius: 0,
+        decodeScale: decodeScale,
+      ),
     );
   }
   return artistInitialsAvatar(context, name, size);
