@@ -24,6 +24,12 @@ LyricLine _line({
   );
 }
 
+/// 真正在糊的行：每行都常驻一个 `ImageFiltered`（开关走 `enabled`，不换树结构），
+/// 只有 `enabled` 为真的那几行才会开离屏图层
+final Finder _blurred = find.byWidgetPredicate(
+  (Widget widget) => widget is ImageFiltered && widget.enabled,
+);
+
 Future<void> _pump(
   WidgetTester tester, {
   required List<LyricLine> lines,
@@ -319,7 +325,7 @@ void main() {
 
     // distance 1~5 各一行，全都带模糊：级别逐级递增，不能「1 行全清、下一行糊死」，
     // 也不能到某一档就突然变清楚（那样屏幕上会出现「糊 → 清楚 → 再淡」的断档）
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(_blurred, findsNWidgets(5));
   });
 
   testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
@@ -337,21 +343,17 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '静止时远处行是糊的');
+    expect(_blurred, findsNWidgets(5), reason: '静止时远处行是糊的');
 
     // 手指拖动：ScrollStartNotification 带 dragDetails，进入「用户接管滚动」状态
     await tester.drag(find.byType(LyricsView), const Offset(0, -140));
     await tester.pump();
-    expect(
-      find.byType(ImageFiltered),
-      findsNothing,
-      reason: '滚动中不该再糊：一行都看不清，还每帧多跑一遍模糊光栅',
-    );
+    expect(_blurred, findsNothing, reason: '滚动中不该再糊：一行都看不清，还每帧多跑一遍模糊光栅');
 
     // 停手 3 秒后才跟回当前行，这时模糊也一起回来
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '恢复后照旧逐级模糊');
+    expect(_blurred, findsNWidgets(5), reason: '恢复后照旧逐级模糊');
   });
 
   testWidgets('鼠标滚轮滚动时同样临时关掉模糊', (WidgetTester tester) async {
@@ -369,7 +371,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(_blurred, findsNWidgets(5));
 
     // 滚轮产生的 ScrollStartNotification 不带 dragDetails，
     // 只靠滚动通知认不出「用户在滚」，得看指针信号
@@ -377,11 +379,11 @@ void main() {
     pointer.hover(tester.getCenter(find.byType(LyricsView)));
     await tester.sendEventToBinding(pointer.scroll(const Offset(0, 90)));
     await tester.pump();
-    expect(find.byType(ImageFiltered), findsNothing, reason: '滚轮滚出来的行也要看得清');
+    expect(_blurred, findsNothing, reason: '滚轮滚出来的行也要看得清');
 
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.byType(ImageFiltered), findsNWidgets(5), reason: '停手 3 秒后恢复');
+    expect(_blurred, findsNWidgets(5), reason: '停手 3 秒后恢复');
   });
 
   testWidgets('自动跟随换行不算用户滚动，模糊不动', (WidgetTester tester) async {
@@ -399,7 +401,7 @@ void main() {
       position: position,
       playing: playing,
     );
-    expect(find.byType(ImageFiltered), findsNWidgets(5));
+    expect(_blurred, findsNWidgets(5));
 
     // 播放推进到下一行：程序自己 jumpTo，不该被当成「用户在滚」
     position.value = 5.2;
@@ -407,7 +409,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(
-      find.byType(ImageFiltered),
+      _blurred,
       findsNWidgets(5),
       reason:
           '自动跟随换行时模糊要保留，不然每换一行就闪一下清晰'
@@ -433,7 +435,7 @@ void main() {
 
     // 当前行（第 0 行）正文与译文都清晰；第 1 行的正文和译文各套一层模糊，
     // 只糊正文时译文会孤零零地清楚着
-    expect(find.byType(ImageFiltered), findsNWidgets(2));
+    expect(_blurred, findsNWidgets(2));
   });
 
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
@@ -1110,6 +1112,78 @@ void main() {
       }
 
       // 关掉播放，别把时钟的 Timer 留到下一个用例
+      playing.value = false;
+      await tester.pump();
+    });
+
+    testWidgets('换行时上方渐隐跟着弹簧逐帧走，不是一步跳过去', (WidgetTester tester) async {
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+
+      /// 某一行的文字颜色 alpha（= 底色 × 边界渐隐）
+      double alphaOf(int index) =>
+          tester.widget<Text>(find.text('第 $index 行的歌词')).style!.color!.a;
+
+      playing.value = true;
+      await tester.pump();
+
+      // 只在当前行上面 ≥5 行的地方挑：那里距离档位换行前后都是最远的一档，
+      // 底色 alpha 不变，读出来的变化全部来自边界渐隐
+      int probe = -1;
+      for (int i = 0; i <= 5; i += 1) {
+        if (find.text('第 $i 行的歌词').evaluate().isEmpty) {
+          continue;
+        }
+        final double a = alphaOf(i);
+        if (a > 0.02 && a < 0.24) {
+          probe = i;
+          break;
+        }
+      }
+      expect(probe, isNonNegative, reason: '上方渐隐区里要有一行可测');
+
+      final double before = alphaOf(probe);
+      position.value = 57;
+      await tester.pump();
+
+      // 换行那一帧：排版已经落到新位置，但行被弹簧推回原处，画面上没动，
+      // 所以 alpha 也不能动 —— 以前这里直接读新位置，白 → 灰跳一下
+      expect(
+        alphaOf(probe),
+        closeTo(before, 0.01),
+        reason: '行还在原位，alpha 不该先跳过去',
+      );
+
+      // 弹簧每帧都在跑，alpha 只能一格一格跟着走
+      final List<double> samples = <double>[before];
+      for (int i = 0; i < 24; i += 1) {
+        await tester.pump(const Duration(milliseconds: 16));
+        samples.add(alphaOf(probe));
+      }
+      final Set<double> distinct = samples.toSet();
+      expect(distinct.length, greaterThan(3), reason: 'alpha 要逐帧渐变，不能只有两档');
+      expect(
+        (samples.last - before).abs(),
+        greaterThan(0.03),
+        reason: '这一行确实被淡掉了，用例才有意义',
+      );
+      for (int i = 1; i < samples.length; i += 1) {
+        expect(
+          (samples[i] - samples[i - 1]).abs(),
+          lessThan(0.12),
+          reason: '相邻两帧不能跳一大格（第 $i 帧）',
+        );
+      }
+
       playing.value = false;
       await tester.pump();
     });

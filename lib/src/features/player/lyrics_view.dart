@@ -267,8 +267,7 @@ const double _linePaddingX = 12;
 /// 歌词会贴到一侧，另一侧空一大片。
 const double _lyricBlockWidth = 640;
 
-class _LyricsViewState extends State<LyricsView>
-    with SingleTickerProviderStateMixin {
+class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
 
   /// 译文的展开进度：1 = 展开、0 = 收起。
@@ -325,6 +324,9 @@ class _LyricsViewState extends State<LyricsView>
   /// 正在自己 jumpTo：这期间滚动通知不是用户动作
   bool _driving = false;
 
+  /// `jumpTo` 那一帧不重算渐隐（见 [_jumpToActive]）
+  bool _suppressFade = false;
+
   /// 每行的边界不透明度（上下渐隐）。
   ///
   /// 一行一个通知器：滚动时只有靠近上下边界的那几行会变，其余行不重建。以前
@@ -333,6 +335,16 @@ class _LyricsViewState extends State<LyricsView>
   final List<ValueNotifier<double>> _rowOpacity = <ValueNotifier<double>>[];
 
   Timer? _scrollSettle;
+
+  /// 换行弹簧还在跑的时候，每帧重算一次渐隐。
+  ///
+  /// 换行是「先 `jumpTo` 到位，再让每行把自己推回去弹回来」：排版已经落到新
+  /// 位置，屏幕上的行还在半路。而 alpha 只在滚动位置变化时重算，于是**行还没
+  /// 滑到位，亮度已经先跳过去了** —— 顶部那几行每换一行就白 → 灰跳一下，看着
+  /// 不像渐变。这里让 alpha 跟着弹簧的时间轴每帧重算，行滑到哪儿就淡到哪儿。
+  ///
+  /// 1100ms 覆盖「最后一行开始弹（错峰 26ms × 二十来行）+ 自己弹完」。
+  AnimationController? _springWatch;
 
   @override
   void initState() {
@@ -368,7 +380,7 @@ class _LyricsViewState extends State<LyricsView>
   /// 只刷可见的那一段（视口里二十来行），滚停 250ms 后再全量对一次。每行的
   /// alpha 只写到「变化超过 0.01」的通知器里，滚动时真正重绘的通常就两三行。
   void _onScrollOffset() {
-    if (!_scroll.hasClients) {
+    if (!_scroll.hasClients || _suppressFade) {
       return;
     }
     _refreshRowOpacity(visibleOnly: true);
@@ -411,6 +423,19 @@ class _LyricsViewState extends State<LyricsView>
     }
   }
 
+  void _onSpringTick() {
+    if (mounted) {
+      _refreshRowOpacity(visibleOnly: true);
+    }
+  }
+
+  AnimationController _watchSpring() {
+    return _springWatch ??= AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..addListener(_onSpringTick);
+  }
+
   @override
   void dispose() {
     widget.position.removeListener(_onPosition);
@@ -421,6 +446,7 @@ class _LyricsViewState extends State<LyricsView>
     }
     _scroll.removeListener(_onScrollOffset);
     _scrollSettle?.cancel();
+    _springWatch?.dispose();
     _scroll.dispose();
     _smooth.dispose();
     _jump.dispose();
@@ -602,6 +628,10 @@ class _LyricsViewState extends State<LyricsView>
       return;
     }
     _driving = true;
+    // 这一帧先别重算 alpha：`jumpTo` 已经把整列挪到新位置，但行还没推回去，
+    // 现在算出来的是「新位置」的亮度，画面上却还是旧位置 —— 就是那一跳。
+    // 交给下一帧的弹簧跟拍（[_watchSpring]）逐帧追。
+    _suppressFade = true;
     position.jumpTo(clamped);
     _driving = false;
     final (int top, int bottom) = _visibleSpan(clamped);
@@ -611,6 +641,8 @@ class _LyricsViewState extends State<LyricsView>
       top: top,
       bottom: bottom,
     );
+    _suppressFade = false;
+    _watchSpring().forward(from: 0);
   }
 
   /// 当前行停在 [LyricsView.revealAlignment] 时屏幕上看得到哪一段行（含首尾）：
@@ -911,6 +943,9 @@ class _LyricsViewState extends State<LyricsView>
   /// 行位置只能等布局完成才读得到（[RenderBox]），所以这个方法都挂在「布局之后 /
   /// 滚动之后」：滚动时只刷可见的那一小段，静止时再全量对一次。
   /// 只把**变化超过 0.01** 的行写进通知器——滚动时通常就边界附近那几行会重绘。
+  ///
+  /// 位置取正文锚点（[_keys]，在弹簧的 `Transform` 里）而不是行框（[_lineKeys]）：
+  /// 换行后排版已经落到新位置、行还要弹 300ms，只有锚点量得到这期间的实际位置。
   void _refreshRowOpacity({bool visibleOnly = false}) {
     final int count = widget.lines.length;
     if (count == 0 || !mounted) {
@@ -937,13 +972,28 @@ class _LyricsViewState extends State<LyricsView>
     // 视口里最多露二十来行，多给一截余量，避免边界上漏更新
     final int end = visibleOnly ? math.min(count, start + 32) : count;
     for (int i = start; i < end; i += 1) {
-      final RenderObject? box = _lineKeys[i].currentContext?.findRenderObject();
+      final RenderObject? line = _lineKeys[i].currentContext
+          ?.findRenderObject();
+      final RenderObject? text = _keys[i].currentContext?.findRenderObject();
       double value = 1;
-      if (box is RenderBox && box.hasSize && box.attached) {
-        final double y = box.localToGlobal(Offset.zero, ancestor: self).dy;
+      if (line is RenderBox &&
+          line.hasSize &&
+          line.attached &&
+          text is RenderBox &&
+          text.hasSize &&
+          text.attached) {
+        final double layoutTop = line
+            .localToGlobal(Offset.zero, ancestor: self)
+            .dy;
+        // 正文锚点的实际位置减去排版偏移 = 弹簧把这一行推开了多少
+        final double spring =
+            text.localToGlobal(Offset.zero, ancestor: self).dy -
+            layoutTop -
+            _layoutOffset(text, line).dy;
+        final double y = layoutTop + spring;
         value = lyricRowOpacity(
           top: y,
-          bottom: y + box.size.height,
+          bottom: y + line.size.height,
           height: height,
           stops: stops,
         );
@@ -1493,7 +1543,10 @@ class _LyricLineView extends StatelessWidget {
     // 强度曲线见 [lyricBlurSigma]，**不按距离截断**：断在第 3 行的效果是画面上
     // 出现「糊 → 清楚 → 再淡」的断档。模糊本身每行只是一次小面积离屏；当年
     // 真正吃内存的是每行多挂的一层 `Transform`（见 [emphasise]）
-    final double blurSigma = blur ? lyricBlurSigma(distance) : 0;
+    //
+    // 已经被边界淡到全透明（`edge == 0`，顶部死区里那行、以及视口下方缓存区
+    // 的行）就不糊：那一层离屏图层画出来也看不见，白占一次光栅。
+    final double blurSigma = blur && edge > 0 ? lyricBlurSigma(distance) : 0;
 
     final List<String> extras = line.translation
         .split('\n')
@@ -1502,16 +1555,16 @@ class _LyricLineView extends StatelessWidget {
         .toList();
 
     /// 译文跟正文一起糊：只糊正文时，未播放的行会出现「上面一团虚、下面
-    /// 一行清清楚楚」的割裂感，看着像漏处理
-    Widget soften(Widget child) {
-      if (blurSigma <= 0) {
-        return child;
-      }
-      return ImageFiltered(
-        imageFilter: ImageFilterCache.imageFilter(sigma: blurSigma),
-        child: child,
-      );
-    }
+    /// 一行清清楚楚」的割裂感，看着像漏处理。
+    ///
+    /// 关模糊走 `enabled: false`，不换树结构：开始拖动、行进出死区时只改一个
+    /// 属性，`Text` 的 Element / RenderParagraph 原地保留。换成「不包这一层」
+    /// 会整段重建重排，一次性挂摘两百个 `ImageFiltered` 实测直接掉帧。
+    Widget soften(Widget child) => ImageFiltered(
+      enabled: blurSigma > 0,
+      imageFilter: ImageFilterCache.imageFilter(sigma: blurSigma),
+      child: child,
+    );
 
     // 整块按对齐方式推到位。只改 TextAlign 不够：短行时 Text 的宽度就是文字
     // 自身宽度，它在 Column 里本来就贴着中线摆，文字对齐方式无从发挥
