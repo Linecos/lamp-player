@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/app_toast.dart';
 import '../../app/app_version.dart';
 import '../../common/common.dart';
 import '../../rust/api/db.dart' as db;
@@ -2314,19 +2315,20 @@ class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
   }
 
   Future<void> _restore(db.HiddenTrack track) async {
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
-      context,
-    );
     try {
       await db.unhideTracks(paths: <String>[track.path]);
       // 曲库页不在同一棵子树里，靠进程内通知让它重新拉一次列表
       markLibraryChanged();
       await _load();
-      messenger?.showSnackBar(SnackBar(content: Text('已恢复：${track.title}')));
+      if (!mounted) {
+        return;
+      }
+      AppToast.show(context, '已恢复：${track.title}');
     } catch (error) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text('恢复失败：${ErrorRetry.describe(error)}')),
-      );
+      if (!mounted) {
+        return;
+      }
+      AppToast.show(context, '恢复失败：${ErrorRetry.describe(error)}');
     }
   }
 

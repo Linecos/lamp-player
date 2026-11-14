@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/app_toast.dart';
 import '../../../common/common.dart';
 import '../../../rust/api/model.dart';
 import '../library_sort.dart';
@@ -272,9 +273,7 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
         return;
       }
       setState(() => _busy.remove(track.path));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('添加失败：${ErrorRetry.describe(error)}')),
-      );
+      AppToast.show(context, '添加失败：${ErrorRetry.describe(error)}');
     }
   }
 

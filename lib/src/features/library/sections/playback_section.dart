@@ -939,10 +939,8 @@ extension _PlaybackSection on _LibraryPageState {
     }
     _showMessage(
       '已用 MusicTag 打开：${track.title}',
-      action: SnackBarAction(
-        label: '改完了，刷新',
-        onPressed: () => unawaited(_refreshTrackFolder(p.dirname(track.path))),
-      ),
+      actionLabel: '改完了，刷新',
+      onAction: () => unawaited(_refreshTrackFolder(p.dirname(track.path))),
     );
   }
 
@@ -1350,12 +1348,16 @@ extension _PlaybackSection on _LibraryPageState {
     _showMessage('播放引擎不可用（缺少 BASS DLL 或初始化失败）：现在可以浏览曲目，暂时不能出声。');
   }
 
-  void _showMessage(String message, {SnackBarAction? action}) {
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+  void _showMessage(
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    AppToast.show(
       context,
+      message,
+      actionLabel: actionLabel,
+      onAction: onAction,
     );
-    messenger
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message), action: action));
   }
 }

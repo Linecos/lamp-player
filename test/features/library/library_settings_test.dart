@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/widgets/toast_pill.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/common/widgets/cover_shape.dart';
@@ -492,11 +493,21 @@ void main() {
     expect(find.text('清理失败'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byType(SnackBar),
+        of: find.byType(ToastPill),
         matching: find.textContaining('已拒绝清理'),
       ),
       findsOneWidget,
       reason: '拒绝清理的原因要弹出来，不能静默当成 0 条',
+    );
+    // 横向要落在**主内容区**（侧栏右侧）的正中：测试视图宽 900、侧栏展开 220，
+    // 中心应是 (900 + 220) / 2 = 560，而不是整个窗口的 450
+    final Rect pill = tester.getRect(find.byType(ToastPill));
+    expect(
+      pill.center.dx,
+      closeTo(
+        (tester.view.physicalSize.width + LibraryRail.expandedWidth) / 2,
+        1,
+      ),
     );
   });
 

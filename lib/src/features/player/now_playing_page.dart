@@ -12,6 +12,7 @@ import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/memory_log.dart';
+import '../../common/widgets/toast_pill.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
@@ -2005,24 +2006,11 @@ class _ImmersiveToastState extends State<_ImmersiveToast>
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
     return IgnorePointer(
       child: FadeTransition(
         opacity: _fade,
-        child: Material(
-          color: scheme.inverseSurface,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Text(
-              widget.message,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onInverseSurface,
-              ),
-            ),
-          ),
-        ),
+        // 和全局提示共用同一个胶囊外观，别处是 ToastPill，这里也是
+        child: ToastPill(message: widget.message),
       ),
     );
   }

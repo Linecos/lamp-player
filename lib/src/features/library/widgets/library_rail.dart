@@ -38,6 +38,13 @@ enum LibrarySection {
 /// 早期版本用 `AnimatedBuilder` 包住整列，每帧重建 7 个导航项，展开/收起
 /// 时每帧要 20~30ms，肉眼可见地卡。
 class LibraryRail extends StatefulWidget {
+  /// 侧栏当前是展开还是收起。
+  ///
+  /// 曲库页持有真实状态，这里只做**镜像**：给曲库页之外的浮层（AppToast 之类）
+  /// 用——它们不知道曲库页，但需要知道「主内容区从哪里开始」才能把自己
+  /// 水平居中到主区域而不是整个窗口。
+  static final ValueNotifier<bool> expandedNotifier = ValueNotifier<bool>(true);
+
   const LibraryRail({
     super.key,
     required this.expanded,
