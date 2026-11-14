@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1856,7 +1854,7 @@ class _FolderRow extends StatelessWidget implements _Searchable {
   }
 }
 
-/// 自定义种子色：色轮选色相 + 饱和度（角度 / 半径），下方一条明度滑杆。
+/// 自定义种子色：二维色域方块（横向饱和度、纵向明度）+ 上方一条色相滑杆。
 ///
 /// 拖动即时生效（和预设色卡一致），不设「应用」按钮——弹窗里所有选择
 /// 都是所见即所得，多一步确认反而打断预览。
@@ -1870,9 +1868,10 @@ class _CustomSeedPicker extends StatefulWidget {
 }
 
 class _CustomSeedPickerState extends State<_CustomSeedPicker> {
-  static const double _wheelSize = 176;
+  /// 色域方块的高度：宽度跟着弹窗内容走（320），横向拉满才好点准饱和度
+  static const double _fieldHeight = 148;
 
-  /// 拖动时只更新这个通知器：色轮、色块、滑杆各自重绘，不重建子树
+  /// 拖动时只更新这个通知器：方块、色块、滑杆各自重绘，不重建子树
   late final ValueNotifier<HSVColor> _hsv = ValueNotifier<HSVColor>(
     HSVColor.fromColor(widget.controller.effectiveSeed),
   );
@@ -1945,19 +1944,16 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
     unawaited(widget.controller.setSeedColor(_pushed!));
   }
 
-  /// 色轮上的点 → 色相（角度）+ 饱和度（半径比例）
-  HSVColor _fromWheel(Offset local) {
-    const Offset center = Offset(_wheelSize / 2, _wheelSize / 2);
-    const double radius = _wheelSize / 2;
-    final Offset delta = local - center;
-    final double hue =
-        (math.atan2(delta.dy, delta.dx) * 180 / math.pi + 360) % 360;
-    final double saturation = (delta.distance / radius).clamp(0.0, 1.0);
+  /// 方块上的点 → 饱和度（横向）+ 明度（纵向，上亮下暗）
+  ///
+  /// 色相不在方块里，由上方那条滑杆决定，所以这里只改 S / V。
+  HSVColor _fromField(Offset local, Size size) {
+    if (size.width <= 0 || size.height <= 0) {
+      return _hsv.value;
+    }
     return _hsv.value
-        .withHue(hue)
-        .withSaturation(saturation)
-        // 明度被拖到 0 时点色轮会「看不出变化」，顺手抬一点
-        .withValue(_hsv.value.value < 0.15 ? 0.9 : _hsv.value.value);
+        .withSaturation((local.dx / size.width).clamp(0.0, 1.0))
+        .withValue(1 - (local.dy / size.height).clamp(0.0, 1.0));
   }
 
   /// 输入框跟着色轮走；正在输入时不覆盖用户打的字
@@ -2024,31 +2020,48 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Center(
-          child: SizedBox(
-            width: _wheelSize,
-            height: _wheelSize,
-            child: GestureDetector(
-              key: const ValueKey<String>('custom-seed-wheel'),
-              behavior: HitTestBehavior.opaque,
-              // 点一下立刻生效；拖动只更新本地预览，松手才提交主题
-              onTapDown: (TapDownDetails details) =>
-                  _commit(_fromWheel(details.localPosition)),
-              onPanDown: (DragDownDetails details) =>
-                  _preview(_fromWheel(details.localPosition)),
-              onPanUpdate: (DragUpdateDetails details) =>
-                  _preview(_fromWheel(details.localPosition)),
-              onPanEnd: (DragEndDetails _) => _commit(_hsv.value),
-              onPanCancel: () => _commit(_hsv.value),
-              child: CustomPaint(painter: _WheelPainter(_hsv)),
-            ),
+        ValueListenableBuilder<HSVColor>(
+          valueListenable: _hsv,
+          builder: (BuildContext context, HSVColor hsv, Widget? _) =>
+              _hueRow(context, hsv),
+        ),
+        const SizedBox(height: 10),
+        // 不要包 Center：Column 是 stretch，横向本来就是满宽；套一层 Center
+        // 反而给了松约束，没有子节点的 CustomPaint 会把自己缩成 0×0
+        SizedBox(
+          height: _fieldHeight,
+          width: double.infinity,
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final Size size = Size(constraints.maxWidth, _fieldHeight);
+              return GestureDetector(
+                key: const ValueKey<String>('custom-seed-field'),
+                behavior: HitTestBehavior.opaque,
+                // 点一下立刻生效；拖动只更新本地预览，松手才提交主题
+                onTapDown: (TapDownDetails details) =>
+                    _commit(_fromField(details.localPosition, size)),
+                onPanDown: (DragDownDetails details) =>
+                    _preview(_fromField(details.localPosition, size)),
+                onPanUpdate: (DragUpdateDetails details) =>
+                    _preview(_fromField(details.localPosition, size)),
+                onPanEnd: (DragEndDetails _) => _commit(_hsv.value),
+                onPanCancel: () => _commit(_hsv.value),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: CustomPaint(
+                    painter: _FieldPainter(_hsv),
+                    size: Size.infinite,
+                  ),
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(height: 12),
         ValueListenableBuilder<HSVColor>(
           valueListenable: _hsv,
           builder: (BuildContext context, HSVColor hsv, Widget? _) =>
-              _valueRow(context, hsv),
+              _hexRow(context, hsv),
         ),
       ],
     );
@@ -2059,154 +2072,178 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
     borderSide: BorderSide(color: color),
   );
 
-  /// 色块 + 十六进制输入 + 「默认」，下面是明度滑杆
-  Widget _valueRow(BuildContext context, HSVColor hsv) {
+  /// 色相滑杆：彩虹条 + 滑块，色相只在这里改
+  Widget _hueRow(BuildContext context, HSVColor hsv) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 32,
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          Container(
+            height: 10,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(5),
+              // 与 HSV 的色相对齐：0° 红、60° 黄、120° 绿 … 360° 回红
+              gradient: const LinearGradient(
+                colors: <Color>[
+                  Color(0xFFFF0000),
+                  Color(0xFFFFFF00),
+                  Color(0xFF00FF00),
+                  Color(0xFF00FFFF),
+                  Color(0xFF0000FF),
+                  Color(0xFFFF00FF),
+                  Color(0xFFFF0000),
+                ],
+                stops: <double>[0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1],
+              ),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 0,
+              activeTrackColor: Colors.transparent,
+              inactiveTrackColor: Colors.transparent,
+              thumbColor: scheme.surface,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 8,
+                elevation: 2,
+              ),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            ),
+            child: Slider(
+              key: const ValueKey<String>('custom-seed-hue'),
+              value: hsv.hue.clamp(0.0, 360.0),
+              max: 360,
+              onChanged: (double value) => _preview(hsv.withHue(value)),
+              onChangeEnd: (double value) => _commit(hsv.withHue(value)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 色块 + 十六进制输入 + 「默认」
+  Widget _hexRow(BuildContext context, HSVColor hsv) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: hsv.toColor(),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: scheme.outlineVariant),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 118,
-              child: TextField(
-                key: const ValueKey<String>('custom-seed-hex'),
-                controller: _hex,
-                focusNode: _hexFocus,
-                style: theme.textTheme.bodyMedium,
-                textCapitalization: TextCapitalization.characters,
-                decoration: InputDecoration(
-                  isDense: true,
-                  prefixIcon: const Icon(Icons.tag, size: 14),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 22,
-                    minHeight: 22,
-                  ),
-                  hintText: 'RRGGBB',
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 10,
-                  ),
-                  // 颜色码不合法时只把边框染红：用 errorText 会多撑一行，
-                  // 弹窗高度跟着跳
-                  border: _hexBorder(_hexValid ? scheme.outline : scheme.error),
-                  enabledBorder: _hexBorder(
-                    _hexValid ? scheme.outline : scheme.error,
-                  ),
-                ),
-                onChanged: _onHexChanged,
-                onSubmitted: (String value) {
-                  final Color? color = _parseHex(value);
-                  if (color != null) {
-                    _commit(HSVColor.fromColor(color));
-                  }
-                },
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              key: const ValueKey<String>('custom-seed-reset'),
-              onPressed: () =>
-                  _commit(HSVColor.fromColor(AppTheme.defaultSeed)),
-              child: const Text('默认'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
+        Container(
+          width: 32,
           height: 32,
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              Container(
-                height: 10,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(5),
-                  gradient: LinearGradient(
-                    colors: <Color>[
-                      Colors.black,
-                      HSVColor.fromAHSV(
-                        1,
-                        hsv.hue,
-                        hsv.saturation,
-                        1,
-                      ).toColor(),
-                    ],
-                  ),
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
-              ),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 0,
-                  activeTrackColor: Colors.transparent,
-                  inactiveTrackColor: Colors.transparent,
-                  thumbColor: scheme.surface,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 8,
-                    elevation: 2,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 14,
-                  ),
-                ),
-                child: Slider(
-                  key: const ValueKey<String>('custom-seed-value'),
-                  value: hsv.value.clamp(0.05, 1.0),
-                  onChanged: (double value) => _preview(hsv.withValue(value)),
-                  onChangeEnd: (double value) => _commit(hsv.withValue(value)),
-                ),
-              ),
-            ],
+          decoration: BoxDecoration(
+            color: hsv.toColor(),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: scheme.outlineVariant),
           ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 118,
+          child: TextField(
+            key: const ValueKey<String>('custom-seed-hex'),
+            controller: _hex,
+            focusNode: _hexFocus,
+            style: theme.textTheme.bodyMedium,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.tag, size: 14),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 22,
+                minHeight: 22,
+              ),
+              hintText: 'RRGGBB',
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 10,
+              ),
+              // 颜色码不合法时只把边框染红：用 errorText 会多撑一行，
+              // 弹窗高度跟着跳
+              border: _hexBorder(_hexValid ? scheme.outline : scheme.error),
+              enabledBorder: _hexBorder(
+                _hexValid ? scheme.outline : scheme.error,
+              ),
+            ),
+            onChanged: _onHexChanged,
+            onSubmitted: (String value) {
+              final Color? color = _parseHex(value);
+              if (color != null) {
+                _commit(HSVColor.fromColor(color));
+              }
+            },
+          ),
+        ),
+        const Spacer(),
+        TextButton(
+          key: const ValueKey<String>('custom-seed-reset'),
+          onPressed: () => _commit(HSVColor.fromColor(AppTheme.defaultSeed)),
+          child: const Text('默认'),
         ),
       ],
     );
   }
 }
 
-/// 色轮：色相沿角度、饱和度沿半径，光标画在当前取值处。
-class _WheelPainter extends CustomPainter {
+/// 二维色域方块：横向饱和度、纵向明度，底色由当前色相决定；光标画在取值处。
+///
+/// 色相变了才重算三个渐变的着色器；在方块里拖动只改 S / V，着色器原样复用，
+/// 每帧只有三次 `drawRect` 加一个光标。
+class _FieldPainter extends CustomPainter {
   /// 直接听通知器重绘：拖动时不必重建子树
-  _WheelPainter(this.hsv) : super(repaint: hsv);
+  _FieldPainter(this.hsv) : super(repaint: hsv);
 
   final ValueListenable<HSVColor> hsv;
 
-  /// 色盘本身与选中值无关，按尺寸缓存成 Picture：拖动时每帧只
-  /// `drawPicture` + 画光标，不再重算两个渐变的着色器
-  static ui.Picture? _disk;
-  static Size? _diskSize;
+  // 底色 / 白 / 黑三层只跟「色相 + 尺寸」有关，缓存起来
+  static Paint? _base;
+  static Paint? _white;
+  static Paint? _black;
+  static double? _shaderHue;
+  static Size? _shaderSize;
+
+  static void _syncShaders(double hue, Size size) {
+    if (_shaderHue == hue && _shaderSize == size) {
+      return;
+    }
+    final Rect rect = Offset.zero & size;
+    _base = Paint()..color = HSVColor.fromAHSV(1, hue, 1, 1).toColor();
+    // 饱和度：左白右透明，叠在底色上就是「越靠右越浓」
+    _white = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: <Color>[Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+      ).createShader(rect);
+    // 明度：上透明下黑，越往下越暗
+    _black = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: <Color>[Color(0x00000000), Color(0xFF000000)],
+      ).createShader(rect);
+    _shaderHue = hue;
+    _shaderSize = size;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (_disk == null || _diskSize != size) {
-      final ui.PictureRecorder recorder = ui.PictureRecorder();
-      _paintDisk(Canvas(recorder), Offset.zero & size);
-      _disk = recorder.endRecording();
-      _diskSize = size;
-    }
-    canvas.drawPicture(_disk!);
-
     final HSVColor color = hsv.value;
+    _syncShaders(color.hue, size);
+    final Rect rect = Offset.zero & size;
+    canvas.drawRect(rect, _base!);
+    canvas.drawRect(rect, _white!);
+    canvas.drawRect(rect, _black!);
 
     // 光标：白圈 + 深色外圈，浅色 / 深色背景上都看得见
-    final double hueRad = color.hue * math.pi / 180;
-    final Offset dot =
-        (Offset.zero & size).center +
-        Offset(math.cos(hueRad), math.sin(hueRad)) *
-            (color.saturation.clamp(0.0, 1.0) * size.shortestSide / 2);
+    final Offset dot = Offset(
+      color.saturation.clamp(0.0, 1.0) * size.width,
+      (1 - color.value.clamp(0.0, 1.0)) * size.height,
+    );
     canvas.drawCircle(
       dot,
       8,
@@ -2225,42 +2262,8 @@ class _WheelPainter extends CustomPainter {
     );
   }
 
-  void _paintDisk(Canvas canvas, Rect rect) {
-    final Offset center = rect.center;
-    final double radius = rect.shortestSide / 2;
-
-    // 色相：SweepGradient 从 3 点钟方向顺时针增长，与 atan2(dy, dx) 一致
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = const SweepGradient(
-          colors: <Color>[
-            Color(0xFFFF0000),
-            Color(0xFFFFFF00),
-            Color(0xFF00FF00),
-            Color(0xFF00FFFF),
-            Color(0xFF0000FF),
-            Color(0xFFFF00FF),
-            Color(0xFFFF0000),
-          ],
-          stops: <double>[0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1],
-        ).createShader(rect),
-    );
-
-    // 饱和度：中心白 → 边缘透明，叠一层就得到「越靠边越浓」
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          colors: <Color>[Colors.white, Colors.white.withValues(alpha: 0)],
-        ).createShader(rect),
-    );
-  }
-
   @override
-  bool shouldRepaint(_WheelPainter oldDelegate) => oldDelegate.hsv != hsv;
+  bool shouldRepaint(_FieldPainter oldDelegate) => oldDelegate.hsv != hsv;
 }
 
 /// 「被隐藏的歌曲」列表：从曲库隐藏的曲目，可逐条恢复。
