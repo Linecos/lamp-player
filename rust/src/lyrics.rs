@@ -71,7 +71,7 @@ impl Lyrics {
 /// 读取歌词：[音频路径] 旁的 `.lrc` 优先，其次内嵌。
 pub fn load(audio: &Path) -> Result<Lyrics> {
     if let Some(text) = read_sidecar(audio) {
-        let mut lyrics = parse(&text);
+        let mut lyrics = parse_auto(&text);
         if !lyrics.is_empty() {
             lyrics.source = "sidecar".to_string();
             return Ok(lyrics);
@@ -80,9 +80,10 @@ pub fn load(audio: &Path) -> Result<Lyrics> {
 
     match read_embedded(audio) {
         Ok(Some(text)) => {
-            let mut lyrics = parse(&text);
-            if lyrics.is_empty() {
-                // 没有时间戳：交给界面当纯文本显示
+            let mut lyrics = parse_auto(&text);
+            if lyrics.is_empty() && !crate::lyrics_ttml::looks_like_ttml(&text) {
+                // 没有时间戳：交给界面当纯文本显示。
+                // TTML 没有解析出东西时不能这么兜底，否则整篇 XML 会被当歌词显示
                 lyrics.plain = text.trim().to_string();
             }
             lyrics.source = "embedded".to_string();
@@ -93,14 +94,15 @@ pub fn load(audio: &Path) -> Result<Lyrics> {
     }
 }
 
-/// 同目录同名 `.lrc`（大小写不敏感地尝试两种扩展名）
+/// 同目录同名歌词：`.lrc` 优先，其次 `.ttml`；两种都大小写不敏感地试。
 fn read_sidecar(audio: &Path) -> Option<String> {
-    let lrc = audio.with_extension("lrc");
-    if let Ok(text) = std::fs::read(&lrc) {
-        return Some(decode_text(&text));
+    for extension in ["lrc", "LRC", "ttml", "TTML"] {
+        let path = audio.with_extension(extension);
+        if let Ok(text) = std::fs::read(&path) {
+            return Some(decode_text(&text));
+        }
     }
-    let upper = audio.with_extension("LRC");
-    std::fs::read(upper).ok().map(|bytes| decode_text(&bytes))
+    None
 }
 
 /// LRC 常见 UTF-8；带 BOM 的 UTF-8 / UTF-16 与 GBK / GB18030 也顺手处理。
@@ -150,6 +152,17 @@ fn read_embedded(audio: &Path) -> Result<Option<String>> {
     Ok(text)
 }
 
+/// 按内容挑解析器：TTML 是 XML，其余一律按 LRC 处理。
+///
+/// 旁载与内嵌两条路都可能遇到 TTML（Apple Music 导出的歌词就是 TTML），
+/// 所以统一在这里分派，而不是按扩展名猜。
+fn parse_auto(text: &str) -> Lyrics {
+    if crate::lyrics_ttml::looks_like_ttml(text) {
+        return crate::lyrics_ttml::parse(text);
+    }
+    parse(text)
+}
+
 /// 解析歌词：行级时间轴 + 行内逐字标签 + 同时间戳多行合并。
 pub fn parse(text: &str) -> Lyrics {
     let offset = parse_offset(text);
@@ -195,10 +208,10 @@ pub fn parse(text: &str) -> Lyrics {
 }
 
 /// 一行尚未分组的原始歌词
-struct RawLine {
-    time_ms: i64,
-    text: String,
-    words: Vec<LyricWord>,
+pub(crate) struct RawLine {
+    pub(crate) time_ms: i64,
+    pub(crate) text: String,
+    pub(crate) words: Vec<LyricWord>,
 }
 
 /// 剥掉行首连续的时间标签，返回（时间戳列表，剩余文本）
@@ -313,7 +326,7 @@ fn push_word(words: &mut Vec<LyricWord>, text: &mut String, time_ms: i64, segmen
 }
 
 /// 把同一起始时间的行合并：带逐字标签的当正文，其余当译文。
-fn group_lines(mut raw: Vec<RawLine>) -> Vec<LyricLine> {
+pub(crate) fn group_lines(mut raw: Vec<RawLine>) -> Vec<LyricLine> {
     if raw.is_empty() {
         return Vec::new();
     }

@@ -18,6 +18,7 @@ pub mod bass;
 mod desktop_lyrics;
 mod frb_generated;
 pub mod lyrics;
+mod lyrics_ttml;
 pub mod media_platform;
 pub mod scanner;
 #[cfg(windows)]
