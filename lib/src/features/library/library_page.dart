@@ -787,6 +787,14 @@ class _LibraryPageState extends State<LibraryPage>
     });
   }
 
+  /// 只改「播放态」（`_isPlaying` / `_position` / `_duration`）时用它：不推进版本。
+  ///
+  /// 分区快照只关心内容本身（列表数据与 `_currentTrack` → `playingPath`），
+  /// 没有一个分区在 build 里读播放态。走 [_update] 的话，播放 / 暂停 / 停止 /
+  /// 自然播完每一条命令都会让可见分区整体重建一次——上千行的列表、整页封面网格
+  /// 重建出来的内容与上一次完全相同，纯属白做；换歌还会有两次（起播前后各一次）。
+  void _updatePlayer(VoidCallback fn) => setState(fn);
+
   /// 首帧画完再探测音频引擎，避免引擎线程异常时卡住启动。
   ///
   /// `Future.delayed(Duration.zero)` 不够：零延时 timer 排在 vsync 之前，
