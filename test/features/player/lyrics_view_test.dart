@@ -1160,6 +1160,119 @@ void main() {
       expect(line.center.dy, closeTo(view.center.dy, 60), reason: '当前行要回到中间');
     });
 
+    testWidgets('用户把当前行滚到视口边缘，它也要跟着淡出', (WidgetTester tester) async {
+      // 当前行在「停在对齐线上」时不吃渐隐（否则会显得灰）；但被用户滚到边缘时
+      // 必须和其他行一样淡，不然就是亮着被硬切。
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+      await tester.pumpAndSettle();
+
+      double? alphaOf(int index) {
+        final Finder text = find.descendant(
+          of: find.byKey(ValueKey<String>('lyric-$index')),
+          matching: find.byType(Text),
+        );
+        if (text.evaluate().isEmpty) {
+          return null;
+        }
+        return tester.widget<Text>(text.first).style?.color?.a;
+      }
+
+      // 停在对齐线上时是正常的当前行亮度
+      expect(alphaOf(10), greaterThan(0.95), reason: '停在中间时不该被压暗');
+
+      // 往上拖，把当前行推到视口上部
+      await tester.drag(find.byType(ListView), const Offset(0, -320));
+      await tester.pump();
+      await tester.pump();
+
+      final Rect row = tester.getRect(
+        find.byKey(const ValueKey<String>('lyric-10')),
+      );
+      final Rect viewport = tester.getRect(find.byType(ListView));
+      expect(row.top, lessThan(viewport.top + 120), reason: '当前行应该被推到上部');
+      expect(alphaOf(10), lessThan(0.85), reason: '被滚到渐隐带里就该淡下去，不能还全亮');
+    });
+
+    testWidgets('滚轮一格跳过去，顶部行仍然渐变而不是整段消失', (WidgetTester tester) async {
+      // 滚动监听里量到的是**滚动之前**的行位置。滚轮一格一百多像素，按旧位置算
+      // 出来的 alpha 差一整行，画面上行是「亮着被硬切掉」；以前要等停手 250ms
+      // 才补一次刷新，这期间顶部整段是同一个亮度。
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+      await tester.pumpAndSettle();
+
+      final ScrollPosition scroll = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final Rect viewport = tester.getRect(find.byType(ListView));
+
+      double? alphaOf(int index) {
+        final Finder text = find.descendant(
+          of: find.byKey(ValueKey<String>('lyric-$index')),
+          matching: find.byType(Text),
+        );
+        if (text.evaluate().isEmpty) {
+          return null;
+        }
+        return tester.widget<Text>(text.first).style?.color?.a;
+      }
+
+      // 连着跳六格（每格 120，和滚轮一格量级相当）。**只推进一帧**：
+      // 滚动当帧就该算对，靠等下一帧校准的话，顶部会先亮一帧再消失。
+      for (int step = 0; step < 6; step += 1) {
+        scroll.jumpTo(scroll.pixels + 120);
+        await tester.pump();
+      }
+
+      // 视口里从上到下的行（按位置排）
+      final List<MapEntry<int, double>> rows = <MapEntry<int, double>>[];
+      for (int i = 0; i < 30; i += 1) {
+        final Finder row = find.byKey(ValueKey<String>('lyric-$i'));
+        if (row.evaluate().isEmpty) {
+          continue;
+        }
+        final Rect rect = tester.getRect(row);
+        if (!viewport.contains(rect.center)) {
+          continue;
+        }
+        final double? alpha = alphaOf(i);
+        if (alpha != null) {
+          rows.add(MapEntry<int, double>(i, alpha));
+        }
+      }
+      rows.sort(
+        (MapEntry<int, double> a, MapEntry<int, double> b) =>
+            a.key.compareTo(b.key),
+      );
+      expect(rows.length, greaterThan(4), reason: '视口里应该有好几行');
+
+      // 最上面那几行必须比稍下面那行明显暗（= 渐变还在），而不是整段同一个值
+      expect(
+        rows[2].value - rows[0].value,
+        greaterThan(0.1),
+        reason: '顶部没有渐变：跳格之后整段都是同一个亮度',
+      );
+    });
+
     testWidgets('拖到边界是橡皮筋回弹，不是贴住', (WidgetTester tester) async {
       final ValueNotifier<double> position = ValueNotifier<double>(0);
       final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
