@@ -110,10 +110,16 @@ extension _FavoritesSection on _LibraryPageState {
     return ordered;
   }
 
-  /// 收藏拖动排序：存成自定义顺序，并把排序切回「自定义」
+  /// 收藏拖动排序：拖完的这一列就是新的自定义顺序，并把排序切回「自定义」
   void _reorderFavorites(List<Track> visible, int from, int to) {
-    final List<Track> base = _applyFavoriteOrder(_favoriteTracks);
-    final List<Track> next = _manualOrderAfterDrag(visible, base, from, to);
+    if (from == to || from < 0 || from >= visible.length) {
+      return;
+    }
+    // 以**眼前这份列表**为基准覆盖自定义顺序。以前是挪进之前的自定义顺序里，
+    // 按别的排序拖一下会先跳回旧顺序再动一格。
+    final List<Track> next = List<Track>.of(visible);
+    final int target = to.clamp(0, next.length - 1);
+    next.insert(target, next.removeAt(from));
     _update(() {
       _favoriteOrder = next.map((Track track) => track.path).toList();
       // 拖过之后看到的就是自定义顺序，排序按钮也跟着变

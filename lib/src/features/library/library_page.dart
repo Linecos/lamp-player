@@ -446,35 +446,17 @@ class _LibraryPageState extends State<LibraryPage>
     _saveSessionNow();
   }
 
-  /// 一次拖拽之后，手动顺序应该变成什么样。
-  ///
-  /// [displayed] 是当前看到的顺序（可能正按标题排着），[manual] 是自定义顺序：
-  /// 把被拖的那一首从 [manual] 里摘出来，插到「它现在的前一件」后面——
-  /// 这样在任意排序下拖一次，得到的自定义顺序都符合眼睛看到的位置关系。
-  List<Track> _manualOrderAfterDrag(
-    List<Track> displayed,
-    List<Track> manual,
-    int from,
-    int to,
-  ) {
-    if (from < 0 || from >= displayed.length) {
-      return manual;
+  /// 两条曲目列表的路径顺序是否完全一致
+  bool _sameTrackOrder(List<Track> a, List<Track> b) {
+    if (a.length != b.length) {
+      return false;
     }
-    final Track moved = displayed[from];
-    final List<Track> after = List<Track>.of(displayed);
-    final int target = to.clamp(0, after.length - 1);
-    after.insert(target, after.removeAt(from));
-    final List<Track> next = manual
-        .where((Track track) => track.path != moved.path)
-        .toList();
-    if (target == 0) {
-      next.insert(0, moved);
-      return next;
+    for (int i = 0; i < a.length; i += 1) {
+      if (a[i].path != b[i].path) {
+        return false;
+      }
     }
-    final String anchor = after[target - 1].path;
-    final int at = next.indexWhere((Track track) => track.path == anchor);
-    next.insert(at < 0 ? next.length : at + 1, moved);
-    return next;
+    return true;
   }
 
   List<Track> _tracks = const <Track>[];

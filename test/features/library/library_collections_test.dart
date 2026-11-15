@@ -778,11 +778,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.widget<Text>(label).data, '自定义', reason: '手动拖过之后就是自定义顺序');
+    // 存下来的是**拖完的那一列**（标题序 A、B、C，把 C 拖到最前 → C、A、B），
+    // 不是「C 挪进旧自定义顺序 B、A」——那样界面会先跳回旧顺序再动一格
     expect(session.snapshot.favoriteOrder, <String>[
       '/music/c.mp3',
-      '/music/b.mp3',
       '/music/a.mp3',
-    ], reason: '自定义顺序要存盘：C 被拖到最前，其余保持原相对顺序');
+      '/music/b.mp3',
+    ], reason: '自定义顺序 = 当前列表拖完的结果');
     expect(topOf('C 曲'), lessThan(topOf('B 曲')));
   });
 
@@ -841,7 +843,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.widget<Text>(label).data, '自定义');
-    expect(repo.movePlaylistCalls.last, (1, 2, 0), reason: '按手动顺序落库');
+    expect(repo.orderCalls.last.$2, <String>[
+      '/music/c.mp3',
+      '/music/a.mp3',
+      '/music/b.mp3',
+    ], reason: '落库的是拖完的那一列，而不是旧自定义顺序里的一次移动');
     expect(
       tester.getTopLeft(find.text('C 曲')).dy,
       lessThan(tester.getTopLeft(find.text('A 曲')).dy),
@@ -1025,7 +1031,12 @@ void main() {
     repo.movePlaylistGate!.complete();
     await tester.pumpAndSettle();
     expect(rowIn(find.byType(ReorderableListView)), findsOneWidget);
-    expect(repo.movePlaylistCalls, <(int, int, int)>[(1, 0, 1)]);
+    final List<String> stored = (await repo.loadPlaylistTracks(1))
+        .map((Track track) => track.path)
+        .toList();
+    expect(repo.orderCalls.length, 1, reason: '一次拖拽只整体覆盖一次');
+    expect(repo.orderCalls.single.$1, 1);
+    expect(repo.orderCalls.single.$2, stored, reason: '落库顺序 = 拖完的那一列');
   });
 
   testWidgets('歌单分区可新建歌单并展示卡片', (WidgetTester tester) async {
