@@ -325,6 +325,28 @@ pub fn locked() -> bool {
     state().locked
 }
 
+/// 把窗口左上角夹进一块工作区（已扣掉任务栏的那种矩形）。
+///
+/// 桌面歌词是无边框置顶窗口，既没有标题栏、也不在任务栏里——一旦被拖到屏幕外
+/// 就再也抓不回来（只能去设置里关掉再开）。所以三个地方都要夹：拖动过程中
+/// （`WM_MOVING`）、恢复上次位置时、字号 / DPI 变化导致窗口变大时。
+///
+/// 窗口比工作区还大时贴左上角，至少保证左半边可见。
+///
+/// 单独抽出来是为了能单测：Win32 那套在 CI 上跑不了。
+fn clamp_to_work(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    work: (i32, i32, i32, i32),
+) -> (i32, i32) {
+    let (left, top, right, bottom) = work;
+    let max_x = (right - width).max(left);
+    let max_y = (bottom - height).max(top);
+    (x.clamp(left, max_x), y.clamp(top, max_y))
+}
+
 /// 记住窗口位置（屏幕坐标）：窗口已经存在就立刻挪过去
 pub fn set_position(x: i32, y: i32) {
     state().position = Some((x, y));
@@ -348,9 +370,10 @@ mod imp {
         BOOL, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM,
     };
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-        ScreenToClient, SelectObject, ValidateRect, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
+        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, GetMonitorInfoW,
+        MonitorFromRect, ReleaseDC, ScreenToClient, SelectObject, ValidateRect, AC_SRC_ALPHA,
+        AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP,
+        HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows::Win32::Graphics::GdiPlus::{
         CombineModeReplace, FillModeAlternate, FlushIntentionSync, FontStyleBold, GdipAddPathArc,
@@ -379,10 +402,10 @@ mod imp {
         TranslateMessage, UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, GWL_EXSTYLE, HTCAPTION,
         HTCLIENT, HTTRANSPARENT, HWND_TOPMOST, IDC_ARROW, MSG, SM_CXSCREEN, SM_CYSCREEN,
         SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
-        ULW_ALPHA, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_LBUTTONDOWN,
-        WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_PAINT, WM_SETCURSOR,
-        WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-        WS_EX_TRANSPARENT, WS_POPUP,
+        ULW_ALPHA, WM_APP, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND,
+        WM_EXITSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOVING, WM_NCHITTEST,
+        WM_NCLBUTTONDOWN, WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
     };
 
     use super::{frame, snapshot, Button, Command, Frame, FONT_STEP, MAX_FONT_SIZE, MIN_FONT_SIZE};
@@ -412,6 +435,38 @@ mod imp {
         }
     }
 
+    /// 把窗口矩形（屏幕坐标）夹进它所在显示器的工作区。
+    ///
+    /// 用「最近的显示器」而不是主显示器：双屏时拖到副屏上就该留在副屏。
+    /// 显示器取不到（窗口完全在屏幕外时理论上仍会有最近屏）就原样返回。
+    unsafe fn clamp_rect(rect: &mut RECT) {
+        let monitor = MonitorFromRect(rect, MONITOR_DEFAULTTONEAREST);
+        if monitor.0 == 0 {
+            return;
+        }
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return;
+        }
+        let work = info.rcWork;
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        let (x, y) = super::clamp_to_work(
+            rect.left,
+            rect.top,
+            width,
+            height,
+            (work.left, work.top, work.right, work.bottom),
+        );
+        rect.left = x;
+        rect.top = y;
+        rect.right = x + width;
+        rect.bottom = y + height;
+    }
+
     pub(super) fn show(hwnd: isize) {
         unsafe {
             let _ = ShowWindow(HWND(hwnd), SW_SHOWNA);
@@ -430,10 +485,36 @@ mod imp {
     }
 
     /// 把窗口挪到指定屏幕坐标（不动大小、不抢焦点）
+    ///
+    /// 坐标先夹进显示器工作区：调用方（Dart 侧恢复上次位置）给的值可能来自
+    /// 另一套屏幕配置，直接照搬会把窗口放到屏幕外。
     pub(super) fn move_to(hwnd: isize, x: i32, y: i32) {
         unsafe {
+            let handle = HWND(hwnd);
+            let mut rect = RECT::default();
+            if GetWindowRect(handle, &mut rect).is_ok() {
+                let width = rect.right - rect.left;
+                let height = rect.bottom - rect.top;
+                let mut target = RECT {
+                    left: x,
+                    top: y,
+                    right: x + width,
+                    bottom: y + height,
+                };
+                clamp_rect(&mut target);
+                let _ = SetWindowPos(
+                    handle,
+                    HWND_TOPMOST,
+                    target.left,
+                    target.top,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOSIZE,
+                );
+                return;
+            }
             let _ = SetWindowPos(
-                HWND(hwnd),
+                handle,
                 HWND_TOPMOST,
                 x,
                 y,
@@ -546,11 +627,20 @@ mod imp {
                 Some((x, y)) => (x, y),
                 None => ((screen_w - layout.width) / 2, screen_h - 260),
             };
+            // 上次的位置可能来自另一套屏幕配置（拔了副屏、改了分辨率），
+            // 先夹回工作区再落地
+            let mut target = RECT {
+                left: start_x,
+                top: start_y,
+                right: start_x + layout.width,
+                bottom: start_y + layout.height,
+            };
+            clamp_rect(&mut target);
             let _ = SetWindowPos(
                 hwnd,
                 HWND_TOPMOST,
-                start_x,
-                start_y,
+                target.left,
+                target.top,
                 layout.width,
                 layout.height,
                 SWP_NOACTIVATE,
@@ -604,6 +694,37 @@ mod imp {
                     guard.pressed_button = None;
                 }
                 paint(hwnd);
+                LRESULT(0)
+            }
+            // 拖动过程中实时夹住：lParam 是系统建议的新矩形，改完返回 TRUE
+            // 让它用改过的。没有这一步的话可以把窗口拖到屏幕外面去，而它没有
+            // 标题栏、也不在任务栏里，就再也抓不回来了。
+            WM_MOVING => {
+                let rect = lparam.0 as *mut RECT;
+                if !rect.is_null() {
+                    clamp_rect(&mut *rect);
+                }
+                LRESULT(1)
+            }
+            // 显示器拔掉 / 分辨率变了：窗口可能整块落在已经不存在的区域上
+            WM_DISPLAYCHANGE => {
+                let mut rect = RECT::default();
+                if GetWindowRect(hwnd, &mut rect).is_ok() {
+                    let mut target = rect;
+                    clamp_rect(&mut target);
+                    if target.left != rect.left || target.top != rect.top {
+                        let _ = SetWindowPos(
+                            hwnd,
+                            HWND_TOPMOST,
+                            target.left,
+                            target.top,
+                            0,
+                            0,
+                            SWP_NOACTIVATE | SWP_NOSIZE,
+                        );
+                        super::state().position = Some((target.left, target.top));
+                    }
+                }
                 LRESULT(0)
             }
             // 拖完（系统把 HTCAPTION 拖动交给它自己处理）记下新位置
@@ -814,14 +935,22 @@ mod imp {
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
             if width != layout.width || height != layout.height {
+                // 字号 / DPI 变大后窗口可能顶出右边界或下边界，跟着夹一次
+                let mut target = RECT {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.left + layout.width,
+                    bottom: rect.top + layout.height,
+                };
+                clamp_rect(&mut target);
                 let _ = SetWindowPos(
                     hwnd,
                     None,
-                    0,
-                    0,
+                    target.left,
+                    target.top,
                     layout.width,
                     layout.height,
-                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
                 );
             }
         }
@@ -1621,4 +1750,49 @@ mod imp {
     pub(super) fn request_apply(_hwnd: isize) {}
 
     pub(super) fn request_repaint(_hwnd: isize) {}
+}
+
+#[cfg(test)]
+mod clamp_tests {
+    use super::clamp_to_work;
+
+    /// 常见屏：1920×1080，任务栏占 48px
+    const WORK: (i32, i32, i32, i32) = (0, 0, 1920, 1032);
+    const WIDTH: i32 = 760;
+    const HEIGHT: i32 = 90;
+
+    #[test]
+    fn keeps_inside_position_untouched() {
+        assert_eq!(clamp_to_work(200, 300, WIDTH, HEIGHT, WORK), (200, 300));
+    }
+
+    #[test]
+    fn pulls_back_from_each_edge() {
+        // 右边顶出去：贴右边缘
+        assert_eq!(
+            clamp_to_work(1900, 300, WIDTH, HEIGHT, WORK),
+            (1920 - WIDTH, 300)
+        );
+        // 下边顶出去（含任务栏）：贴工作区底部
+        assert_eq!(
+            clamp_to_work(200, 1000, WIDTH, HEIGHT, WORK),
+            (200, 1032 - HEIGHT)
+        );
+        // 左边 / 上边顶出去：贴 0
+        assert_eq!(clamp_to_work(-100, -100, WIDTH, HEIGHT, WORK), (0, 0));
+    }
+
+    #[test]
+    fn window_larger_than_work_area_sticks_to_top_left() {
+        // 比工作区还宽 / 还高时不能算出负数，只能贴左上（至少左半边可见）
+        assert_eq!(clamp_to_work(500, 500, 3000, 2000, WORK), (0, 0));
+    }
+
+    #[test]
+    fn second_monitor_keeps_its_own_work_area() {
+        // 副屏在右边：起点不是 0，夹取要按这块屏算
+        let second = (1920, 0, 3200, 1032);
+        assert_eq!(clamp_to_work(2400, 300, WIDTH, HEIGHT, second), (2400, 300));
+        assert_eq!(clamp_to_work(1900, 300, WIDTH, HEIGHT, second), (1920, 300));
+    }
 }
