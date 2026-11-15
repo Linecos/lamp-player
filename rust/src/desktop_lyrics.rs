@@ -336,6 +336,11 @@ pub fn locked() -> bool {
 /// 窗口比工作区还大时贴左上角，至少保证左半边可见。
 ///
 /// 单独抽出来是为了能单测：Win32 那套在 CI 上跑不了。
+///
+/// 只在 Windows（真的去夹窗口）和测试（跑这几个用例）下编进去。别的平台 `imp`
+/// 是空桩，没人调用它，留着会被 `-D warnings` 当成死代码——CI 是在 Linux 上
+/// 跑 clippy 的。
+#[cfg(any(windows, test))]
 fn clamp_to_work(
     x: i32,
     y: i32,
