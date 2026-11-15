@@ -23,6 +23,8 @@ class AppToast {
   /// 带操作按钮时留久一点，让人来得及点
   static const Duration actionDuration = Duration(milliseconds: 4000);
 
+  /// [persistent] 为 true 时**不自动收起**：只有点操作按钮才会消失（用于
+  /// 「用 MusicTag 打开」这类要等外部程序改完再回来点「刷新」的场景）。
   static OverlayEntry? _entry;
 
   /// 弹一条提示。[context] 只要有 `Overlay` 祖先即可（`MaterialApp` 里都满足）。
@@ -32,12 +34,15 @@ class AppToast {
     String? actionLabel,
     VoidCallback? onAction,
     Duration? duration,
+    bool persistent = false,
   }) {
     final OverlayState? overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) {
       return;
     }
     final bool hasAction = actionLabel != null && onAction != null;
+    // 常驻必须带按钮：没有按钮就没法关掉，会变成一块永远擦不掉的浮层
+    final bool stay = persistent && hasAction;
     hide();
     final OverlayEntry entry = OverlayEntry(
       builder: (BuildContext context) => _ToastLayer(
@@ -49,7 +54,9 @@ class AppToast {
                 onAction();
               }
             : null,
-        hold: duration ?? (hasAction ? actionDuration : defaultDuration),
+        hold: stay
+            ? null
+            : duration ?? (hasAction ? actionDuration : defaultDuration),
         onDismissed: hide,
       ),
     );
@@ -79,8 +86,8 @@ class _ToastLayer extends StatefulWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
-  /// 淡入之后停留多久
-  final Duration hold;
+  /// 淡入之后停留多久；`null` 表示一直留着，等操作按钮关掉它
+  final Duration? hold;
   final VoidCallback onDismissed;
 
   @override
@@ -106,10 +113,11 @@ class _ToastLayerState extends State<_ToastLayer>
 
   Future<void> _play() async {
     await _fade.forward();
-    if (!mounted) {
+    final Duration? hold = widget.hold;
+    if (!mounted || hold == null) {
       return;
     }
-    _hold = Timer(widget.hold, () => unawaited(_dismiss()));
+    _hold = Timer(hold, () => unawaited(_dismiss()));
   }
 
   Future<void> _dismiss() async {

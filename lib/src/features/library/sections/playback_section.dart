@@ -950,6 +950,9 @@ extension _PlaybackSection on _LibraryPageState {
   /// 自己实现标签编辑器成本高、也容易写坏文件，这里只做「交给专业工具」：
   /// MusicTag 是绿色软件、装在哪不确定，第一次让用户指定 `MusicTag.exe` 并记住，
   /// 之后右键直接打开。改完回来点提示里的「改完了，刷新」重扫该目录即可看到新标签。
+  ///
+  /// 提示**常驻**（`persistent`）：编辑在另一个窗口里进行，几秒钟就消失的提示等于
+  /// 没有——用户回来时早就找不到「刷新」了。
   Future<void> _openWithMusicTag(Track track) async {
     MusicTagResult result = await _musicTag.open(<String>[track.path]);
     // await 回来页面可能已经退出：下面几条分支都会碰 context
@@ -999,6 +1002,8 @@ extension _PlaybackSection on _LibraryPageState {
       '已用 MusicTag 打开：${track.title}',
       actionLabel: '改完了，刷新',
       onAction: () => unawaited(_refreshTrackFolder(p.dirname(track.path))),
+      // MusicTag 是外部程序，改标签要花几分钟：这条提示不能自己消失
+      persistent: true,
     );
   }
 
@@ -1410,12 +1415,14 @@ extension _PlaybackSection on _LibraryPageState {
     String message, {
     String? actionLabel,
     VoidCallback? onAction,
+    bool persistent = false,
   }) {
     AppToast.show(
       context,
       message,
       actionLabel: actionLabel,
       onAction: onAction,
+      persistent: persistent,
     );
   }
 }
