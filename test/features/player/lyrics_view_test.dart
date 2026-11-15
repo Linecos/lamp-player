@@ -438,6 +438,73 @@ void main() {
     expect(_blurred, findsNWidgets(2));
   });
 
+  testWidgets('滚到后面再点歌词跳过去，当前行立刻变成最亮', (WidgetTester tester) async {
+    // 80 行、视口只放得下十行左右。用户先滚到后面（此时上一帧的「第一行」
+    // 早就没布局了），再点一行跳过去。以前渐隐按「上一帧第一行 +32 行」开窗，
+    // 窗口落不到可见区域，可见行保留旧 alpha：整屏一样亮、该淡的不淡，
+    // 看着就是残影和阶梯式的暗带。
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 80; i += 1)
+        _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行的歌词'),
+    ];
+
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      onSeek: (double seconds) => position.value = seconds,
+    );
+    await tester.pumpAndSettle();
+
+    final ScrollController controller = tester
+        .widget<ListView>(find.byType(ListView))
+        .controller!;
+    controller.jumpTo(controller.position.maxScrollExtent);
+    // 只推进一帧：滚停 250ms 后有一次全量刷新，跑完 settle 会把问题盖过去，
+    // 而用户看到的正是滚动这一瞬间的「阶梯式变暗」
+    await tester.pump();
+
+    /// 已构建行的正文 alpha；没构建的行返回 null
+    double? alphaOf(int index) {
+      final Finder text = find.descendant(
+        of: find.byKey(ValueKey<String>('lyric-$index')),
+        matching: find.byType(Text),
+      );
+      if (text.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<Text>(text.first).style?.color?.a;
+    }
+
+    Map<int, double> alphas() => <int, double>{
+      for (int i = 60; i < 80; i += 1)
+        if (alphaOf(i) case final double a) i: a,
+    };
+
+    expect(alphas(), isNotEmpty, reason: '视角应该在最后十几行');
+
+    // 点最后一行跳过去：当前行要变成最亮的那行
+    // （渐隐那一层不好在测试里单独断言：相邻行本来就按距离调 alpha，
+    //   见 [_refreshRowOpacity] 里关于窗口的那段注释）
+    await tester.tap(find.byKey(const ValueKey<String>('lyric-79')));
+    await tester.pumpAndSettle();
+
+    final Map<int, double> after = alphas();
+    final int brightest = after.entries
+        .reduce(
+          (MapEntry<int, double> a, MapEntry<int, double> b) =>
+              a.value >= b.value ? a : b,
+        )
+        .key;
+    expect(brightest, 79, reason: '点过去之后那一行必须是最亮的');
+  });
+
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
@@ -937,6 +1004,48 @@ void main() {
     ScrollController controllerOf(WidgetTester tester) =>
         tester.widget<ListView>(find.byType(ListView)).controller!;
 
+    testWidgets('滚远之后换行，仍能把当前行拉回中间', (WidgetTester tester) async {
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+
+      final ScrollController controller = controllerOf(tester);
+      playing.value = true;
+      await tester.pump();
+
+      // 用户把歌词拖回最顶：视口里只剩前几行，末尾的行全都没被布局、量不到偏移
+      controller.jumpTo(controller.position.minScrollExtent);
+      await tester.pumpAndSettle();
+      final double far = controller.offset;
+
+      // 换到第 21 行：目标行从没进过视口。以前这里 `_revealOffset` 返回 NaN
+      // 就 return，列表永远不再跟随，当前行越走越远
+      position.value = 108;
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.offset,
+        greaterThan(far + 100),
+        reason: '换行后应该跟着往下滚，而不是原地不动',
+      );
+
+      final Rect line = tester.getRect(
+        find.byKey(const ValueKey<String>('lyric-21')),
+      );
+      final Rect view = tester.getRect(find.byType(ListView));
+      expect(line.center.dy, closeTo(view.center.dy, 60), reason: '当前行要回到中间');
+    });
+
     testWidgets('拖到边界是橡皮筋回弹，不是贴住', (WidgetTester tester) async {
       final ValueNotifier<double> position = ValueNotifier<double>(0);
       final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
@@ -1037,6 +1146,85 @@ void main() {
 
       playing.value = false;
       await tester.pump();
+    });
+
+    testWidgets('跨一行走弹簧、跨多行走滑动，任何一帧都不重叠', (WidgetTester tester) async {
+      // 「新位置的歌词直接显示」= 有一行没被推回、停在新位置上，和被推回的行
+      // 叠在一起。自然换行（跨一行）走弹簧，跨两行以上（点歌词 / 拖进度条）
+      // 改走平滑滑动，两种都不该出现纵向重叠。
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+      playing.value = true;
+      await tester.pump();
+
+      /// 某一行自己的弹簧位移（`Transform` 的 Y 偏移）
+      double? shiftOf(int index) {
+        final Finder row = find.byKey(ValueKey<String>('lyric-$index'));
+        if (row.evaluate().isEmpty) {
+          return null;
+        }
+        final Finder spring = find.descendant(
+          of: row,
+          matching: find.byType(Transform),
+        );
+        if (spring.evaluate().isEmpty) {
+          return 0;
+        }
+        return tester
+            .widget<Transform>(spring.first)
+            .transform
+            .getTranslation()
+            .y;
+      }
+
+      List<Rect> builtRects() => <Rect>[
+        for (int i = 0; i < 24; i += 1)
+          if (find.byKey(ValueKey<String>('lyric-$i')).evaluate().isNotEmpty)
+            tester.getRect(find.byKey(ValueKey<String>('lyric-$i'))),
+      ]..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+
+      void expectNoOverlap(String when) {
+        final List<Rect> rects = builtRects();
+        for (int i = 1; i < rects.length; i += 1) {
+          expect(
+            rects[i].top,
+            greaterThanOrEqualTo(rects[i - 1].bottom - 1),
+            reason: '$when：第 $i 行和上一行叠在一起（残影）',
+          );
+        }
+      }
+
+      // 跨一行：自然换行，走弹簧，视口内的行都被推回
+      position.value = 57;
+      await tester.pump();
+      expectNoOverlap('换一行的那一帧');
+      expect(shiftOf(10)!.abs(), greaterThan(0.5), reason: '自然换行应该整列瞬时推回，再弹回去');
+      await tester.pumpAndSettle();
+
+      // 跨三行：等价于点了后面三行，改走平滑滑动 —— 没有推回，也没有重叠
+      position.value = 72;
+      await tester.pump();
+      expectNoOverlap('跳三行的第一帧');
+      await tester.pump(const Duration(milliseconds: 120));
+      expectNoOverlap('跳三行的中途');
+      await tester.pumpAndSettle();
+      expectNoOverlap('跳三行落定之后');
+
+      // 落定后新行居中
+      final Rect line = tester.getRect(
+        find.byKey(const ValueKey<String>('lyric-14')),
+      );
+      final Rect view = tester.getRect(find.byType(ListView));
+      expect(line.center.dy, closeTo(view.center.dy, 40));
     });
 
     testWidgets('换行时整列瞬时归位，各行错峰弹回来', (WidgetTester tester) async {
