@@ -336,6 +336,13 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
 
   Timer? _scrollSettle;
 
+  /// 上一次刷新渐隐时的滚动像素。
+  ///
+  /// 滚动监听回调那一刻布局还没重排，量到的行位置是**滚动之前**的；用两次
+  /// pixels 的差把行「平移」过去，当帧就能算出正确的 alpha，不用等下一帧——
+  /// 等下一帧的话，顶部那行会先按旧 alpha 亮一帧再消失（看起来是闪一下）。
+  double? _lastPixels;
+
   /// 换行弹簧还在跑的时候，每帧重算一次渐隐。
   ///
   /// 换行是「先 `jumpTo` 到位，再让每行把自己推回去弹回来」：排版已经落到新
@@ -383,7 +390,14 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (!_scroll.hasClients || _suppressFade) {
       return;
     }
-    _refreshRowOpacity();
+    // 当帧就要正确：布局还没重排，量到的是滚动之前的位置，用 pixels 的差把行
+    // 平移过去再算。少了这一步，顶部/底部那行会先按旧 alpha 亮一帧再消失
+    // （滚轮一格一百多像素，肉眼就是「闪一下」）。之后再排一次布局后的刷新做校准。
+    final double pixels = _scroll.position.pixels;
+    final double delta = pixels - (_lastPixels ?? pixels);
+    _lastPixels = pixels;
+    _refreshRowOpacity(shiftY: -delta);
+    _scheduleOpacityRefresh();
     _scrollSettle?.cancel();
     _scrollSettle = Timer(const Duration(milliseconds: 250), () {
       if (mounted) {
@@ -973,7 +987,11 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   ///
   /// 位置取正文锚点（[_keys]，在弹簧的 `Transform` 里）而不是行框（[_lineKeys]）：
   /// 换行后排版已经落到新位置、行还要弹 300ms，只有锚点量得到这期间的实际位置。
-  void _refreshRowOpacity({int? around}) {
+  /// [shiftY]：把量到的行位置整体平移多少像素。
+  ///
+  /// 滚动回调里布局还没重排，行的位置还是滚动之前的；传入 `-滚动增量` 就能
+  /// 按「滚动之后」的位置算 alpha，不必等下一帧。
+  void _refreshRowOpacity({int? around, double shiftY = 0}) {
     final int count = widget.lines.length;
     if (count == 0 || !mounted) {
       return;
@@ -987,7 +1005,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       return;
     }
     // 与旧的遮罩用同一套曲线：顶部死区（行边界）+ 字迹起的淡入段 + 底部丝带
-    final double deadZone = _topBoundary(height) + _fadeTopOffset;
+    final double deadZone = _topBoundary(height, shiftY) + _fadeTopOffset;
     final double top = math.min(deadZone + _fadeTopRamp, height * 0.5);
     final List<double> stops = lyricFadeStops(
       height: height,
@@ -1022,7 +1040,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
             text.localToGlobal(Offset.zero, ancestor: self).dy -
             layoutTop -
             _layoutOffset(text, line).dy;
-        final double y = layoutTop + spring;
+        final double y = layoutTop + spring + shiftY;
         value = lyricRowOpacity(
           top: y,
           bottom: y + line.size.height,
@@ -1030,12 +1048,15 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
           stops: stops,
         );
       }
-      // 当前行不吃上下沿渐隐：它是焦点，被淡掉就该是「灰的」。
+      // 当前行不吃上下沿渐隐——但只在**没人滚它**的时候。
       //
       // 平时当前行停在对齐线上碰不到渐隐带，但歌词区矮 + 频谱丝带把底边推高、
-      // 或者对齐线本身偏低时，它会落进带内——那时正在唱的字会被乘掉二三成
-      // 亮度，已唱的白看着是灰的，和正常听着歌时完全是两个颜色。
-      if (i == _active) {
+      // 或者对齐线本身偏低时，它会落进带内，此时正在唱的字被乘掉二三成亮度，
+      // 已唱的白看着是灰的。
+      //
+      // 反过来，用户手动滚列表把当前行带到视口边缘时，它必须和其他行一样淡出：
+      // 否则滚到顶部就是「亮着被硬切」，比灰还难看。
+      if (i == _active && !_userScrolling) {
         value = 1;
       }
       final ValueListenable<double> notifier = _edgeOpacityAt(i);
@@ -1068,7 +1089,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   ///
   /// 死区必须按行边界走，不能用固定像素：固定值必然切在某一行中间，那一行的
   /// 上半截被抹掉、下半截留下来，就是顶部那排断断续续的横线（字的底笔）。
-  double _topBoundary(double height) {
+  double _topBoundary(double height, [double shiftY = 0]) {
     final RenderObject? self = context.findRenderObject();
     final int last = widget.lines.length - 1;
     if (self == null || last < 0) {
@@ -1081,7 +1102,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       if (box is! RenderBox || !box.hasSize || !box.attached) {
         return null;
       }
-      final double top = box.localToGlobal(Offset.zero, ancestor: self).dy;
+      final double top =
+          box.localToGlobal(Offset.zero, ancestor: self).dy + shiftY;
       return (top: top, bottom: top + box.size.height);
     }
 
