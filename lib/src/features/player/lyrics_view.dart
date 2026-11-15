@@ -383,7 +383,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (!_scroll.hasClients || _suppressFade) {
       return;
     }
-    _refreshRowOpacity(visibleOnly: true);
+    _refreshRowOpacity();
     _scrollSettle?.cancel();
     _scrollSettle = Timer(const Duration(milliseconds: 250), () {
       if (mounted) {
@@ -425,7 +425,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
 
   void _onSpringTick() {
     if (mounted) {
-      _refreshRowOpacity(visibleOnly: true);
+      // 弹簧跑的时候只有当前行附近的几十行在移动
+      _refreshRowOpacity(around: _active);
     }
   }
 
@@ -577,6 +578,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (next == _active) {
       return;
     }
+    // 跨了一行以上 = 拖进度条 / 点歌词 / 切歌，不是自然换行
+    final bool multiLine = (_active - next).abs() > 1;
     _activeNotifier.value = next; // 只更新 notifier，不 setState
     // 切换中途换行的话，等这一帧跳完再按新布局重算补偿起点，别拿旧锚点继续补
     if (_translation.isAnimating) {
@@ -587,11 +590,21 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       });
     }
     if (_userScrolling) {
-      // 用户还在拖：先别抢，松手 3 秒后再跟回来（见 [_onScrollNotification]）
+      // 用户还在拖：先别抢，松手 3 秒后再跟回来（见 [_onScrollNotification]）。
+      //
+      // 但拖动被系统打断时（指针取消、右键菜单抢走手势）ScrollEnd 不会来，
+      // `_userScrolling` 就永远挂着、列表再也不跟随。这里补一道自愈：没有滚动
+      // 活动、又没有待触发的计时器，就重新起一次「停手 3 秒」的计时。
+      final bool timerArmed = _resumeTimer?.isActive ?? false;
+      final bool scrolling =
+          _scroll.hasClients && _scroll.position.isScrollingNotifier.value;
+      if (!timerArmed && !scrolling) {
+        _restartResumeTimer();
+      }
       return;
     }
     if (_playing) {
-      _jumpToActive();
+      _jumpToActive(multiLine: multiLine);
     } else {
       // 暂停时没有 tick，点歌词 / 拖进度条换行只能一次性滑过去
       _scrollToActive();
@@ -602,7 +615,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   int _indexAt(double seconds) => lyricIndexAt(widget.lines, seconds);
 
   /// 换行：整列瞬间归位，再让每一行自己弹回来（见 [_SpringLyricLine]）。
-  void _jumpToActive() {
+  void _jumpToActive({bool multiLine = false}) {
     if (_active < 0 || _active >= _keys.length || !_scroll.hasClients) {
       return;
     }
@@ -612,6 +625,12 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     }
     final double target = _revealOffset(_active);
     if (target.isNaN) {
+      // 虚拟化之后「没进过视口」的行没有 RenderObject，量不到偏移：用户把歌词
+      // 滚远了、或者拖进度条大跳，当前行就落在构建范围外。以前这里直接 return，
+      // 而 `_updateActive` 只在**换行时**调本方法，于是这一行永远跳不过去、当前
+      // 行越走越远，再也不会回到中间（顺带渐隐也不再刷新）。按平均行高先估一个
+      // 位置把它拉进构建范围，落地后由 [_guessScrollToActive] 再精确对一次。
+      _guessScrollToActive();
       return;
     }
     final double clamped = target.clamp(
@@ -622,8 +641,16 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (delta.abs() < 0.5) {
       return;
     }
-    // 拖进度条 / 切歌那种大跳：几百像素的弹簧会拖成慢动作，短促地滑过去
-    if (delta.abs() > position.viewportDimension * 0.75) {
+    // 弹簧那套是「先跳到新位置、再把视口内的行推回旧位置、错峰弹回」。跨度一大
+    // （点歌词、拖进度条、切歌）就有两个问题：推回只覆盖视口内那几行，其余行
+    // 已经画在新位置上了，两批文字叠在一起就是残影；而且整列位移几百像素，
+    // 看着也不像「换行」。
+    //
+    // 判据优先用「一次跨了几行」而不是像素：行高不一时（长句折行、带译文）
+    // 同样的像素跨度对应的行数差很多。跨两行以上就走 420ms 的平滑滑动，
+    // 中途不会出现「新位置直接出现」的那一帧；自然换行（一行几十像素）照旧走
+    // 弹簧波浪。像素阈值留作兜底。
+    if (multiLine || delta.abs() > position.viewportDimension * 0.5) {
       _scrollToActive();
       return;
     }
@@ -946,7 +973,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   ///
   /// 位置取正文锚点（[_keys]，在弹簧的 `Transform` 里）而不是行框（[_lineKeys]）：
   /// 换行后排版已经落到新位置、行还要弹 300ms，只有锚点量得到这期间的实际位置。
-  void _refreshRowOpacity({bool visibleOnly = false}) {
+  void _refreshRowOpacity({int? around}) {
     final int count = widget.lines.length;
     if (count == 0 || !mounted) {
       return;
@@ -968,9 +995,14 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       band: widget.edgeFadeBand,
       deadZone: deadZone,
     );
-    final int start = visibleOnly ? _firstVisible.clamp(0, count - 1) : 0;
-    // 视口里最多露二十来行，多给一截余量，避免边界上漏更新
-    final int end = visibleOnly ? math.min(count, start + 32) : count;
+    // 默认全量跑一遍：没进视口的行没有 RenderObject，下面会整段跳过，代价只是
+    // 一次 null 检查。**不能**按「上一帧的第一行」往下数 32 行开窗——点歌词 /
+    // 拖进度条是大跳，上一帧那行早就没布局了，[_firstVisible] 会卡在旧值上，
+    // 窗口落到别处，真正可见的行保留旧 alpha，画面上就是一条一条的暗带。
+    //
+    // 弹簧跟拍是每帧都调的，那时只有当前行附近的几十行会动，用 [around] 收窄。
+    final int start = around == null ? 0 : math.max(0, around - 24);
+    final int end = around == null ? count : math.min(count, around + 40);
     for (int i = start; i < end; i += 1) {
       final RenderObject? line = _lineKeys[i].currentContext
           ?.findRenderObject();
@@ -1518,7 +1550,10 @@ class _LyricLineView extends StatelessWidget {
         lineEndMs: line.endMs.toInt(),
         position: position,
         style: style,
-        baseColor: fade(white.withValues(alpha: 0.42)),
+        // 底色是「还没唱到」的部分，但**当前行必须比相邻行亮**（相邻行
+        // distance=1 时是 0.62）。取 0.42 的话刚跳到这一行、一个字都还没唱时，
+        // 当前行看着比上下两行还灰，像是没高亮
+        baseColor: fade(white.withValues(alpha: 0.78)),
         highlightColor: fade(white),
         alignment: alignment,
       );
