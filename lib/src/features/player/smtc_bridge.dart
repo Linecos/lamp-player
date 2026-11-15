@@ -32,8 +32,13 @@ class SmtcBridge {
   StreamSubscription<media.MediaCommand>? _subscription;
   bool _available = false;
 
-  /// 上一次上报的曲目路径：同一首不重复上传封面（WinRT 那边要拷一份图片）
+  /// 上一次**成功**上报的曲目路径：同一首不重复上传封面（WinRT 那边要拷一份图片）
   String? _lastPath;
+
+  /// 失败的那一首与已失败次数：失败后允许重试，同一首连败 3 次就不再纠缠，
+  /// 免得每次播放状态变化都触发一次必定失败的 WinRT 调用
+  String? _failedPath;
+  int _failedCount = 0;
 
   bool get available => _available;
 
@@ -63,7 +68,9 @@ class SmtcBridge {
     if (!_available || path == _lastPath) {
       return;
     }
-    _lastPath = path;
+    if (path == _failedPath && _failedCount >= _maxTrackFailures) {
+      return;
+    }
     try {
       await media.mediaSetTrack(
         title: title,
@@ -71,10 +78,19 @@ class SmtcBridge {
         album: album ?? '',
         coverPath: coverPath,
       );
+      // 只在成功时记账：失败留着重试，否则这一首在系统浮层里永远是上一首
+      _lastPath = path;
+      _failedPath = null;
+      _failedCount = 0;
     } catch (error) {
+      _failedCount = path == _failedPath ? _failedCount + 1 : 1;
+      _failedPath = path;
       debugPrint('更新系统曲目信息失败：$error');
     }
   }
+
+  /// 同一首连续失败多少次后不再重试
+  static const int _maxTrackFailures = 3;
 
   Future<void> setState(MediaSessionState state) async {
     if (!_available) {
@@ -97,6 +113,8 @@ class SmtcBridge {
       return;
     }
     _lastPath = null;
+    _failedPath = null;
+    _failedCount = 0;
     try {
       await media.mediaClear();
     } catch (error) {
