@@ -236,7 +236,9 @@ pub fn set_line(line: &str) -> anyhow::Result<()> {
         }
     };
     if changed {
-        request_repaint();
+        // 走 apply 而不是单纯重绘：换行之后折行数可能变了（一句长、一句短），
+        // 窗口高度得跟着改，否则长句的第三行会被切掉、短句又会留一片空白
+        request_apply();
     }
     Ok(())
 }
@@ -416,6 +418,13 @@ mod imp {
 
     /// 96 DPI 下的窗口宽度：够放一行长歌词，又不至于横跨半个屏幕
     const WIDTH_96: f32 = 760.0;
+    /// 96 DPI 下歌词区左右内边距
+    const PAD_96: f32 = 14.0;
+    /// 最多折几行。
+    ///
+    /// 760 宽的窗口减去内边距是 732，默认字号 27 时一行约 27 个汉字——三行已经
+    /// 八十多个字，超过这个长度再折下去窗口会比歌词本身还高，反而碍事。
+    const MAX_LINES: i32 = 3;
     /// 悬停背景：深灰、约 70% 不透明
     const BACKDROP: u32 = argb(180, 30, 30, 32);
     /// GDI+ 的 32 位预乘 ARGB 像素格式（`gdipluspixelformats.h` 的 PixelFormat32bppPARGB，
@@ -598,7 +607,8 @@ mod imp {
 
             let dpi = GetDpiForSystem();
             let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-            let layout = Layout::new(scale, super::DEFAULT_FONT_SIZE);
+            // 窗口刚建出来还没有歌词，先按单行高度落地；第一句进来时 apply 会重算
+            let layout = Layout::new(scale, super::DEFAULT_FONT_SIZE, 1);
             let title = wide("Lamp Player 桌面歌词");
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -796,7 +806,8 @@ mod imp {
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
         let layout = {
             let guard = super::state();
-            Layout::new(scale, guard.font_size)
+            // 命中测试只用到按钮区，行数传 1 即可
+            Layout::new(scale, guard.font_size, 1)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -839,7 +850,8 @@ mod imp {
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
         let layout = {
             let guard = super::state();
-            Layout::new(scale, guard.font_size)
+            // 命中测试只用到按钮区，行数传 1 即可
+            Layout::new(scale, guard.font_size, 1)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -864,7 +876,8 @@ mod imp {
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
         let layout = {
             let guard = super::state();
-            Layout::new(scale, guard.font_size)
+            // 命中测试只用到按钮区，行数传 1 即可
+            Layout::new(scale, guard.font_size, 1)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -917,7 +930,9 @@ mod imp {
         let state = snapshot();
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-        let layout = Layout::new(scale, state.font_size);
+        // 长句折行：窗口高度要按实际行数算，否则第三行会被切掉
+        let lines = line_count(&state.text, scale, state.font_size as f32 * scale);
+        let layout = Layout::new(scale, state.font_size, lines);
 
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
@@ -962,7 +977,8 @@ mod imp {
         let state = snapshot();
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-        let layout = Layout::new(scale, state.font_size);
+        let lines = line_count(&state.text, scale, state.font_size as f32 * scale);
+        let layout = Layout::new(scale, state.font_size, lines);
         let width = layout.width;
         let height = layout.height;
         if width <= 0 || height <= 0 {
@@ -1128,7 +1144,7 @@ mod imp {
             } else {
                 (text, 255u32)
             };
-            if let (Some(ui), Ok(format)) = (ui, make_format(true)) {
+            if let (Some(ui), Ok(format)) = (ui, make_format(true, true)) {
                 let shadow = RectF {
                     X: layout.text.X,
                     Y: layout.text.Y + 2.0 * layout.scale,
@@ -1144,14 +1160,25 @@ mod imp {
                     &shadow,
                     format,
                 );
-                if progress >= 1.0 {
-                    // 没有逐字时间轴（或这一行已经唱完）：和以前一样整行亮着
+                if progress >= 1.0 || !layout.single_line() {
+                    // 没有逐字时间轴（或这一行已经唱完）：整行亮着。
+                    //
+                    // 折行的长句也走这条：逐字的实现是「按已唱比例横向裁切」，而
+                    // 居中排版下每行宽度不同，GDI+ 又不给「折行后每行的分段宽度」，
+                    // 硬裁会让第二行从行首就被点亮、短行提前全亮——错得比不做还
+                    // 明显。所以长句退回行级：唱完整行点亮，之前整行压暗，和没有
+                    // 逐字数据的行表现一致。
+                    let alpha = if progress >= 1.0 {
+                        lyric_alpha
+                    } else {
+                        lyric_alpha * 42 / 100
+                    };
                     draw_text(
                         graphics,
                         lyric,
                         ui,
                         layout.font_px,
-                        argb(lyric_alpha, 245, 245, 245),
+                        argb(alpha, 245, 245, 245),
                         &layout.text,
                         format,
                     );
@@ -1198,7 +1225,7 @@ mod imp {
             }
 
             if chrome {
-                if let Ok(format) = make_format(false) {
+                if let Ok(format) = make_format(false, false) {
                     for (button, rect) in layout.buttons.iter() {
                         let (label, family) = match button {
                             Button::FontDown => ("A-", ui),
@@ -1350,7 +1377,10 @@ mod imp {
         }
     }
 
-    fn make_format(trim: bool) -> Result<*mut GpStringFormat, ()> {
+    /// 建一个 `GpStringFormat`。
+    ///
+    /// `wrap` 为真时允许折行（歌词用），为假时单行（按钮标签用）。
+    fn make_format(trim: bool, wrap: bool) -> Result<*mut GpStringFormat, ()> {
         let mut format: *mut GpStringFormat = null_mut();
         unsafe {
             if GdipCreateStringFormat(0, 0, &mut format).0 != 0 || format.is_null() {
@@ -1358,12 +1388,113 @@ mod imp {
             }
             let _ = GdipSetStringFormatAlign(format, StringAlignmentCenter);
             let _ = GdipSetStringFormatLineAlign(format, StringAlignmentCenter);
-            let _ = GdipSetStringFormatFlags(format, StringFormatFlagsNoWrap.0);
+            if !wrap {
+                let _ = GdipSetStringFormatFlags(format, StringFormatFlagsNoWrap.0);
+            }
             if trim {
                 let _ = GdipSetStringFormatTrimming(format, StringTrimmingEllipsisCharacter);
             }
         }
         Ok(format)
+    }
+
+    /// 文字区宽度（已扣掉左右内边距）
+    fn text_area_width(scale: f32) -> f32 {
+        (WIDTH_96 - 2.0 * PAD_96) * scale
+    }
+
+    /// 一段歌词在文字区里会折成几行（1..=MAX_LINES）。
+    ///
+    /// GDI+ 没有「只量行数」的接口，只能真排一遍：建一个 1×1 的位图当绘图上下文
+    /// （`GdipMeasureString` 只用它的渲染设置，换行宽度由 rect 决定），用带折行的
+    /// format 量一次，取 `lines` 输出。
+    ///
+    /// 结果按 (文字, 宽度, 字号) 缓存一份：`paint` 每帧都会问「这一行几行高」，
+    /// 而同一行歌词要唱完才换，实际只有换行时才真的花时间量。
+    fn line_count(text: &str, scale: f32, font_px: f32) -> i32 {
+        use std::sync::Mutex;
+
+        /// 缓存项：(文字, 文字区宽度, 字号 ×100) → 行数
+        type Cache = Mutex<Option<((String, i32, i32), i32)>>;
+        static CACHE: Cache = Mutex::new(None);
+
+        if text.is_empty() {
+            return 1;
+        }
+        let width = text_area_width(scale).round() as i32;
+        let key = (text.to_string(), width, (font_px * 100.0).round() as i32);
+        if let Ok(cache) = CACHE.lock() {
+            if let Some((cached, lines)) = cache.as_ref() {
+                if *cached == key {
+                    return *lines;
+                }
+            }
+        }
+
+        let measured = measure_line_count(text, width as f32, font_px).clamp(1, MAX_LINES);
+        if let Ok(mut cache) = CACHE.lock() {
+            *cache = Some((key, measured));
+        }
+        measured
+    }
+
+    /// 真正去问 GDI+ 的那一步；任何环节失败都当一行（宁可少占高度）
+    fn measure_line_count(text: &str, width: f32, font_px: f32) -> i32 {
+        let Some(family) = family("Microsoft YaHei UI").or_else(|| family("Segoe UI")) else {
+            return 1;
+        };
+        let mut lines = 1;
+        unsafe {
+            let mut bitmap: *mut GpBitmap = null_mut();
+            let mut graphics: *mut GpGraphics = null_mut();
+            if GdipCreateBitmapFromScan0(1, 1, 4, PIXEL_FORMAT_32BPP_PARGB, None, &mut bitmap).0
+                == 0
+                && !bitmap.is_null()
+                && GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics).0 == 0
+            {
+                if let Ok(format) = make_format(true, true) {
+                    let mut font: *mut GpFont = null_mut();
+                    if GdipCreateFont(family, font_px, FontStyleBold.0, UnitPixel, &mut font).0 == 0
+                    {
+                        let rect = RectF {
+                            X: 0.0,
+                            Y: 0.0,
+                            Width: width,
+                            // 给足高度：只关心折成几行，不关心一共多高
+                            Height: font_px * 1.45 * MAX_LINES as f32,
+                        };
+                        let mut utf16: Vec<u16> = text.encode_utf16().collect();
+                        let mut bounds = RectF::default();
+                        let mut fitted: i32 = 0;
+                        let mut rows: i32 = 0;
+                        let status = GdipMeasureString(
+                            graphics,
+                            PCWSTR(utf16.as_mut_ptr()),
+                            utf16.len() as i32,
+                            font,
+                            &rect,
+                            format,
+                            &mut bounds,
+                            &mut fitted,
+                            &mut rows,
+                        );
+                        if status.0 == 0 && rows > 0 {
+                            lines = rows;
+                        }
+                        let _ = GdipDeleteFont(font);
+                    }
+                    let _ = GdipDeleteStringFormat(format);
+                }
+                if !graphics.is_null() {
+                    let _ = GdipDeleteGraphics(graphics);
+                }
+                if !bitmap.is_null() {
+                    let _ = GdipDisposeImage(bitmap as *mut GpImage);
+                }
+            }
+            let _ = GdipDeleteFontFamily(family);
+        }
+        lines
     }
 
     fn family(name: &str) -> Option<*mut GpFontFamily> {
@@ -1418,12 +1549,19 @@ mod imp {
         radius: f32,
         font_px: f32,
         button_size: f32,
+        /// 这段歌词折成了几行：多行时不做逐字裁切（见 [Layout::single_line]）
+        lines: i32,
         buttons: Vec<(Button, RectF)>,
         text: RectF,
     }
 
     impl Layout {
-        fn new(scale: f32, font_size: i32) -> Self {
+        /// 是否单行排版
+        fn single_line(&self) -> bool {
+            self.lines <= 1
+        }
+
+        fn new(scale: f32, font_size: i32, lines: i32) -> Self {
             const ORDER: [Button; 7] = [
                 Button::FontDown,
                 Button::FontUp,
@@ -1434,13 +1572,15 @@ mod imp {
                 Button::Close,
             ];
             let width = (WIDTH_96 * scale).round() as i32;
-            let pad = 14.0 * scale;
+            let pad = PAD_96 * scale;
             let button_size = 28.0 * scale;
             let gap = 4.0 * scale;
             let group = 16.0 * scale;
             let top = 8.0 * scale;
             let font_px = font_size as f32 * scale;
-            let text_height = (font_size as f32 * 1.45).max(38.0) * scale;
+            let lines = lines.clamp(1, MAX_LINES);
+            let line_height = (font_size as f32 * 1.45).max(38.0) * scale;
+            let text_height = line_height * lines as f32;
             let height =
                 (top + button_size + 6.0 * scale + text_height + 8.0 * scale).round() as i32;
 
@@ -1477,6 +1617,7 @@ mod imp {
                 radius: 12.0 * scale,
                 font_px,
                 button_size,
+                lines,
                 buttons,
                 text,
             }
@@ -1506,29 +1647,84 @@ mod imp {
         #[test]
         fn buttons_stay_inside_the_window() {
             for scale in [1.0f32, 1.25, 1.5, 2.0] {
-                let layout = Layout::new(scale, 27);
-                for (_, rect) in &layout.buttons {
-                    assert!(rect.X >= 0.0, "按钮左边界越界：{scale}");
-                    assert!(rect.Y >= 0.0, "按钮上边界越界：{scale}");
+                // 一到三行都要检查：窗口高度随折行数长，文字区不能越出底边
+                for lines in 1..=MAX_LINES {
+                    let layout = Layout::new(scale, 27, lines);
+                    for (_, rect) in &layout.buttons {
+                        assert!(rect.X >= 0.0, "按钮左边界越界：{scale}");
+                        assert!(rect.Y >= 0.0, "按钮上边界越界：{scale}");
+                        assert!(
+                            rect.X + rect.Width <= layout.width as f32 + 0.01,
+                            "按钮右边界越界：{scale}"
+                        );
+                        assert!(
+                            rect.Y + rect.Height <= layout.height as f32 + 0.01,
+                            "按钮下边界越界：{scale}"
+                        );
+                    }
                     assert!(
-                        rect.X + rect.Width <= layout.width as f32 + 0.01,
-                        "按钮右边界越界：{scale}"
-                    );
-                    assert!(
-                        rect.Y + rect.Height <= layout.height as f32 + 0.01,
-                        "按钮下边界越界：{scale}"
+                        layout.text.Y + layout.text.Height <= layout.height as f32 + 0.01,
+                        "歌词行超出窗口：{scale} / {lines} 行"
                     );
                 }
-                assert!(
-                    layout.text.Y + layout.text.Height <= layout.height as f32 + 0.01,
-                    "歌词行超出窗口：{scale}"
-                );
             }
         }
 
         #[test]
+        fn more_lines_make_the_window_taller_by_one_line_each() {
+            let one = Layout::new(1.0, 27, 1);
+            let two = Layout::new(1.0, 27, 2);
+            let three = Layout::new(1.0, 27, 3);
+            let line = one.text.Height;
+            assert!((two.text.Height - line * 2.0).abs() < 0.01);
+            assert!((three.text.Height - line * 3.0).abs() < 0.01);
+            // 宽度不跟着行数变，只有高度长
+            assert_eq!(two.width, one.width);
+            assert!((two.height - one.height) as f32 > line - 1.0);
+        }
+
+        #[test]
+        fn line_count_is_capped() {
+            // 行数为 0 / 负数也当一行：窗口不能被压没
+            assert_eq!(
+                Layout::new(1.0, 27, 0).text.Height,
+                Layout::new(1.0, 27, 1).text.Height
+            );
+            // 超过上限按上限算
+            assert_eq!(
+                Layout::new(1.0, 27, 99).text.Height,
+                Layout::new(1.0, 27, MAX_LINES).text.Height
+            );
+        }
+
+        #[test]
+        fn short_lines_stay_on_one_row() {
+            // 量行数要走 GDI+：没初始化时 line_count 一律返回 1，用例会假通过
+            let _guard = gdiplus();
+            assert_eq!(line_count("", 1.0, 27.0), 1);
+            assert_eq!(line_count("你好", 1.0, 27.0), 1);
+            // 732 宽、27px 字号下一行约 27 个汉字
+            assert_eq!(line_count("一二三四五六七八九十", 1.0, 27.0), 1);
+        }
+
+        #[test]
+        fn long_lines_wrap_and_stop_at_the_cap() {
+            let _guard = gdiplus();
+            // 四十个字在一行里放不下，至少要折成两行
+            let medium = "字".repeat(40);
+            assert!(line_count(&medium, 1.0, 27.0) >= 2, "四十个字应该折行");
+            // 两百个字远超三行，夹到上限
+            let long = "字".repeat(200);
+            assert_eq!(line_count(&long, 1.0, 27.0), MAX_LINES);
+            // 字号变大之后同样的字数要占更多行
+            let small = line_count(&medium, 1.0, 20.0);
+            let large = line_count(&medium, 1.0, 40.0);
+            assert!(large >= small, "字号变大不该减少行数：{small} / {large}");
+        }
+
+        #[test]
         fn buttons_do_not_overlap() {
-            let layout = Layout::new(1.0, 27);
+            let layout = Layout::new(1.0, 27, 1);
             for pair in layout.buttons.windows(2) {
                 assert!(
                     pair[0].1.X + pair[0].1.Width <= pair[1].1.X + 0.01,
@@ -1541,15 +1737,15 @@ mod imp {
 
         #[test]
         fn taller_font_grows_the_window_without_widening_it() {
-            let small = Layout::new(1.0, MIN_FONT_SIZE);
-            let large = Layout::new(1.0, MAX_FONT_SIZE);
+            let small = Layout::new(1.0, MIN_FONT_SIZE, 1);
+            let large = Layout::new(1.0, MAX_FONT_SIZE, 1);
             assert!(large.height > small.height);
             assert_eq!(large.width, small.width);
         }
 
         #[test]
         fn buttons_are_in_the_expected_order() {
-            let layout = Layout::new(1.0, 27);
+            let layout = Layout::new(1.0, 27, 1);
             let order: Vec<Button> = layout.buttons.iter().map(|(button, _)| *button).collect();
             assert_eq!(
                 order,
@@ -1581,7 +1777,7 @@ mod imp {
             playing: bool,
             progress: f32,
         ) -> (i32, i32, Vec<u8>) {
-            let layout = Layout::new(1.0, 27);
+            let layout = Layout::new(1.0, 27, line_count(text, 1.0, 27.0));
             let width = layout.width;
             let height = layout.height;
             unsafe {
