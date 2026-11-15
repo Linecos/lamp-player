@@ -505,6 +505,120 @@ void main() {
     expect(brightest, 79, reason: '点过去之后那一行必须是最亮的');
   });
 
+  testWidgets('当前行的逐字高亮不吃渐隐，颜色要跟着重排', (WidgetTester tester) async {
+    // 逐字的两个颜色是「白色 × 行级渐隐」。以前 painter 的复用条件里没有颜色，
+    // 颜色变了却复用旧 painter，高亮会一直停在第一次排版时的亮度——跳转后
+    // 看着就是一片浅灰的「高亮」。
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 40; i += 1)
+        _line(
+          start: i * 5000,
+          end: (i + 1) * 5000,
+          text: '第 $i 行歌词',
+          words: <LyricWord>[
+            LyricWord(timeMs: i * 5000, text: '第'),
+            LyricWord(timeMs: i * 5000 + 1000, text: ' $i'),
+            LyricWord(timeMs: i * 5000 + 2500, text: ' 行歌词'),
+          ],
+        ),
+    ];
+
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      band: 78,
+      alignment: 0.68,
+    );
+    tester.view.physicalSize = const Size(900, 520);
+    await tester.pump();
+
+    position.value = 20 * 5.0 + 1.2;
+    for (int i = 0; i < 45; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final Finder prefix = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is CustomPaint && widget.painter is KaraokePrefixPainter,
+    );
+    expect(prefix, findsOneWidget, reason: '当前行要走逐字渲染');
+
+    final KaraokePrefixPainter painter =
+        tester.widget<CustomPaint>(prefix).painter! as KaraokePrefixPainter;
+    Color? colorOf(TextPainter painter) =>
+        (painter.text! as TextSpan).style?.color;
+
+    expect(
+      colorOf(painter.highlight)?.a,
+      greaterThan(0.95),
+      reason: '当前行的高亮是纯白，不能被渐隐乘掉',
+    );
+    expect(
+      colorOf(painter.base)?.a,
+      closeTo(0.78, 0.05),
+      reason: '未唱底色仍是 0.78',
+    );
+  });
+
+  testWidgets('当前行落进底部渐隐带时也保持全亮', (WidgetTester tester) async {
+    // 歌词区矮（封面大、信息块高）+ 有频谱丝带（edgeFadeBand 把底边推高）时，
+    // 对齐线会落进底部渐隐带里。当前行跟着被淡掉的话，已唱的白会被乘掉两三成，
+    // 正在唱的字看着是灰的——和正常听着歌时完全是两个颜色。
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 60; i += 1)
+        _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行的歌词'),
+    ];
+
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      // 频谱丝带：贴底 6、高 72
+      band: 78,
+      // 宽窗时对齐线按封面中心算，0.68 是它的上限
+      alignment: 0.68,
+    );
+    // 歌词区只有 520 高
+    tester.view.physicalSize = const Size(900, 520);
+    await tester.pump();
+
+    position.value = 30 * 5.0;
+    for (int i = 0; i < 45; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    double? alphaOf(int index) {
+      final Finder text = find.descendant(
+        of: find.byKey(ValueKey<String>('lyric-$index')),
+        matching: find.byType(Text),
+      );
+      if (text.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<Text>(text.first).style?.color?.a;
+    }
+
+    // 当前行自身的 alpha 是 0.96（见 [_LyricLineView] 的 activeColor），
+    // 这条要的是「没有再被渐隐乘一道」
+    expect(alphaOf(30), greaterThan(0.95), reason: '当前行在渐隐带里也要全亮');
+    final double? above = alphaOf(29);
+    expect(above, isNotNull, reason: '相邻行应该在视口里，用来看渐隐还在生效');
+    expect(above!, lessThan(0.9), reason: '渐隐对其他行仍要生效');
+  });
+
   testWidgets('逐字歌词随进度裁切高亮', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(1.0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
