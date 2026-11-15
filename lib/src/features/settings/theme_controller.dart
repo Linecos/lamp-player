@@ -5,10 +5,12 @@ import '../../theme/app_theme.dart';
 
 /// 主题状态：深浅模式 + 强调色种子。改动立即生效，并异步写入本地存储。
 ///
-/// 强调色支持两种来源：
-/// - 预设色板：固定颜色，存 0xAARRGGBB；
-/// - 跟随系统（动态取色）：`seedColor` 为 `null`，实际颜色取
-///   [updateSystemAccent] 注入的系统强调色，读不到再回落 [AppTheme.defaultSeed]。
+/// 强调色有三级来源，优先级从高到低：
+/// - **动态主题色**（`followsCover`）：取 [updateCoverSeed] 注入的封面色，
+///   开着时压过下面两级；
+/// - 手动强调色：`seedColor` 非 `null` 时的存档；
+/// - 跟随系统：`seedColor` 为 `null`，取 [updateSystemAccent] 注入的系统强调色；
+///   都没有再回落 [AppTheme.defaultSeed]。
 class ThemeController extends ChangeNotifier {
   ThemeController({ThemeMode initialMode = ThemeMode.system})
     : _mode = initialMode;
@@ -16,7 +18,7 @@ class ThemeController extends ChangeNotifier {
   /// 存储键；单独暴露便于测试直接断言写入内容。
   static const String prefsKey = 'theme_mode';
 
-  /// 强调色存储键：`system` 表示跟随系统，其余为 0xAARRGGBB 的十进制字符串。
+  /// 强调色存储键：`system` 跟随系统、`cover` 跟随封面，其余为 0xAARRGGBB 的十进制字符串。
   static const String seedPrefsKey = 'theme_seed';
 
   /// 调色板风格存储键：存 `DynamicSchemeVariant.name`。
@@ -27,6 +29,17 @@ class ThemeController extends ChangeNotifier {
 
   static const String _systemSeedValue = 'system';
 
+  /// 跟随封面的存储值
+  static const String _coverSeedValue = 'cover';
+
+  /// 跟随封面时强制使用的调色板风格。
+  ///
+  /// Tonal spot 会把颜色洗淡（实测薄荷 `S86 → 48`、封面绿 `S60 → 45`），
+  /// 跟封面联动就会「颜色明明很艳、界面却灰扑扑」。Fidelity / Content 保留源色的
+  /// 色相与彩度，遇到灰封面又老实变中性，正是这里要的行为。
+  static const DynamicSchemeVariant coverVariant =
+      DynamicSchemeVariant.fidelity;
+
   ThemeMode _mode;
   Color? _seedColor;
   DynamicSchemeVariant _variant = AppTheme.defaultVariant;
@@ -35,27 +48,49 @@ class ThemeController extends ChangeNotifier {
   /// 系统强调色缓存；由外部（启动时 / 切到跟随系统时）注入
   Color? _systemAccent;
 
+  /// 最近一次从封面取到的、可用的种子色。
+  ///
+  /// **只在取到合格颜色时更新**：灰封面 / 纯黑白封面不算数，保持上一个颜色，
+  /// 否则每遇到一张黑白封面界面就跳回默认色。
+  Color? _coverSeed;
+
+  /// 强调色是否跟随封面
+  bool _followCover = false;
+
   /// 防止异步恢复晚于用户操作或销毁：恢复不再覆盖新选择，也不在销毁后通知。
   bool _disposed = false;
   bool _userChanged = false;
 
   ThemeMode get mode => _mode;
 
-  /// 用户选定的强调色；`null` 表示跟随系统。
+  /// 用户选定的强调色；`null` 表示没有手选（跟随系统或跟随封面）。
   Color? get seedColor => _seedColor;
 
   /// 调色板风格（Tonal spot / Vibrant / Monochrome…）。
   DynamicSchemeVariant get schemeVariant => _variant;
 
+  /// 实际生效的调色板风格：跟随封面时固定 [coverVariant]。
+  DynamicSchemeVariant get effectiveVariant =>
+      _followCover ? coverVariant : _variant;
+
   /// 是否用高对比色阶（contrastLevel = 1.0）。
   bool get highContrast => _highContrast;
+
+  /// 是否跟随封面取色。
+  ///
+  /// 播放侧据此决定要不要为取色去解码封面——关掉时一帧都不多花。
+  bool get followsCover => _followCover;
 
   /// 最近一次读到的系统强调色；`null` 表示未知（非 Windows / 读取失败）。
   Color? get systemAccent => _systemAccent;
 
-  /// 实际生效的种子色：用户选择 > 系统强调色 > 默认暖黄。
-  Color get effectiveSeed =>
-      _seedColor ?? _systemAccent ?? AppTheme.defaultSeed;
+  /// 最近一次从封面取到的种子色（尚未取到过时为 `null`）。
+  Color? get coverSeed => _coverSeed;
+
+  /// 实际生效的种子色：跟随封面 > 用户选择 > 系统强调色 > 默认暖黄。
+  Color get effectiveSeed => _followCover
+      ? (_coverSeed ?? _seedColor ?? _systemAccent ?? AppTheme.defaultSeed)
+      : (_seedColor ?? _systemAccent ?? AppTheme.defaultSeed);
 
   /// 从本地存储恢复；读取失败（插件不可用、值非法）时保持当前值。
   Future<void> restore() async {
@@ -70,10 +105,24 @@ class ThemeController extends ChangeNotifier {
         _mode = savedMode;
         changed = true;
       }
-      final Color? savedSeed = _decodeSeed(prefs.getString(seedPrefsKey));
-      if (savedSeed != _seedColor) {
-        _seedColor = savedSeed;
-        changed = true;
+      final String? savedSeedRaw = prefs.getString(seedPrefsKey);
+      if (savedSeedRaw == _coverSeedValue) {
+        if (!_followCover) {
+          _followCover = true;
+          // 跟随封面时手选色让位：effectiveSeed 由 _coverSeed 决定
+          _seedColor = null;
+          changed = true;
+        }
+      } else {
+        final Color? savedSeed = _decodeSeed(savedSeedRaw);
+        if (_followCover) {
+          _followCover = false;
+          changed = true;
+        }
+        if (savedSeed != _seedColor) {
+          _seedColor = savedSeed;
+          changed = true;
+        }
       }
       final DynamicSchemeVariant? savedVariant = _decodeVariant(
         prefs.getString(variantPrefsKey),
@@ -112,7 +161,10 @@ class ThemeController extends ChangeNotifier {
     }
   }
 
-  /// 设置强调色；传 `null` 表示跟随系统（动态取色）。
+  /// 设置手动强调色；传 `null` 表示跟随系统。
+  ///
+  /// 只是改「手动档」的存档：**「动态主题色」开关开着时它不生效**（封面色优先），
+  /// 关掉开关后立刻回到这里存的值。所以这个方法不动开关状态。
   Future<void> setSeedColor(Color? color) async {
     if (_disposed || color == _seedColor) {
       return;
@@ -120,12 +172,45 @@ class ThemeController extends ChangeNotifier {
     _userChanged = true;
     _seedColor = color;
     notifyListeners();
+    await _persistSeed();
+  }
+
+  /// 切换「强调色跟随封面」。
+  ///
+  /// 关闭时回到手选色（没选过就回跟随系统），不会把当前封面色固定下来——
+  /// 那样下次打开就又锁死在一个颜色上了。
+  Future<void> setFollowCover(bool value) async {
+    if (_disposed || value == _followCover) {
+      return;
+    }
+    _userChanged = true;
+    _followCover = value;
+    notifyListeners();
+    await _persistSeed();
+  }
+
+  /// 注入从封面取到的种子色。传 `null` 表示这张封面没有合格的候选（太灰）。
+  ///
+  /// `null` 只被当作「这次不算」，不会清掉上一个色：否则每遇到一张黑白封面，
+  /// 界面就跳回默认色，下一首又跳回去，比不跟随还乱。
+  void updateCoverSeed(Color? color) {
+    if (_disposed || color == null || color == _coverSeed) {
+      return;
+    }
+    _coverSeed = color;
+    // 没在跟随时界面不变，不必通知（取色本身还是会缓存下来，切过去立刻就位）
+    if (_followCover) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _persistSeed() async {
+    final String raw = _followCover
+        ? _coverSeedValue
+        : (_seedColor?.toARGB32().toString() ?? _systemSeedValue);
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        seedPrefsKey,
-        color == null ? _systemSeedValue : color.toARGB32().toString(),
-      );
+      await prefs.setString(seedPrefsKey, raw);
     } catch (error) {
       debugPrint('保存强调色设置失败：$error');
     }
@@ -248,4 +333,11 @@ class ThemeScope extends InheritedNotifier<ThemeController> {
 
   static ThemeController? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ThemeScope>()?.notifier;
+
+  /// 取到控制器但**不登记依赖**。
+  ///
+  /// 给「只在事件里读一下、不需要跟着重建」的调用方用（比如播放侧判断要不要
+  /// 为动态主题去取色）。用 [maybeOf] 会让那个 widget 在每次换主题时重建一次。
+  static ThemeController? readOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<ThemeScope>()?.notifier;
 }

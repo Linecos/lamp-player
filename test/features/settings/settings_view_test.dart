@@ -550,6 +550,73 @@ void main() {
     );
   });
 
+  testWidgets('动态主题色是外观里的独立开关，优先于手动强调色', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    controller.updateCoverSeed(const Color(0xFFE91E63));
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(body: SettingsView(trackCount: 1)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('settings-dynamic-theme-switch'),
+    );
+    expect(toggle, findsOneWidget);
+    expect(controller.followsCover, isFalse);
+
+    // 打开开关：封面色生效，优先于手动强调色
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(controller.followsCover, isTrue);
+    expect(controller.effectiveSeed, const Color(0xFFE91E63));
+    // 强调色行要说明自己被接管了，不然用户对着手动色纳闷为什么不变
+    expect(find.text('已由动态主题色接管'), findsOneWidget);
+
+    // 配色弹窗里没有「跟随封面」卡：开关不在弹窗里
+    await tester.ensureVisible(find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('seed-card-cover')), findsNothing);
+
+    // 弹窗里选色只改存档，开关不动
+    const Color blue = Color(0xFF2196F3);
+    await tester.tap(
+      find.byKey(ValueKey<String>('seed-card-${blue.toARGB32()}')),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.followsCover, isTrue);
+    expect(
+      controller.effectiveSeed,
+      const Color(0xFFE91E63),
+      reason: '封面色仍然优先',
+    );
+    expect(controller.seedColor, blue, reason: '存档已更新，关掉开关就能用');
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    // 关掉开关：立刻回到手动强调色
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(controller.followsCover, isFalse);
+    expect(controller.effectiveSeed, blue);
+  });
+
   testWidgets('自定义取色：点色轮改种子色，默认键回暖黄', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;

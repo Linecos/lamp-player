@@ -22,6 +22,8 @@ import '../../common/text/pinyin_key.dart';
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
+import '../player/cover_palette.dart';
+import '../settings/theme_controller.dart';
 import 'widgets/cover_backdrop.dart';
 import 'widgets/cover_flight.dart';
 import '../../rust/api/player.dart' as rust;
@@ -629,6 +631,28 @@ class _LibraryPageState extends State<LibraryPage>
   /// 正在播放页打开时的设备轮询：与设置页各用一支，互不取消
   Timer? _nowPlayingDeviceTimer;
 
+  /// 「强调色跟随封面」的节流计时器。
+  ///
+  /// 换主题会让整棵树重建一次（实测一次性尖峰 ~70ms，debug），连点「下一首」
+  /// 时逐首换就白烧了。这里做前沿节流：第一首立刻生效，400ms 内的后续只记下
+  /// 最新的那个，到点再落一次。
+  Timer? _coverSeedTimer;
+
+  /// 节流窗口里攒下的、待应用的封面色
+  Color? _pendingCoverSeed;
+
+  /// 主题控制器（「跟随封面」要用）。用 `readOf` 拿到的，不登记依赖。
+  ThemeController? _theme;
+
+  /// 上一次看到的「是否跟随封面」，用来识别开关的翻转
+  bool _followCoverWasOn = false;
+
+  /// 已经发过取色请求的曲目路径。
+  ///
+  /// 取色是异步的（解码 + 统计），回来时用户可能已经切到别的歌了——路径对不上
+  /// 就丢掉，否则会拿 A 的封面色去配 B 的界面。
+  String? _coverSeedPath;
+
   /// 正在播放页是否已经在路由栈上。
   ///
   /// 播放条、快捷键、托盘都能打开它，手快连点会叠出多页全屏播放页，
@@ -836,6 +860,37 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 「强调色跟随封面」在播放侧要用到主题控制器。用 readOf 而不是 maybeOf：
+    // 这里只在设置切换时读一次，不应该让整个曲库页跟着每次换主题重建。
+    final ThemeController? theme = ThemeScope.readOf(context);
+    if (identical(theme, _theme)) {
+      return;
+    }
+    _theme?.removeListener(_onThemeChanged);
+    _theme = theme;
+    _theme?.addListener(_onThemeChanged);
+    _followCoverWasOn = theme?.followsCover ?? false;
+  }
+
+  /// 用户在设置里打开 / 关掉「跟随封面」时，让当前正在放的这首立刻跟上
+  ///
+  /// 不然要等下一首歌才生效，开关看起来像没反应。
+  void _onThemeChanged() {
+    final bool on = _theme?.followsCover ?? false;
+    if (on == _followCoverWasOn) {
+      return;
+    }
+    _followCoverWasOn = on;
+    final Track? track = _currentTrack;
+    if (on && track != null) {
+      _coverSeedPath = null; // 强制重取；取色有缓存，代价是一次查表
+      _syncCoverSeed(track);
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
@@ -944,7 +999,9 @@ class _LibraryPageState extends State<LibraryPage>
     _sectionRefreshTimer?.cancel();
     _deviceTimer?.cancel();
     _nowPlayingDeviceTimer?.cancel();
+    _coverSeedTimer?.cancel();
     libraryRevision.removeListener(_onLibraryChanged);
+    _theme?.removeListener(_onThemeChanged);
     _sectionFade.dispose();
     _sleepTimer.dispose();
     _sectionNotifier.dispose();

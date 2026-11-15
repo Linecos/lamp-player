@@ -354,6 +354,7 @@ class SettingsView extends StatelessWidget {
     ]);
     section('外观', <Widget>[
       const _ThemeRow(),
+      const _DynamicThemeRow(),
       const _AccentColorRow(),
       _SwitchRow(
         icon: Icons.auto_awesome,
@@ -1205,6 +1206,33 @@ class _ThemeRow extends StatelessWidget implements _Searchable {
   }
 }
 
+/// 「动态主题色」开关：强调色跟随正在播放的封面主色，优先于手动强调色。
+///
+/// 放在配色弹窗**外面**单独一行：它是个总开关，和「选哪个颜色」是两件事，
+/// 塞进气泡卡格里既容易被当成一张色卡，也表达不出「优先级最高」。
+class _DynamicThemeRow extends StatelessWidget implements _Searchable {
+  const _DynamicThemeRow();
+
+  @override
+  String get searchText => '动态主题色 跟随封面 强调色 外观';
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeController? controller = ThemeScope.maybeOf(context);
+    final bool on = controller?.followsCover ?? false;
+    return _SwitchRow(
+      icon: Icons.palette_outlined,
+      title: '动态主题色',
+      switchKey: const ValueKey<String>('settings-dynamic-theme-switch'),
+      subtitle: on ? '已开启 · 优先于手动强调色' : '跟随当前播放封面的主色',
+      value: on,
+      onChanged: controller == null
+          ? null
+          : (bool value) => unawaited(controller.setFollowCover(value)),
+    );
+  }
+}
+
 class _AccentColorRow extends StatelessWidget implements _Searchable {
   const _AccentColorRow();
 
@@ -1220,7 +1248,9 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
     final Color effective = controller?.effectiveSeed ?? AppTheme.defaultSeed;
 
     final String subtitle;
-    if (seed != null) {
+    if (controller?.followsCover ?? false) {
+      subtitle = '已由动态主题色接管';
+    } else if (seed != null) {
       subtitle = '自定义颜色';
     } else if (controller?.systemAccent != null) {
       subtitle = '跟随系统强调色，随 Windows 个性化变化';

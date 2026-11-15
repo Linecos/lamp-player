@@ -6,6 +6,7 @@ import 'package:lamp_player/src/app/window_controls.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/music_tag.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
+import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/features/settings/listening_stats_repository.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -30,6 +31,9 @@ Future<FakeLibraryRepository> pumpLibrary(
   ListeningStatsRepository? statsRepository,
   Size viewSize = const Size(1280, 800),
   bool prefetchReplayGain = true,
+
+  /// 传了就在外面套一层 ThemeScope：只有「跟随封面」等需要读主题状态的用例才用
+  ThemeController? themeController,
   void Function(FakeLibraryRepository repo)? configure,
   Future<void> Function(FakeLibraryRepository repo)? seed,
 }) async {
@@ -46,22 +50,25 @@ Future<FakeLibraryRepository> pumpLibrary(
     await seed(repository);
   }
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light(AppTheme.defaultSeed),
-      home: LibraryPage(
-        repository: repository,
-        playbackService: playback ?? FakePlaybackService(),
-        directoryPicker: directoryPicker,
-        musicFolderStore: folderStore,
-        sessionStore: sessionStore ?? FakeSessionStore(),
-        appLifecycle: lifecycle,
-        windowControls: windowControls,
-        musicTagLauncher: musicTagLauncher,
-        statsRepository: statsRepository,
-        prefetchReplayGain: prefetchReplayGain,
-      ),
+  final Widget app = MaterialApp(
+    theme: AppTheme.light(AppTheme.defaultSeed),
+    home: LibraryPage(
+      repository: repository,
+      playbackService: playback ?? FakePlaybackService(),
+      directoryPicker: directoryPicker,
+      musicFolderStore: folderStore,
+      sessionStore: sessionStore ?? FakeSessionStore(),
+      appLifecycle: lifecycle,
+      windowControls: windowControls,
+      musicTagLauncher: musicTagLauncher,
+      statsRepository: statsRepository,
+      prefetchReplayGain: prefetchReplayGain,
     ),
+  );
+  await tester.pumpWidget(
+    themeController == null
+        ? app
+        : ThemeScope(controller: themeController, child: app),
   );
   await tester.pump();
   await tester.pumpAndSettle();

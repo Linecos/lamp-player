@@ -231,4 +231,125 @@ void main() {
     await restored.restore();
     expect(restored.highContrast, isTrue);
   });
+
+  test('默认不跟随封面', () {
+    final ThemeController controller = ThemeController();
+    expect(controller.followsCover, isFalse);
+    expect(controller.coverSeed, isNull);
+  });
+
+  test('开启跟随后生效色取封面种子色，并持久化为 cover', () async {
+    final ThemeController controller = ThemeController();
+    controller.updateSystemAccent(const Color(0xFF2196F3));
+    await controller.setFollowCover(true);
+    controller.updateCoverSeed(const Color(0xFFE91E63));
+
+    expect(controller.effectiveSeed, const Color(0xFFE91E63));
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.seedPrefsKey), 'cover');
+
+    final ThemeController restored = ThemeController();
+    await restored.restore();
+    expect(restored.followsCover, isTrue);
+    expect(restored.seedColor, isNull);
+  });
+
+  test('封面太灰（null）时保持上一个颜色，不回落', () async {
+    final ThemeController controller = ThemeController();
+    await controller.setFollowCover(true);
+    controller.updateCoverSeed(const Color(0xFF4CAF50));
+
+    controller.updateCoverSeed(null);
+
+    expect(controller.coverSeed, const Color(0xFF4CAF50));
+    expect(controller.effectiveSeed, const Color(0xFF4CAF50));
+  });
+
+  test('还没取到封面色时按手选色 / 系统色回落', () async {
+    final ThemeController controller = ThemeController();
+    const Color custom = Color(0xFF9C27B0);
+    await controller.setSeedColor(custom);
+    await controller.setFollowCover(true);
+
+    expect(controller.effectiveSeed, custom, reason: '封面还没取到，先用之前的颜色');
+
+    controller.updateCoverSeed(const Color(0xFFFF9800));
+    expect(controller.effectiveSeed, const Color(0xFFFF9800));
+  });
+
+  test('开关开着时手动选色只改存档，不生效也不退出', () async {
+    final ThemeController controller = ThemeController();
+    await controller.setFollowCover(true);
+    controller.updateCoverSeed(const Color(0xFFE91E63));
+
+    await controller.setSeedColor(const Color(0xFF009688));
+
+    expect(controller.followsCover, isTrue, reason: '开关是总闸，选色不动它');
+    expect(controller.effectiveSeed, const Color(0xFFE91E63), reason: '封面色优先');
+    expect(
+      controller.seedColor,
+      const Color(0xFF009688),
+      reason: '但存档要更新，关掉开关就能用',
+    );
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.seedPrefsKey), 'cover');
+  });
+
+  test('开关开着时切跟随系统同样只改存档', () async {
+    final ThemeController controller = ThemeController();
+    await controller.setFollowCover(true);
+
+    await controller.setSeedColor(null);
+
+    expect(controller.followsCover, isTrue);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.seedPrefsKey), 'cover');
+  });
+
+  test('关闭跟随后恢复之前的持久化状态', () async {
+    const Color custom = Color(0xFF3F51B5);
+    final ThemeController controller = ThemeController();
+    await controller.setSeedColor(custom);
+    await controller.setFollowCover(true);
+    await controller.setFollowCover(false);
+
+    expect(controller.followsCover, isFalse);
+    expect(controller.effectiveSeed, custom);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(ThemeController.seedPrefsKey),
+      custom.toARGB32().toString(),
+    );
+  });
+
+  test('没在跟随时注入了封面色也不通知界面', () async {
+    final ThemeController controller = ThemeController();
+    int notified = 0;
+    controller.addListener(() => notified += 1);
+
+    controller.updateCoverSeed(const Color(0xFFE91E63));
+
+    expect(notified, 0, reason: '颜色不生效就没必要重建');
+    expect(
+      controller.coverSeed,
+      const Color(0xFFE91E63),
+      reason: '但要存下来，切过去立刻可用',
+    );
+  });
+
+  test('跟随封面时调色板风格固定为 Fidelity', () async {
+    final ThemeController controller = ThemeController();
+    expect(controller.effectiveVariant, DynamicSchemeVariant.tonalSpot);
+
+    await controller.setFollowCover(true);
+    expect(controller.effectiveVariant, ThemeController.coverVariant);
+    expect(
+      controller.schemeVariant,
+      DynamicSchemeVariant.tonalSpot,
+      reason: '用户的选择不丢',
+    );
+
+    await controller.setFollowCover(false);
+    expect(controller.effectiveVariant, DynamicSchemeVariant.tonalSpot);
+  });
 }
