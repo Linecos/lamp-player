@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clean_name`, `name_taken`, `now_secs`, `playlist_by_id`, `playlist_exists`, `row_to_playlist`, `track_exists`
+// These functions are ignored because they are not marked as `pub`: `clean_name`, `name_taken`, `now_secs`, `playlist_by_id`, `playlist_exists`, `read_slots`, `row_to_playlist`, `track_exists`, `visible_of`, `write_visible_order`
 
 /// 歌单列表，按名称排序，附带曲目数。
 Future<List<Playlist>> listPlaylists() =>
@@ -50,6 +50,22 @@ Future<void> movePlaylistTrack({
   id: id,
   from: from,
   to: to,
+);
+
+/// 整体替换歌单的可见顺序，`paths` 就是界面上看到的那一串。
+///
+/// 界面在别的排序下（最近添加 / 标题…）拖动时，拖完的那份列表就是用户想要的
+/// 新自定义顺序；这时不能用 `move_playlist_track`（它只挪一首，其余仍按旧序号），
+/// 否则界面会先跳回旧的自定义顺序再动一格。
+///
+/// `paths` 里没提到的可见曲目会按原相对顺序追加到末尾，避免界面上没显示的条目
+/// 被漏掉。
+Future<void> setPlaylistOrder({
+  required PlatformInt64 id,
+  required List<String> paths,
+}) => RustLib.instance.api.crateApiCollectionsSetPlaylistOrder(
+  id: id,
+  paths: paths,
 );
 
 /// 批量移出歌单，返回真正删掉的条数。

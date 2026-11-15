@@ -51,6 +51,9 @@ abstract interface class LibraryRepository {
   /// 这个时间窗口只有让测试能拖住（假仓库挂起）才测得到
   Future<void> movePlaylistTrack(int id, int from, int to);
 
+  /// 整体替换歌单顺序（界面拖完的那份列表）
+  Future<void> setPlaylistOrder(int id, List<String> paths);
+
   /// 从曲库移除记录（只删记录，不删音频文件）；返回实际删除数
   ///
   /// 注意：这条路径**真删行**，会级联清掉收藏 / 歌单 / 播放历史，而且
@@ -137,6 +140,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<void> movePlaylistTrack(int id, int from, int to) =>
       collections.movePlaylistTrack(id: id, from: from, to: to);
+
+  @override
+  Future<void> setPlaylistOrder(int id, List<String> paths) =>
+      collections.setPlaylistOrder(id: id, paths: paths);
 
   @override
   Future<bool> addTrackToPlaylist(int id, String path) =>

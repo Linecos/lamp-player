@@ -623,6 +623,72 @@ fn moving_playlist_track_keeps_positions_unique_with_hidden_rows() {
     assert_eq!(after, vec!["A", "B", "C"]);
 }
 
+/// 整体覆盖歌单顺序：界面按别的排序拖完，那一列就该原样成为新的自定义顺序。
+#[test]
+fn set_playlist_order_replaces_visible_order_as_a_whole() {
+    let (_lock, dir) = begin("set_order");
+    seed(
+        &dir,
+        &[
+            ("/music/a.mp3", "A"),
+            ("/music/b.mp3", "B"),
+            ("/music/c.mp3", "C"),
+            ("/music/d.mp3", "D"),
+        ],
+    );
+    let playlist = collections::create_playlist("P".to_string()).expect("建歌单");
+    // 新加的歌排最前：依次加 A、B、C、D 得到 [D, C, B, A]
+    for path in [
+        "/music/a.mp3",
+        "/music/b.mp3",
+        "/music/c.mp3",
+        "/music/d.mp3",
+    ] {
+        collections::add_track_to_playlist(playlist.id, path.to_string()).expect("加歌单");
+    }
+
+    let titles = |_id: i64| -> Vec<String> {
+        collections::playlist_tracks(playlist.id)
+            .expect("读歌单")
+            .iter()
+            .map(|t| t.title.clone())
+            .collect()
+    };
+    assert_eq!(titles(playlist.id), vec!["D", "C", "B", "A"]);
+
+    // 界面此时按标题排着（A、B、C、D），拖成 B、A、D、C 之后整体覆盖
+    collections::set_playlist_order(
+        playlist.id,
+        vec![
+            "/music/b.mp3".to_string(),
+            "/music/a.mp3".to_string(),
+            "/music/d.mp3".to_string(),
+            "/music/c.mp3".to_string(),
+        ],
+    )
+    .expect("整体覆盖");
+    assert_eq!(titles(playlist.id), vec!["B", "A", "D", "C"]);
+
+    // 少给一条：没提到的按原相对顺序补到末尾；不在歌单里的路径直接忽略
+    collections::set_playlist_order(
+        playlist.id,
+        vec![
+            "/music/d.mp3".to_string(),
+            "/music/not-in-playlist.mp3".to_string(),
+        ],
+    )
+    .expect("部分覆盖");
+    assert_eq!(titles(playlist.id), vec!["D", "B", "A", "C"]);
+
+    // 重复路径只认第一次
+    collections::set_playlist_order(
+        playlist.id,
+        vec!["/music/c.mp3".to_string(), "/music/c.mp3".to_string()],
+    )
+    .expect("去重");
+    assert_eq!(titles(playlist.id), vec!["C", "D", "B", "A"]);
+}
+
 /// 批量移出歌单：整批一个事务，返回真正删掉的条数。
 #[test]
 fn remove_tracks_from_playlist_is_one_batch() {

@@ -864,14 +864,18 @@ extension _PlaylistsSection on _LibraryPageState {
     if (from == to || from < 0 || from >= displayed.length) {
       return;
     }
+    // 拖完的这一列就是用户想要的**新自定义顺序**。
+    //
+    // 以前是「把这一首挪进之前存的自定义顺序里」，于是按「最近添加」排着拖一下，
+    // 界面会先跳回旧的自定义顺序再动一格——看到的位置和手拖的位置对不上。
+    // 现在直接以眼前这份列表为基准覆盖自定义顺序。
+    final List<Track> next = List<Track>.of(displayed);
+    final int target = to.clamp(0, next.length - 1);
+    next.insert(target, next.removeAt(from));
+
     final List<Track> before = _playlistTracks;
-    final Track moved = displayed[from];
-    // 不管当前按什么排，都把这次拖拽折算成「手动顺序里的一次移动」
-    final List<Track> next = _manualOrderAfterDrag(displayed, before, from, to);
-    final int oldIndex = before.indexWhere((Track t) => t.path == moved.path);
-    final int newIndex = next.indexWhere((Track t) => t.path == moved.path);
-    // 自定义视图下没真正挪动：什么都不用做
-    if (_manualSort == null && oldIndex == newIndex) {
+    // 自定义视图下原地没动（拖回原位）：什么都不用做
+    if (_manualSort == null && _sameTrackOrder(before, next)) {
       return;
     }
     _playlistReordering = true;
@@ -882,13 +886,10 @@ extension _PlaylistsSection on _LibraryPageState {
     });
     _saveSessionNow();
     try {
-      if (oldIndex >= 0 && newIndex >= 0 && oldIndex != newIndex) {
-        await _repository.movePlaylistTrack(
-          playlist.id.toInt(),
-          oldIndex,
-          newIndex,
-        );
-      }
+      await _repository.setPlaylistOrder(
+        playlist.id.toInt(),
+        next.map((Track track) => track.path).toList(),
+      );
     } catch (error) {
       if (!mounted) {
         return;

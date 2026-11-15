@@ -202,27 +202,8 @@ pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
     with_conn(|conn| {
         let tx = conn.transaction()?;
         playlist_exists(&tx, id)?;
-        // (path, hidden) 按 position 排好，槽位下标即最终 position
-        let slots: Vec<(String, bool)> = {
-            let mut stmt = tx.prepare_cached(
-                "SELECT i.track_path, t.hidden
-                   FROM playlist_items i
-                   JOIN tracks t ON t.path = i.track_path
-                  WHERE i.playlist_id = ?1
-                  ORDER BY i.position, i.added_at, i.rowid",
-            )?;
-            let rows = stmt.query_map([id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
-            })?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-
-        // 可见曲目按界面顺序取出来，做拖拽
-        let mut visible: Vec<String> = slots
-            .iter()
-            .filter(|(_, hidden)| !hidden)
-            .map(|(path, _)| path.clone())
-            .collect();
+        let slots = read_slots(&tx, id)?;
+        let mut visible = visible_of(&slots);
         let len = visible.len();
         let from = from.max(0) as usize;
         if from >= len {
@@ -234,38 +215,103 @@ pub fn move_playlist_track(id: i64, from: i32, to: i32) -> anyhow::Result<()> {
         }
         let moved = visible.remove(from);
         visible.insert(to, moved);
-
-        // 把拖好的可见顺序填回槽位，隐藏条目原地不动
-        let mut ordered: Vec<String> = Vec::with_capacity(slots.len());
-        let mut next = visible.into_iter();
-        for (path, hidden) in slots {
-            // 注意先判 hidden：写成 match next.next() { _ if hidden => ... }
-            // 会先求值把可见项消耗掉，后面整列错位
-            if hidden {
-                ordered.push(path);
-            } else if let Some(fresh) = next.next() {
-                ordered.push(fresh);
-            } else {
-                ordered.push(path);
-            }
-        }
-
-        {
-            let mut stmt = tx.prepare_cached(
-                "UPDATE playlist_items SET position = ?1
-                 WHERE playlist_id = ?2 AND track_path = ?3",
-            )?;
-            for (index, path) in ordered.iter().enumerate() {
-                stmt.execute(params![index as i64, id, path])?;
-            }
-        }
-        tx.execute(
-            "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-            params![now_secs(), id],
-        )?;
+        write_visible_order(&tx, id, &slots, &visible)?;
         tx.commit()?;
         Ok(())
     })
+}
+
+/// 整体替换歌单的可见顺序，`paths` 就是界面上看到的那一串。
+///
+/// 界面在别的排序下（最近添加 / 标题…）拖动时，拖完的那份列表就是用户想要的
+/// 新自定义顺序；这时不能用 `move_playlist_track`（它只挪一首，其余仍按旧序号），
+/// 否则界面会先跳回旧的自定义顺序再动一格。
+///
+/// `paths` 里没提到的可见曲目会按原相对顺序追加到末尾，避免界面上没显示的条目
+/// 被漏掉。
+pub fn set_playlist_order(id: i64, paths: Vec<String>) -> anyhow::Result<()> {
+    with_conn(|conn| {
+        let tx = conn.transaction()?;
+        playlist_exists(&tx, id)?;
+        let slots = read_slots(&tx, id)?;
+        let current = visible_of(&slots);
+
+        let mut visible: Vec<String> = Vec::with_capacity(current.len());
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for path in &paths {
+            // 只认这个歌单里真有的、且没重复的
+            if current.iter().any(|item| item == path) && seen.insert(path.as_str()) {
+                visible.push(path.clone());
+            }
+        }
+        for path in current {
+            if !seen.contains(path.as_str()) {
+                visible.push(path);
+            }
+        }
+        write_visible_order(&tx, id, &slots, &visible)?;
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+/// (path, hidden) 按 position 排好，槽位下标即最终 position
+fn read_slots(tx: &rusqlite::Transaction<'_>, id: i64) -> anyhow::Result<Vec<(String, bool)>> {
+    let mut stmt = tx.prepare_cached(
+        "SELECT i.track_path, t.hidden
+           FROM playlist_items i
+           JOIN tracks t ON t.path = i.track_path
+          WHERE i.playlist_id = ?1
+          ORDER BY i.position, i.added_at, i.rowid",
+    )?;
+    let rows = stmt.query_map([id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn visible_of(slots: &[(String, bool)]) -> Vec<String> {
+    slots
+        .iter()
+        .filter(|(_, hidden)| !hidden)
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// 把 `visible` 这一串按顺序填回可见槽位，隐藏条目原地不动，最后整体重排成
+/// `0..n-1`。既保证序号唯一，也让隐藏曲恢复后仍在原来的相对位置。
+fn write_visible_order(
+    tx: &rusqlite::Transaction<'_>,
+    id: i64,
+    slots: &[(String, bool)],
+    visible: &[String],
+) -> anyhow::Result<()> {
+    let mut ordered: Vec<&str> = Vec::with_capacity(slots.len());
+    let mut next = visible.iter();
+    for (path, hidden) in slots {
+        // 注意先判 hidden：写成 match next.next() { _ if hidden => ... }
+        // 会先求值把可见项消耗掉，后面整列错位
+        if *hidden {
+            ordered.push(path.as_str());
+        } else if let Some(fresh) = next.next() {
+            ordered.push(fresh.as_str());
+        } else {
+            ordered.push(path.as_str());
+        }
+    }
+
+    let mut stmt = tx.prepare_cached(
+        "UPDATE playlist_items SET position = ?1
+         WHERE playlist_id = ?2 AND track_path = ?3",
+    )?;
+    for (index, path) in ordered.iter().enumerate() {
+        stmt.execute(params![index as i64, id, path])?;
+    }
+    tx.execute(
+        "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+        params![now_secs(), id],
+    )?;
+    Ok(())
 }
 
 /// 批量移出歌单，返回真正删掉的条数。

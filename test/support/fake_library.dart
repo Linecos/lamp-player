@@ -261,6 +261,32 @@ class FakeLibraryRepository implements LibraryRepository {
     playlist.paths.insert(to.clamp(0, playlist.paths.length), moved);
   }
 
+  /// 每次整体替换顺序的参数记录：(歌单 id, 新顺序的路径)
+  final List<(int, List<String>)> orderCalls = <(int, List<String>)>[];
+
+  @override
+  Future<void> setPlaylistOrder(int id, List<String> paths) async {
+    orderCalls.add((id, List<String>.of(paths)));
+    final Completer<void>? gate = movePlaylistGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    final _FakePlaylist playlist = _playlistById(id);
+    // 只保留歌单里真有的，其余按原顺序追加（和 Rust 侧语义一致）
+    final List<String> next = <String>[
+      for (final String path in paths)
+        if (playlist.paths.contains(path)) path,
+    ];
+    for (final String path in playlist.paths) {
+      if (!next.contains(path)) {
+        next.add(path);
+      }
+    }
+    playlist.paths
+      ..clear()
+      ..addAll(next);
+  }
+
   @override
   Future<int> removeTracksFromPlaylist(int id, List<String> paths) async {
     final _FakePlaylist playlist = _playlistById(id);
