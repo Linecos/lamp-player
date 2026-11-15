@@ -61,6 +61,14 @@ void main() {
     expect(launched.single.$2, <String>['/music/夜航.mp3']);
     expect(find.textContaining('已用 MusicTag 打开：夜航'), findsOneWidget);
 
+    // 提示要一直留着：外部编辑可能花几分钟，回来时还得点得到「刷新」
+    await tester.pump(const Duration(seconds: 6));
+    expect(
+      find.textContaining('已用 MusicTag 打开：夜航'),
+      findsOneWidget,
+      reason: '提示不能自己消失',
+    );
+
     await tester.tap(find.text('改完了，刷新'));
     await tester.pumpAndSettle();
 
