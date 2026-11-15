@@ -1030,6 +1030,14 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
           stops: stops,
         );
       }
+      // 当前行不吃上下沿渐隐：它是焦点，被淡掉就该是「灰的」。
+      //
+      // 平时当前行停在对齐线上碰不到渐隐带，但歌词区矮 + 频谱丝带把底边推高、
+      // 或者对齐线本身偏低时，它会落进带内——那时正在唱的字会被乘掉二三成
+      // 亮度，已唱的白看着是灰的，和正常听着歌时完全是两个颜色。
+      if (i == _active) {
+        value = 1;
+      }
       final ValueListenable<double> notifier = _edgeOpacityAt(i);
       if (notifier is ValueNotifier<double> &&
           (notifier.value - value).abs() > 0.01) {
@@ -1221,6 +1229,7 @@ class _LyricLineWrapper extends StatelessWidget {
   final Animation<double> translation;
   final bool userScrolling;
   final ValueListenable<double> edgeOpacity;
+
   final Future<void> Function(double) onSeek;
 
   @override
@@ -1772,6 +1781,14 @@ class _KaraokeTextState extends State<_KaraokeText> {
   TextStyle? _style;
   LyricAlignment? _alignment;
 
+  /// 上次排版用的两个颜色。
+  ///
+  /// **必须参与复用判断**：这两个颜色是「白色 × 行级渐隐」，滚动、进出渐隐带、
+  /// 当前行切换时每帧都在变；少了这一步，颜色变了却复用旧 painter，高亮会一直
+  /// 停在第一次排版时的那个亮度——跳转后看着「很灰」就是这么来的。
+  Color? _baseColor;
+  Color? _highlightColor;
+
   @override
   void didUpdateWidget(_KaraokeText oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -1794,13 +1811,17 @@ class _KaraokeTextState extends State<_KaraokeText> {
     if (_width == width &&
         _text == widget.text &&
         _style == widget.style &&
-        _alignment == widget.alignment) {
+        _alignment == widget.alignment &&
+        _baseColor == widget.baseColor &&
+        _highlightColor == widget.highlightColor) {
       return;
     }
     _width = width;
     _text = widget.text;
     _style = widget.style;
     _alignment = widget.alignment;
+    _baseColor = widget.baseColor;
+    _highlightColor = widget.highlightColor;
 
     _base?.dispose();
     _highlight?.dispose();
