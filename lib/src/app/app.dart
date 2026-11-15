@@ -84,17 +84,22 @@ class _LampAppState extends State<LampApp> {
           return MaterialApp(
             title: 'Lamp Player',
             debugShowCheckedModeBanner: false,
-            // 强调色与调色板风格由设置决定：预设色板或系统强调色（动态取色）
+            // 强调色与调色板风格由设置决定：预设色板 / 系统强调色 / 跟随封面
             theme: AppTheme.light(
               _theme.effectiveSeed,
-              variant: _theme.schemeVariant,
+              variant: _theme.effectiveVariant,
               contrastLevel: _theme.highContrast ? 1.0 : 0.0,
             ),
             darkTheme: AppTheme.dark(
               _theme.effectiveSeed,
-              variant: _theme.schemeVariant,
+              variant: _theme.effectiveVariant,
               contrastLevel: _theme.highContrast ? 1.0 : 0.0,
             ),
+            // 换主题不做过场。MaterialApp 默认是 200ms 的 ThemeData 过渡，
+            // 而过渡期间**每一帧**都要整棵树重建：实测 2000 首曲库页上中位
+            // 24ms/帧、累计 1.4s，比瞬时切换贵 5 倍还多。跟随封面时每个换歌
+            // 都会换主题，这条开销必须省掉。
+            themeAnimationStyle: AnimationStyle.noAnimation,
             themeMode: _theme.mode,
             initialRoute: AppRoutes.library,
             // 自绘标题栏：原生标题栏已在 main.dart 里关掉；

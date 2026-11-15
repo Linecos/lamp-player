@@ -56,6 +56,7 @@ extension _PlaybackSection on _LibraryPageState {
     });
     _publishProgress();
     _scheduleSessionSave();
+    _syncCoverSeed(track);
     if (!_isAvailable) {
       _showEngineNotice();
       return false;
@@ -115,6 +116,60 @@ extension _PlaybackSection on _LibraryPageState {
       unawaited(_autoGain(track.path));
     }
     return true;
+  }
+
+  /// 换歌之后把「强调色跟随封面」跟上。
+  ///
+  /// 只在真的开启了跟随时才去取色：那条路要解码封面（归一化后 4.7ms，缓存命中
+  /// 0.014ms），没开就一次都不做。
+  void _syncCoverSeed(Track track) {
+    final ThemeController? theme = ThemeScope.readOf(context);
+    if (theme == null || !theme.followsCover) {
+      return;
+    }
+    // 同一首歌重复起播（暂停后继续、seek 回开头）不必再取一次
+    if (_coverSeedPath == track.path && theme.coverSeed != null) {
+      return;
+    }
+    _coverSeedPath = track.path;
+    unawaited(_loadCoverSeed(track.coverPath, track.path, theme));
+  }
+
+  Future<void> _loadCoverSeed(
+    String? coverPath,
+    String path,
+    ThemeController theme,
+  ) async {
+    final Color? seed = await CoverPaletteCache.loadSeed(coverPath);
+    if (!mounted || _coverSeedPath != path || seed == null) {
+      return;
+    }
+    _requestCoverSeed(theme, seed);
+  }
+
+  /// 前沿节流：正常换歌立刻生效，连点「下一首」时只落地最后一次。
+  ///
+  /// 每次换主题都是一次整树重建（实测 debug 下 ~70ms 的尖峰），一首一首跟着换
+  /// 在快速跳歌时会白烧一串。400ms 的窗口对正常听歌没有可感延迟——封面本身
+  /// 也是这个量级才画出来。
+  void _requestCoverSeed(ThemeController theme, Color seed) {
+    if (_coverSeedTimer != null) {
+      _pendingCoverSeed = seed;
+      return;
+    }
+    // 还是同一个颜色：什么都不用做，连计时器都不用起
+    if (theme.coverSeed == seed) {
+      return;
+    }
+    theme.updateCoverSeed(seed);
+    _coverSeedTimer = Timer(const Duration(milliseconds: 400), () {
+      _coverSeedTimer = null;
+      final Color? next = _pendingCoverSeed;
+      _pendingCoverSeed = null;
+      if (next != null && mounted) {
+        _requestCoverSeed(theme, next);
+      }
+    });
   }
 
   /// 起播时下发给引擎的 ReplayGain 增益（dB）。
