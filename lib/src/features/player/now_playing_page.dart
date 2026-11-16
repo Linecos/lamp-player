@@ -1507,8 +1507,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                             : null,
                                         onChangeEnd: ready && total > 0
                                             ? (double value) {
-                                                _dragPosition.value = null;
-                                                unawaited(widget.onSeek(value));
+                                                // 松手后别立刻丢掉预览值：seek 回来之前
+                                                // `data.position` 还是旧位置，这时候清掉会让
+                                                // 圆点和时间气泡先闪回原处再跳过去。等 seek
+                                                // 落地（位置已经写回 notifier）再交还。
+                                                _dragPosition.value = value;
+                                                unawaited(
+                                                  widget
+                                                      .onSeek(value)
+                                                      .whenComplete(() {
+                                                        if (mounted) {
+                                                          _dragPosition.value =
+                                                              null;
+                                                        }
+                                                      }),
+                                                );
                                               }
                                             : null,
                                       ),
