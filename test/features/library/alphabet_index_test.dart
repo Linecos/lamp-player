@@ -59,29 +59,65 @@ void main() {
   group('字母网格几何', () {
     const AlphabetGridMetrics metrics = AlphabetGridMetrics(
       viewportWidth: 1000,
-      maxCrossAxisExtent: 220,
+      tileWidth: 220,
+      tileHeight: 260,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      aspectRatio: 0.72,
       headerExtent: 34,
       topPadding: 8,
     );
 
-    test('列数与 delegate 的算法一致', () {
+    test('列数向上取整，列宽均分，行高是固定值', () {
       // ceil(1000 / (220 + 16)) = 5
       expect(metrics.crossAxisCount, 5);
-      expect(metrics.childCrossAxisExtent, closeTo((1000 - 16 * 4) / 5, 0.001));
-      expect(
-        metrics.childMainAxisExtent,
-        closeTo(metrics.childCrossAxisExtent / 0.72, 0.001),
+      expect(metrics.childCrossAxisExtent, closeTo((1000 - 64) / 5, 0.001));
+      expect(metrics.childMainAxisExtent, 260);
+    });
+
+    test('内容区变宽只加列数，卡片高度不变', () {
+      const AlphabetGridMetrics wide = AlphabetGridMetrics(
+        viewportWidth: 1300,
+        tileWidth: 220,
+        tileHeight: 260,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        headerExtent: 34,
+        topPadding: 8,
       );
+      expect(wide.crossAxisCount, 6);
+      expect(
+        wide.childMainAxisExtent,
+        metrics.childMainAxisExtent,
+        reason: '窗口化 / 全屏来回切，卡片高度必须一样',
+      );
+      // 宽度只在列数变化带来的均分误差里浮动：186.7 ~ 203.3
+      expect(
+        (wide.childCrossAxisExtent - metrics.childCrossAxisExtent).abs(),
+        lessThan(220 * 0.1),
+      );
+    });
+
+    test('窄到一列都放不下时按可用宽度缩', () {
+      const AlphabetGridMetrics tiny = AlphabetGridMetrics(
+        viewportWidth: 180,
+        tileWidth: 220,
+        tileHeight: 260,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        headerExtent: 34,
+        topPadding: 8,
+      );
+      expect(tiny.crossAxisCount, 1);
+      expect(tiny.childCrossAxisExtent, 180);
     });
 
     test('一段的高度按行数折算，行间距只算在行与行之间', () {
       final double rowHeight = metrics.childMainAxisExtent;
       expect(metrics.gridExtent(0), 0);
+      // 5 列：5 条正好一行，第 6 条起新开一行
       expect(metrics.gridExtent(5), closeTo(rowHeight, 0.001));
       expect(metrics.gridExtent(6), closeTo(rowHeight * 2 + 16, 0.001));
+      expect(metrics.gridExtent(11), closeTo(rowHeight * 3 + 16 * 2, 0.001));
     });
 
     test('每段偏移 = 顶部留白 + 之前所有段的高度', () {
