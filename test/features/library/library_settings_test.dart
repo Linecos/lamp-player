@@ -499,16 +499,14 @@ void main() {
       findsOneWidget,
       reason: '拒绝清理的原因要弹出来，不能静默当成 0 条',
     );
-    // 横向要落在**主内容区**（侧栏右侧）的正中：测试视图宽 900、侧栏展开 220，
-    // 中心应是 (900 + 220) / 2 = 560，而不是整个窗口的 450
+    // 横向要落在**主内容区**（侧栏右侧那张卡片）的正中，而不是整个窗口的正中
+    final double contentCenterX =
+        (tester.view.physicalSize.width +
+            LibraryRail.contentLeftInset(true) -
+            LibraryRail.islandGap) /
+        2;
     final Rect pill = tester.getRect(find.byType(ToastPill));
-    expect(
-      pill.center.dx,
-      closeTo(
-        (tester.view.physicalSize.width + LibraryRail.expandedWidth) / 2,
-        1,
-      ),
-    );
+    expect(pill.center.dx, closeTo(contentCenterX, 1));
   });
 
   testWidgets('退出前会把播放会话落盘', (WidgetTester tester) async {

@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/title_bar.dart';
-import 'lamp_brand_mark.dart';
-
 /// 主界面左侧导航分区。
 ///
 /// 与设计稿保持一致，共七个入口。
@@ -27,11 +24,10 @@ enum LibrarySection {
   final IconData selectedIcon;
 }
 
-/// 可展开 / 折叠的侧边导航栏。
+/// 可展开 / 折叠的侧边导航栏，画成一块浮在底色上的圆角卡片（岛）。
 ///
-/// 展开 220dp：顶部显示占位应用图标 + 应用名，下面图标与文字横向排列；
-/// 折叠 72dp：只留图标。侧栏一直贴到窗口顶部，把标题条区域的品牌包住。
-/// 品牌图标、折叠按钮和导航图标始终共用 x=36 的中轴。
+/// 展开 220dp、折叠 72dp。应用图标与名称不在这里——它们在顶部通栏条里
+/// （见 `library_page` 的顶栏），侧栏从折叠按钮开始。
 ///
 /// 宽度 / 条目高度 / 文字透明度全部交给隐式动画（`AnimatedContainer`、
 /// `AnimatedOpacity`）：它们只更新 RenderObject，**不会每帧重建整列子树**。
@@ -51,8 +47,6 @@ class LibraryRail extends StatefulWidget {
     required this.section,
     required this.onSelect,
     required this.onToggle,
-    this.onWindowDragStart,
-    this.onWindowDoubleTap,
   });
 
   final bool expanded;
@@ -60,15 +54,21 @@ class LibraryRail extends StatefulWidget {
   final ValueChanged<LibrarySection> onSelect;
   final VoidCallback onToggle;
 
-  /// 品牌区拖动窗口；为空时保持纯展示
-  final VoidCallback? onWindowDragStart;
-
-  /// 品牌区双击最大化 / 还原
-  final VoidCallback? onWindowDoubleTap;
-
   static const double expandedWidth = 220;
   static const double collapsedWidth = 72;
   static const Duration animationDuration = Duration(milliseconds: 180);
+
+  /// 岛与窗口边缘、岛与岛之间留的间隙
+  static const double islandGap = 12;
+
+  /// 岛卡片的圆角
+  static const double islandRadius = 18;
+
+  /// 主内容区的左边界：侧栏宽度 + 两侧间隙。
+  ///
+  /// 浮层（`AppToast` 之类）要水平居中到内容区时用它，而不是侧栏宽度本身。
+  static double contentLeftInset(bool expanded) =>
+      islandGap * 2 + (expanded ? expandedWidth : collapsedWidth);
 
   @override
   State<LibraryRail> createState() => _LibraryRailState();
@@ -107,8 +107,12 @@ class _LibraryRailState extends State<LibraryRail> {
     // MaterialApp 切深浅色时 `AnimatedTheme` 已经在 200ms 内逐帧插值，如果
     // 这层 `AnimatedContainer` 再对底色做一次 180ms 动画，就是「追一个每帧
     // 都在移动的目标」——实际要将近两倍时长才到位，观感是内容区变完了、
-    // 侧栏还在慢慢追。底色与边框改成静态 `Container`，直接跟着主题插值走。
-    return ClipRect(
+    // 侧栏还在慢慢追。底色改成静态 `Container`，直接跟着主题插值走。
+    //
+    // 圆角由外层 `ClipRRect` 负责：宽度动画期间每帧都会重裁一次，
+    // 边缘不会先出现直角、动画结束才补圆角。
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(LibraryRail.islandRadius),
       child: AnimatedContainer(
         duration: LibraryRail.animationDuration,
         curve: Curves.easeInOutCubic,
@@ -117,21 +121,13 @@ class _LibraryRailState extends State<LibraryRail> {
             : LibraryRail.collapsedWidth,
         child: Container(
           key: const ValueKey<String>('rail-surface'),
-          decoration: BoxDecoration(color: scheme.surfaceContainer),
-          // 边框用前景绘制，避免内容因边框内缩 1px，
-          // 导致图标中轴比折叠按钮偏左。
-          foregroundDecoration: BoxDecoration(
-            border: Border(right: BorderSide(color: scheme.outlineVariant)),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(LibraryRail.islandRadius),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _RailBrand(
-                expanded: widget.expanded,
-                showLabel: _showLabels,
-                onDragStart: widget.onWindowDragStart,
-                onDoubleTap: widget.onWindowDoubleTap,
-              ),
               SizedBox(
                 height: 64,
                 child: Align(
@@ -187,98 +183,6 @@ class _LibraryRailState extends State<LibraryRail> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// 侧栏顶部的品牌区：占位应用图标 + 应用名，高度与窗口标题条一致。
-class _RailBrand extends StatelessWidget {
-  const _RailBrand({
-    required this.expanded,
-    required this.showLabel,
-    this.onDragStart,
-    this.onDoubleTap,
-  });
-
-  final bool expanded;
-  final bool showLabel;
-  final VoidCallback? onDragStart;
-  final VoidCallback? onDoubleTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    // 品牌标记：深色用与 exe / 托盘同源的位图，浅色换成透明底 + 琥珀色描边
-    // 的矢量版——那块深色底板在浅色侧栏里太扎眼
-    const Widget mark = SizedBox(
-      key: ValueKey<String>('rail-brand-mark'),
-      width: 28,
-      height: 28,
-      child: LampBrandMark(size: 28),
-    );
-
-    final Widget brandRow = SizedBox(
-      height: LampTitleBar.height,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 12, right: 12),
-        // 与导航项同理：内容按固有宽度排，宽度动画中途由外层裁剪
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.centerLeft,
-            minWidth: 0,
-            maxWidth: LibraryRail.expandedWidth,
-            minHeight: 0,
-            maxHeight: LampTitleBar.height,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                // 固定 48 宽，图标中轴与折叠按钮 / 导航图标一样落在 x=36。
-                SizedBox(
-                  width: 48,
-                  height: LampTitleBar.height,
-                  child: Center(child: mark),
-                ),
-                if (showLabel) ...<Widget>[
-                  const SizedBox(width: 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 140),
-                    child: AnimatedOpacity(
-                      opacity: expanded ? 1 : 0,
-                      duration: LibraryRail.animationDuration,
-                      curve: Curves.easeInOutCubic,
-                      child: Text(
-                        'Lamp Player',
-                        maxLines: 1,
-                        overflow: TextOverflow.clip,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: scheme.onSurface,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final Widget brand = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanStart: onDragStart == null ? null : (_) => onDragStart!(),
-      onDoubleTap: onDoubleTap,
-      child: brandRow,
-    );
-
-    return Semantics(
-      container: true,
-      label: 'Lamp Player',
-      child: ExcludeSemantics(child: brand),
     );
   }
 }

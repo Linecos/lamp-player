@@ -26,6 +26,7 @@ import '../player/cover_palette.dart';
 import '../settings/theme_controller.dart';
 import 'widgets/cover_backdrop.dart';
 import 'widgets/cover_flight.dart';
+import 'widgets/lamp_brand_mark.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
 import '../player/playback_mode.dart';
@@ -255,6 +256,9 @@ class _LibraryPageState extends State<LibraryPage>
 
   /// 展开后的宽度上限；窗口更窄时按可用宽度收
   static const double _searchOpenWidth = 320;
+
+  /// 顶栏给品牌（图标 + 名称）预留的宽度：搜索展开时不能压到它上面
+  static const double _brandReserveWidth = 180;
 
   /// 播放队列：曲目顺序、循环 / 随机、上一首历史都在里面
   final PlaybackQueue _queue = PlaybackQueue();
@@ -1403,7 +1407,8 @@ class _LibraryPageState extends State<LibraryPage>
         focusNode: _pageFocus,
         autofocus: true,
         child: Scaffold(
-          backgroundColor: scheme.surfaceContainerLow,
+          // 岛式布局的底色：比卡片再深一档，卡片之间的缝才看得出来
+          backgroundColor: scheme.surfaceContainerLowest,
           body: DropTarget(
             onDragEntered: (DropEventDetails _) => _setDragging(true),
             onDragExited: (DropEventDetails _) => _setDragging(false),
@@ -1414,92 +1419,50 @@ class _LibraryPageState extends State<LibraryPage>
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                Row(
+                Column(
                   children: <Widget>[
-                    // 高亮与展开状态各用独立通知驱动：点侧栏 / 折叠侧栏时
-                    // 都不必重建整页，动画不会被「顶栏 + 播放岛 + 内容区」
-                    // 的重建压住
-                    ValueListenableBuilder<LibrarySection>(
-                      valueListenable: _sectionNotifier,
-                      builder:
-                          (
-                            BuildContext context,
-                            LibrarySection section,
-                            Widget? child,
-                          ) => ValueListenableBuilder<bool>(
-                            valueListenable: _railNotifier,
-                            builder:
-                                (
-                                  BuildContext context,
-                                  bool expanded,
-                                  Widget? child,
-                                ) => LibraryRail(
-                                  expanded: expanded,
-                                  section: section,
-                                  onSelect: _selectSection,
-                                  onToggle: _toggleRail,
-                                  onWindowDragStart: () =>
-                                      unawaited(_startWindowDrag()),
-                                  onWindowDoubleTap: () =>
-                                      unawaited(_toggleWindowMaximize()),
-                                ),
-                          ),
-                    ),
+                    // 顶部通栏：品牌、拖动区、搜索；窗口按钮由标题条浮层画在右端
+                    _buildTopBar(context),
                     Expanded(
-                      // 标题条浮在页面之上：内容整体下移，侧栏则继续画到窗口顶部。
-                      // RepaintBoundary 把内容区独立成一层：侧栏宽度动画时
-                      // 侧栏自己的重绘不会连带整块内容区一起重画
-                      child: RepaintBoundary(
-                        child: Padding(
-                          padding: EdgeInsets.zero,
-                          // 播放岛悬浮在内容之上：列表一直铺到窗口底，滚动中的行
-                          // 从岛下面穿过去（窄岛只在中间挡住一段，左右仍看得见）。
-                          // 「滚到底最后一行不被压住」靠列表自己的底部留白，
-                          // 见 `TrackListView` 与各网格的 padding
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: <Widget>[
-                              Column(
-                                children: <Widget>[
-                                  _buildTitleRow(context),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        16,
-                                        12,
-                                        16,
-                                        0,
-                                      ),
-                                      child: FadeTransition(
-                                        key: const ValueKey<String>(
-                                          'section-fade',
+                      // 侧栏与主内容各是一块圆角卡片，之间留 12px 的缝
+                      child: Row(
+                        children: <Widget>[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              LibraryRail.islandGap,
+                              LibraryRail.islandGap,
+                              0,
+                              LibraryRail.islandGap,
+                            ),
+                            // 高亮与展开状态各用独立通知驱动：点侧栏 / 折叠侧栏时
+                            // 都不必重建整页，动画不会被「顶栏 + 播放岛 + 内容区」
+                            // 的重建压住
+                            child: ValueListenableBuilder<LibrarySection>(
+                              valueListenable: _sectionNotifier,
+                              builder:
+                                  (
+                                    BuildContext context,
+                                    LibrarySection section,
+                                    Widget? child,
+                                  ) => ValueListenableBuilder<bool>(
+                                    valueListenable: _railNotifier,
+                                    builder:
+                                        (
+                                          BuildContext context,
+                                          bool expanded,
+                                          Widget? child,
+                                        ) => LibraryRail(
+                                          expanded: expanded,
+                                          section: section,
+                                          onSelect: _selectSection,
+                                          onToggle: _toggleRail,
                                         ),
-                                        // 只做淡入：交叉淡变会让两份全屏列表
-                                        // 同时布局 + 逐帧重绘，切换必掉帧；
-                                        // 旧内容立即移除、新内容淡入，观感更利落
-                                        opacity: _sectionOpacity,
-                                        child: SlideTransition(
-                                          position: _sectionSlide,
-                                          child: _buildSectionsHost(context),
-                                        ),
-                                      ),
-                                    ),
                                   ),
-                                ],
-                              ),
-                              // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表。
-                              // 宽度封顶并居中：全宽岛会把列表行整条横切，
-                              // 窄一点时同一行在左右两侧仍然看得见，读起来是
-                              // 「悬浮在上面」而不是「被一块板子盖住」。
-                              Positioned(
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                child: _buildPlayerIsland(),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: LibraryRail.islandGap),
+                          Expanded(child: _buildContentCard(context)),
+                        ],
                       ),
                     ),
                   ],
@@ -2022,10 +1985,16 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 右侧 [LampTitleBar.controlsWidth] 留给悬浮在最上层的窗口按钮，
   /// 空白处交给拖动区，交互控件盖在拖动区之上。
-  Widget _buildTitleRow(BuildContext context) {
+  /// 顶部通栏：应用图标 + 名称、拖动区、搜索；右侧留给自绘窗口按钮。
+  ///
+  /// 通栏贴住窗口上 / 左 / 右三边、不圆角，与下方两块岛式卡片之间留
+  /// [LibraryRail.islandGap] 的缝。品牌原先挂在侧栏顶部，侧栏收起时跟着变
+  /// 窄、还要一起参与宽度动画；挪到这里后它不再受侧栏展开 / 收起影响。
+  Widget _buildTopBar(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return SizedBox(
+      key: const ValueKey<String>('library-top-bar'),
       height: LampTitleBar.height,
       child: Stack(
         fit: StackFit.expand,
@@ -2035,7 +2004,7 @@ class _LibraryPageState extends State<LibraryPage>
             behavior: HitTestBehavior.opaque,
             onPanStart: (_) => unawaited(_startWindowDrag()),
             onDoubleTap: () => unawaited(_toggleWindowMaximize()),
-            child: ColoredBox(color: scheme.surfaceContainerLow),
+            child: ColoredBox(color: scheme.surfaceContainer),
           ),
           Padding(
             // 右侧不留额外空隙：放大镜的槽位紧挨着最小化按钮，
@@ -2044,13 +2013,88 @@ class _LibraryPageState extends State<LibraryPage>
               left: 16,
               right: LampTitleBar.controlsWidth,
             ),
-            // 靠右排：搜索区宽度一变就自然向左长 / 收，右端始终贴着窗口按钮
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _buildSearchArea(context),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                return Row(
+                  children: <Widget>[
+                    _TopBarBrand(
+                      onDragStart: () => unawaited(_startWindowDrag()),
+                      onDoubleTap: () => unawaited(_toggleWindowMaximize()),
+                    ),
+                    const Spacer(),
+                    // 搜索展开到 320 宽时不能压到品牌上
+                    _buildSearchArea(
+                      context,
+                      maxWidth: max(
+                        _searchSlotWidth,
+                        constraints.maxWidth - _brandReserveWidth,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 主内容卡片：圆角只在上方，底边贴住窗口底。
+  ///
+  /// 播放岛浮在卡片之上：列表一直铺到窗口底，滚动中的行从岛下面穿过去
+  /// （窄岛只在中间挡住一段，左右仍看得见）。「滚到底最后一行不被压住」靠
+  /// 列表自己的底部留白，见 `TrackListView` 与各网格的 padding。
+  Widget _buildContentCard(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        0,
+        LibraryRail.islandGap,
+        LibraryRail.islandGap,
+        0,
+      ),
+      child: ClipRRect(
+        // 底边贴窗口，圆角只在上方
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(LibraryRail.islandRadius),
+        ),
+        child: ColoredBox(
+          color: scheme.surfaceContainerLow,
+          // RepaintBoundary 把内容区独立成一层：侧栏宽度动画时
+          // 侧栏自己的重绘不会连带整块内容区一起重画
+          child: RepaintBoundary(
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: FadeTransition(
+                    key: const ValueKey<String>('section-fade'),
+                    // 只做淡入：交叉淡变会让两份全屏列表同时布局 + 逐帧重绘，
+                    // 切换必掉帧；旧内容立即移除、新内容淡入，观感更利落
+                    opacity: _sectionOpacity,
+                    child: SlideTransition(
+                      position: _sectionSlide,
+                      child: _buildSectionsHost(context),
+                    ),
+                  ),
+                ),
+                // 播放岛浮在内容之上：只有岛本身的形状会遮挡列表。
+                // 宽度封顶并居中：全宽岛会把列表行整条横切，
+                // 窄一点时同一行在左右两侧仍然看得见，读起来是
+                // 「悬浮在上面」而不是「被一块板子盖住」。
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildPlayerIsland(),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2059,55 +2103,48 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 输入框按「展开后」的宽度布局、外层只负责裁剪，所以动画途中文字不会
   /// 被挤压重排，看着就是把整条胶囊从右往左拉出来。
-  Widget _buildSearchArea(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final double openWidth = min(
-          _searchOpenWidth,
-          max(_searchSlotWidth, constraints.maxWidth),
-        );
-        return AnimatedContainer(
-          key: const ValueKey<String>('library-search-area'),
-          duration: _searchExpandDuration,
-          curve: Curves.easeOutCubic,
-          width: _searchExpanded ? openWidth : _searchSlotWidth,
-          height: _searchFieldHeight,
-          child: Stack(
-            alignment: Alignment.centerRight,
-            children: <Widget>[
-              AnimatedOpacity(
-                opacity: _searchExpanded ? 1 : 0,
-                duration: _searchExpandDuration,
-                child: ClipRect(
-                  child: OverflowBox(
-                    alignment: Alignment.centerRight,
-                    minWidth: openWidth,
-                    maxWidth: openWidth,
-                    minHeight: _searchFieldHeight,
-                    maxHeight: _searchFieldHeight,
-                    // 收着的时候别让鼠标点到这块被裁掉的区域（点它等于点空白，
-                    // 会落到下面的拖动区上）；键盘 / 程序聚焦仍然可以，聚焦即展开
-                    child: IgnorePointer(
-                      ignoring: !_searchExpanded,
-                      child: _buildSearchField(context),
-                    ),
-                  ),
+  Widget _buildSearchArea(BuildContext context, {required double maxWidth}) {
+    final double openWidth = min(_searchOpenWidth, maxWidth);
+    return AnimatedContainer(
+      key: const ValueKey<String>('library-search-area'),
+      duration: _searchExpandDuration,
+      curve: Curves.easeOutCubic,
+      width: _searchExpanded ? openWidth : _searchSlotWidth,
+      height: _searchFieldHeight,
+      child: Stack(
+        alignment: Alignment.centerRight,
+        children: <Widget>[
+          AnimatedOpacity(
+            opacity: _searchExpanded ? 1 : 0,
+            duration: _searchExpandDuration,
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.centerRight,
+                minWidth: openWidth,
+                maxWidth: openWidth,
+                minHeight: _searchFieldHeight,
+                maxHeight: _searchFieldHeight,
+                // 收着的时候别让鼠标点到这块被裁掉的区域（点它等于点空白，
+                // 会落到下面的拖动区上）；键盘 / 程序聚焦仍然可以，聚焦即展开
+                child: IgnorePointer(
+                  ignoring: !_searchExpanded,
+                  child: _buildSearchField(context),
                 ),
               ),
-              // 收起态的放大镜：展开后淡出，但不挡输入框。
-              // 在 46 的槽位里居中，中心才落在与窗口按钮相同的位置
-              IgnorePointer(
-                ignoring: _searchExpanded,
-                child: AnimatedOpacity(
-                  opacity: _searchExpanded ? 0 : 1,
-                  duration: _searchExpandDuration,
-                  child: Center(child: _buildSearchToggle(context)),
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+          // 收起态的放大镜：展开后淡出，但不挡输入框。
+          // 在 46 的槽位里居中，中心才落在与窗口按钮相同的位置
+          IgnorePointer(
+            ignoring: _searchExpanded,
+            child: AnimatedOpacity(
+              opacity: _searchExpanded ? 0 : 1,
+              duration: _searchExpandDuration,
+              child: Center(child: _buildSearchToggle(context)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2919,4 +2956,64 @@ ButtonStyle _headerButtonStyle() {
     ),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
   );
+}
+
+/// 顶栏左侧的品牌：应用图标 + 名称。
+///
+/// 挪出侧栏之后不再受侧栏展开 / 收起影响，任何宽度下都完整显示；
+/// 拖动窗口 / 双击最大化由它所在的整条拖动区接管。
+class _TopBarBrand extends StatelessWidget {
+  const _TopBarBrand({required this.onDragStart, required this.onDoubleTap});
+
+  /// 只在品牌这一小块接管拖动与双击：顶栏其余空白由底色那层拖动区负责，
+  /// 搜索区自己处理点击，不能被拖动手势抢走
+  final VoidCallback onDragStart;
+  final VoidCallback onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+
+    // 品牌标记：深色用与 exe / 托盘同源的位图，浅色换成透明底 + 琥珀色描边
+    // 的矢量版——那块深色底板在浅色顶栏里太扎眼
+    const Widget mark = SizedBox(
+      key: ValueKey<String>('app-brand-mark'),
+      width: 28,
+      height: 28,
+      child: LampBrandMark(size: 28),
+    );
+
+    return Semantics(
+      container: true,
+      label: 'Lamp Player',
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (_) => onDragStart(),
+          onDoubleTap: onDoubleTap,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              mark,
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 140),
+                child: Text(
+                  'Lamp Player',
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
