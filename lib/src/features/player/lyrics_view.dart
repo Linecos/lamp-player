@@ -788,28 +788,67 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     );
   }
 
-  /// 目标行还没布局时的粗略定位：平均行高 × 序号，落地后再精确修正
+  /// 目标行还没布局时的粗略定位：先按平均行高估，落地后再精确对一次。
+  ///
+  /// 纯「平均行高 × 序号」在折行导致行高不均时误差会按行数累积（长句多的歌，
+  /// 第 100 行能差出好几屏），而一次估算后目标行常常还是没进构建范围。所以每次
+  /// 落空都拿一行**已布局**的当锚点，用它的真实偏移反推，最多再来
+  /// [_guessRounds] 轮——每轮都朝目标走一大步，通常第二轮就中了。
   void _guessScrollToActive() {
     if (!_scroll.hasClients) {
       return;
     }
+    _jumpToEstimate(_averageLineExtent() * _active);
+    _refineGuess(_guessRounds);
+  }
+
+  static const int _guessRounds = 2;
+
+  void _jumpToEstimate(double offset) {
     final ScrollPosition position = _scroll.position;
-    final double estimate = _averageLineExtent() * _active;
     position.jumpTo(
-      estimate.clamp(position.minScrollExtent, position.maxScrollExtent),
+      offset.clamp(position.minScrollExtent, position.maxScrollExtent),
     );
+  }
+
+  void _refineGuess(int rounds) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) {
         return;
       }
-      final ScrollPosition pos = _scroll.position;
+      final ScrollPosition position = _scroll.position;
       final double target = _revealOffset(_active);
-      if (target.isNaN) {
+      if (!target.isNaN) {
+        position.jumpTo(
+          target.clamp(position.minScrollExtent, position.maxScrollExtent),
+        );
+        _scheduleOpacityRefresh();
         return;
       }
-      pos.jumpTo(target.clamp(pos.minScrollExtent, pos.maxScrollExtent));
-      _scheduleOpacityRefresh();
+      final int anchor = _firstLaidOutIndex();
+      final double anchorOffset = anchor < 0
+          ? double.nan
+          : _revealOffset(anchor);
+      if (rounds <= 0 || anchorOffset.isNaN) {
+        // 这一帧就是走不到：至少把渐隐对上，别再拿旧 alpha 挂着
+        _scheduleOpacityRefresh();
+        return;
+      }
+      // 锚点的偏移是量出来的，只有「中间隔了几行」还在估
+      _jumpToEstimate(anchorOffset + (_active - anchor) * _averageLineExtent());
+      _refineGuess(rounds - 1);
     });
+  }
+
+  /// 最靠前的、已经布局过的那一行；一行都没有时返回 -1
+  int _firstLaidOutIndex() {
+    for (int i = 0; i < _lineKeys.length; i += 1) {
+      final RenderObject? box = _lineKeys[i].currentContext?.findRenderObject();
+      if (box is RenderBox && box.hasSize && box.attached) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /// 已布局行里随便取一行的高度当平均行高（歌词行高基本一致）
@@ -1828,12 +1867,18 @@ class _KaraokeTextState extends State<_KaraokeText> {
     super.dispose();
   }
 
-  /// 排版并量出每个字的矩形；只在文本 / 样式 / 对齐 / 宽度变化时重算
+  /// 排版并量出每个字的矩形；只在文本 / 样式 / 对齐 / 宽度变化时重算。
+  ///
+  /// 颜色**不算**几何变化：它只影响两个 [TextPainter] 的画笔，逐字的
+  /// `getBoxesForSelection` 与颜色无关。行级渐隐把 alpha 乘进颜色里，滚动时
+  /// 当前行每帧都在变——按几何一起重算的话，每帧都要重排一遍并重算每个字的矩形。
   void _layout(double width) {
-    if (_width == width &&
-        _text == widget.text &&
-        _style == widget.style &&
-        _alignment == widget.alignment &&
+    final bool geometry =
+        _width != width ||
+        _text != widget.text ||
+        _style != widget.style ||
+        _alignment != widget.alignment;
+    if (!geometry &&
         _baseColor == widget.baseColor &&
         _highlightColor == widget.highlightColor) {
       return;
@@ -1851,6 +1896,9 @@ class _KaraokeTextState extends State<_KaraokeText> {
     _base = base;
     _highlight = _painter(widget.highlightColor, width);
 
+    if (!geometry) {
+      return;
+    }
     final List<List<Rect>> boxes = <List<Rect>>[];
     int cursor = 0;
     for (final lyrics_api.LyricWord word in widget.words) {
