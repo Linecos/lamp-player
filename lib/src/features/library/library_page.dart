@@ -18,6 +18,7 @@ import '../../app/window_controls.dart';
 import '../../app/tray_controller.dart';
 import '../../common/common.dart';
 import '../../common/frame_log.dart';
+import '../../common/hang_log.dart';
 import '../../common/text/pinyin_key.dart';
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
 import '../../rust/api/lyrics.dart' as lyrics_api;
@@ -2082,13 +2083,12 @@ class _LibraryPageState extends State<LibraryPage>
         0,
         LibraryRail.islandGap,
         LibraryRail.islandGap,
-        0,
+        LibraryRail.islandGap,
       ),
       child: ClipRRect(
-        // 底边贴窗口，圆角只在上方
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(LibraryRail.islandRadius),
-        ),
+        // 四面都留缝、四角都圆：右下方这一块也要收在「岛」的范围内，
+        // 否则只剩它一路贴到窗口底边，和侧栏、右侧缝不对称
+        borderRadius: BorderRadius.circular(LibraryRail.islandRadius),
         child: ColoredBox(
           color: scheme.surfaceContainerLow,
           // RepaintBoundary 把内容区独立成一层：侧栏宽度动画时
@@ -2271,6 +2271,7 @@ class _LibraryPageState extends State<LibraryPage>
   /// [select] 用于「一步进详情」（从听歌统计、正在播放页点艺术家 / 专辑）：
   /// 目标详情的选中与分区切换落在同一帧，不会先露出目标分区的列表。
   void _selectSection(LibrarySection section, {VoidCallback? select}) {
+    hangMark('分区：${section.name}${select == null ? '' : '（带详情）'}');
     if (section == _section) {
       // 已在该分区时，再点一次导航相当于「回到列表」：
       // 不应把用户困在歌单 / 艺术家 / 专辑详情里。

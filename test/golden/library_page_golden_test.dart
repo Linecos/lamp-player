@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
+import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -60,8 +61,12 @@ void main() {
     expect(island.width, lessThanOrEqualTo(900));
     expect(island.center.dx, closeTo(content.center.dx, 1));
 
-    // 列表铺到窗口底：岛后面还有内容，行才可能在两侧露出来
-    expect(content.bottom, closeTo(tester.view.physicalSize.height, 1));
+    // 内容卡片四面留缝：列表底边停在窗口底上方的缝上（不再是贴到窗口底）
+    expect(
+      content.bottom,
+      closeTo(tester.view.physicalSize.height - LibraryRail.islandGap, 1),
+      reason: '内容卡片与侧栏一样留出下边界',
+    );
 
     await expectLater(
       find.byType(LibraryPage),
