@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -1562,6 +1563,67 @@ void main() {
       close.right,
       closeTo(tester.view.physicalSize.width / tester.view.devicePixelRatio, 1),
     );
+  });
+
+  testWidgets('点进度条后圆点与气泡停在点到的位置，不闪回原处', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ValueNotifier<NowPlayingData> notifier =
+        ValueNotifier<NowPlayingData>(_data(position: 60, duration: 249));
+    addTearDown(notifier.dispose);
+    final Completer<void> seekDone = Completer<void>();
+    final List<double> seeks = <double>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: NowPlayingPage(
+          data: notifier,
+          onTogglePlay: () async {},
+          onPrevious: () async {},
+          onNext: () async {},
+          onSeek: (double seconds) {
+            seeks.add(seconds);
+            return seekDone.future;
+          },
+          lyricsLoader: (String path) async => const TrackLyrics(
+            lines: <LyricLine>[],
+            plain: '',
+            source: 'none',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Finder slider = find.byKey(
+      const ValueKey<String>('now-playing-progress'),
+    );
+    final Rect rect = tester.getRect(slider);
+    // 点在 3/4 处：这是「用户刚点下去」那一刻
+    await tester.tapAt(Offset(rect.left + rect.width * 0.75, rect.center.dy));
+    await tester.pump();
+
+    expect(seeks, hasLength(1));
+    final double target = seeks.single;
+    expect(target, greaterThan(100), reason: '点的位置离 60 秒很远');
+
+    // seek 还没回来：圆点 / 气泡必须停在点到的地方
+    Slider progress = tester.widget<Slider>(slider);
+    expect(progress.value, closeTo(target, 1));
+    expect(progress.label, formatDuration(target));
+
+    // 真实链路里 `_seekTo` 先把位置写回 notifier，再让 seek 的 future 完成
+    notifier.value = _data(position: target, duration: 249);
+    seekDone.complete();
+    await tester.pump();
+
+    progress = tester.widget<Slider>(slider);
+    expect(progress.value, closeTo(target, 1), reason: '交还数据源后不能跳回原处');
+    expect(progress.label, formatDuration(target));
   });
 
   testWidgets('拖动时才出取值气泡：进度给时间、音量给整数', (WidgetTester tester) async {
