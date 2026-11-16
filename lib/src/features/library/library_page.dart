@@ -339,6 +339,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 任何影响分区内容的状态变化都会 +1（统一走 [_update]）
   int _stateVersion = 0;
 
+  /// 上一次建分区快照时用的配色；变了就推进版本号，让快照重建
+  ColorScheme? _lastSectionScheme;
+
   /// 刚切换过来的分区：数据虽已变化，但这一帧先显示旧快照，
   /// 等淡入结束再补，避免重建正卡在动画中间
   LibrarySection? _justSwitched;
@@ -866,6 +869,17 @@ class _LibraryPageState extends State<LibraryPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // 分区快照会原样复用整棵已建好的 widget，而分区里内联写的
+    // `Text(style: theme.textTheme.…)` 颜色是在**建快照那一刻**定死的。
+    // 主题（深浅 / 强调色）一变就得让当前分区重建一次，否则标题、副标题
+    // 会停在上一种主题的颜色上（浅色下剩一片近白字、深色下剩一片灰字）。
+    // 推进版本号即可，不必自己 setState：依赖变化本来就会紧接着重建。
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    if (_lastSectionScheme != null && scheme != _lastSectionScheme) {
+      _stateVersion += 1;
+    }
+    _lastSectionScheme = scheme;
+
     // 「强调色跟随封面」在播放侧要用到主题控制器。用 readOf 而不是 maybeOf：
     // 这里只在设置切换时读一次，不应该让整个曲库页跟着每次换主题重建。
     final ThemeController? theme = ThemeScope.readOf(context);

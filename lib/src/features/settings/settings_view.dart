@@ -892,15 +892,19 @@ class _SliderRowState extends State<_SliderRow> {
             child: ValueListenableBuilder<double>(
               valueListenable: _preview,
               builder: (BuildContext context, double value, Widget? child) =>
-                  Slider(
-                    key: widget.sliderKey,
-                    value: value.clamp(widget.min, widget.max),
-                    min: widget.min,
-                    max: widget.max,
-                    divisions: widget.divisions,
-                    label: '${value.round()}${widget.unit}',
-                    onChanged: enabled ? _onDrag : null,
-                    onChangeEnd: enabled ? _onRelease : null,
+                  // 语义边界，见 slider_semantics_scope.dart（缺了会在 Windows 上
+                  // 冻结无障碍树，之后任意 pop 崩在引擎里）
+                  SliderSemanticsScope(
+                    child: Slider(
+                      key: widget.sliderKey,
+                      value: value.clamp(widget.min, widget.max),
+                      min: widget.min,
+                      max: widget.max,
+                      divisions: widget.divisions,
+                      label: '${value.round()}${widget.unit}',
+                      onChanged: enabled ? _onDrag : null,
+                      onChangeEnd: enabled ? _onRelease : null,
+                    ),
                   ),
             ),
           ),
@@ -2143,12 +2147,14 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
               ),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
             ),
-            child: Slider(
-              key: const ValueKey<String>('custom-seed-hue'),
-              value: hsv.hue.clamp(0.0, 360.0),
-              max: 360,
-              onChanged: (double value) => _preview(hsv.withHue(value)),
-              onChangeEnd: (double value) => _commit(hsv.withHue(value)),
+            child: SliderSemanticsScope(
+              child: Slider(
+                key: const ValueKey<String>('custom-seed-hue'),
+                value: hsv.hue.clamp(0.0, 360.0),
+                max: 360,
+                onChanged: (double value) => _preview(hsv.withHue(value)),
+                onChangeEnd: (double value) => _commit(hsv.withHue(value)),
+              ),
             ),
           ),
         ],
