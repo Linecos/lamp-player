@@ -3,6 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../alphabet_index.dart';
+import 'library_rail.dart';
+
+/// 从窗口边缘到网格可用宽度的固定损耗：侧栏与内容卡的间隙、内容卡的左右
+/// 内边距、滚动条的呼吸位。侧栏宽度另算（见 [LibraryRail.expandedWidth]）。
+const double _windowChrome = 68;
 
 /// 字母导航条与卡片之间预留的宽度：导航条 + 与滚动条的间隙 + 一点呼吸位。
 ///
@@ -105,14 +110,13 @@ class AlphabetGridView<T> extends StatefulWidget {
     required this.items,
     required this.labelOf,
     required this.itemBuilder,
-    required this.maxCrossAxisExtent,
-    required this.aspectRatio,
+    required this.tileWidth,
+    required this.tileHeight,
     this.storageKey,
     this.bottomPadding = 0,
     this.topPadding = 8,
     this.crossAxisSpacing = 16,
     this.mainAxisSpacing = 16,
-    this.columnWidthHint,
   });
 
   final List<T> items;
@@ -124,8 +128,10 @@ class AlphabetGridView<T> extends StatefulWidget {
   /// 需要稳定 key 时请用条目自己的标识。
   final Widget Function(BuildContext context, T item, int index) itemBuilder;
 
-  final double maxCrossAxisExtent;
-  final double aspectRatio;
+  /// 卡片宽度上限：窗口变宽只加列数，列宽把剩余空间均分（所以可能比它略窄）。
+  /// 卡片高度固定（见 [tileHeight]），切窗口化 / 全屏时视觉尺寸不变。
+  final double tileWidth;
+  final double tileHeight;
 
   /// 滚动位置的存储键：切分区再切回来还停在原处
   final Key? storageKey;
@@ -135,17 +141,6 @@ class AlphabetGridView<T> extends StatefulWidget {
   final double topPadding;
   final double crossAxisSpacing;
   final double mainAxisSpacing;
-
-  /// 算**列数**时该用的宽度（见 [AlphabetGridMetrics.columnWidth]）。
-  ///
-  /// 传的是「侧栏展开时」的内容区宽度——也就是这个窗口下最窄的那种布局。
-  /// 这么定的原因：列数一旦随内容区宽度变，开关侧栏时就必然要重排列数，
-  /// 而两套列数在同一个宽度下的卡片尺寸差 20% 左右，看上去就是封面
-  /// 「先变大再变小」。把列数钉在窗口宽度上，开关侧栏只改变卡片大小
-  /// （单调、连续），不再跳变。
-  ///
-  /// 空值时退回按当前宽度算（独立使用 / 测试）。
-  final double? columnWidthHint;
 
   @override
   State<AlphabetGridView<T>> createState() => _AlphabetGridViewState<T>();
@@ -357,60 +352,104 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
     _controller.pendingPixels = alphabetOffsetOf(metrics, offsets, anchor);
   }
 
+  /// 把滚动区按 [width] 摆好：比可用宽度宽就裁掉右侧（等侧栏动画把地方让
+  /// 出来），窄就在右边留白（等侧栏动画收回去）。两者在动画结束时都刚好归零。
+  ///
+  /// **始终**套同一层包装：条件性地插入 / 摘掉 `ClipRect` 会让下面的
+  /// `Scrollable` 换一个位置、整棵子树重新挂载，滚动位置和
+  /// `_AnchorScrollPosition` 里的几何记忆随之作废，切换侧栏后就会跳到别的段。
+  Widget _fitToPlan({
+    required double width,
+    required BoxConstraints constraints,
+    required Widget child,
+  }) {
+    final double height = constraints.hasBoundedHeight
+        ? constraints.maxHeight
+        : 0;
+    if (!constraints.hasBoundedHeight) {
+      return child;
+    }
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.topLeft,
+        minWidth: width,
+        maxWidth: width,
+        minHeight: height,
+        maxHeight: height,
+        child: SizedBox(width: width, height: height, child: child),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final double? columnWidthHint = widget.columnWidthHint;
     final List<AlphabetBucket<T>> buckets = _grouped();
     final List<String> letters = <String>[
       for (final AlphabetBucket<T> bucket in buckets) bucket.letter,
     ];
 
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final AlphabetGridMetrics metrics = AlphabetGridMetrics(
-          // 卡片不许跑到导航条底下，横向先把它让出来
-          viewportWidth: math.max(0, constraints.maxWidth - gridRightReserve),
-          maxCrossAxisExtent: widget.maxCrossAxisExtent,
-          crossAxisSpacing: widget.crossAxisSpacing,
-          mainAxisSpacing: widget.mainAxisSpacing,
-          aspectRatio: widget.aspectRatio,
-          headerExtent: alphabetHeaderExtent,
-          topPadding: widget.topPadding,
-          // 0 是通知器的初始值（还没算出来）：当成「没给」，别真按 0 去算列数
-          columnWidth: columnWidthHint == null || columnWidthHint <= 0
-              ? null
-              : columnWidthHint - gridRightReserve,
-        );
-        final List<int> counts = <int>[
-          for (final AlphabetBucket<T> bucket in buckets) bucket.length,
-        ];
-        final List<double> offsets = metrics.sectionOffsets(counts);
+    // 侧栏开关是 220ms 的宽度动画，内容区每一帧都在变宽变窄。列数要是跟着
+    // 每一帧的宽度走，动画中途总有一帧会多挤出一列、卡片又重新均分一次，
+    // 看着就是「抽一下」。所以这里按**终态**宽度排布：侧栏状态一变就切到
+    // 目标几何，动画期间多出来的宽度留白、不够的部分裁掉，等动画走完正好对上。
+    return ValueListenableBuilder<bool>(
+      valueListenable: LibraryRail.expandedNotifier,
+      builder: (BuildContext context, bool railExpanded, Widget? _) {
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            // 曲库页里「窗口宽 - 内容区宽」正好是侧栏宽 + 固定损耗，动画期间
+            // 落在两者之间；独立使用（测试或别的容器）时这个关系不成立，那就
+            // 按当前宽度老实排布，别去猜终态。
+            final double chromeNow =
+                MediaQuery.sizeOf(context).width - constraints.maxWidth;
+            final bool inPageShell =
+                chromeNow >= LibraryRail.collapsedWidth + _windowChrome - 1 &&
+                chromeNow <= LibraryRail.expandedWidth + _windowChrome + 1;
+            final double planWidth = inPageShell
+                ? MediaQuery.sizeOf(context).width -
+                      (railExpanded
+                          ? LibraryRail.expandedWidth
+                          : LibraryRail.collapsedWidth) -
+                      _windowChrome
+                : constraints.maxWidth;
+            final AlphabetGridMetrics metrics = AlphabetGridMetrics(
+              // 卡片不许跑到导航条底下，横向先把它让出来
+              viewportWidth: math.max(0, planWidth - gridRightReserve),
+              tileWidth: widget.tileWidth,
+              crossAxisSpacing: widget.crossAxisSpacing,
+              mainAxisSpacing: widget.mainAxisSpacing,
+              tileHeight: widget.tileHeight,
+              headerExtent: alphabetHeaderExtent,
+              topPadding: widget.topPadding,
+            );
+            final List<int> counts = <int>[
+              for (final AlphabetBucket<T> bucket in buckets) bucket.length,
+            ];
+            final List<double> offsets = metrics.sectionOffsets(counts);
 
-        // 几何变了（开关侧栏时行高连续变化、拉窗口时列数也可能变）：先记下
-        // 「现在顶上是谁」，布局完再放回去。每帧都取一次当前偏移、换算回同一个
-        // 锚点，所以是一条自洽的迭代，不会越修越偏。
-        //
-        // 判据是「宽度有没有变」，**不能**用「行高变化超过半像素」：侧栏是缓动
-        // 曲线，首尾每帧只变零点几像素，那种帧会被漏掉、错位攒起来，表现为
-        // 动画开头和结尾各跳一小下。
-        final AlphabetGridMetrics? previous = _lastMetrics;
-        if (previous != null &&
-            _lastSectionOffsets.isNotEmpty &&
-            _controller.hasClients &&
-            (previous.viewportWidth != metrics.viewportWidth ||
-                previous.crossAxisCount != metrics.crossAxisCount ||
-                previous.aspectRatio != metrics.aspectRatio)) {
-          _queueAnchorRestore(previous, metrics, offsets);
-        }
-        _lastMetrics = metrics;
-        _lastSectionOffsets = offsets;
-        _lastCounts = counts;
-        _sectionOffsets = offsets;
-        _scheduleActiveSync();
+            // 几何变了（开关侧栏时行高连续变化、拉窗口时列数也可能变）：先记下
+            // 「现在顶上是谁」，布局完再放回去。每帧都取一次当前偏移、换算回同一个
+            // 锚点，所以是一条自洽的迭代，不会越修越偏。
+            //
+            // 判据是「宽度有没有变」，**不能**用「行高变化超过半像素」：侧栏是缓动
+            // 曲线，首尾每帧只变零点几像素，那种帧会被漏掉、错位攒起来，表现为
+            // 动画开头和结尾各跳一小下。
+            final AlphabetGridMetrics? previous = _lastMetrics;
+            if (previous != null &&
+                _lastSectionOffsets.isNotEmpty &&
+                _controller.hasClients &&
+                (previous.viewportWidth != metrics.viewportWidth ||
+                    previous.crossAxisCount != metrics.crossAxisCount ||
+                    previous.tileHeight != metrics.tileHeight)) {
+              _queueAnchorRestore(previous, metrics, offsets);
+            }
+            _lastMetrics = metrics;
+            _lastSectionOffsets = offsets;
+            _lastCounts = counts;
+            _sectionOffsets = offsets;
+            _scheduleActiveSync();
 
-        return Stack(
-          children: <Widget>[
-            NotificationListener<ScrollNotification>(
+            final Widget scroller = NotificationListener<ScrollNotification>(
               onNotification: _handleScroll,
               child: CustomScrollView(
                 key: widget.storageKey,
@@ -436,7 +475,7 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                           crossAxisCount: metrics.crossAxisCount,
                           mainAxisSpacing: widget.mainAxisSpacing,
                           crossAxisSpacing: widget.crossAxisSpacing,
-                          childAspectRatio: widget.aspectRatio,
+                          mainAxisExtent: metrics.childMainAxisExtent,
                         ),
                         delegate: SliverChildBuilderDelegate((
                           BuildContext context,
@@ -453,28 +492,38 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                   ),
                 ],
               ),
-            ),
-            Positioned(
-              top: widget.topPadding,
-              bottom: widget.bottomPadding,
-              right: railInset,
-              width: railWidth,
-              // 只有这根导航条关心「现在在哪一段」，让它单独订阅，
-              // 跨段滚动就不会牵动上面那串 sliver
-              child: ValueListenableBuilder<String?>(
-                valueListenable: _active,
-                builder: (BuildContext context, String? active, Widget? _) {
-                  return AlphabetRail(
-                    letters: letters,
-                    active: active,
-                    onSelect: (String letter) {
-                      _jumpTo(letters.indexOf(letter));
+            );
+
+            return Stack(
+              children: <Widget>[
+                _fitToPlan(
+                  width: planWidth,
+                  constraints: constraints,
+                  child: scroller,
+                ),
+                Positioned(
+                  top: widget.topPadding,
+                  bottom: widget.bottomPadding,
+                  right: railInset,
+                  width: railWidth,
+                  // 只有这根导航条关心「现在在哪一段」，让它单独订阅，
+                  // 跨段滚动就不会牵动上面那串 sliver
+                  child: ValueListenableBuilder<String?>(
+                    valueListenable: _active,
+                    builder: (BuildContext context, String? active, Widget? _) {
+                      return AlphabetRail(
+                        letters: letters,
+                        active: active,
+                        onSelect: (String letter) {
+                          _jumpTo(letters.indexOf(letter));
+                        },
+                      );
                     },
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );

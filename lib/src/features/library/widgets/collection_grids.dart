@@ -16,7 +16,6 @@ class ArtistGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
-    this.columnWidthHint,
   });
 
   final List<ArtistGroup> artists;
@@ -31,9 +30,6 @@ class ArtistGridView extends StatelessWidget {
   /// 免得飞行层和卡片上的那张同时出现
   final Object? flyingTag;
 
-  /// 算列数用的宽度（侧栏展开时的内容区宽度），见 [AlphabetGridView]
-  final double? columnWidthHint;
-
   @override
   Widget build(BuildContext context) {
     // 按艺术家名首字母分段 + 右侧字母导航；卡片与跳转都复用同一套网格
@@ -41,9 +37,8 @@ class ArtistGridView extends StatelessWidget {
       items: artists,
       labelOf: (ArtistGroup artist) => artist.name,
       storageKey: storageKey,
-      maxCrossAxisExtent: 220,
-      aspectRatio: 0.76,
-      columnWidthHint: columnWidthHint,
+      tileWidth: 190,
+      tileHeight: 250,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, ArtistGroup artist, int index) {
         return _ArtistCard(
@@ -111,8 +106,8 @@ class _ArtistCardState extends State<_ArtistCard> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               // 头像吃满卡片剩下的高度，再由宽度封顶。写死尺寸两头不对：
-              // 卡片宽度随窗口列数在 155–220 之间变，96 在宽窗口显得空，
-              // 而按「宽度 - 内边距」算又不一定塞得进 0.86 的卡片高度。
+              // 卡片高度固定 250，宽度却会随列数在 170~183 之间变，
+              // 而按「宽度 - 内边距」算又不一定塞得进卡片高度。
               Expanded(
                 child: LayoutBuilder(
                   builder: (BuildContext context, BoxConstraints constraints) {
@@ -175,7 +170,6 @@ class AlbumGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
-    this.columnWidthHint,
   });
 
   final List<AlbumGroup> albums;
@@ -189,9 +183,6 @@ class AlbumGridView extends StatelessWidget {
   /// 见 [ArtistGridView.flyingTag]
   final Object? flyingTag;
 
-  /// 见 [ArtistGridView.columnWidthHint]
-  final double? columnWidthHint;
-
   @override
   Widget build(BuildContext context) {
     // 按专辑名首字母分段 + 右侧字母导航
@@ -199,9 +190,8 @@ class AlbumGridView extends StatelessWidget {
       items: albums,
       labelOf: (AlbumGroup album) => album.title,
       storageKey: storageKey,
-      maxCrossAxisExtent: 220,
-      aspectRatio: 0.72,
-      columnWidthHint: columnWidthHint,
+      tileWidth: 190,
+      tileHeight: 264,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, AlbumGroup album, int index) {
         return _AlbumCard(
