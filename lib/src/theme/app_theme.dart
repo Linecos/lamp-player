@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 
 /// 全局主题：Material 3 + 可配置 seed 色与调色板风格，深浅色模式跟随系统。
 ///
@@ -50,11 +51,46 @@ abstract final class AppTheme {
     DynamicSchemeVariant variant, {
     double contrastLevel = 0,
   }) {
-    return ColorScheme.fromSeed(
+    final ColorScheme scheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: brightness,
       dynamicSchemeVariant: variant,
       contrastLevel: contrastLevel,
+    );
+    // 高对比档位是给「看不清」的人用的，白底本身就是对比度上限，不覆盖
+    if (brightness == Brightness.light && contrastLevel == 0) {
+      return _tintLightSurfaces(scheme, seed);
+    }
+    return scheme;
+  }
+
+  /// 给浅色底「上色」。
+  ///
+  /// Material 生成的浅色 surface 系列几乎全是白的：`surfaceContainerLowest`
+  /// 直接就是 `#FFFFFF`，`low` / `container` / `high` / `highest` 之间也只差
+  /// 2 个 tone，岛式分块布局铺开就是一张白纸，看不出底和封面 / 强调色有任何
+  /// 关系；深色那边 tone 本来就压在 4~22，同样的 chroma 一眼就能看出色调。
+  ///
+  /// 这里按 seed 的色相把浅色底重铺一遍：整体比原值低 2~4 个 tone（离开纯白，
+  /// 越低的那几档压得越多），相邻层距从 2 拉到 2~3（卡片和缝才分得开），
+  /// chroma 提到 10（原值 2~7，在 tone 90 以上基本看不见）。只动 surface 系列，
+  /// `on*` 原样保留，前景对比度只会更高。
+  static ColorScheme _tintLightSurfaces(ColorScheme scheme, Color seed) {
+    final Hct base = Hct.fromInt(seed.toARGB32());
+    // 中性 seed（灰 / 白 / 黑）没有可用的色相，硬塞会凭空多出一层红或紫
+    final double chroma = base.chroma < 4 ? base.chroma : 10;
+    Color tone(double value) =>
+        Color(Hct.from(base.hue, chroma, value).toInt());
+    return scheme.copyWith(
+      surface: tone(97),
+      surfaceDim: tone(88),
+      // 不用 99：tone 这么高时 sRGB 装不下这个 chroma，会映射成一个偏紫的白
+      surfaceBright: tone(98),
+      surfaceContainerLowest: tone(96),
+      surfaceContainerLow: tone(94),
+      surfaceContainer: tone(92),
+      surfaceContainerHigh: tone(89),
+      surfaceContainerHighest: tone(86),
     );
   }
 
