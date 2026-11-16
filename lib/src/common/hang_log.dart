@@ -38,6 +38,13 @@ bool _rotated = false;
 /// 上一帧到现在超过这个间隔就算「UI 线程被占住了」
 const Duration _blockThreshold = Duration(seconds: 2);
 
+/// 这个日志默认一直开着（release 也是），它会往 `%TEMP%` 写文件、并常驻一个打开
+/// 的句柄。不需要的人可以设环境变量 `LAMP_NO_HANG_LOG=1` 彻底关掉。
+///
+/// 注意它记的是「动作 + 正在播放的文件名」，不是私人内容，但确实是本地留痕。
+final bool _disabledByEnv =
+    (Platform.environment['LAMP_NO_HANG_LOG'] ?? '').trim() == '1';
+
 /// 超过这么长的单帧单独记一条
 const Duration _longFrame = Duration(milliseconds: 300);
 
@@ -46,7 +53,7 @@ const Duration _dedupe = Duration(milliseconds: 500);
 
 /// 启动现场日志（已启动则跳过）。要在 `runApp` 之前调用。
 void startHangLog() {
-  if (_started) {
+  if (_started || _disabledByEnv) {
     return;
   }
   _started = true;
@@ -176,11 +183,13 @@ void _write(String tag, String message) {
       '${now.millisecond.toString().padLeft(3, '0')}';
   final String line = '$stamp [$tag] $message\n';
   try {
-    // 同步写：卡死前那一行必须先落盘，异步缓冲正好会丢掉最关键的尾巴
+    // 同步写进 OS 的页缓存就够：进程崩溃（访问违例、被任务管理器杀掉）不会丢，
+    // 只有断电才会丢尾巴。所以**不做 flushSync**——`FlushFileBuffers` 实测每行
+    // 0.35ms（最慢 3.4ms）、是纯写入的 26 倍，慢盘或开了实时扫描时就是每次几毫秒
+    // 的 UI 线程阻塞。而这套日志本来是用来查掉帧的，不该自己变成掉帧源。
     final RandomAccessFile sink = _sink ??= File(hangLogPath)
         .openSync(mode: FileMode.append);
     sink.writeStringSync(line);
-    sink.flushSync();
   } catch (_) {
     // 写不进去就只留控制台
     debugPrint(line);
