@@ -1626,6 +1626,79 @@ void main() {
     expect(progress.label, formatDuration(target));
   });
 
+  testWidgets('连续点两次：前一次 seek 回来不会把新的预览值清掉', (WidgetTester tester) async {
+    // seek 是异步的。第一次的完成回调如果照旧清预览值，会把第二次点选的预览
+    // 抹掉一帧（圆点闪回旧位置）。所以回调只对「最后一次交互」生效。
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ValueNotifier<NowPlayingData> notifier =
+        ValueNotifier<NowPlayingData>(_data(position: 60, duration: 249));
+    addTearDown(notifier.dispose);
+    final List<Completer<void>> pending = <Completer<void>>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: NowPlayingPage(
+          data: notifier,
+          onTogglePlay: () async {},
+          onPrevious: () async {},
+          onNext: () async {},
+          onSeek: (double seconds) {
+            final Completer<void> done = Completer<void>();
+            pending.add(done);
+            return done.future;
+          },
+          lyricsLoader: (String path) async => const TrackLyrics(
+            lines: <LyricLine>[],
+            plain: '',
+            source: 'none',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Finder slider = find.byKey(
+      const ValueKey<String>('now-playing-progress'),
+    );
+    final Rect rect = tester.getRect(slider);
+    final Slider before = tester.widget<Slider>(slider);
+
+    // 第一次：点 25% 处，seek 悬着不返回
+    await tester.tapAt(Offset(rect.left + rect.width * 0.25, rect.center.dy));
+    await tester.pump();
+    expect(pending, hasLength(1));
+    final double first = tester.widget<Slider>(slider).value;
+
+    // 第二次：seek 还没回来就点了 75% 处
+    await tester.tapAt(Offset(rect.left + rect.width * 0.75, rect.center.dy));
+    await tester.pump();
+    expect(pending, hasLength(2));
+    final double second = tester.widget<Slider>(slider).value;
+    expect(second, greaterThan(first + 10), reason: '两次点在不同位置');
+
+    // 第一次的 seek 现在才回来：不能把第二次的预览值清掉
+    notifier.value = _data(position: first, duration: 249);
+    pending.first.complete();
+    await tester.pump();
+    expect(
+      tester.widget<Slider>(slider).value,
+      closeTo(second, 1),
+      reason: '第一次的完成回调越权清了第二次的预览值，圆点会闪回',
+    );
+
+    // 第二次回来才交还数据源
+    notifier.value = _data(position: second, duration: 249);
+    pending.last.complete();
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, closeTo(second, 1));
+    expect(before.value, 60);
+  });
+
   testWidgets('拖动时才出取值气泡：进度给时间、音量给整数', (WidgetTester tester) async {
     await _pump(tester, data: _data(position: 60, duration: 249, volume: 0.62));
 

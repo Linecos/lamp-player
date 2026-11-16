@@ -281,6 +281,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 歌词列表跟着重新布局。
   final ValueNotifier<double?> _dragPosition = ValueNotifier<double?>(null);
 
+  /// 进度条交互令牌：每次拖动 / 点按都加一。
+  ///
+  /// 松手后要等 seek 落地才交还数据源（见进度条的 onChangeEnd），而 seek 是异步
+  /// 的。连点两下时，第一次的完成回调不该把第二次的预览值清掉——否则圆点会闪回
+  /// 旧位置一帧。回调里比对令牌，只有「最后一次交互」才有权清。
+  int _seekToken = 0;
+
   /// 沉浸模式：长按播放键切换，只留封面 / 歌名 / 歌词与三个控制键。
   bool _immersive = false;
 
@@ -1502,8 +1509,12 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                         value: total > 0 ? shown : 0,
                                         max: total > 0 ? total : 1,
                                         onChanged: ready && total > 0
-                                            ? (double value) =>
-                                                  _dragPosition.value = value
+                                            ? (double value) {
+                                                // 新的一次拖动：上一次还没回来的 seek
+                                                // 不再有权清掉预览值（见 onChangeEnd）
+                                                _seekToken += 1;
+                                                _dragPosition.value = value;
+                                              }
                                             : null,
                                         onChangeEnd: ready && total > 0
                                             ? (double value) {
@@ -1511,15 +1522,23 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 // `data.position` 还是旧位置，这时候清掉会让
                                                 // 圆点和时间气泡先闪回原处再跳过去。等 seek
                                                 // 落地（位置已经写回 notifier）再交还。
+                                                //
+                                                // 用令牌区分「是哪一次交互的 seek」：seek 还在
+                                                // 飞的时候又点了别处，那次已完成回调不能把新的
+                                                // 预览值清掉，否则圆点会闪回旧位置一帧。
                                                 _dragPosition.value = value;
+                                                final int token = ++_seekToken;
                                                 unawaited(
                                                   widget
                                                       .onSeek(value)
                                                       .whenComplete(() {
-                                                        if (mounted) {
-                                                          _dragPosition.value =
-                                                              null;
+                                                        if (!mounted ||
+                                                            token !=
+                                                                _seekToken) {
+                                                          return;
                                                         }
+                                                        _dragPosition.value =
+                                                            null;
                                                       }),
                                                 );
                                               }
