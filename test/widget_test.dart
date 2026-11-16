@@ -39,13 +39,37 @@ void main() {
     );
     expect(find.byKey(const ValueKey<String>('window-close')), findsOneWidget);
 
-    // 侧栏画到窗口顶部，品牌名落在标题条高度内
+    // 通栏贴住窗口上边、占满整宽，三个窗口按钮落在它右端（同一块底色里）
+    final Rect bar = tester.getRect(
+      find.byKey(const ValueKey<String>('library-top-bar')),
+    );
+    expect(bar.top, 0);
+    expect(bar.width, tester.view.physicalSize.width);
+    final Rect close = tester.getRect(
+      find.byKey(const ValueKey<String>('window-close')),
+    );
+    expect(bar.contains(close.center), isTrue, reason: '窗口按钮应在通栏内，不能掉到卡片之间的缝里');
+    expect(
+      tester.getCenter(find.byKey(const ValueKey<String>('window-close'))).dy,
+      closeTo(bar.center.dy, 0.5),
+      reason: '按钮要和通栏垂直居中',
+    );
+
+    // 岛式布局：品牌在顶部通栏里，侧栏变成一块与通栏留缝的卡片
     final Rect railRect = tester.getRect(find.byType(LibraryRail));
-    expect(railRect.top, 0);
+    expect(railRect.top, LampTitleBar.height + LibraryRail.islandGap);
     final Rect brandRect = tester.getRect(find.text('Lamp Player'));
     expect(brandRect.bottom, lessThanOrEqualTo(LampTitleBar.height));
     expect(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      find.descendant(
+        of: find.byType(LibraryRail),
+        matching: find.text('Lamp Player'),
+      ),
+      findsNothing,
+      reason: '品牌不再属于侧栏',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('app-brand-mark')),
       findsOneWidget,
     );
 
