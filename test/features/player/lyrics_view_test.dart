@@ -562,8 +562,8 @@ void main() {
     );
     expect(
       colorOf(painter.base)?.a,
-      closeTo(0.78, 0.05),
-      reason: '未唱底色仍是 0.78',
+      closeTo(0.62, 0.05),
+      reason: '未唱底色压到 0.62，与已唱的白拉开差距',
     );
   });
 

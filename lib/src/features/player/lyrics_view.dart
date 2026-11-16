@@ -1620,10 +1620,11 @@ class _LyricLineView extends StatelessWidget {
         lineEndMs: line.endMs.toInt(),
         position: position,
         style: style,
-        // 底色是「还没唱到」的部分，但**当前行必须比相邻行亮**（相邻行
-        // distance=1 时是 0.62）。取 0.42 的话刚跳到这一行、一个字都还没唱时，
-        // 当前行看着比上下两行还灰，像是没高亮
-        baseColor: fade(white.withValues(alpha: 0.78)),
+        // 底色是「还没唱到」的部分。要和已唱的白拉开差距才看得出唱到哪了，
+        // 但当前行不能比相邻行更灰（相邻行 distance=1 是 0.62）——那样刚跳到
+        // 这一行、一个字都还没唱时，看着像没高亮。取 0.62 与相邻行同一档：
+        // 当前行还有字号更大、字重更重、不吃模糊三样把它顶出来。
+        baseColor: fade(white.withValues(alpha: 0.62)),
         highlightColor: fade(white),
         alignment: alignment,
       );
