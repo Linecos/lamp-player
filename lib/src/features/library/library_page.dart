@@ -887,11 +887,24 @@ class _LibraryPageState extends State<LibraryPage>
       return;
     }
     _followCoverWasOn = on;
-    final Track? track = _currentTrack;
-    if (on && track != null) {
-      _coverSeedPath = null; // 强制重取；取色有缓存，代价是一次查表
-      _syncCoverSeed(track);
+    if (on) {
+      _syncCurrentCoverSeed();
     }
+  }
+
+  /// 给当前曲目取一次封面色（仅在「跟随封面」时动手）
+  ///
+  /// 两个入口：用户在设置里打开跟随、以及**启动时恢复出来的曲目**。
+  /// 恢复出来的曲目并没有起播，而取色原先只挂在 `_startCurrent` 上，
+  /// 于是开机后主题一直停在上次的手选色 / 系统色，要等按播放或换歌才变。
+  void _syncCurrentCoverSeed() {
+    final Track? track = _currentTrack;
+    final ThemeController? theme = _theme;
+    if (track == null || theme == null || !theme.followsCover) {
+      return;
+    }
+    _coverSeedPath = null; // 强制重取；取色有缓存，代价是一次查表
+    _syncCoverSeed(track);
   }
 
   @override
@@ -1127,6 +1140,8 @@ class _LibraryPageState extends State<LibraryPage>
     }
     _restoreLastTrack(snapshot);
     _sessionLoaded = true;
+    // 「动态主题色」开机即生效：恢复出来的曲目不会起播，这里主动取一次封面色
+    _syncCurrentCoverSeed();
     _maybePreloadRestoredTrack();
     unawaited(_restoreDesktopLyrics());
 

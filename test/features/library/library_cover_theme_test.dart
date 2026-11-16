@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/player/cover_palette.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -97,6 +98,93 @@ void main() {
       lessThan(30),
       reason: '主题色应该跟着封面里那块鲜艳的品红，而不是深藏青',
     );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('开机恢复上次曲目时动态主题色就已生效，不必等播放', (WidgetTester tester) async {
+    const Color pink = Color(0xFFE91E63);
+    final String coverPath = writeCover('navy_pink', _navyPinkPng);
+    await warmUp(tester, <String>[coverPath]);
+
+    final ThemeController controller = ThemeController();
+    await controller.setFollowCover(true);
+    addTearDown(controller.dispose);
+
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', coverPath: coverPath),
+        sampleTrack(title: '潮汐', album: '玻璃海', durationSecs: 200),
+      ],
+      playback: FakePlaybackService(isAvailable: true, durationSecs: 180),
+      // 上次退出时停在「夜航」
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          lastTrackPath: '/music/夜航.mp3',
+          coverBackfillAttempted: true,
+        ),
+      ),
+      themeController: controller,
+    );
+    await tester.pump();
+
+    // 一次都没点播放：颜色必须已经是封面色
+    final Color? seed = controller.coverSeed;
+    expect(seed, isNotNull, reason: '恢复曲目后应当直接取到封面色');
+    final HSLColor picked = HSLColor.fromColor(seed!);
+    final HSLColor expected = HSLColor.fromColor(pink);
+    expect(
+      (picked.hue - expected.hue).abs(),
+      lessThan(30),
+      reason: '启动时的主题色应该跟着封面走，而不是停在上次的手选色',
+    );
+    expect(controller.effectiveSeed, seed);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('开机首帧用存档的封面色，本次取色回来再校正', (WidgetTester tester) async {
+    const Color stored = Color(0xFF00897B); // 上次那首的封面色（青）
+    const Color pink = Color(0xFFE91E63);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      ThemeController.seedPrefsKey: 'cover',
+      ThemeController.coverSeedPrefsKey: '${stored.toARGB32()}',
+    });
+    final String coverPath = writeCover('navy_pink', _navyPinkPng);
+    await warmUp(tester, <String>[coverPath]);
+
+    final ThemeController controller = ThemeController();
+    await controller.restore();
+    addTearDown(controller.dispose);
+    expect(controller.coverSeed, stored, reason: 'restore 之后、取色之前，就该用存档的封面色');
+    expect(controller.effectiveSeed, stored);
+
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '夜之专辑', coverPath: coverPath),
+        sampleTrack(title: '潮汐', album: '玻璃海', durationSecs: 200),
+      ],
+      playback: FakePlaybackService(isAvailable: true, durationSecs: 180),
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          lastTrackPath: '/music/夜航.mp3',
+          coverBackfillAttempted: true,
+        ),
+      ),
+      themeController: controller,
+    );
+    await tester.pump();
+
+    final Color? seed = controller.coverSeed;
+    expect(seed, isNotNull);
+    expect(seed, isNot(stored), reason: '恢复曲目的封面色应当覆盖存档色');
+    final HSLColor picked = HSLColor.fromColor(seed!);
+    final HSLColor expected = HSLColor.fromColor(pink);
+    expect((picked.hue - expected.hue).abs(), lessThan(30));
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

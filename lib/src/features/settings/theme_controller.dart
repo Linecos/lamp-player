@@ -27,6 +27,13 @@ class ThemeController extends ChangeNotifier {
   /// 高对比存储键：'1' / '0'。
   static const String contrastPrefsKey = 'theme_contrast';
 
+  /// 上次封面色存储键：0xAARRGGBB 的十进制字符串。
+  ///
+  /// 与 [seedPrefsKey] 分开：那个记的是「模式」（跟随封面只写一个哨兵值），
+  /// 这里存**具体颜色**。开机第一帧就按它上色，等这次的取色回来再校正，
+  /// 免得先闪一下手选色 / 系统色 —— 封面色解码要 40ms 上下，肉眼看得见。
+  static const String coverSeedPrefsKey = 'theme_cover_seed';
+
   static const String _systemSeedValue = 'system';
 
   /// 跟随封面的存储值
@@ -87,6 +94,13 @@ class ThemeController extends ChangeNotifier {
   /// 最近一次从封面取到的种子色（尚未取到过时为 `null`）。
   Color? get coverSeed => _coverSeed;
 
+  /// 最近一次封面色落盘的 Future；仅供测试等待写入完成。
+  @visibleForTesting
+  Future<void>? get coverSeedWrite => _coverSeedWrite;
+
+  /// 封面色写入的中介（`updateCoverSeed` 是同步接口，写盘在后面跑）。
+  Future<void>? _coverSeedWrite;
+
   /// 实际生效的种子色：跟随封面 > 用户选择 > 系统强调色 > 默认暖黄。
   Color get effectiveSeed => _followCover
       ? (_coverSeed ?? _seedColor ?? _systemAccent ?? AppTheme.defaultSeed)
@@ -121,6 +135,17 @@ class ThemeController extends ChangeNotifier {
         }
         if (savedSeed != _seedColor) {
           _seedColor = savedSeed;
+          changed = true;
+        }
+      }
+      // 上次的封面色：开机第一帧就用它，等这次的取色回来再校正（免得闪一下）
+      final Color? savedCoverSeed = _decodeSeed(
+        prefs.getString(coverSeedPrefsKey),
+      );
+      if (savedCoverSeed != null && savedCoverSeed != _coverSeed) {
+        _coverSeed = savedCoverSeed;
+        // 不跟随时界面不变，不必通知；跟着时这就是首帧的颜色
+        if (_followCover) {
           changed = true;
         }
       }
@@ -201,6 +226,18 @@ class ThemeController extends ChangeNotifier {
     // 没在跟随时界面不变，不必通知（取色本身还是会缓存下来，切过去立刻就位）
     if (_followCover) {
       notifyListeners();
+    }
+    _coverSeedWrite = _persistCoverSeed(color);
+  }
+
+  /// 把这次取到的封面色存下来，下次启动首屏直接用
+  Future<void> _persistCoverSeed(Color color) async {
+    final String raw = color.toARGB32().toString();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(coverSeedPrefsKey, raw);
+    } catch (error) {
+      debugPrint('保存封面色失败：$error');
     }
   }
 
