@@ -55,6 +55,14 @@ bool FlutterWindow::OnCreate() {
   g_view_proc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
       flutter_controller_->view()->GetNativeWindow(), GWLP_WNDPROC,
       reinterpret_cast<LONG_PTR>(ViewProc)));
+  if (g_view_proc == nullptr) {
+    // Subclassing failed: a11y blocking is off and the window falls back to the
+    // old "UIA client can stall the UI thread" behaviour. Leave a trace so the
+    // next freeze report is not another guessing game.
+    OutputDebugStringW(
+        L"lamp_player: failed to subclass flutter view; "
+        L"WM_GETOBJECT blocking is disabled\n");
+  }
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
