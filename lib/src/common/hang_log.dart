@@ -64,6 +64,13 @@ void stopHangLog() {
   if (_started) {
     _write('boot', '记录结束');
   }
+  _started = false;
+  try {
+    _sink?.closeSync();
+  } catch (_) {
+    // 已经关掉 / 没打开过：忽略
+  }
+  _sink = null;
 }
 
 /// 记一条「正要做什么」。卡死之后看最后一行即知卡在哪一步。
@@ -130,9 +137,13 @@ void _installErrorHooks() {
     previous?.call(details);
   };
   // 异步未捕获异常：debug 下会打到控制台，release 下本来没人看，落到文件里
+  //
+  // 链到已有的 handler 而不是直接吞掉：`PlatformDispatcher.onError` 是全局单槽，
+  // 覆盖掉别人装的钩子会让那边的错误上报静默失效。
+  final ErrorCallback? previousAsync = PlatformDispatcher.instance.onError;
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     _write('err', '未捕获 $error\n$stack');
-    return true;
+    return previousAsync?.call(error, stack) ?? true;
   };
 }
 
@@ -152,6 +163,10 @@ void _rotate() {
   }
 }
 
+/// 常开的追加句柄：每秒一次心跳若每次开 / 关文件，Defender 实时扫描下会偶发
+/// 毫秒级阻塞，直接掉一帧。句柄泄漏没有风险——进程退出由系统回收。
+RandomAccessFile? _sink;
+
 void _write(String tag, String message) {
   final DateTime now = DateTime.now();
   final String stamp =
@@ -159,9 +174,13 @@ void _write(String tag, String message) {
       '${now.minute.toString().padLeft(2, '0')}:'
       '${now.second.toString().padLeft(2, '0')}.'
       '${now.millisecond.toString().padLeft(3, '0')}';
-  final String line = '$stamp [$tag] $message';
+  final String line = '$stamp [$tag] $message\n';
   try {
-    File(hangLogPath).writeAsStringSync('$line\n', mode: FileMode.append);
+    // 同步写：卡死前那一行必须先落盘，异步缓冲正好会丢掉最关键的尾巴
+    final RandomAccessFile sink = _sink ??= File(hangLogPath)
+        .openSync(mode: FileMode.append);
+    sink.writeStringSync(line);
+    sink.flushSync();
   } catch (_) {
     // 写不进去就只留控制台
     debugPrint(line);

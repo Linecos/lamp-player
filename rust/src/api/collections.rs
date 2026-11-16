@@ -237,10 +237,13 @@ pub fn set_playlist_order(id: i64, paths: Vec<String>) -> anyhow::Result<()> {
         let current = visible_of(&slots);
 
         let mut visible: Vec<String> = Vec::with_capacity(current.len());
+        // 先建一份索引：歌单上千首时 `current.contains` 是 O(n²) 的字符串比较
+        let known: std::collections::HashSet<&str> =
+            current.iter().map(|item| item.as_str()).collect();
         let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for path in &paths {
             // 只认这个歌单里真有的、且没重复的
-            if current.iter().any(|item| item == path) && seen.insert(path.as_str()) {
+            if known.contains(path.as_str()) && seen.insert(path.as_str()) {
                 visible.push(path.clone());
             }
         }
