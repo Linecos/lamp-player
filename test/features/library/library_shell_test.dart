@@ -330,7 +330,14 @@ void main() {
     );
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('林间电台'));
+    // 卡片宽度固定 220、艺术家卡高 289：名字可能压在播放岛底下，
+    // 改点卡片顶部（InkWell 覆盖整张卡）
+    final Rect artistCard = tester.getRect(
+      find
+          .ancestor(of: find.text('林间电台'), matching: find.byType(InkWell))
+          .first,
+    );
+    await tester.tapAt(Offset(artistCard.center.dx, artistCard.top + 24));
     await tester.pumpAndSettle();
     expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget);
 
