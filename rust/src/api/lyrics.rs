@@ -1,4 +1,5 @@
-//! 歌词读取：同目录 `.lrc` 优先，其次音频内嵌标签。
+//! 歌词读取：同目录 `.lrc` 优先，其次音频内嵌标签。另提供编辑用的原文
+//! 读写与「整体平移时间戳」。
 
 use crate::lyrics as core;
 use anyhow::Result;
@@ -62,4 +63,43 @@ pub fn lyrics_load(path: String) -> Result<TrackLyrics> {
         plain: lyrics.plain,
         source: lyrics.source,
     })
+}
+
+/// 编辑用的歌词原文。
+pub struct RawLyrics {
+    /// 原文（LRC / TTML 原样，没有歌词时为空字符串）
+    pub text: String,
+    /// 来源：`sidecar`（同名 `.lrc` / `.ttml`）/ `embedded`（音频标签）/ `none`
+    pub source: String,
+}
+
+/// 读取歌词原文：旁载优先，其次内嵌。没有歌词返回空结构，不报错。
+pub fn lyrics_read_raw(path: String) -> Result<RawLyrics> {
+    match core::raw_text(Path::new(&path)) {
+        Some((text, source)) => Ok(RawLyrics {
+            text,
+            source: source.to_string(),
+        }),
+        None => Ok(RawLyrics {
+            text: String::new(),
+            source: "none".to_string(),
+        }),
+    }
+}
+
+/// 整体平移歌词时间戳（单位毫秒，负数提前 / 正数延后），返回新文本。
+///
+/// 纯文本变换，不碰文件——界面先调它把新文本显示出来，用户确认后再
+/// [`lyrics_save_raw`] 落盘，这样「快进多少」是看得见的。
+pub fn lyrics_shift_raw(text: String, delta_ms: i64) -> String {
+    core::shift_timestamps(&text, delta_ms)
+}
+
+/// 保存歌词原文为同名 `.lrc`（UTF-8），返回写入的文件路径。
+///
+/// 统一写旁载：改内嵌标签要重写整个音频文件，风险与代价都大得多。
+/// 原本只有内嵌歌词的曲目，保存后也会有 `.lrc`——读取侧旁载优先，行为一致。
+pub fn lyrics_save_raw(path: String, text: String) -> Result<String> {
+    let written = core::write_sidecar(Path::new(&path), &text)?;
+    Ok(written.to_string_lossy().into_owned())
 }

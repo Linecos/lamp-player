@@ -386,6 +386,119 @@ void main() {
       );
     });
 
+    test('自定义封面优先于扫描出来的封面', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(
+          title: '一',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 1,
+          coverPath: '/covers/auto.jpg',
+        ),
+      ];
+
+      final ArtistGroup artist = groupTracksByArtist(
+        tracks,
+        coverOverrides: <String, String>{'林间电台': '/custom/artist.jpg'},
+      ).single;
+      expect(artist.coverPath, '/custom/artist.jpg');
+      expect(artist.customCover, '/custom/artist.jpg');
+
+      final AlbumGroup album = groupTracksByAlbum(
+        tracks,
+        coverOverrides: <String, String>{
+          albumKeyOf('林间电台', '夜航'): '/custom/album.jpg',
+        },
+      ).single;
+      expect(album.coverPath, '/custom/album.jpg');
+    });
+
+    test('自定义封面为空串时回退扫描结果，不当成有效路径', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(
+          title: '一',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 1,
+          coverPath: '/covers/auto.jpg',
+        ),
+      ];
+
+      final ArtistGroup group = groupTracksByArtist(
+        tracks,
+        coverOverrides: <String, String>{'林间电台': '  '},
+      ).single;
+
+      expect(group.coverPath, '/covers/auto.jpg');
+    });
+
+    test('自定义封面只作用于对应的艺术家与专辑', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(
+          title: '一',
+          artist: '林间电台',
+          album: '夜航',
+          trackNum: 1,
+          coverPath: '/covers/a.jpg',
+        ),
+        sampleTrack(
+          title: '二',
+          artist: '海岸线',
+          album: '潮汐',
+          trackNum: 1,
+          coverPath: '/covers/b.jpg',
+        ),
+      ];
+
+      final List<ArtistGroup> artists = groupTracksByArtist(
+        tracks,
+        coverOverrides: <String, String>{'林间电台': '/custom/a.jpg'},
+      );
+      expect(
+        artists.firstWhere((ArtistGroup g) => g.name == '林间电台').coverPath,
+        '/custom/a.jpg',
+      );
+      expect(
+        artists.firstWhere((ArtistGroup g) => g.name == '海岸线').coverPath,
+        '/covers/b.jpg',
+      );
+    });
+
+    test('同名专辑分属不同艺术家时，封面互不串用', () {
+      final List<Track> tracks = <Track>[
+        sampleTrack(
+          title: '一',
+          artist: '甲',
+          album: '同名专辑',
+          trackNum: 1,
+          coverPath: '/covers/jia.jpg',
+        ),
+        sampleTrack(
+          title: '二',
+          artist: '乙',
+          album: '同名专辑',
+          trackNum: 1,
+          coverPath: '/covers/yi.jpg',
+        ),
+      ];
+
+      final List<AlbumGroup> albums = groupTracksByAlbum(
+        tracks,
+        coverOverrides: <String, String>{
+          albumKeyOf('甲', '同名专辑'): '/custom/jia.jpg',
+        },
+      );
+
+      expect(
+        albums.firstWhere((AlbumGroup a) => a.artist == '甲').coverPath,
+        '/custom/jia.jpg',
+      );
+      expect(
+        albums.firstWhere((AlbumGroup a) => a.artist == '乙').coverPath,
+        '/covers/yi.jpg',
+      );
+    });
+
     test('专辑内按曲目号排序并累计时长', () {
       final List<Track> tracks = <Track>[
         sampleTrack(

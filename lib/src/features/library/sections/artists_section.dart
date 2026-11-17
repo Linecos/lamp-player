@@ -93,6 +93,9 @@ extension _ArtistsSection on _LibraryPageState {
                     storageKey: const PageStorageKey<String>('grid:artists'),
                     // 带上卡片封面的矩形，详情页用它做「头像飞过去」的起点
                     onSelect: _openArtistDetail,
+                    // 右键卡片换封面 / 恢复默认
+                    onCoverMenu: (ArtistGroup artist, Offset position) =>
+                        _showCoverMenu(position, artist: artist),
                     // 正在飞的那张卡片先藏着，落地再显形
                     flyingTag: _coverFlightTag,
                   );
@@ -128,14 +131,21 @@ extension _ArtistsSection on _LibraryPageState {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               // 飞行期间先藏着，等列表那张飞到位再显形
-              CoverFlightTarget(
-                key: _artistDetailCoverKey,
-                hidden: _coverFlightTag == artistCoverTag(group.name),
-                child: artistAvatar(
-                  context,
-                  group.name,
-                  detailCoverSize,
-                  coverPath: group.coverPath,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                // 左键点封面 → 打开封面编辑窗；右键是同一个窗口的快捷入口
+                onTap: () => unawaited(_openCoverEditorFor(artist: group)),
+                onSecondaryTapDown: (TapDownDetails details) =>
+                    _showCoverMenu(details.globalPosition, artist: group),
+                child: CoverFlightTarget(
+                  key: _artistDetailCoverKey,
+                  hidden: _coverFlightTag == artistCoverTag(group.name),
+                  child: artistAvatar(
+                    context,
+                    group.name,
+                    detailCoverSize,
+                    coverPath: group.coverPath,
+                  ),
                 ),
               ),
               const SizedBox(width: 24),

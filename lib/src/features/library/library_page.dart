@@ -20,14 +20,19 @@ import '../../common/common.dart';
 import '../../common/frame_log.dart';
 import '../../common/hang_log.dart';
 import '../../common/text/pinyin_key.dart';
+import '../../rust/api/db.dart' as db;
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
+import '../../rust/api/cover_override.dart' as cover_api;
 import '../../rust/api/lyrics.dart' as lyrics_api;
+import '../../rust/api/metadata.dart';
 import '../../rust/api/model.dart';
 import '../player/cover_palette.dart';
 import '../settings/theme_controller.dart';
 import 'widgets/cover_backdrop.dart';
+import 'widgets/cover_editor_dialog.dart';
 import 'widgets/cover_flight.dart';
 import 'widgets/lamp_brand_mark.dart';
+import 'widgets/track_metadata_pane.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
 import '../player/playback_mode.dart';
@@ -792,6 +797,35 @@ class _LibraryPageState extends State<LibraryPage>
   List<ArtistGroup>? _artistGroups;
   List<AlbumGroup>? _albumGroups;
 
+  /// 用户自定义的艺术家封面：艺术家名 → 图片路径
+  Map<String, String> _artistCovers = const <String, String>{};
+
+  /// 用户自定义的专辑封面：专辑聚合键（见 [albumKeyOf]）→ 图片路径
+  Map<String, String> _albumCovers = const <String, String>{};
+
+  /// 用户自定义的歌单封面：歌单 id 的字符串 → 图片路径
+  Map<String, String> _playlistCovers = const <String, String>{};
+
+  /// 自定义封面的版本号：换图 / 恢复后 +1，逼分组缓存重算。
+  ///
+  /// 分组结果按 `_tracks` 的**对象身份**缓存（播放进度刷新时不该重算），
+  /// 但封面覆盖变了 `_tracks` 并不会变——不加这个版本号，换完封面要等下次
+  /// 扫描或切分区才看得出效果。
+  int _coverEpoch = 0;
+
+  /* -------------------------------------------------- 元数据编辑区块 */
+
+  /// 正在编辑元数据的曲目；非空时内容区整块换成编辑界面（与「历史」这类
+  /// 分区同级，占满右侧，不是弹窗）
+  Track? _metadataTrack;
+
+  /// 编辑界面的初始数据：进来时读一次，之后由界面自己管
+  TrackTags? _metadataTags;
+  String _metadataLyrics = '';
+  String _metadataSource = 'none';
+  bool _metadataLoading = false;
+  int _groupedCoverEpoch = 0;
+
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
   /// 顺带推进状态版本：分区快照据此判断自己是否过期。
   void _update(VoidCallback fn) {
@@ -1070,11 +1104,61 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 曲库读完才能把上次播放的路径对回 `Track`，所以恢复曲目放在两者之后。
   /// 读会话失败只会失去“记住上次”的能力，不影响曲库展示。
+  /// 读取用户自定义的艺术家 / 专辑封面，并让分组缓存失效。
+  ///
+  /// 失败只记日志：曲库没起来（单元测试、引擎异常）时不该挡住整个界面，
+  /// 拿不到就按扫描出来的封面显示，功能仍然可用。
+  Future<void> _loadCoverOverrides() async {
+    final List<cover_api.CoverOverride> items;
+    try {
+      items = await cover_api.listCoverOverrides();
+    } catch (error) {
+      debugPrint('读取自定义封面失败：$error');
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final Map<String, String> artists = <String, String>{};
+    final Map<String, String> albums = <String, String>{};
+    final Map<String, String> playlists = <String, String>{};
+    for (final cover_api.CoverOverride item in items) {
+      if (item.kind == 'artist') {
+        artists[item.name] = item.path;
+      } else if (item.kind == 'album') {
+        // 库里按「专辑名 + 艺术家」两列存，内存里的分组键是两者拼起来的
+        albums[albumKeyOf(item.artist, item.name)] = item.path;
+      } else if (item.kind == 'playlist') {
+        playlists[item.name] = item.path;
+      }
+    }
+
+    _update(() {
+      _artistCovers = artists;
+      _albumCovers = albums;
+      _playlistCovers = playlists;
+      // 曲目列表没变，但封面变了：推进版本号逼分组重算
+      _coverEpoch += 1;
+    });
+  }
+
+  /// 把后端抛上来的异常转成一句话：`anyhow` 的消息带 `AnyhowException:` 前缀，
+  /// 直接展示在提示条里很难看。
+  String _errorText(Object error) {
+    final String text = error.toString();
+    const String prefix = 'AnyhowException: ';
+    return text.startsWith(prefix) ? text.substring(prefix.length) : text;
+  }
+
   Future<void> _bootstrap() async {
     final Future<SessionSnapshot> sessionLoader = _sessionStore.load();
     final Future<void> tracksLoader = _loadTracks();
+    // 自定义封面与曲库并行读：两者互不依赖，串起来只是白等一轮 IO
+    final Future<void> coversLoader = _loadCoverOverrides();
     final SessionSnapshot snapshot = await sessionLoader;
     await tracksLoader;
+    await coversLoader;
     if (!mounted) {
       return;
     }
@@ -1494,6 +1578,277 @@ class _LibraryPageState extends State<LibraryPage>
           ),
         ),
       ),
+    );
+  }
+
+  /// 图片选择器只列常见位图：svg / heic 解不出来，选进来只会得到一个
+  /// 「不是有效的图片」的提示。
+  static const XTypeGroup _coverTypeGroup = XTypeGroup(
+    label: '图片',
+    extensions: <String>['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'],
+  );
+
+  /// 三个封面入口（艺术家 / 专辑 / 歌单）共用一份目标描述。
+  ///
+  /// `name` 对艺术家是名字、对专辑是专辑名、对歌单是 **id 的字符串**——
+  /// 歌单可以重命名，用名字当键的话改完名字封面就找不回来了。
+  ({String kind, String name, String artist}) _coverTargetOf({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) {
+    if (artist != null) {
+      return (kind: 'artist', name: artist.name, artist: '');
+    }
+    if (album != null) {
+      return (kind: 'album', name: album.title, artist: album.artist);
+    }
+    return (kind: 'playlist', name: playlist!.id.toString(), artist: '');
+  }
+
+  /// 当前生效的歌单封面：自定义优先，否则用「最新加入那首歌」的封面。
+  String? _playlistCover(Playlist playlist) {
+    final String? custom = _playlistCovers[playlist.id.toString()];
+    if (custom != null && custom.isNotEmpty) {
+      return custom;
+    }
+    return playlist.coverPath;
+  }
+
+  /// 该目标是否已有自定义封面（决定「恢复默认」可不可点、右键菜单多不多一项）。
+  bool _hasCustomCover({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) {
+    if (artist != null) {
+      return _artistCovers.containsKey(artist.name);
+    }
+    if (album != null) {
+      return _albumCovers.containsKey(albumKeyOf(album.artist, album.title));
+    }
+    return _playlistCovers.containsKey(playlist!.id.toString());
+  }
+
+  /// 艺术家 / 专辑卡片（含详情页封面）的右键菜单：换 / 恢复的快捷方式。
+  Future<void> _showCoverMenu(
+    Offset globalPosition, {
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) async {
+    final String label = artist?.name ?? album?.title ?? playlist?.name ?? '';
+    final bool hasCustom = _hasCustomCover(
+      artist: artist,
+      album: album,
+      playlist: playlist,
+    );
+
+    final String? action = await showMenu<String>(
+      context: context,
+      // 菜单贴着指针弹：位置用全局坐标，showMenu 会自己夹进屏幕
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
+      ),
+      items: <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(value: 'editor', child: Text('编辑封面…')),
+        if (hasCustom)
+          const PopupMenuItem<String>(value: 'clear', child: Text('恢复默认封面')),
+      ],
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    if (action == 'editor') {
+      // 右键直接开编辑窗：和左键点详情页封面是同一个界面，免得两套交互
+      await _openCoverEditorFor(
+        artist: artist,
+        album: album,
+        playlist: playlist,
+      );
+    } else if (action == 'clear') {
+      final bool removed = await _applyCoverReset(
+        artist: artist,
+        album: album,
+        playlist: playlist,
+      );
+      if (mounted) {
+        AppToast.show(
+          context,
+          removed ? '已恢复「$label」的默认封面' : '「$label」没有自定义封面',
+        );
+      }
+    }
+  }
+
+  /// 选图并写入，返回新的封面路径（用户取消或失败返回 null）。
+  ///
+  /// 不弹成功提示：编辑窗里的预览已经换掉了，再弹一条是噪音；
+  /// 失败要提示，因为那时代码没有别的地方能告诉用户。
+  Future<String?> _applyCoverPick({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) async {
+    final XFile? file = await openFile(
+      acceptedTypeGroups: <XTypeGroup>[_coverTypeGroup],
+    );
+    if (file == null) {
+      return null;
+    }
+    final ({String kind, String name, String artist}) target = _coverTargetOf(
+      artist: artist,
+      album: album,
+      playlist: playlist,
+    );
+    try {
+      final String stored = await cover_api.setCoverOverride(
+        kind: target.kind,
+        name: target.name,
+        artist: target.artist,
+        sourcePath: file.path,
+      );
+      await _loadCoverOverrides();
+      return stored;
+    } catch (error) {
+      if (mounted) {
+        AppToast.show(context, '更换封面失败：${_errorText(error)}');
+      }
+      return null;
+    }
+  }
+
+  /// 撤掉自定义封面，回到扫描出来的那张。
+  Future<bool> _applyCoverReset({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) async {
+    final ({String kind, String name, String artist}) target = _coverTargetOf(
+      artist: artist,
+      album: album,
+      playlist: playlist,
+    );
+    try {
+      final bool removed = await cover_api.clearCoverOverride(
+        kind: target.kind,
+        name: target.name,
+        artist: target.artist,
+      );
+      await _loadCoverOverrides();
+      return removed;
+    } catch (error) {
+      if (mounted) {
+        AppToast.show(context, '恢复默认封面失败：${_errorText(error)}');
+      }
+      return false;
+    }
+  }
+
+  /// 恢复默认之后应该显示的那张封面（**不含**自定义，取扫描结果）。
+  ///
+  /// 对话框自己不知道「默认封面」是哪一张：艺术家的默认封面是组内第一首
+  /// 有封面的曲目、专辑同理、歌单是最新加入那首的封面。这里统一算一遍，
+  /// 撤掉自定义后预览才不会停在旧图上。
+  String? _autoCoverOf({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) {
+    if (playlist != null) {
+      // 歌单的自动封面就是仓储查出来的那张，`coverPath` 本身不含自定义
+      return playlist.coverPath;
+    }
+    if (artist != null) {
+      for (final ArtistGroup group in _artistGroupsCache) {
+        if (group.name == artist.name) {
+          return firstCoverPath(group.tracks);
+        }
+      }
+      return null;
+    }
+    final AlbumGroup target = album!;
+    for (final AlbumGroup group in _albumGroupsCache) {
+      if (group.key == target.key) {
+        return firstCoverPath(group.tracks);
+      }
+    }
+    return null;
+  }
+
+  /// 打开封面编辑窗（左预览 + 右操作）。
+  Future<void> _openCoverEditorFor({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    Playlist? playlist,
+  }) {
+    String title;
+    String kindLabel;
+    String? coverPath;
+    bool circular = false;
+    Widget Function(double side)? placeholderBuilder;
+
+    if (artist != null) {
+      title = artist.name;
+      kindLabel = '艺术家';
+      coverPath = artist.coverPath;
+      circular = true;
+      placeholderBuilder = (double side) =>
+          artistInitialsAvatar(context, artist.name, side);
+    } else if (album != null) {
+      title = album.title;
+      kindLabel = '专辑';
+      coverPath = album.coverPath;
+      placeholderBuilder = (double side) =>
+          _coverPlaceholder(side, Icons.album_outlined);
+    } else {
+      title = playlist!.name;
+      kindLabel = '歌单';
+      coverPath = _playlistCover(playlist);
+      placeholderBuilder = (double side) =>
+          _coverPlaceholder(side, Icons.queue_music);
+    }
+
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => CoverEditorDialog(
+        title: title,
+        kindLabel: kindLabel,
+        coverPath: coverPath,
+        circular: circular,
+        hasCustomCover: _hasCustomCover(
+          artist: artist,
+          album: album,
+          playlist: playlist,
+        ),
+        placeholderBuilder: placeholderBuilder,
+        onPick: () =>
+            _applyCoverPick(artist: artist, album: album, playlist: playlist),
+        onReset: () async {
+          await _applyCoverReset(
+            artist: artist,
+            album: album,
+            playlist: playlist,
+          );
+          // 覆盖表已重读、分组缓存已失效，这里取的是撤掉自定义之后的自动封面
+          return _autoCoverOf(artist: artist, album: album, playlist: playlist);
+        },
+      ),
+    );
+  }
+
+  /// 没有封面时的占位：与卡片上的样式同一套（浅底 + 图标）
+  Widget _coverPlaceholder(double side, IconData icon) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: side,
+      height: side,
+      color: scheme.secondaryContainer,
+      alignment: Alignment.center,
+      child: Icon(icon, size: side * 0.32, color: scheme.onSecondaryContainer),
     );
   }
 
@@ -2263,6 +2618,8 @@ class _LibraryPageState extends State<LibraryPage>
   /// 目标详情的选中与分区切换落在同一帧，不会先露出目标分区的列表。
   void _selectSection(LibrarySection section, {VoidCallback? select}) {
     hangMark('分区：${section.name}${select == null ? '' : '（带详情）'}');
+    // 正在改元数据时点导航：等同于「返回」，别把人困在编辑界面里
+    _closeMetadataEditor();
     if (section == _section) {
       // 已在该分区时，再点一次导航相当于「回到列表」：
       // 不应把用户困在歌单 / 艺术家 / 专辑详情里。
@@ -2473,7 +2830,7 @@ class _LibraryPageState extends State<LibraryPage>
       ..._sections.keys,
       _displayedSection,
     };
-    return Stack(
+    final Widget sections = Stack(
       fit: StackFit.expand,
       children: <Widget>[
         for (final LibrarySection section in visited)
@@ -2488,6 +2845,60 @@ class _LibraryPageState extends State<LibraryPage>
             ),
           ),
       ],
+    );
+    // 改元数据时整块内容区换成编辑界面：等价于一个临时分区，但目标曲目来自
+    // 右键菜单，不该出现在侧栏。原来的分区用 Offstage 留在树里——返回时
+    // 滚动位置、图片缓存、快照都还在，不用重建。
+    if (_metadataTrack == null && !_metadataLoading) {
+      return sections;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Offstage(child: sections),
+        Positioned.fill(
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            child: _buildMetadataEditor(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 元数据编辑区块（内容区已被替换）
+  Widget _buildMetadataEditor(BuildContext context) {
+    final Track? track = _metadataTrack;
+    final TrackTags? tags = _metadataTags;
+    if (track == null || tags == null) {
+      return const Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('正在读取标签…'),
+          ],
+        ),
+      );
+    }
+    return TrackMetadataPane(
+      // 换一首歌要整块重建（输入框的 controller 在 State 里）
+      key: ValueKey<String>('metadata-${track.path}'),
+      filePath: track.path,
+      coverPath: track.coverPath,
+      tags: tags,
+      lyricsText: _metadataLyrics,
+      lyricsSource: _metadataSource,
+      onShiftLyrics: (String text, int deltaMs) =>
+          lyrics_api.lyricsShiftRaw(text: text, deltaMs: deltaMs),
+      onSave: (TrackTags edited, String lyrics) =>
+          _saveMetadata(track, edited, lyrics),
+      onClose: _closeMetadataEditor,
     );
   }
 

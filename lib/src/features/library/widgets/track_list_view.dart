@@ -25,6 +25,9 @@ enum TrackContextAction {
   /// 用外部 MusicTag 编辑这首的标签
   openWithMusicTag,
 
+  /// 在右侧内容区打开元数据编辑区块，改标签与歌词（内置，不依赖外部工具）
+  editMetadata,
+
   /// 逐首分析整曲响度并把增益写回标签（会改文件）
   computeReplayGain,
 }
@@ -491,6 +494,8 @@ class _TrackRow extends StatelessWidget {
           ),
           _menuItem(TrackContextAction.copyPath, Icons.copy, '复制文件路径'),
           const PopupMenuDivider(),
+          // 铅笔（等价于 mdi:pencil）：这一项是「改」而不是「看」
+          _menuItem(TrackContextAction.editMetadata, Icons.edit, '修改元数据…'),
           _menuItem(
             TrackContextAction.openWithMusicTag,
             Icons.sell_outlined,

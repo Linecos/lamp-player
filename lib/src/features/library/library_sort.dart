@@ -93,7 +93,13 @@ List<String> splitArtistTag(String tag) {
 
 /// 专辑聚合键：同一位艺术家的同名专辑算一张
 String albumGroupKey(Track track) =>
-    '${trackArtist(track)}\u0000${trackAlbum(track)}';
+    albumKeyOf(trackArtist(track), trackAlbum(track));
+
+/// 由「艺术家 + 专辑名」拼出聚合键。
+///
+/// 自定义封面表里按这两列存（SQLite 的 TEXT 存不了 `\u0000`），读出来要在
+/// 内存里拼回同一个键，所以拼接规则必须只有一处实现。
+String albumKeyOf(String artist, String album) => '$artist\u0000$album';
 
 /// 排序用的一次性键。
 ///
@@ -165,7 +171,10 @@ List<Track> sortTracks(
 ///
 /// 多艺术家曲目（`A/B`）会同时出现在 A 和 B 两个组里——艺术家分区里两位
 /// 都得有自己的入口，否则从播放页点 B 跳过来会找不到人。
-List<ArtistGroup> groupTracksByArtist(Iterable<Track> tracks) {
+List<ArtistGroup> groupTracksByArtist(
+  Iterable<Track> tracks, {
+  Map<String, String> coverOverrides = const <String, String>{},
+}) {
   final Map<String, List<Track>> buckets = <String, List<Track>>{};
   for (final Track track in tracks) {
     for (final String name in splitTrackArtists(track)) {
@@ -177,6 +186,7 @@ List<ArtistGroup> groupTracksByArtist(Iterable<Track> tracks) {
         (MapEntry<String, List<Track>> entry) => ArtistGroup(
           name: entry.key,
           tracks: sortTracks(entry.value, LibrarySort.album),
+          customCover: coverOverrides[entry.key],
         ),
       )
       .toList();
@@ -185,7 +195,10 @@ List<ArtistGroup> groupTracksByArtist(Iterable<Track> tracks) {
 }
 
 /// 按「艺术家 + 专辑」聚合（只读展示用）
-List<AlbumGroup> groupTracksByAlbum(Iterable<Track> tracks) {
+List<AlbumGroup> groupTracksByAlbum(
+  Iterable<Track> tracks, {
+  Map<String, String> coverOverrides = const <String, String>{},
+}) {
   final Map<String, AlbumGroup> buckets = <String, AlbumGroup>{};
   for (final Track track in tracks) {
     final String key = albumGroupKey(track);
@@ -196,6 +209,7 @@ List<AlbumGroup> groupTracksByAlbum(Iterable<Track> tracks) {
             key: key,
             title: trackAlbum(track),
             artist: trackArtist(track),
+            customCover: coverOverrides[key],
           ),
         )
         .tracks
@@ -222,10 +236,16 @@ List<AlbumGroup> groupTracksByAlbum(Iterable<Track> tracks) {
 
 /// 艺术家聚合结果
 class ArtistGroup {
-  ArtistGroup({required this.name, required this.tracks});
+  ArtistGroup({required this.name, required this.tracks, this.customCover});
 
   final String name;
   final List<Track> tracks;
+
+  /// 用户手动指定的封面（来自 `cover_overrides` 表）。
+  ///
+  /// 非空时优先于自动取到的封面：这是「我就要这张」的显式意图，
+  /// 不该被扫描结果盖过去。
+  final String? customCover;
 
   /// 专辑数。
   ///
@@ -235,7 +255,7 @@ class ArtistGroup {
 
   int get trackCount => tracks.length;
 
-  /// 艺术家头像用的封面：组内**第一首有封面的曲目**。
+  /// 艺术家头像用的封面：优先用户指定，其次组内**第一首有封面的曲目**。
   ///
   /// 组内顺序是「专辑 → 曲目号」（见 [groupTracksByArtist]），所以拿到的是
   /// 这位艺术家最早那张专辑的第一首——换个顺序重算也是同一张，不会每次
@@ -243,7 +263,18 @@ class ArtistGroup {
   ///
   /// 全都没有封面时返回 null，交给界面回退首字母头像。
   /// 同样懒算一次：没有封面的那组否则每次重建都要把 tracks 走完。
-  late final String? coverPath = firstCoverPath(tracks);
+  late final String? coverPath = pickCover(customCover, tracks);
+}
+
+/// 封面取值：用户指定的优先，其次组内第一张自动封面。
+///
+/// 两处（艺术家 / 专辑）共用，避免一边认自定义、另一边还回退到扫描结果。
+String? pickCover(String? custom, Iterable<Track> tracks) {
+  final String? trimmed = custom?.trim();
+  if (trimmed != null && trimmed.isNotEmpty) {
+    return trimmed;
+  }
+  return firstCoverPath(tracks);
 }
 
 /// 一组曲目里第一张可用封面；全都没有时返回 null。
@@ -262,12 +293,20 @@ String? firstCoverPath(Iterable<Track> tracks) {
 
 /// 专辑聚合结果
 class AlbumGroup {
-  AlbumGroup({required this.key, required this.title, required this.artist});
+  AlbumGroup({
+    required this.key,
+    required this.title,
+    required this.artist,
+    this.customCover,
+  });
 
   final String key;
   final String title;
   final String artist;
   final List<Track> tracks = <Track>[];
+
+  /// 用户手动指定的封面，优先于组内自动封面
+  final String? customCover;
 
   double get durationSecs => tracks.fold<double>(
     0,
@@ -275,7 +314,7 @@ class AlbumGroup {
   );
 
   /// 组内第一张可用封面；全都没有时返回 null，交给界面回退占位。
-  String? get coverPath => firstCoverPath(tracks);
+  String? get coverPath => pickCover(customCover, tracks);
 }
 
 int _firstNonZero(List<int> values) {
