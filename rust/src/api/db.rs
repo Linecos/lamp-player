@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 9;
 
 struct Database {
     path: String,
@@ -314,6 +314,26 @@ CREATE TABLE IF NOT EXISTS hidden_tracks (
 );
 "#;
 
+/// v9：自定义艺术家 / 专辑封面。
+///
+/// 艺术家与专辑在库里都不是实体（由曲目聚合而来），所以这张表不挂外键，
+/// 直接用「种类 + 名称 + 艺术家」做键。`artist` 对艺术家记录为空串——
+/// 同一个艺术家若同时出现在两行，读的时候要取哪一行就成了运气问题。
+///
+/// 主键三元组而不是单列 key：`albumGroupKey` 用 `\u{0}` 连接艺术家与专辑，
+/// 而 SQLite 的 TEXT 以 NUL 结尾，含 NUL 的键存进去会被截断，两位艺术家的
+/// 同名专辑会撞成一行。拆成两列既避开这个坑，也方便直接查「这张专辑」。
+const SCHEMA_V9: &str = r#"
+CREATE TABLE IF NOT EXISTS cover_overrides (
+    kind       TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    artist     TEXT    NOT NULL DEFAULT '',
+    path       TEXT    NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (kind, name, artist)
+);
+"#;
+
 /// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -449,6 +469,13 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS tracks_hidden ON tracks(hidden);")?;
         tx.pragma_update(None, "user_version", 8)?;
+    }
+
+    if version < 9 {
+        // v9：自定义封面。纯新增表，不碰既有数据；老库升级后所有封面的表现
+        // 与升级前完全一致，直到有人手动指定一张。
+        tx.execute_batch(SCHEMA_V9)?;
+        tx.pragma_update(None, "user_version", 9)?;
     }
 
     tx.commit()?;

@@ -20,6 +20,7 @@ import '../../common/common.dart';
 import '../../common/frame_log.dart';
 import '../../common/text/pinyin_key.dart';
 import '../../rust/api/desktop_lyrics.dart' as desktop_lyrics;
+import '../../rust/api/cover_override.dart' as cover_api;
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../player/cover_palette.dart';
@@ -784,6 +785,20 @@ class _LibraryPageState extends State<LibraryPage>
   List<ArtistGroup>? _artistGroups;
   List<AlbumGroup>? _albumGroups;
 
+  /// 用户自定义的艺术家封面：艺术家名 → 图片路径
+  Map<String, String> _artistCovers = const <String, String>{};
+
+  /// 用户自定义的专辑封面：专辑聚合键（见 [albumKeyOf]）→ 图片路径
+  Map<String, String> _albumCovers = const <String, String>{};
+
+  /// 自定义封面的版本号：换图 / 恢复后 +1，逼分组缓存重算。
+  ///
+  /// 分组结果按 `_tracks` 的**对象身份**缓存（播放进度刷新时不该重算），
+  /// 但封面覆盖变了 `_tracks` 并不会变——不加这个版本号，换完封面要等下次
+  /// 扫描或切分区才看得出效果。
+  int _coverEpoch = 0;
+  int _groupedCoverEpoch = 0;
+
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
   /// 顺带推进状态版本：分区快照据此判断自己是否过期。
   void _update(VoidCallback fn) {
@@ -1047,11 +1062,57 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 曲库读完才能把上次播放的路径对回 `Track`，所以恢复曲目放在两者之后。
   /// 读会话失败只会失去“记住上次”的能力，不影响曲库展示。
+  /// 读取用户自定义的艺术家 / 专辑封面，并让分组缓存失效。
+  ///
+  /// 失败只记日志：曲库没起来（单元测试、引擎异常）时不该挡住整个界面，
+  /// 拿不到就按扫描出来的封面显示，功能仍然可用。
+  Future<void> _loadCoverOverrides() async {
+    final List<cover_api.CoverOverride> items;
+    try {
+      items = await cover_api.listCoverOverrides();
+    } catch (error) {
+      debugPrint('读取自定义封面失败：$error');
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final Map<String, String> artists = <String, String>{};
+    final Map<String, String> albums = <String, String>{};
+    for (final cover_api.CoverOverride item in items) {
+      if (item.kind == 'artist') {
+        artists[item.name] = item.path;
+      } else if (item.kind == 'album') {
+        // 库里按「专辑名 + 艺术家」两列存，内存里的分组键是两者拼起来的
+        albums[albumKeyOf(item.artist, item.name)] = item.path;
+      }
+    }
+
+    _update(() {
+      _artistCovers = artists;
+      _albumCovers = albums;
+      // 曲目列表没变，但封面变了：推进版本号逼分组重算
+      _coverEpoch += 1;
+    });
+  }
+
+  /// 把后端抛上来的异常转成一句话：`anyhow` 的消息带 `AnyhowException:` 前缀，
+  /// 直接展示在提示条里很难看。
+  String _errorText(Object error) {
+    final String text = error.toString();
+    const String prefix = 'AnyhowException: ';
+    return text.startsWith(prefix) ? text.substring(prefix.length) : text;
+  }
+
   Future<void> _bootstrap() async {
     final Future<SessionSnapshot> sessionLoader = _sessionStore.load();
     final Future<void> tracksLoader = _loadTracks();
+    // 自定义封面与曲库并行读：两者互不依赖，串起来只是白等一轮 IO
+    final Future<void> coversLoader = _loadCoverOverrides();
     final SessionSnapshot snapshot = await sessionLoader;
     await tracksLoader;
+    await coversLoader;
     if (!mounted) {
       return;
     }
@@ -1511,6 +1572,109 @@ class _LibraryPageState extends State<LibraryPage>
         ),
       ),
     );
+  }
+
+  /// 图片选择器只列常见位图：svg / heic 解不出来，选进来只会得到一个
+  /// 「不是有效的图片」的提示。
+  static const XTypeGroup _coverTypeGroup = XTypeGroup(
+    label: '图片',
+    extensions: <String>['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'],
+  );
+
+  /// 艺术家 / 专辑卡片（含详情页封面）的右键菜单。
+  ///
+  /// 只有一个入口是有意的：卡片铺得密，悬停按钮会挤掉名字；右键是桌面上
+  /// 改封面这类「低频但需要精确指定对象」的操作的惯用位置。
+  Future<void> _showCoverMenu(
+    BuildContext context,
+    Offset globalPosition, {
+    ArtistGroup? artist,
+    AlbumGroup? album,
+  }) async {
+    final String label = artist?.name ?? album?.title ?? '';
+    final bool hasCustom = (artist?.customCover ?? album?.customCover) != null;
+
+    final String? action = await showMenu<String>(
+      context: context,
+      // 菜单贴着指针弹：位置用全局坐标，showMenu 会自己夹进屏幕
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
+      ),
+      items: <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(value: 'set', child: Text('更换封面…')),
+        if (hasCustom)
+          const PopupMenuItem<String>(value: 'clear', child: Text('恢复默认封面')),
+      ],
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    if (action == 'set') {
+      await _pickCover(artist: artist, album: album, label: label);
+    } else if (action == 'clear') {
+      await _clearCover(artist: artist, album: album, label: label);
+    }
+  }
+
+  /// 选一张本地图片作为封面。图片由 Rust 侧解码校验、缩放、去重后落到
+  /// `custom_covers/`，Dart 只负责把路径传过去。
+  Future<void> _pickCover({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    required String label,
+  }) async {
+    final XFile? file = await openFile(
+      acceptedTypeGroups: <XTypeGroup>[_coverTypeGroup],
+    );
+    if (file == null) {
+      return;
+    }
+    final bool isArtist = artist != null;
+    try {
+      await cover_api.setCoverOverride(
+        kind: isArtist ? 'artist' : 'album',
+        name: isArtist ? artist.name : album!.title,
+        artist: isArtist ? '' : album!.artist,
+        sourcePath: file.path,
+      );
+      await _loadCoverOverrides();
+      if (mounted) {
+        AppToast.show(context, '已更换「$label」的封面');
+      }
+    } catch (error) {
+      if (mounted) {
+        AppToast.show(context, '更换封面失败：${_errorText(error)}');
+      }
+    }
+  }
+
+  Future<void> _clearCover({
+    ArtistGroup? artist,
+    AlbumGroup? album,
+    required String label,
+  }) async {
+    final bool isArtist = artist != null;
+    try {
+      final bool removed = await cover_api.clearCoverOverride(
+        kind: isArtist ? 'artist' : 'album',
+        name: isArtist ? artist.name : album!.title,
+        artist: isArtist ? '' : album!.artist,
+      );
+      await _loadCoverOverrides();
+      if (mounted) {
+        AppToast.show(
+          context,
+          removed ? '已恢复「$label」的默认封面' : '「$label」没有自定义封面',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        AppToast.show(context, '恢复默认封面失败：${_errorText(error)}');
+      }
+    }
   }
 
   /// 进艺术家详情，并让首字母头像从卡片的位置飞到头部。

@@ -5,6 +5,7 @@
 
 import 'api/appearance.dart';
 import 'api/collections.dart';
+import 'api/cover_override.dart';
 import 'api/db.dart';
 import 'api/desktop_lyrics.dart';
 import 'api/lyrics.dart';
@@ -69,6 +70,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  CoverOverride dco_decode_cover_override(dynamic raw);
+
+  @protected
   DailyPlaytime dco_decode_daily_playtime(dynamic raw);
 
   @protected
@@ -97,6 +101,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ArtistPlayStat> dco_decode_list_artist_play_stat(dynamic raw);
+
+  @protected
+  List<CoverOverride> dco_decode_list_cover_override(dynamic raw);
 
   @protected
   List<DailyPlaytime> dco_decode_list_daily_playtime(dynamic raw);
@@ -233,6 +240,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  CoverOverride sse_decode_cover_override(SseDeserializer deserializer);
+
+  @protected
   DailyPlaytime sse_decode_daily_playtime(SseDeserializer deserializer);
 
   @protected
@@ -265,6 +275,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ArtistPlayStat> sse_decode_list_artist_play_stat(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CoverOverride> sse_decode_list_cover_override(
     SseDeserializer deserializer,
   );
 
@@ -418,6 +433,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_cover_override(CoverOverride self, SseSerializer serializer);
+
+  @protected
   void sse_encode_daily_playtime(DailyPlaytime self, SseSerializer serializer);
 
   @protected
@@ -453,6 +471,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_artist_play_stat(
     List<ArtistPlayStat> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_cover_override(
+    List<CoverOverride> self,
     SseSerializer serializer,
   );
 
