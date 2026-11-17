@@ -16,12 +16,19 @@ class PlaylistGridView extends StatelessWidget {
     required this.onOpen,
     required this.onAction,
     this.storageKey,
+    this.coverPathOf,
   });
 
   final List<Playlist> playlists;
   final ValueChanged<Playlist> onOpen;
   final void Function(Playlist playlist, PlaylistAction action) onAction;
   final Key? storageKey;
+
+  /// 当前应该显示的封面（自定义优先）。
+  ///
+  /// 歌单自己的 `coverPath` 是「最新加入那首歌」的封面，不含用户自定义的
+  /// 那张；这条回调让列表与详情用同一套取值逻辑。为空时退回 `coverPath`。
+  final String? Function(Playlist playlist)? coverPathOf;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +51,7 @@ class PlaylistGridView extends StatelessWidget {
         final Playlist playlist = playlists[index];
         return _PlaylistCard(
           playlist: playlist,
+          coverPath: coverPathOf?.call(playlist) ?? playlist.coverPath,
           onOpen: () => onOpen(playlist),
           onAction: (PlaylistAction action) => onAction(playlist, action),
         );
@@ -55,11 +63,13 @@ class PlaylistGridView extends StatelessWidget {
 class _PlaylistCard extends StatelessWidget {
   const _PlaylistCard({
     required this.playlist,
+    required this.coverPath,
     required this.onOpen,
     required this.onAction,
   });
 
   final Playlist playlist;
+  final String? coverPath;
   final VoidCallback onOpen;
   final ValueChanged<PlaylistAction> onAction;
 
@@ -67,7 +77,7 @@ class _PlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final String? coverPath = playlist.coverPath;
+    final String? coverPath = this.coverPath;
 
     return Material(
       color: scheme.surface,

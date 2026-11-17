@@ -97,7 +97,7 @@ extension _ArtistsSection on _LibraryPageState {
                     onSelect: _openArtistDetail,
                     // 右键卡片换封面 / 恢复默认
                     onCoverMenu: (ArtistGroup artist, Offset position) =>
-                        _showCoverMenu(context, position, artist: artist),
+                        _showCoverMenu(position, artist: artist),
                     // 正在飞的那张卡片先藏着，落地再显形
                     flyingTag: _coverFlightTag,
                   );
@@ -135,11 +135,10 @@ extension _ArtistsSection on _LibraryPageState {
               // 飞行期间先藏着，等列表那张飞到位再显形
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onSecondaryTapDown: (TapDownDetails details) => _showCoverMenu(
-                  context,
-                  details.globalPosition,
-                  artist: group,
-                ),
+                // 左键点封面 → 打开封面编辑窗；右键是同一个窗口的快捷入口
+                onTap: () => unawaited(_openCoverEditorFor(artist: group)),
+                onSecondaryTapDown: (TapDownDetails details) =>
+                    _showCoverMenu(details.globalPosition, artist: group),
                 child: CoverFlightTarget(
                   key: _artistDetailCoverKey,
                   hidden: _coverFlightTag == artistCoverTag(group.name),

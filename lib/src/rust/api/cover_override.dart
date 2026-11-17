@@ -52,13 +52,13 @@ Future<List<CoverOverride>> listCoverOverrides() =>
 
 /// 一条自定义封面记录。
 class CoverOverride {
-  /// `artist` 或 `album`
+  /// `artist` / `album` / `playlist`
   final String kind;
 
-  /// 艺术家名（kind=artist）或专辑名（kind=album）
+  /// 艺术家名、专辑名，或歌单 id 的十进制字符串
   final String name;
 
-  /// 专辑所属的艺术家；艺术家封面为空串
+  /// 专辑所属的艺术家；艺术家与歌单记录为空串
   final String artist;
 
   /// `custom_covers/` 下的缓存文件绝对路径

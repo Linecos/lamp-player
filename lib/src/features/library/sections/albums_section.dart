@@ -98,7 +98,7 @@ extension _AlbumsSection on _LibraryPageState {
                     onSelect: _openAlbumDetail,
                     // 右键卡片换封面 / 恢复默认
                     onCoverMenu: (AlbumGroup album, Offset position) =>
-                        _showCoverMenu(context, position, album: album),
+                        _showCoverMenu(position, album: album),
                     // 正在飞的那张卡片先藏着，落地再显形
                     flyingTag: _coverFlightTag,
                   );
@@ -154,9 +154,11 @@ extension _AlbumsSection on _LibraryPageState {
                     children: <Widget>[
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
+                        // 左键点封面 → 打开封面编辑窗
+                        onTap: () =>
+                            unawaited(_openCoverEditorFor(album: group)),
                         onSecondaryTapDown: (TapDownDetails details) =>
                             _showCoverMenu(
-                              context,
                               details.globalPosition,
                               album: group,
                             ),

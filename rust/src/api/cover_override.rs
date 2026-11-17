@@ -12,6 +12,10 @@
 //! 键为什么不用 `albumGroupKey`：那个键用 `\u{0}` 连接艺术家与专辑，而 SQLite
 //! 的 TEXT 以 NUL 结尾，含 NUL 的字符串存进去会被截断。所以拆成 `name` +
 //! `artist` 两列，艺术家记录留空 `artist`。
+//!
+//! 歌单（`kind = playlist`）与另外两种不同：它有实体 id，`name` 里存的是
+//! **歌单 id 的十进制字符串**而不是歌单名——按名字存的话，用户重命名一次
+//! 自定义封面就找不回来了（旧名字那行还留在表里，成了一个删不掉的孤儿）。
 
 use crate::api::db::{covers_dir, with_conn};
 use crate::scanner::store_cover_bytes;
@@ -25,6 +29,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const KIND_ARTIST: &str = "artist";
 /// 封面归属：专辑
 const KIND_ALBUM: &str = "album";
+/// 封面归属：歌单
+const KIND_PLAYLIST: &str = "playlist";
 
 /// 单张原图最大读取字节。手机直出照片约 5–10 MB，32 MB 留足余量；
 /// 再大基本是误选了别的东西，读进内存也只有坏处。
@@ -32,11 +38,11 @@ const MAX_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// 一条自定义封面记录。
 pub struct CoverOverride {
-    /// `artist` 或 `album`
+    /// `artist` / `album` / `playlist`
     pub kind: String,
-    /// 艺术家名（kind=artist）或专辑名（kind=album）
+    /// 艺术家名、专辑名，或歌单 id 的十进制字符串
     pub name: String,
-    /// 专辑所属的艺术家；艺术家封面为空串
+    /// 专辑所属的艺术家；艺术家与歌单记录为空串
     pub artist: String,
     /// `custom_covers/` 下的缓存文件绝对路径
     pub path: String,
@@ -57,8 +63,8 @@ fn custom_covers_dir() -> anyhow::Result<PathBuf> {
 }
 
 fn check_kind(kind: &str) -> anyhow::Result<()> {
-    if kind != KIND_ARTIST && kind != KIND_ALBUM {
-        bail!("未知的封面类型：{kind}（只支持 artist 与 album）");
+    if kind != KIND_ARTIST && kind != KIND_ALBUM && kind != KIND_PLAYLIST {
+        bail!("未知的封面类型：{kind}（只支持 artist / album / playlist）");
     }
     Ok(())
 }
