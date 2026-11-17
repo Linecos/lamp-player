@@ -1016,54 +1016,80 @@ extension _PlaybackSection on _LibraryPageState {
     );
   }
 
-  /// 右键「修改元数据」：内置的标签 + 歌词编辑窗。
+  /// 右键「修改元数据」：把右侧内容区整块换成编辑界面（不是弹窗）。
   ///
   /// 读的是**文件标签本身**（不是曲库里那一行）：年份、流派、专辑艺术家、
-  /// 碟号曲库根本没有。保存分三步——写标签、写同名 `.lrc`、把新的标题 /
-  /// 艺术家 / 专辑 / 音轨号 upsert 回曲库。**不重扫目录**：为一次编辑遍历
-  /// 整个文件夹不划算，曲库那一行完全可以按新标签直接改。
+  /// 碟号曲库根本没有。先把数据读出来再进界面：读标签要走文件 IO，直接在
+  /// 界面里等会让「点了没反应」持续很久，这里先展示一个读取中的占位。
   Future<void> _editTrackMetadata(Track track) async {
+    _update(() {
+      _metadataTrack = track;
+      _metadataTags = null;
+      _metadataLyrics = '';
+      _metadataSource = 'none';
+      _metadataLoading = true;
+    });
     final TrackTags tags;
     final lyrics_api.RawLyrics raw;
     try {
       tags = await readTrackTags(path: track.path);
       raw = await lyrics_api.lyricsReadRaw(path: track.path);
     } catch (error) {
-      if (mounted) {
-        _showMessage('读取标签失败：${_errorText(error)}');
+      if (!mounted) {
+        return;
       }
+      _closeMetadataEditor();
+      _showMessage('读取标签失败：${_errorText(error)}');
       return;
     }
+    // 读取期间用户可能已经返回 / 切了分区 / 点了另一首：别把界面抢回来
+    if (!mounted || _metadataTrack?.path != track.path) {
+      return;
+    }
+    _update(() {
+      _metadataTags = tags;
+      _metadataLyrics = raw.text;
+      _metadataSource = raw.source;
+      _metadataLoading = false;
+    });
+  }
+
+  /// 退出编辑界面（不保存）。分区切换也会调它。
+  void _closeMetadataEditor() {
+    if (_metadataTrack == null && !_metadataLoading) {
+      return;
+    }
+    _update(() {
+      _metadataTrack = null;
+      _metadataTags = null;
+      _metadataLyrics = '';
+      _metadataSource = 'none';
+      _metadataLoading = false;
+    });
+  }
+
+  /// 编辑界面点「保存」：写标签 → 写 `.lrc` → 同步曲库那一行。
+  ///
+  /// 出错直接抛给界面（它在底部显示原因），这里不吞——写不进去多半是文件
+  /// 只读或格式不支持，用户需要知道。
+  Future<void> _saveMetadata(
+    Track track,
+    TrackTags edited,
+    String lyrics,
+  ) async {
+    final TrackTags written = await writeTrackTags(
+      path: track.path,
+      tags: edited,
+    );
+    // 空歌词不落盘：删用户已有的 `.lrc` 是破坏性操作，不在这里顺手做
+    if (lyrics.trim().isNotEmpty) {
+      await lyrics_api.lyricsSaveRaw(path: track.path, text: lyrics);
+    }
+    await _upsertEditedTrack(track, written);
     if (!mounted) {
       return;
     }
-    final bool? saved = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext dialogContext) => TrackMetadataDialog(
-        filePath: track.path,
-        coverPath: track.coverPath,
-        tags: tags,
-        lyricsText: raw.text,
-        lyricsSource: raw.source,
-        onShiftLyrics: (String text, int deltaMs) =>
-            lyrics_api.lyricsShiftRaw(text: text, deltaMs: deltaMs),
-        onSave: (TrackTags edited, String lyrics) async {
-          final TrackTags written = await writeTrackTags(
-            path: track.path,
-            tags: edited,
-          );
-          // 空歌词不落盘：删用户已有的 `.lrc` 是破坏性操作，不在这里顺手做
-          if (lyrics.trim().isNotEmpty) {
-            await lyrics_api.lyricsSaveRaw(path: track.path, text: lyrics);
-          }
-          await _upsertEditedTrack(track, written);
-        },
-      ),
-    );
-    if (!mounted || saved != true) {
-      return;
-    }
-    _showMessage('已保存「${track.title}」的标签与歌词');
+    _showMessage('已保存「${written.title}」的标签与歌词');
   }
 
   /// 把改完的标签同步进曲库那一行（保留入库时间、封面、增益等文件外的信息）

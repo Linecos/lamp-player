@@ -5,20 +5,21 @@ import 'package:path/path.dart' as p;
 
 import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/metadata.dart';
+import '../../player/player_bar.dart';
 import 'lyrics_editor_dialog.dart';
 
-/// 「编辑音频信息」界面：大标题 + 文件路径 + 一块卡片（左封面、右表单）。
+/// 「编辑音频信息」区块：占据曲库页右侧整块内容区（与历史 / 专辑分区同级），
+/// 不是弹窗。左上角返回箭头回到进入前的分区。
 ///
-/// 早先是一个窄弹窗，左边歌词编辑器吃掉一半宽度、右边八个字段挤在 380 里。
-/// 歌词常年只有几行，字段却要滚动——主次反了。现在按「信息编辑」重排：
-/// 封面在左、表单在右，歌词收成表单里的一个入口（点开是子窗），
-/// 编辑信息不再被歌词挤掉地方。
+/// 版式：大标题 + 文件名打头，中间一张卡片（左封面、右表单），底部是
+/// 取消 / 保存。歌词收成表单里的一个入口，点开才是独立子窗
+/// （[LyricsEditorDialog]）——歌词一屏几十行，铺在这里会把字段挤走。
 ///
 /// 数据与副作用全部由调用方注入：`tags` / `lyricsText` 是进来时的快照，
-/// `onSave` / `onShiftLyrics` 才是真正落盘与平移时间戳的地方，所以这个文件
-/// 只负责「长得对、改得动」，单元测试不需要初始化 Rust。
-class TrackMetadataDialog extends StatefulWidget {
-  const TrackMetadataDialog({
+/// `onSave` / `onShiftLyrics` 才真正落盘与平移时间戳，所以这个文件只负责
+/// 「长得对、改得动」，单元测试不需要初始化 Rust。
+class TrackMetadataPane extends StatefulWidget {
+  const TrackMetadataPane({
     super.key,
     required this.filePath,
     required this.coverPath,
@@ -27,6 +28,7 @@ class TrackMetadataDialog extends StatefulWidget {
     required this.lyricsSource,
     required this.onShiftLyrics,
     required this.onSave,
+    required this.onClose,
   });
 
   /// 音频文件绝对路径：标题下面显示文件名，完整路径放 tooltip
@@ -50,13 +52,16 @@ class TrackMetadataDialog extends StatefulWidget {
   /// 保存：标签 + 歌词原文。抛异常表示失败，界面保持打开并显示原因。
   final Future<void> Function(TrackTags tags, String lyrics) onSave;
 
+  /// 返回（不保存）
+  final VoidCallback onClose;
+
   @override
-  State<TrackMetadataDialog> createState() => _TrackMetadataDialogState();
+  State<TrackMetadataPane> createState() => TrackMetadataPaneState();
 }
 
-class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
-  /// 封面边长上限：参考图里封面是卡片的视觉主体，但不能大到把表单挤没
-  static const double _coverMaxSide = 320;
+class TrackMetadataPaneState extends State<TrackMetadataPane> {
+  /// 封面边长上限。区块比弹窗宽得多，300 已经够显眼，再大就把表单挤成一条
+  static const double _coverMaxSide = 300;
 
   late final TextEditingController _title = _from(widget.tags.title);
   late final TextEditingController _artist = _from(widget.tags.artist);
@@ -142,7 +147,7 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
         _lyrics,
       );
       if (mounted) {
-        Navigator.of(context).pop(true);
+        widget.onClose();
       }
     } catch (error) {
       if (mounted) {
@@ -158,71 +163,78 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final Size viewport = MediaQuery.sizeOf(context);
 
-    final double width = math.min(1120, math.max(640, viewport.width - 48));
-    final double height = math.min(760, math.max(480, viewport.height - 48));
-    // 封面跟着窗口缩，但不超过上限；留给表单的最小宽度不参与计算，
-    // 因为表单是 Expanded，会自己吃掉剩下的空间
-    final double coverSide = math.max(
-      120,
-      math.min(_coverMaxSide, math.min(width * 0.34, height - 240)),
-    );
-
-    return Dialog(
-      clipBehavior: Clip.antiAlias,
-      insetPadding: const EdgeInsets.all(24),
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 22, 28, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              _buildHeader(theme, scheme),
-              const SizedBox(height: 18),
-              Expanded(child: _buildCard(theme, scheme, coverSide)),
-              const SizedBox(height: 14),
-              _buildFooter(theme, scheme),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _buildHeader(theme, scheme),
+        Expanded(
+          child: SingleChildScrollView(
+            // 底部留出播放岛的高度：滚到底时「保存」停在岛上方，不被压住
+            padding: EdgeInsets.only(
+              bottom: PlayerBar.occupiedHeight + 8,
+              top: 4,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _buildCard(theme, scheme),
+                const SizedBox(height: 14),
+                _buildFooter(theme, scheme),
+              ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 
-  /// 顶部：大标题 + 文件名（完整路径放 tooltip，长路径不占版面）
+  /// 顶部：返回箭头 + 大标题 + 文件名（完整路径放 tooltip，长路径不占版面）
   Widget _buildHeader(ThemeData theme, ColorScheme scheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: <Widget>[
-        Text(
-          '编辑音频信息',
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+        IconButton(
+          onPressed: _saving ? null : widget.onClose,
+          icon: const Icon(Icons.arrow_back),
+          tooltip: '返回',
+          visualDensity: VisualDensity.compact,
         ),
-        const SizedBox(height: 4),
-        Tooltip(
-          message: widget.filePath,
-          waitDuration: const Duration(milliseconds: 400),
-          child: Row(
+        const SizedBox(width: 4),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Icon(
-                Icons.insert_drive_file_outlined,
-                size: 14,
-                color: scheme.onSurfaceVariant,
+              Text(
+                '编辑音频信息',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  p.basename(widget.filePath),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              const SizedBox(height: 2),
+              Tooltip(
+                message: widget.filePath,
+                waitDuration: const Duration(milliseconds: 400),
+                child: Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.insert_drive_file_outlined,
+                      size: 14,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        p.basename(widget.filePath),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -233,83 +245,90 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
   }
 
   /// 卡片：左封面、右表单
-  Widget _buildCard(ThemeData theme, ColorScheme scheme, double coverSide) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // 左：封面
-          AlbumCover(path: widget.coverPath, size: coverSide, radius: 16),
-          const SizedBox(width: 24),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _field(_title, '标题', Icons.music_note),
-                  _field(_artist, '艺术家', Icons.person_outline),
-                  _field(_album, '专辑', Icons.album_outlined),
-                  _field(_albumArtist, '专辑艺术家', Icons.groups_outlined),
-                  // 短字段两两并排：一列排到底会把「流派」挤出可视区
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(
-                        flex: 3,
-                        child: _field(
-                          _year,
-                          '年份',
-                          Icons.calendar_today_outlined,
-                          hint: '2003 或 2003-05-01',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: _field(
-                          _trackNo,
-                          '音轨号',
-                          Icons.numbers,
-                          hint: '3 或 03/12',
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(
-                        flex: 2,
-                        child: _field(_discNo, '碟号', Icons.album),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 3,
-                        child: _field(_genre, '流派', Icons.category_outlined),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  _buildLyricsEntry(theme, scheme),
-                  const SizedBox(height: 10),
-                  Text(
-                    '留空表示清掉这个标签。',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget _buildCard(ThemeData theme, ColorScheme scheme) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // 区块宽度随侧栏展开 / 窗口大小变，封面跟着收，但不超过上限
+        final double coverSide = math.max(
+          96,
+          math.min(_coverMaxSide, constraints.maxWidth * 0.28),
+        );
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            // 内容区底色是 surfaceContainerLow，卡片要更亮一层才有「一张板」的感觉
+            color: scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: scheme.outlineVariant),
           ),
-        ],
-      ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              AlbumCover(path: widget.coverPath, size: coverSide, radius: 16),
+              const SizedBox(width: 24),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _field(_title, '标题', Icons.music_note),
+                    _field(_artist, '艺术家', Icons.person_outline),
+                    _field(_album, '专辑', Icons.album_outlined),
+                    _field(_albumArtist, '专辑艺术家', Icons.groups_outlined),
+                    // 短字段两两并排：一列排到底会把「流派」推到很下面
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Expanded(
+                          flex: 3,
+                          child: _field(
+                            _year,
+                            '年份',
+                            Icons.calendar_today_outlined,
+                            hint: '2003 或 2003-05-01',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: _field(
+                            _trackNo,
+                            '音轨号',
+                            Icons.numbers,
+                            hint: '3 或 03/12',
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Expanded(
+                          flex: 2,
+                          child: _field(_discNo, '碟号', Icons.album),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 3,
+                          child: _field(_genre, '流派', Icons.category_outlined),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    _buildLyricsEntry(theme, scheme),
+                    const SizedBox(height: 10),
+                    Text(
+                      '留空表示清掉这个标签。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -437,7 +456,7 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
         ),
         const SizedBox(width: 12),
         TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving ? null : widget.onClose,
           child: const Text('取消'),
         ),
         const SizedBox(width: 8),
