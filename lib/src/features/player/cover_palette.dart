@@ -42,15 +42,27 @@ abstract final class CoverPaletteCache {
   static Future<Color?> loadSeed(String? path) async =>
       (await _entry(path))?.seed;
 
-  static Future<_Palette?> _entry(String? path) async {
+  /// 正在解码的封面：流光背景与动态主题都会来要，同一张撞在一起就等同一份
+  static final Map<String, Future<_Palette?>> _inflight =
+      <String, Future<_Palette?>>{};
+
+  static Future<_Palette?> _entry(String? path) {
     if (path == null || path.isEmpty) {
-      return null;
+      return Future<_Palette?>.value();
     }
     final _Palette? cached = _cache.remove(path);
     if (cached != null) {
       _cache[path] = cached;
-      return cached;
+      return Future<_Palette?>.value(cached);
     }
+    return _inflight[path] ??= _decode(path).whenComplete(() {
+      // 回调必须返回 void：把 remove 的返回值（就是这条 future 自己）交回去的话，
+      // whenComplete 会去等它，永久挂住
+      _inflight.remove(path);
+    });
+  }
+
+  static Future<_Palette?> _decode(String path) async {
     final File file = File(path);
     if (!file.existsSync()) {
       return null;

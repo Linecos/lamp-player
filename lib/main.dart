@@ -10,6 +10,7 @@ import 'package:lamp_player/src/app/memory_trim.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/common/frame_log.dart';
+import 'package:lamp_player/src/common/hang_log.dart';
 import 'package:lamp_player/src/common/memory_log.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
 import 'package:lamp_player/src/features/library/library_db.dart';
@@ -32,6 +33,8 @@ import 'package:window_manager/window_manager.dart';
 /// 5. `runApp`。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 卡死 / 闪退的现场记录（%TEMP%\lamp-player-hang.log），要最先起来
+  startHangLog();
   // 封面缓存默认 100MB，对桌面窗口来说远大于一屏能看的数量，先收紧再挂界面
   configureImageCache();
 
@@ -66,6 +69,7 @@ Future<void> main() async {
     await _runStartupError(title: '启动失败：曲库未能打开', message: '$error');
     return;
   }
+  hangMark('启动：曲库就绪');
 
   // 先恢复主题与「关闭到托盘」再挂载，避免深色用户启动时先闪一下浅色
   final ThemeController theme = ThemeController();
@@ -97,6 +101,7 @@ Future<void> main() async {
   startMemoryLog();
   // 掉帧日志：`--dart-define=LAMP_FRAME_LOG=true`，只打超 20ms 的长帧
   startFrameLog();
+  hangMark('启动：界面挂载');
   runApp(
     LampApp(themeController: theme, lifecycle: lifecycle, trayController: tray),
   );
@@ -205,6 +210,7 @@ Future<void> _shutdownResources() async {
   } catch (error) {
     debugPrint('关闭曲库失败：$error');
   }
+  stopHangLog();
 }
 
 /// 关掉系统标题栏，改用应用内自绘的（见 `lib/src/app/title_bar.dart`）。

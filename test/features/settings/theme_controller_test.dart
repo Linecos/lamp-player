@@ -98,6 +98,47 @@ void main() {
     expect(controller.mode, ThemeMode.system);
   });
 
+  test('封面色会落盘，新实例恢复后首帧就用它', () async {
+    const Color seed = Color(0xFF7B1FA2);
+    final ThemeController controller = ThemeController();
+    await controller.setFollowCover(true);
+    controller.updateCoverSeed(seed);
+    await controller.coverSeedWrite;
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.coverSeedPrefsKey), isNotNull);
+
+    final ThemeController restored = ThemeController();
+    await restored.restore();
+
+    expect(restored.followsCover, isTrue);
+    expect(restored.coverSeed, seed);
+    expect(restored.effectiveSeed, seed, reason: '开机首帧就该是上次的封面色，不能先闪一下手选色');
+  });
+
+  test('跟随封面不会把手选色弄丢', () async {
+    final ThemeController controller = ThemeController();
+    await controller.setSeedColor(const Color(0xFF00897B));
+    await controller.setFollowCover(true);
+    controller.updateCoverSeed(const Color(0xFF7B1FA2));
+    await controller.coverSeedWrite;
+
+    // 重启：跟随时 seedPrefsKey 里是哨兵值，手选色得靠另一个键活下来
+    final ThemeController restored = ThemeController();
+    await restored.restore();
+
+    expect(restored.followsCover, isTrue);
+    expect(restored.effectiveSeed, const Color(0xFF7B1FA2));
+    expect(restored.seedColor, const Color(0xFF00897B));
+
+    await restored.setFollowCover(false);
+    expect(
+      restored.effectiveSeed,
+      const Color(0xFF00897B),
+      reason: '关掉跟随后回到手选色',
+    );
+  });
+
   test('默认强调色跟随系统，生效色回落默认种子', () {
     final ThemeController controller = ThemeController();
 

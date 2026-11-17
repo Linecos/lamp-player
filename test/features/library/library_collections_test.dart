@@ -138,7 +138,14 @@ void main() {
     expect(list, findsOneWidget);
     expect(detail, findsNothing);
 
-    await tester.tap(find.text('林间电台').first);
+    // 卡片宽度固定 220、艺术家卡高 289：第一行的名字可能落在播放岛底下，
+    // 直接点卡片顶部（InkWell 覆盖整张卡，点哪儿都能进详情）
+    final Rect card = tester.getRect(
+      find
+          .ancestor(of: find.text('林间电台'), matching: find.byType(InkWell))
+          .first,
+    );
+    await tester.tapAt(Offset(card.center.dx, card.top + 24));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
 
@@ -273,7 +280,7 @@ void main() {
     // 列表那张此刻正随列表淡出，是切换前的旧子树、不会重建，所以不参与判断
     for (final Element element in find.byType(CoverFlightTarget).evaluate()) {
       final RenderBox box = element.renderObject! as RenderBox;
-      if (box.size.width < 200) {
+      if (box.size.width < detailCoverSize) {
         continue;
       }
       expect(
@@ -362,7 +369,7 @@ void main() {
     // 卡片那张先藏着，落地再显形（详情头部是正在淡出的旧子树，不再重建）
     for (final Element element in find.byType(CoverFlightTarget).evaluate()) {
       final RenderBox box = element.renderObject! as RenderBox;
-      if (box.size.width > 200) {
+      if (box.size.width >= detailCoverSize) {
         continue;
       }
       expect(

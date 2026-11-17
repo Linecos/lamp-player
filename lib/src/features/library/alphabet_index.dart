@@ -124,28 +124,36 @@ bool _isCjk(int rune) => rune >= 0x4E00 && rune <= 0x9FFF;
 
 /// 字母分段的网格几何：算每段从哪开始，供字母导航跳转用。
 ///
-/// 这里复刻的是 [SliverGridDelegateWithMaxCrossAxisExtent] 的取值规则
-/// （列数 `ceil(宽 / (上限 + 间距))`、列宽按剩余空间均分、行高 = 列宽 / 宽高比）。
-/// 跳转要落得准，就不能靠「估」，只能和 delegate 用同一套算式；两侧任何一边改了
-/// 布局参数，都要把这里一起改——测试里有「点了字母，该段标题就在顶上」的断言兜底。
+/// 和 [AlphabetGridView] 的布局共用一套算式：列数 = 可用宽度能放下几列
+/// （向上取整，与 delegate 的取值规则一致），列宽把剩余空间均分，
+/// 行高是**固定**的 [tileHeight]。
+///
+/// 行高固定是关键：窗口化与全屏之间来回切时，卡片只会因为列数变化而在宽度上
+/// 浮动几个百分点，高度一个像素都不动，看着就是同一个尺寸。
+/// 跳转要落得准，就不能靠「估」，两侧任何一边改了布局参数，都要把这里一起改
+/// ——测试里有「点了字母，该段标题就在顶上」的断言兜底。
 class AlphabetGridMetrics {
   const AlphabetGridMetrics({
     required this.viewportWidth,
-    required this.maxCrossAxisExtent,
+    required this.tileWidth,
+    required this.tileHeight,
     required this.crossAxisSpacing,
     required this.mainAxisSpacing,
-    required this.aspectRatio,
     required this.headerExtent,
     required this.topPadding,
-    this.columnWidth,
   });
 
   /// 网格可用的横向宽度（已扣掉字母导航预留的那一条）
   final double viewportWidth;
-  final double maxCrossAxisExtent;
+
+  /// 卡片宽度上限：列数按它算，实际列宽把剩余空间均分，可能比它略窄
+  final double tileWidth;
+
+  /// 卡片高度：固定值，不随可用宽度变
+  final double tileHeight;
+
   final double crossAxisSpacing;
   final double mainAxisSpacing;
-  final double aspectRatio;
 
   /// 每段标题占的高度（含标题上下的空隙）
   final double headerExtent;
@@ -153,28 +161,14 @@ class AlphabetGridMetrics {
   /// 第一段标题之前的内边距
   final double topPadding;
 
-  /// 算**列数**时用的宽度；为空时就用 [viewportWidth]。
-  ///
-  /// 侧边栏展开 / 收起是个 220ms 的宽度动画，内容区每一帧都在变宽。如果按
-  /// 当前宽度算列数，动画走到一半就会多出一列——同一排卡片先被撑大、再被
-  /// 挤回去，看着就是「封面先变大再变小」。传入动画结束后的宽度，列数在整段
-  /// 过渡里保持不变，卡片宽度只是单调变化，落点正好等于最终布局。
-  ///
-  /// 只影响列数：列宽 / 行高仍然按真实的 [viewportWidth] 算，否则过渡期间
-  /// 卡片会超出可用宽度。
-  final double? columnWidth;
-
-  int get crossAxisCount => math.max(
-    1,
-    ((columnWidth ?? viewportWidth) / (maxCrossAxisExtent + crossAxisSpacing))
-        .ceil(),
-  );
+  int get crossAxisCount =>
+      math.max(1, (viewportWidth / (tileWidth + crossAxisSpacing)).ceil());
 
   double get childCrossAxisExtent =>
       (viewportWidth - crossAxisSpacing * (crossAxisCount - 1)) /
       crossAxisCount;
 
-  double get childMainAxisExtent => childCrossAxisExtent / aspectRatio;
+  double get childMainAxisExtent => tileHeight;
 
   /// 一段网格自身的高度（行数按列数折算，行间距只算在行与行之间）
   double gridExtent(int count) {

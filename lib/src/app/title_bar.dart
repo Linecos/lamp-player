@@ -9,7 +9,8 @@ import 'window_controls.dart';
 /// 自绘的窗口标题区：左侧是拖动区，右侧是最小化 / 最大化 / 关闭按钮。
 ///
 /// 原生标题栏已在 `main.dart` 里通过 `TitleBarStyle.hidden` 关掉。
-/// 应用名与图标放到曲库侧栏顶部（见 `LibraryRail`），这里不再重复绘制。
+/// 应用名与图标放在曲库页的顶部通栏里（见 `library_page` 的 `_buildTopBar`），
+/// 这里不再重复绘制。
 /// 这里刻意不画分隔线，背景直接跟随页面底色，视觉上像是内容区的一部分，
 /// 减少"外框感"。
 ///
@@ -498,7 +499,7 @@ class _CaptionButtonState extends State<_CaptionButton> {
 /// 放在 `MaterialApp.builder` 里，因此标题区在所有页面之上、始终可见。
 ///
 /// [overlay] 为 true 时，页面铺满整个窗口，标题条浮在最上层并保持透明；
-/// 曲库页会把侧栏一直画到窗口顶部，让应用图标 / 名称被侧栏背景包住。
+/// 曲库页在顶部画了一条通栏（品牌 + 拖动 + 搜索），窗口按钮浮在它右端。
 /// 使用 overlay 的页面需要自己预留 [LampTitleBar.height] 的顶部空间；
 /// 只有左上角 [LampTitleBar.defaultLeftInset] 宽的小块是例外——那段标题条
 /// 不接管拖动，页面可以把顶部控件放进去。

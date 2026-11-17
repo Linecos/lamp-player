@@ -470,6 +470,7 @@ extension _OutputSection on _LibraryPageState {
   /// 锁定状态原样保留：解锁入口在托盘菜单与正在播放页的锁形按钮上，
   /// 不能因为「重新打开」就把用户锁好的穿透状态悄悄改掉。
   Future<void> _setDesktopLyrics(bool enabled) async {
+    hangMark('桌面歌词：${enabled ? '开' : '关'}');
     _update(() => _desktopLyrics = enabled);
     _saveSessionNow();
     _publishProgress();

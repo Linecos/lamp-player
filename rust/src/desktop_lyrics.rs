@@ -1427,10 +1427,14 @@ mod imp {
             return 1;
         }
         let width = text_area_width(scale).round() as i32;
-        let key = (text.to_string(), width, (font_px * 100.0).round() as i32);
+        let font_key = (font_px * 100.0).round() as i32;
+        // 命中缓存时只比对借用值，不分配：paint 每帧都会问一次
         if let Ok(cache) = CACHE.lock() {
-            if let Some((cached, lines)) = cache.as_ref() {
-                if *cached == key {
+            if let Some(((cached_text, cached_width, cached_font), lines)) = cache.as_ref() {
+                if *cached_width == width
+                    && *cached_font == font_key
+                    && cached_text.as_str() == text
+                {
                     return *lines;
                 }
             }
@@ -1438,7 +1442,7 @@ mod imp {
 
         let measured = measure_line_count(text, width as f32, font_px).clamp(1, MAX_LINES);
         if let Ok(mut cache) = CACHE.lock() {
-            *cache = Some((key, measured));
+            *cache = Some(((text.to_string(), width, font_key), measured));
         }
         measured
     }
