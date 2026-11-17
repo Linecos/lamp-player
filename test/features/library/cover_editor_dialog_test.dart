@@ -43,8 +43,8 @@ CoverEditorDialog _dialog({
 }
 
 void main() {
-  testWidgets('预览取可用空间的短边，宽高相等', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1000, 800);
+  testWidgets('大窗口下封面是正方形、尺寸封顶且贴左上角', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -62,7 +62,49 @@ void main() {
       closeTo(size.height, 0.5),
       reason: '预览必须是正方形：宽 ${size.width} 高 ${size.height}',
     );
-    expect(size.width, greaterThan(120), reason: '大窗口下预览不该被压得很小');
+    // 窗口放大到 1200×900 也不再跟着涨：封面是缩略图，不是整面墙
+    expect(
+      size.width,
+      closeTo(300, 0.5),
+      reason: '大窗口下封面应停在上限 300，实际 ${size.width}',
+    );
+
+    // 位置：贴着对话框左上（留 28 的边），而不是像以前那样垂直居中。
+    // 量的是内容框（外层 Column），不是 Dialog 自己——Dialog 的矩形含全屏留白
+    final Rect content = tester.getRect(find.byType(Column).first);
+    final Rect cover = tester.getRect(find.byType(Image).first);
+    expect(content.width, closeTo(880, 1), reason: '窗口放大到 880 宽');
+    expect(cover.left - content.left, closeTo(28, 0.5), reason: '封面应贴左边');
+    expect(cover.top - content.top, closeTo(28, 0.5), reason: '封面应贴顶边');
+
+    // 选项在封面右侧：两个按钮的左边都落在封面右边界之外
+    for (final Finder button in <Finder>[
+      find.widgetWithText(FilledButton, '更换封面…'),
+      find.widgetWithText(OutlinedButton, '恢复默认'),
+    ]) {
+      expect(
+        tester.getRect(button).left,
+        greaterThan(cover.right),
+        reason: '选项应排在封面右边，不压在图上',
+      );
+    }
+
+    // 页脚：「关闭」贴内容框右下角（右 28、下 16），提示语在它上方居中
+    final Rect close = tester.getRect(find.widgetWithText(TextButton, '关闭'));
+    expect(
+      content.right - close.right,
+      closeTo(28, 0.5),
+      reason: '关闭要落在右下角，不该停在选项列里',
+    );
+    expect(content.bottom - close.bottom, closeTo(16, 0.5));
+
+    final Finder hint = find.text('建议用正方形图片；过大的图会自动缩到 1024 长边。');
+    expect(
+      tester.widget<Text>(hint).textAlign,
+      TextAlign.center,
+      reason: '提示语整段居中',
+    );
+    expect(tester.getRect(hint).bottom, lessThanOrEqualTo(close.top));
   });
 
   testWidgets('窗口变小后对话框跟着缩，且不溢出', (WidgetTester tester) async {
