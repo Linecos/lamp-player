@@ -112,7 +112,7 @@ void main() {
     );
   });
 
-  testWidgets('扩散途中再切一次不会崩，且仍会正常收起', (WidgetTester tester) async {
+  testWidgets('扩散途中再切一次：上一段直接收掉，不再从头铺', (WidgetTester tester) async {
     final ThemeController controller = ThemeController(
       initialMode: ThemeMode.light,
     );
@@ -122,15 +122,22 @@ void main() {
     unawaited(controller.setMode(ThemeMode.dark));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
-
-    unawaited(controller.setMode(ThemeMode.light));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
-
-    expect(tester.takeException(), isNull);
     expect(find.byKey(ThemeReveal.overlayKey), findsOneWidget);
 
-    await tester.pumpAndSettle();
-    expect(find.byKey(ThemeReveal.overlayKey), findsNothing);
+    // 圆才扩到一半又点了一次：应该立刻收掉旧画面，而不是从零半径重新揭一遍
+    // （那会让屏幕先跳回最初那一帧）
+    unawaited(controller.setMode(ThemeMode.light));
+    await tester.pump();
+
+    expect(
+      find.byKey(ThemeReveal.overlayKey),
+      findsNothing,
+      reason: '连点第二下就别再从头揭，直接显示最终主题',
+    );
+    expect(tester.takeException(), isNull);
+    expect(
+      Theme.of(tester.element(find.text('内容'))).brightness,
+      Brightness.light,
+    );
   });
 }

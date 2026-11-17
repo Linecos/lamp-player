@@ -89,6 +89,16 @@ class _ThemeRevealState extends State<ThemeReveal>
     if (previous == null || previous == next) {
       return;
     }
+    // 上一段还没走完又切了（连点两下 / 系统连续切换）：直接把旧画面收掉，
+    // 这一帧就是最终主题。再从头揭一次的话圆会从零半径开始，屏幕会先
+    // 「跳回」最初那一帧，比没有动画还难看。
+    final ui.Image? running = _snapshot;
+    if (running != null) {
+      _controller.stop();
+      setState(() => _snapshot = null);
+      _disposeAfterFrame(running);
+      return;
+    }
     final ui.Image? snapshot = _capture();
     if (snapshot == null) {
       // 抓不到就退回瞬时切换，功能不受影响
