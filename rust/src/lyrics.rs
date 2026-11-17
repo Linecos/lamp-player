@@ -19,7 +19,7 @@ use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
 use lofty::prelude::ItemKey;
 use lofty::probe::Probe;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// 一个逐字片段（时间标签之间的文本）
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -429,6 +429,145 @@ fn parse_timestamp(raw: &str) -> Option<i64> {
     Some(minutes * 60_000 + seconds * 1000 + millis)
 }
 
+/* ------------------------------------------------------------ 编辑（写） */
+
+/// 读歌词「原文」：旁载优先，其次内嵌。编辑窗要的是能原样编辑的文本
+/// （含 `[ti:]`、逐字标签这些结构），不是 [`load`] 那种解析过的行。
+///
+/// 返回（文本，来源 `sidecar` / `embedded`）；两边都没有时 `None`。
+pub fn raw_text(audio: &Path) -> Option<(String, &'static str)> {
+    if let Some(text) = read_sidecar(audio) {
+        if !text.trim().is_empty() {
+            return Some((text, "sidecar"));
+        }
+    }
+    match read_embedded(audio) {
+        Ok(Some(text)) if !text.trim().is_empty() => Some((text, "embedded")),
+        _ => None,
+    }
+}
+
+/// 把歌词写成同名 `.lrc`（UTF-8，无 BOM），返回写入的路径。
+///
+/// 统一写旁载而不是改写音频内嵌标签：改内嵌要重写整个音频文件（几 MB 起步、
+/// 有损坏风险），而 `.lrc` 是可读文本、出问题随时能删。原本只有内嵌歌词的
+/// 曲目在第一次编辑后也会有 `.lrc`——[`load`] 读旁载优先，行为一致。
+pub fn write_sidecar(audio: &Path, text: &str) -> Result<PathBuf> {
+    let path = audio.with_extension("lrc");
+    std::fs::write(&path, text)
+        .map_err(|error| anyhow::anyhow!("写入歌词失败（{}）: {error}", path.display()))?;
+    Ok(path)
+}
+
+/// 整体平移所有时间戳，单位毫秒。
+///
+/// 负数是提前（歌词更早出现），正数是延后；平移后不会小于 0（夹到 0）。
+/// 方括号 `[mm:ss.xx]` 与尖括号 `<mm:ss.xx>` 一视同仁——逐字歌词里行内那些
+/// 标签也是**绝对时间**（见 [`split_words`]），只改行首会让逐字轴错位。
+/// `[ti:标题]` / `[offset:500]` 这类元数据、以及正文里的普通方括号不认识成
+/// 时间，原样保留。
+///
+/// 小数位数按原样保留（`.5` → `.5`、`.50` → `.50`、`.500` → `.500`），
+/// 免得整体平移把整份歌词的格式改得面目全非。
+pub fn shift_timestamps(text: &str, delta_ms: i64) -> String {
+    if delta_ms == 0 {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    // 逐段找 `[...]` 与 `<...>`：认识的当时间戳平移，不认识的（`[ti:标题]`
+    // 这类元数据、正文里的普通方括号）原样抄过去
+    while let Some(pos) = rest.find(['[', '<']) {
+        out.push_str(&rest[..pos]);
+        let open = rest.as_bytes()[pos] as char;
+        let close = if open == '[' { ']' } else { '>' };
+        let tail = &rest[pos + 1..];
+        let Some(end) = tail.find(close) else {
+            // 没有闭合：剩下的一律当正文
+            out.push_str(&rest[pos..]);
+            return out;
+        };
+        let inner = &tail[..end];
+        if inner.contains('\n') {
+            // 跨行的「括号」不可能是时间标签：多半是正文里漏了闭合，
+            // 不能让它把下一行的时间戳吞掉，这里只把 `[` 当普通字符
+            out.push(open);
+            rest = tail;
+            continue;
+        }
+        out.push(open);
+        match shift_stamp(inner, delta_ms) {
+            Some(shifted) => out.push_str(&shifted),
+            None => out.push_str(inner),
+        }
+        out.push(close);
+        rest = &tail[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 平移单个时间戳内容（`01:02.34`），返回改写后的文本；不是时间戳返回 `None`。
+fn shift_stamp(inner: &str, delta_ms: i64) -> Option<String> {
+    let (stamp, digits) = parse_stamp_with_digits(inner)?;
+    let shifted = (stamp + delta_ms).max(0);
+    let minutes = shifted / 60_000;
+    let seconds = (shifted / 1000) % 60;
+    let millis = shifted % 1_000;
+    let mut text = format!("{minutes:02}:{seconds:02}");
+    match digits {
+        0 => {}
+        1 => text.push_str(&format!(".{}", millis / 100)),
+        2 => text.push_str(&format!(".{:02}", millis / 10)),
+        _ => text.push_str(&format!(".{millis:03}")),
+    }
+    Some(text)
+}
+
+/// `[mm:ss]` / `[mm:ss.x]` / `[mm:ss.xx]` / `[mm:ss.xxx]` →（毫秒，小数位数）
+///
+/// 与 [`parse_timestamp`] 的区别只是多带回小数位数，编辑时要原样还原格式。
+fn parse_stamp_with_digits(inner: &str) -> Option<(i64, usize)> {
+    let raw = inner.trim();
+    if raw.is_empty() || is_metadata_tag(raw) {
+        return None;
+    }
+    let (minutes, rest) = raw.split_once(':')?;
+    if minutes.is_empty() || !minutes.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let minutes: i64 = minutes.parse().ok()?;
+    let (seconds, fraction) = match rest.split_once('.') {
+        Some((sec, frac)) => (sec, Some(frac)),
+        None => (rest, None),
+    };
+    if seconds.is_empty() || !seconds.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let seconds: i64 = seconds.parse().ok()?;
+    let digits = fraction.map_or(0, str::len);
+    if digits > 3 || !fraction.is_none_or(|f| f.chars().all(|c| c.is_ascii_digit())) {
+        return None;
+    }
+    let millis = match fraction {
+        None => 0,
+        Some(frac) => {
+            let value: i64 = if frac.is_empty() {
+                0
+            } else {
+                frac.parse().ok()?
+            };
+            match digits {
+                0 => 0,
+                1 => value * 100,
+                2 => value * 10,
+                _ => value,
+            }
+        }
+    };
+    Some((minutes * 60_000 + seconds * 1_000 + millis, digits))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse, parse_timestamp};
@@ -541,5 +680,81 @@ mod tests {
         let mut bytes = vec![0xEF, 0xBB, 0xBF];
         bytes.extend_from_slice("[00:01.00]你好".as_bytes());
         assert_eq!(super::decode_text(&bytes), "[00:01.00]你好");
+    }
+
+    /* ------------------------------------------------------ 时间戳整体平移 */
+
+    #[test]
+    fn shifts_every_timestamp_by_delta() {
+        // 延后 1.5 秒：01:02.34 → 01:03.84
+        let text = "[00:01.00]第一行\n[01:02.34]第二行\n";
+        assert_eq!(
+            super::shift_timestamps(text, 1_500),
+            "[00:02.50]第一行\n[01:03.84]第二行\n"
+        );
+    }
+
+    #[test]
+    fn shifts_backwards_and_clamps_at_zero() {
+        // 提前 2 秒：前面的行会被夹到 00:00.00，后面的正常减
+        let text = "[00:01.00]早\n[00:05.00]晚\n";
+        assert_eq!(
+            super::shift_timestamps(text, -2_000),
+            "[00:00.00]早\n[00:03.00]晚\n"
+        );
+    }
+
+    #[test]
+    fn keeps_fraction_digit_count() {
+        let text = "[00:01]无小数\n[00:02.5]一位\n[00:03.50]两位\n[00:04.500]三位\n";
+        assert_eq!(
+            super::shift_timestamps(text, 100),
+            "[00:01]无小数\n[00:02.6]一位\n[00:03.60]两位\n[00:04.600]三位\n"
+        );
+    }
+
+    #[test]
+    fn shifts_inline_word_timestamps_too() {
+        // 逐字歌词的行内标签是绝对时间：只改行首会让逐字轴错位
+        let text = "[00:05.691]大[00:06.365]人\n[00:05.691]<00:06.500>大<00:07.000>人\n";
+        assert_eq!(
+            super::shift_timestamps(text, 1_000),
+            "[00:06.691]大[00:07.365]人\n[00:06.691]<00:07.500>大<00:08.000>人\n"
+        );
+    }
+
+    #[test]
+    fn leaves_metadata_tags_alone() {
+        let text = "[ti:标题 A:B]\n[ar:歌手]\n[offset:+500]\n[00:10.00]正文\n";
+        assert_eq!(
+            super::shift_timestamps(text, 1_000),
+            "[ti:标题 A:B]\n[ar:歌手]\n[offset:+500]\n[00:11.00]正文\n"
+        );
+    }
+
+    #[test]
+    fn keeps_multi_timestamp_lines_and_crlf() {
+        // 一行多个时间戳（副歌复用）+ CRLF：换行与 \r 都要原样留着
+        let text = "[00:10.00][00:20.00]副歌\r\n[00:30.00]尾声\r\n";
+        assert_eq!(
+            super::shift_timestamps(text, 5_000),
+            "[00:15.00][00:25.00]副歌\r\n[00:35.00]尾声\r\n"
+        );
+    }
+
+    #[test]
+    fn shift_is_identity_for_zero() {
+        let text = "[00:01.00]一\n随便的 [方括号] 文本\n";
+        assert_eq!(super::shift_timestamps(text, 0), text);
+    }
+
+    #[test]
+    fn shift_survives_broken_brackets() {
+        // 没有闭合的 `[` 与正文里的 `<3`：不 panic、不改写
+        let text = "[00:01.00]未闭合 [ 的 [方括号\n[00:02.00]爱你 <3\n";
+        assert_eq!(
+            super::shift_timestamps(text, 1_000),
+            "[00:02.00]未闭合 [ 的 [方括号\n[00:03.00]爱你 <3\n"
+        );
     }
 }

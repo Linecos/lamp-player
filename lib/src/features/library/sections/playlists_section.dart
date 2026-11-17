@@ -570,6 +570,8 @@ extension _PlaylistsSection on _LibraryPageState {
     return PlaylistGridView(
       playlists: visible,
       storageKey: const PageStorageKey<String>('grid:playlists'),
+      // 列表与详情共用同一份取值：自定义封面优先
+      coverPathOf: _playlistCover,
       onOpen: (Playlist playlist) => unawaited(_openPlaylist(playlist)),
       onAction: (Playlist playlist, PlaylistAction action) {
         switch (action) {
@@ -620,7 +622,7 @@ extension _PlaylistsSection on _LibraryPageState {
   Widget _buildPlaylistDetail(BuildContext context, Playlist playlist) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final String? coverPath = playlist.coverPath;
+    final String? coverPath = _playlistCover(playlist);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -661,27 +663,32 @@ extension _PlaylistsSection on _LibraryPageState {
                     // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
-                      // 和卡片用同一张：最新加入那首歌的封面；都没有时才退回歌单图标
-                      if (coverPath != null && coverPath.isNotEmpty)
-                        AlbumCover(
-                          path: coverPath,
-                          size: detailCoverSize,
-                          radius: 32,
-                        )
-                      else
-                        Container(
-                          width: detailCoverSize,
-                          height: detailCoverSize,
-                          decoration: BoxDecoration(
-                            color: scheme.secondaryContainer,
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          child: Icon(
-                            Icons.queue_music,
-                            size: detailCoverSize * 0.36,
-                            color: scheme.onSecondaryContainer,
-                          ),
-                        ),
+                      // 和卡片用同一张：优先自定义封面，其次最新加入那首歌的；
+                      // 都没有时才退回歌单图标。左键打开封面编辑窗。
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () =>
+                            unawaited(_openCoverEditorFor(playlist: playlist)),
+                        child: coverPath != null && coverPath.isNotEmpty
+                            ? AlbumCover(
+                                path: coverPath,
+                                size: detailCoverSize,
+                                radius: 32,
+                              )
+                            : Container(
+                                width: detailCoverSize,
+                                height: detailCoverSize,
+                                decoration: BoxDecoration(
+                                  color: scheme.secondaryContainer,
+                                  borderRadius: BorderRadius.circular(32),
+                                ),
+                                child: Icon(
+                                  Icons.queue_music,
+                                  size: detailCoverSize * 0.36,
+                                  color: scheme.onSecondaryContainer,
+                                ),
+                              ),
+                      ),
                       const SizedBox(width: 24),
                       Expanded(
                         child: Column(
