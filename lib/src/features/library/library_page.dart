@@ -824,6 +824,16 @@ class _LibraryPageState extends State<LibraryPage>
   String _metadataLyrics = '';
   String _metadataSource = 'none';
   bool _metadataLoading = false;
+
+  /// 延迟显示「正在读取标签…」的定时器。
+  ///
+  /// 读标签是文件 IO，本地 SSD 上常常几十毫秒就回来了；立刻铺一屏占位反而
+  /// 是闪一下。超过 [_metadataLoadingDelay] 还没读出来才显示占位。
+  Timer? _metadataOpenTimer;
+
+  /// 每次打开 / 关闭编辑界面自增，用来作废还在飞的读取
+  int _metadataRequest = 0;
+
   int _groupedCoverEpoch = 0;
 
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
@@ -1057,6 +1067,7 @@ class _LibraryPageState extends State<LibraryPage>
     _deviceTimer?.cancel();
     _nowPlayingDeviceTimer?.cancel();
     _coverSeedTimer?.cancel();
+    _metadataOpenTimer?.cancel();
     libraryRevision.removeListener(_onLibraryChanged);
     _theme?.removeListener(_onThemeChanged);
     _sectionFade.dispose();

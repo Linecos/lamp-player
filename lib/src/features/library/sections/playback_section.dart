@@ -3,6 +3,9 @@ part of '../library_page.dart';
 /// 播放控制、队列与进度
 ///
 /// 从 `_LibraryPageState` 拆出，仍直接读写页面状态：这一轮只做文件切分。
+/// 读标签慢到这个程度才铺占位；快的时候直接进界面，免得闪一下
+const Duration _metadataLoadingDelay = Duration(milliseconds: 120);
+
 extension _PlaybackSection on _LibraryPageState {
   /* ---------------------------------------------------------------- 播放 */
 
@@ -1019,23 +1022,32 @@ extension _PlaybackSection on _LibraryPageState {
   /// 右键「修改元数据」：把右侧内容区整块换成编辑界面（不是弹窗）。
   ///
   /// 读的是**文件标签本身**（不是曲库里那一行）：年份、流派、专辑艺术家、
-  /// 碟号曲库根本没有。先把数据读出来再进界面：读标签要走文件 IO，直接在
-  /// 界面里等会让「点了没反应」持续很久，这里先展示一个读取中的占位。
+  /// 碟号曲库根本没有。读标签要走文件 IO——本地 SSD 上常常几十毫秒就回来了，
+  /// 立刻铺一屏「正在读取标签…」反而是闪一下，所以占位延迟
+  /// [_metadataLoadingDelay] 才出现；真慢的时候才看得到反馈。
   Future<void> _editTrackMetadata(Track track) async {
-    _update(() {
-      _metadataTrack = track;
-      _metadataTags = null;
-      _metadataLyrics = '';
-      _metadataSource = 'none';
-      _metadataLoading = true;
+    final int request = ++_metadataRequest;
+    _metadataOpenTimer?.cancel();
+    _metadataOpenTimer = Timer(_metadataLoadingDelay, () {
+      if (!mounted || request != _metadataRequest) {
+        return;
+      }
+      _update(() {
+        _metadataTrack = track;
+        _metadataTags = null;
+        _metadataLyrics = '';
+        _metadataSource = 'none';
+        _metadataLoading = true;
+      });
     });
+
     final TrackTags tags;
     final lyrics_api.RawLyrics raw;
     try {
       tags = await readTrackTags(path: track.path);
       raw = await lyrics_api.lyricsReadRaw(path: track.path);
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || request != _metadataRequest) {
         return;
       }
       _closeMetadataEditor();
@@ -1043,10 +1055,12 @@ extension _PlaybackSection on _LibraryPageState {
       return;
     }
     // 读取期间用户可能已经返回 / 切了分区 / 点了另一首：别把界面抢回来
-    if (!mounted || _metadataTrack?.path != track.path) {
+    if (!mounted || request != _metadataRequest) {
       return;
     }
+    _metadataOpenTimer?.cancel();
     _update(() {
+      _metadataTrack = track;
       _metadataTags = tags;
       _metadataLyrics = raw.text;
       _metadataSource = raw.source;
@@ -1054,8 +1068,13 @@ extension _PlaybackSection on _LibraryPageState {
     });
   }
 
-  /// 退出编辑界面（不保存）。分区切换也会调它。
+  /// 退出编辑界面（不保存）。分区切换、点导航也会调它。
+  ///
+  /// 顺带推进请求号：还没回来的那次读取看到号变了就自己作废，不会把界面
+  /// 重新打开。
   void _closeMetadataEditor() {
+    _metadataOpenTimer?.cancel();
+    _metadataRequest += 1;
     if (_metadataTrack == null && !_metadataLoading) {
       return;
     }
