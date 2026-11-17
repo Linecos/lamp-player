@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,8 +21,15 @@ void main() {
     await pumpLibrary(tester, tracks: twoTracks());
 
     await openLibrarySettings(tester);
-    expect(find.text('曲目数量'), findsOneWidget);
-    expect(find.text('2 首'), findsOneWidget);
+    expect(find.text('曲目'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('library-count-tracks')),
+          )
+          .data,
+      '2',
+    );
 
     // 设置分区不再管曲库，只留外观 / 播放这些
     await openSettings(tester);
@@ -201,6 +209,7 @@ void main() {
     expect(find.text(r'D:\Music'), findsOneWidget);
     expect(find.text(r'E:\Songs'), findsOneWidget);
 
+    // 两个目录卡里各有一个「重新扫描」，点第一个
     await tester.tap(find.byTooltip('重新扫描').first);
     await tester.pumpAndSettle();
 
@@ -222,6 +231,29 @@ void main() {
     expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
   });
 
+  testWidgets('鼠标悬停「添加音乐目录」时胶囊高亮', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openLibrarySettings(tester);
+
+    final Finder pill = find.byKey(
+      const ValueKey<String>('library-add-folder'),
+    );
+    Material surface() => tester.widget<Material>(
+      find.descendant(of: pill, matching: find.byType(Material)).first,
+    );
+    expect(surface().color, Colors.transparent, reason: '默认无底色');
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(pill));
+    await tester.pumpAndSettle();
+
+    expect(surface().color, isNot(Colors.transparent), reason: '悬停给底色');
+  });
+
   testWidgets('添加目录会写回存储并立即扫描', (WidgetTester tester) async {
     final FakeMusicFolderStore store = FakeMusicFolderStore();
     final FakeLibraryRepository repo = await pumpLibrary(
@@ -232,8 +264,7 @@ void main() {
     );
     await openLibrarySettings(tester);
 
-    await tester.ensureVisible(find.text('添加音乐目录'));
-    await tester.tap(find.text('添加音乐目录'));
+    await tester.tap(find.byKey(const ValueKey<String>('library-add-folder')));
     await tester.pumpAndSettle();
 
     expect(store.folders, <String>[r'F:\NewMusic']);
@@ -459,13 +490,21 @@ void main() {
     );
     await openLibrarySettings(tester);
 
-    await tester.tap(find.text('清理缺失文件'));
+    await tester.tap(find.text('运行'));
     await tester.pumpAndSettle();
 
     expect(repository.pruneCalls, 1);
     expect(repository.tracks, hasLength(1));
-    expect(find.text('1 首'), findsOneWidget, reason: '曲目数量应跟着刷新');
-    expect(find.text('已清理 1 条缺失记录'), findsWidgets);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('library-count-tracks')),
+          )
+          .data,
+      '1',
+      reason: '曲目数量应跟着刷新',
+    );
+    expect(find.text('已清理 1 条'), findsOneWidget);
   });
 
   testWidgets('清理缺失文件被存储层拒绝时展示错误', (WidgetTester tester) async {
@@ -478,7 +517,7 @@ void main() {
     );
     await openLibrarySettings(tester);
 
-    await tester.tap(find.text('清理缺失文件'));
+    await tester.tap(find.text('运行'));
     await tester.pumpAndSettle();
 
     expect(repository.pruneCalls, 1);
