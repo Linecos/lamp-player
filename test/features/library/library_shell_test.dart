@@ -69,12 +69,12 @@ void main() {
     expect(controls.toggleCalls, 1);
   });
 
-  testWidgets('侧栏品牌区可拖动窗口', (WidgetTester tester) async {
+  testWidgets('顶栏品牌区可拖动窗口', (WidgetTester tester) async {
     final _RecordingWindowControls controls = _RecordingWindowControls();
     await pumpLibrary(tester, tracks: twoTracks(), windowControls: controls);
 
     await tester.drag(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
+      find.byKey(const ValueKey<String>('app-brand-mark')),
       const Offset(40, 0),
     );
     await tester.pumpAndSettle();
@@ -82,32 +82,38 @@ void main() {
     expect(controls.dragCalls, greaterThan(0));
   });
 
-  testWidgets('侧边栏顶部显示应用图标与名称，并贴住窗口顶部', (WidgetTester tester) async {
+  testWidgets('应用图标与名称在顶部通栏里，侧栏是留缝的卡片', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     final Finder rail = find.byType(LibraryRail);
-    expect(tester.getTopLeft(rail).dy, 0, reason: '侧栏应一直画到窗口顶部');
-    expect(find.text('Lamp Player'), findsOneWidget);
+
+    // 侧栏不再画到窗口顶部：顶部让给通栏，两者之间留一条缝
     expect(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
-      findsOneWidget,
+      tester.getTopLeft(rail).dy,
+      LampTitleBar.height + LibraryRail.islandGap,
+      reason: '侧栏是浮在底色上的卡片，不再顶到窗口上边',
+    );
+    expect(
+      find.descendant(of: rail, matching: find.text('Lamp Player')),
+      findsNothing,
+      reason: '品牌已挪到顶栏，不再属于侧栏',
     );
 
-    final Offset brandCenter = tester.getCenter(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
-    );
-    final Offset toggleCenter = tester.getCenter(find.byTooltip('收起导航栏'));
+    expect(find.text('Lamp Player'), findsOneWidget);
     expect(
-      brandCenter.dx,
-      closeTo(toggleCenter.dx, 0.01),
-      reason: '品牌图标应与折叠按钮同一中轴',
+      find.byKey(const ValueKey<String>('app-brand-mark')),
+      findsOneWidget,
     );
+    final Offset brandCenter = tester.getCenter(
+      find.byKey(const ValueKey<String>('app-brand-mark')),
+    );
+    expect(brandCenter.dy, lessThan(LampTitleBar.height), reason: '品牌应落在通栏内');
 
     final Rect brandRect = tester.getRect(find.text('Lamp Player'));
     expect(brandRect.top, greaterThanOrEqualTo(0));
     expect(
       brandRect.bottom,
       lessThanOrEqualTo(LampTitleBar.height),
-      reason: '品牌名应落在标题条高度内',
+      reason: '品牌名应落在通栏高度内',
     );
   });
 
@@ -218,26 +224,14 @@ void main() {
       );
     }
 
-    expect(find.text('Lamp Player'), findsNothing, reason: '收起后品牌名应隐藏');
-    expect(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
-      findsOneWidget,
-      reason: '收起后品牌图标应保留',
-    );
+    // 品牌已挪到顶栏：侧栏收起 / 展开都不影响它
+    expect(find.text('Lamp Player'), findsOneWidget, reason: '品牌在顶栏，不跟着侧栏收起');
 
     final Offset toggleCenter = tester.getCenter(find.byTooltip('展开导航栏'));
     final Offset musicCenter = tester.getCenter(
       find.descendant(of: rail, matching: find.byIcon(Icons.music_note)),
     );
-    final Offset brandCenter = tester.getCenter(
-      find.byKey(const ValueKey<String>('rail-brand-mark')),
-    );
     expect(musicCenter.dx, closeTo(toggleCenter.dx, 0.01), reason: '应在同一中轴');
-    expect(
-      brandCenter.dx,
-      closeTo(toggleCenter.dx, 0.01),
-      reason: '品牌图标也应在同一中轴',
-    );
   });
 
   testWidgets('切到歌单 / 历史时侧栏图标换成实心状态', (WidgetTester tester) async {
@@ -336,7 +330,14 @@ void main() {
     );
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('林间电台'));
+    // 卡片宽度固定 220、艺术家卡高 289：名字可能压在播放岛底下，
+    // 改点卡片顶部（InkWell 覆盖整张卡）
+    final Rect artistCard = tester.getRect(
+      find
+          .ancestor(of: find.text('林间电台'), matching: find.byType(InkWell))
+          .first,
+    );
+    await tester.tapAt(Offset(artistCard.center.dx, artistCard.top + 24));
     await tester.pumpAndSettle();
     expect(find.text('1 张专辑 · 2 首音乐'), findsOneWidget);
 

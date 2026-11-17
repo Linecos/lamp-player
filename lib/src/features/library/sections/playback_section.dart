@@ -45,6 +45,7 @@ extension _PlaybackSection on _LibraryPageState {
     if (track == null) {
       return false;
     }
+    hangMark('播放：起播 ${p.basename(track.path)}');
     final double duration = track.durationSecs;
     // 换曲：`_currentTrack` 变了，分区要跟着换高亮，这一条必须推进版本
     _update(() {
@@ -259,6 +260,7 @@ extension _PlaybackSection on _LibraryPageState {
   /// 只在状态真的变化时调用（起播 / 暂停 / 停止），**不要放进 500ms 轮询**：
   /// 每次都会走一遍 WinRT 调用。
   void _syncMediaSession({bool stopped = false}) {
+    hangMark('播放：同步系统媒体信息');
     // 频谱流的开关注释挂在同一批状态切换点上：放歌开始订阅、暂停 / 停止退订
     _syncSpectrum();
     // 桌面歌词工具栏的播放 / 暂停字形
@@ -358,6 +360,7 @@ extension _PlaybackSection on _LibraryPageState {
       return Future<void>.value();
     }
     _nowPlayingOpen = true;
+    hangMark('界面：打开正在播放页');
     _publishProgress();
     // 播放页也能切输出设备：打开期间轮询一次设备列表（热插拔），关掉就停
     unawaited(_refreshDevices());
@@ -525,6 +528,7 @@ extension _PlaybackSection on _LibraryPageState {
   Future<void> _togglePlayback() => _serial(_togglePlaybackNow);
 
   Future<void> _togglePlaybackNow() async {
+    hangMark('播放：切换播放/暂停');
     if (!_isAvailable) {
       _showEngineNotice();
       return;
@@ -579,6 +583,7 @@ extension _PlaybackSection on _LibraryPageState {
       _serial(() => _nextNow(auto: auto));
 
   Future<void> _nextNow({bool auto = false}) async {
+    hangMark(auto ? '播放：自动下一首' : '播放：下一首');
     if (_queue.isEmpty) {
       return;
     }
@@ -645,6 +650,7 @@ extension _PlaybackSection on _LibraryPageState {
   Future<void> _previous() => _serial(_previousNow);
 
   Future<void> _previousNow() async {
+    hangMark('播放：上一首');
     if (_currentTrack == null) {
       return;
     }
@@ -1040,6 +1046,7 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   Future<void> _seekTo(double seconds) async {
+    hangMark('播放：跳转 ${seconds.toStringAsFixed(1)}s');
     if (!_isAvailable) {
       return;
     }

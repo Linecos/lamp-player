@@ -143,12 +143,11 @@ class _ToastLayerState extends State<_ToastLayer>
     return ValueListenableBuilder<bool>(
       valueListenable: LibraryRail.expandedNotifier,
       builder: (BuildContext context, bool expanded, Widget? child) {
-        final double leading = expanded
-            ? LibraryRail.expandedWidth
-            : LibraryRail.collapsedWidth;
         return Positioned(
-          left: leading,
-          right: 0,
+          // 内容区是张岛式卡片：左边界要算上侧栏两侧的缝，右边界同样留缝，
+          // 否则提示中心会比卡片中心偏左半个缝宽
+          left: LibraryRail.contentLeftInset(expanded),
+          right: LibraryRail.islandGap,
           bottom: PlayerBar.occupiedHeight + 12,
           child: child!,
         );

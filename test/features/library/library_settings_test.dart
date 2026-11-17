@@ -41,6 +41,50 @@ void main() {
     expect(find.text('跟随系统'), findsOneWidget);
   });
 
+  testWidgets('音乐库子界面不再叠一层「设置」大标题', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget, reason: '只剩侧栏那一个，子界面的标题由「← 音乐库」承担');
+    expect(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('离开设置分区会收起音乐库子界面，切回来是设置列表', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('library-back')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+      reason: '切回来应该落到设置列表，而不是上次的音乐库子页',
+    );
+  });
+
   testWidgets('听歌统计是设置里的子界面：侧栏与播放岛仍在，可退回列表', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
@@ -499,16 +543,14 @@ void main() {
       findsOneWidget,
       reason: '拒绝清理的原因要弹出来，不能静默当成 0 条',
     );
-    // 横向要落在**主内容区**（侧栏右侧）的正中：测试视图宽 900、侧栏展开 220，
-    // 中心应是 (900 + 220) / 2 = 560，而不是整个窗口的 450
+    // 横向要落在**主内容区**（侧栏右侧那张卡片）的正中，而不是整个窗口的正中
+    final double contentCenterX =
+        (tester.view.physicalSize.width +
+            LibraryRail.contentLeftInset(true) -
+            LibraryRail.islandGap) /
+        2;
     final Rect pill = tester.getRect(find.byType(ToastPill));
-    expect(
-      pill.center.dx,
-      closeTo(
-        (tester.view.physicalSize.width + LibraryRail.expandedWidth) / 2,
-        1,
-      ),
-    );
+    expect(pill.center.dx, closeTo(contentCenterX, 1));
   });
 
   testWidgets('退出前会把播放会话落盘', (WidgetTester tester) async {

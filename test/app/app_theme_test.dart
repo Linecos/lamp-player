@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
+
+Hct _hct(Color color) => Hct.fromInt(color.toARGB32());
 
 void main() {
   test('深浅色主题默认雅黑 Light，并带中文字体回退', () {
@@ -65,5 +68,67 @@ void main() {
     );
 
     expect(normal.primary, isNot(high.primary));
+  });
+
+  test('浅色底跟着 seed 上色，不再是纯白', () {
+    final ColorScheme scheme = AppTheme.schemeOf(
+      AppTheme.defaultSeed,
+      Brightness.light,
+      AppTheme.defaultVariant,
+    );
+    final List<Color> layers = <Color>[
+      scheme.surfaceContainerLowest,
+      scheme.surfaceContainerLow,
+      scheme.surfaceContainer,
+      scheme.surfaceContainerHigh,
+      scheme.surfaceContainerHighest,
+    ];
+
+    expect(
+      scheme.surfaceContainerLowest.toARGB32(),
+      isNot(0xFFFFFFFF),
+      reason: '岛式布局的底色就是 lowest，纯白等于回到「白纸」',
+    );
+    expect(
+      _hct(layers.first).chroma,
+      greaterThan(3),
+      reason: '底色要留得住 seed 的色调',
+    );
+    for (int i = 1; i < layers.length; i++) {
+      expect(
+        _hct(layers[i]).tone,
+        lessThan(_hct(layers[i - 1]).tone),
+        reason: '卡片层级要一层比一层深，否则卡片与缝分不开',
+      );
+    }
+  });
+
+  test('中性 seed 的浅色底保持中性，不凭空染色', () {
+    final ColorScheme scheme = AppTheme.schemeOf(
+      const Color(0xFF808080),
+      Brightness.light,
+      AppTheme.defaultVariant,
+    );
+    expect(_hct(scheme.surfaceContainerLow).chroma, lessThan(2));
+  });
+
+  test('高对比档位不覆盖浅色底', () {
+    final ColorScheme normal = AppTheme.schemeOf(
+      AppTheme.defaultSeed,
+      Brightness.light,
+      AppTheme.defaultVariant,
+    );
+    final ColorScheme high = AppTheme.schemeOf(
+      AppTheme.defaultSeed,
+      Brightness.light,
+      AppTheme.defaultVariant,
+      contrastLevel: 1.0,
+    );
+
+    expect(
+      _hct(high.surfaceContainerLow).tone,
+      greaterThan(_hct(normal.surfaceContainerLow).tone),
+      reason: '高对比要让底更亮、前景更黑，不能被着色压暗',
+    );
   });
 }

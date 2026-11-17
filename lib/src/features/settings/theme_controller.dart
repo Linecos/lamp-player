@@ -27,6 +27,19 @@ class ThemeController extends ChangeNotifier {
   /// 高对比存储键：'1' / '0'。
   static const String contrastPrefsKey = 'theme_contrast';
 
+  /// 上次封面色存储键：0xAARRGGBB 的十进制字符串。
+  ///
+  /// 与 [seedPrefsKey] 分开：那个记的是「模式」（跟随封面只写一个哨兵值），
+  /// 这里存**具体颜色**。开机第一帧就按它上色，等这次的取色回来再校正，
+  /// 免得先闪一下手选色 / 系统色 —— 封面色解码要 40ms 上下，肉眼看得见。
+  static const String coverSeedPrefsKey = 'theme_cover_seed';
+
+  /// 手选色存储键：0xAARRGGBB 的十进制字符串。
+  ///
+  /// 与 [seedPrefsKey] 分开：跟随封面时那个键写的是哨兵值 `cover`，手选色会被
+  /// 覆盖掉，重启后再关掉跟随就回不到原来的颜色了。
+  static const String handSeedPrefsKey = 'theme_hand_seed';
+
   static const String _systemSeedValue = 'system';
 
   /// 跟随封面的存储值
@@ -87,6 +100,16 @@ class ThemeController extends ChangeNotifier {
   /// 最近一次从封面取到的种子色（尚未取到过时为 `null`）。
   Color? get coverSeed => _coverSeed;
 
+  /// 最近一次封面色落盘的 Future；仅供测试等待写入完成。
+  @visibleForTesting
+  Future<void>? get coverSeedWrite => _coverSeedWrite;
+
+  /// 封面色写入的中介（`updateCoverSeed` 是同步接口，写盘在后面跑）。
+  Future<void>? _coverSeedWrite;
+
+  /// 等待落盘的最新封面色；写盘在飞时只更新它，不并发发第二次。
+  String? _pendingCoverSeedRaw;
+
   /// 实际生效的种子色：跟随封面 > 用户选择 > 系统强调色 > 默认暖黄。
   Color get effectiveSeed => _followCover
       ? (_coverSeed ?? _seedColor ?? _systemAccent ?? AppTheme.defaultSeed)
@@ -109,10 +132,10 @@ class ThemeController extends ChangeNotifier {
       if (savedSeedRaw == _coverSeedValue) {
         if (!_followCover) {
           _followCover = true;
-          // 跟随封面时手选色让位：effectiveSeed 由 _coverSeed 决定
-          _seedColor = null;
           changed = true;
         }
+        // 手选色单独存着：跟随封面时它不生效，但关掉开关要能回去
+        _seedColor = _decodeSeed(prefs.getString(handSeedPrefsKey));
       } else {
         final Color? savedSeed = _decodeSeed(savedSeedRaw);
         if (_followCover) {
@@ -121,6 +144,17 @@ class ThemeController extends ChangeNotifier {
         }
         if (savedSeed != _seedColor) {
           _seedColor = savedSeed;
+          changed = true;
+        }
+      }
+      // 上次的封面色：开机第一帧就用它，等这次的取色回来再校正（免得闪一下）
+      final Color? savedCoverSeed = _decodeSeed(
+        prefs.getString(coverSeedPrefsKey),
+      );
+      if (savedCoverSeed != null && savedCoverSeed != _coverSeed) {
+        _coverSeed = savedCoverSeed;
+        // 不跟随时界面不变，不必通知；跟着时这就是首帧的颜色
+        if (_followCover) {
           changed = true;
         }
       }
@@ -202,6 +236,24 @@ class ThemeController extends ChangeNotifier {
     if (_followCover) {
       notifyListeners();
     }
+    _pendingCoverSeedRaw = color.toARGB32().toString();
+    // 单飞 + 最新值优先：连点下一首时几次写入排队会乱序落盘，只剩最后那次才算数
+    _coverSeedWrite ??= _drainCoverSeed();
+  }
+
+  Future<void> _drainCoverSeed() async {
+    try {
+      while (_pendingCoverSeedRaw != null) {
+        final String raw = _pendingCoverSeedRaw!;
+        _pendingCoverSeedRaw = null;
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString(coverSeedPrefsKey, raw);
+      }
+    } catch (error) {
+      debugPrint('保存封面色失败：$error');
+    } finally {
+      _coverSeedWrite = null;
+    }
   }
 
   Future<void> _persistSeed() async {
@@ -211,6 +263,13 @@ class ThemeController extends ChangeNotifier {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString(seedPrefsKey, raw);
+      // 手选色另存一份：上面那个键在跟随时写的是哨兵值，不存这份就丢了
+      final String? hand = _seedColor?.toARGB32().toString();
+      if (hand == null) {
+        await prefs.remove(handSeedPrefsKey);
+      } else {
+        await prefs.setString(handSeedPrefsKey, hand);
+      }
     } catch (error) {
       debugPrint('保存强调色设置失败：$error');
     }

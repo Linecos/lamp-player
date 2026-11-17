@@ -69,17 +69,22 @@ extension _SettingsSection on _LibraryPageState {
 
   Widget _buildSettingsList(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    // 音乐库是塞在列表下方的子界面，它自带「← 音乐库」那行标题；再叠一层
+    // 「设置」就是两层标题。听歌统计是整块替换，所以没这个问题。
+    final bool libraryOpen = _settingsLibraryOpen;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          '设置',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+        if (!libraryOpen) ...<Widget>[
+          Text(
+            '设置',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
+          const SizedBox(height: 2),
+        ],
         Expanded(
           child: SettingsView(
             trackCount: _tracks.length,
