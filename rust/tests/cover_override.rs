@@ -291,3 +291,35 @@ fn clear_missing_override_is_false() {
         "本来没有自定义封面时返回 false，不算错误"
     );
 }
+
+#[test]
+fn shared_image_is_not_deleted_while_still_referenced() {
+    let (_lock, dir) = begin("shared");
+    // 同一张图指定给两位艺术家：内容哈希相同，落盘后是同一个文件
+    let source = write_png(&dir.0, "shared.png", [12, 200, 90]);
+    let first = cover_override::set_cover_override(
+        "artist".into(),
+        "甲".into(),
+        String::new(),
+        source.clone(),
+    )
+    .expect("设置甲");
+    let second =
+        cover_override::set_cover_override("artist".into(), "乙".into(), String::new(), source)
+            .expect("设置乙");
+    assert_eq!(first, second, "同一张图应该复用同一个缓存文件");
+
+    // 甲 换成别的图：乙 还在用这张，文件必须留着
+    let other = write_png(&dir.0, "other.png", [200, 20, 40]);
+    cover_override::set_cover_override("artist".into(), "甲".into(), String::new(), other)
+        .expect("换图");
+
+    assert!(
+        Path::new(&second).is_file(),
+        "乙 的自定义封面文件被删了：{second}"
+    );
+    assert_eq!(
+        cover_override::list_cover_overrides().expect("列出").len(),
+        2
+    );
+}
