@@ -1819,11 +1819,7 @@ class _LibraryPageState extends State<LibraryPage>
             playlist: playlist,
           );
           // 覆盖表已重读、分组缓存已失效，这里取的是撤掉自定义之后的自动封面
-          return _autoCoverOf(
-            artist: artist,
-            album: album,
-            playlist: playlist,
-          );
+          return _autoCoverOf(artist: artist, album: album, playlist: playlist);
         },
       ),
     );
