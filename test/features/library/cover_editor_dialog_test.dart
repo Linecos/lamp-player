@@ -43,7 +43,7 @@ CoverEditorDialog _dialog({
 }
 
 void main() {
-  testWidgets('大窗口下封面是正方形、尺寸封顶且贴左上角', (WidgetTester tester) async {
+  testWidgets('大窗口下窗体贴内容收缩，封面与动作并排', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -62,22 +62,18 @@ void main() {
       closeTo(size.height, 0.5),
       reason: '预览必须是正方形：宽 ${size.width} 高 ${size.height}',
     );
-    // 窗口放大到 1200×900 也不再跟着涨：封面是缩略图，不是整面墙
-    expect(
-      size.width,
-      closeTo(300, 0.5),
-      reason: '大窗口下封面应停在上限 300，实际 ${size.width}',
-    );
+    expect(size.width, closeTo(180, 0.5), reason: '封面是缩略图，窗口再大也不涨');
 
-    // 位置：贴着对话框左上（留 28 的边），而不是像以前那样垂直居中。
-    // 量的是内容框（外层 Column），不是 Dialog 自己——Dialog 的矩形含全屏留白
-    final Rect content = tester.getRect(find.byType(Column).first);
+    // 量的是内容面板（Dialog 自己的矩形是全屏，含 insetPadding 之外的留白）
+    final Rect dialog = tester.getRect(find.byType(SingleChildScrollView));
+    expect(dialog.width, lessThanOrEqualTo(520));
+    expect(dialog.height, lessThan(420), reason: '高度自适应内容，底部不该拖出一大片空白');
+
     final Rect cover = tester.getRect(find.byType(Image).first);
-    expect(content.width, closeTo(880, 1), reason: '窗口放大到 880 宽');
-    expect(cover.left - content.left, closeTo(28, 0.5), reason: '封面应贴左边');
-    expect(cover.top - content.top, closeTo(28, 0.5), reason: '封面应贴顶边');
+    expect(cover.left - dialog.left, closeTo(24, 0.5), reason: '封面贴左内边距');
+    expect(cover.top - dialog.top, greaterThan(40), reason: '标题在封面上面');
 
-    // 选项在封面右侧：两个按钮的左边都落在封面右边界之外
+    // 动作区在封面右侧，而不是挤在下面
     for (final Finder button in <Finder>[
       find.widgetWithText(FilledButton, '更换封面…'),
       find.widgetWithText(OutlinedButton, '恢复默认'),
@@ -89,22 +85,31 @@ void main() {
       );
     }
 
-    // 页脚：「关闭」贴内容框右下角（右 28、下 16），提示语在它上方居中
-    final Rect close = tester.getRect(find.widgetWithText(TextButton, '关闭'));
-    expect(
-      content.right - close.right,
-      closeTo(28, 0.5),
-      reason: '关闭要落在右下角，不该停在选项列里',
+    // 两个按钮在右侧剩余空间里水平居中：左边的空隙与右边一样宽
+    final Rect change = tester.getRect(
+      find.widgetWithText(FilledButton, '更换封面…'),
     );
-    expect(content.bottom - close.bottom, closeTo(16, 0.5));
+    final double actionsLeft = cover.right + 20;
+    final double actionsRight = dialog.right - 12;
+    expect(
+      (change.left - actionsLeft) - (actionsRight - change.right),
+      closeTo(0, 1),
+      reason:
+          '按钮没在右侧空白里居中：左 ${change.left - actionsLeft} / '
+          '右 ${actionsRight - change.right}',
+    );
 
-    final Finder hint = find.text('建议用正方形图片；过大的图会自动缩到 1024 长边。');
-    expect(
-      tester.widget<Text>(hint).textAlign,
-      TextAlign.center,
-      reason: '提示语整段居中',
+    // 关闭改成右上角的叉，和队列 / 均衡器那些弹窗一致
+    final Rect close = tester.getRect(
+      find.byKey(const ValueKey<String>('cover-editor-close')),
     );
-    expect(tester.getRect(hint).bottom, lessThanOrEqualTo(close.top));
+    expect(close.right, lessThanOrEqualTo(dialog.right));
+    expect(close.top - dialog.top, lessThan(24), reason: '叉在标题那一行的右上角，不是底部');
+    expect(
+      find.widgetWithText(TextButton, '关闭'),
+      findsNothing,
+      reason: '底部那枚「关闭」已经换成右上角的叉',
+    );
   });
 
   testWidgets('窗口变小后对话框跟着缩，且不溢出', (WidgetTester tester) async {

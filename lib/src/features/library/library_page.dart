@@ -1641,60 +1641,6 @@ class _LibraryPageState extends State<LibraryPage>
     return _playlistCovers.containsKey(playlist!.id.toString());
   }
 
-  /// 艺术家 / 专辑卡片（含详情页封面）的右键菜单：换 / 恢复的快捷方式。
-  Future<void> _showCoverMenu(
-    Offset globalPosition, {
-    ArtistGroup? artist,
-    AlbumGroup? album,
-    Playlist? playlist,
-  }) async {
-    final String label = artist?.name ?? album?.title ?? playlist?.name ?? '';
-    final bool hasCustom = _hasCustomCover(
-      artist: artist,
-      album: album,
-      playlist: playlist,
-    );
-
-    final String? action = await showMenu<String>(
-      context: context,
-      // 菜单贴着指针弹：位置用全局坐标，showMenu 会自己夹进屏幕
-      position: RelativeRect.fromLTRB(
-        globalPosition.dx,
-        globalPosition.dy,
-        globalPosition.dx,
-        globalPosition.dy,
-      ),
-      items: <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(value: 'editor', child: Text('编辑封面…')),
-        if (hasCustom)
-          const PopupMenuItem<String>(value: 'clear', child: Text('恢复默认封面')),
-      ],
-    );
-    if (!mounted || action == null) {
-      return;
-    }
-    if (action == 'editor') {
-      // 右键直接开编辑窗：和左键点详情页封面是同一个界面，免得两套交互
-      await _openCoverEditorFor(
-        artist: artist,
-        album: album,
-        playlist: playlist,
-      );
-    } else if (action == 'clear') {
-      final bool removed = await _applyCoverReset(
-        artist: artist,
-        album: album,
-        playlist: playlist,
-      );
-      if (mounted) {
-        AppToast.show(
-          context,
-          removed ? '已恢复「$label」的默认封面' : '「$label」没有自定义封面',
-        );
-      }
-    }
-  }
-
   /// 选图并写入，返回新的封面路径（用户取消或失败返回 null）。
   ///
   /// 不弹成功提示：编辑窗里的预览已经换掉了，再弹一条是噪音；

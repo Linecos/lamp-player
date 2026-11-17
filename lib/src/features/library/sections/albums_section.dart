@@ -94,9 +94,6 @@ extension _AlbumsSection on _LibraryPageState {
                     storageKey: const PageStorageKey<String>('grid:albums'),
                     // 带上卡片封面的矩形，详情页用它做「封面飞过去」的起点
                     onSelect: _openAlbumDetail,
-                    // 右键卡片换封面 / 恢复默认
-                    onCoverMenu: (AlbumGroup album, Offset position) =>
-                        _showCoverMenu(position, album: album),
                     // 正在飞的那张卡片先藏着，落地再显形
                     flyingTag: _coverFlightTag,
                   );
@@ -152,14 +149,9 @@ extension _AlbumsSection on _LibraryPageState {
                     children: <Widget>[
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        // 左键点封面 → 打开封面编辑窗
+                        // 点封面 → 打开封面编辑窗
                         onTap: () =>
                             unawaited(_openCoverEditorFor(album: group)),
-                        onSecondaryTapDown: (TapDownDetails details) =>
-                            _showCoverMenu(
-                              details.globalPosition,
-                              album: group,
-                            ),
                         child: CoverFlightTarget(
                           key: _albumDetailCoverKey,
                           hidden: _coverFlightTag == albumCoverTag(group.key),
