@@ -16,7 +16,6 @@ class ArtistGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
-    this.onCoverMenu,
   });
 
   final List<ArtistGroup> artists;
@@ -30,11 +29,6 @@ class ArtistGridView extends StatelessWidget {
   /// 正在飞的那张封面（见 [artistCoverTag]）：对应的卡片先把自己藏起来，
   /// 免得飞行层和卡片上的那张同时出现
   final Object? flyingTag;
-
-  /// 卡片上的右键菜单（第二个参数是全局坐标）：目前用于更换 / 恢复封面。
-  ///
-  /// 为空时卡片不响应右键，行为与以前一致（单元测试里大多不传）。
-  final void Function(ArtistGroup artist, Offset globalPosition)? onCoverMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +44,6 @@ class ArtistGridView extends StatelessWidget {
         return _ArtistCard(
           artist: artist,
           onSelect: onSelect,
-          onCoverMenu: onCoverMenu,
           hidden: flyingTag == artistCoverTag(artist.name),
         );
       },
@@ -62,16 +55,12 @@ class _ArtistCard extends StatefulWidget {
   const _ArtistCard({
     required this.artist,
     required this.onSelect,
-    this.onCoverMenu,
     this.hidden = false,
   });
 
   final ArtistGroup artist;
   final void Function(ArtistGroup artist, Rect coverRect, Rect? viewport)
   onSelect;
-
-  /// 见 [ArtistGridView.onCoverMenu]
-  final void Function(ArtistGroup artist, Offset globalPosition)? onCoverMenu;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
@@ -110,11 +99,6 @@ class _ArtistCardState extends State<_ArtistCard> {
           rectOfKey(_coverKey) ?? Rect.zero,
           scrollViewportOf(context),
         ),
-        // 右键换封面：菜单贴指针弹，位置交给调用方
-        onSecondaryTapDown: widget.onCoverMenu == null
-            ? null
-            : (TapDownDetails details) =>
-                  widget.onCoverMenu!(artist, details.globalPosition),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
@@ -186,7 +170,6 @@ class AlbumGridView extends StatelessWidget {
     required this.onSelect,
     this.storageKey,
     this.flyingTag,
-    this.onCoverMenu,
   });
 
   final List<AlbumGroup> albums;
@@ -199,9 +182,6 @@ class AlbumGridView extends StatelessWidget {
 
   /// 见 [ArtistGridView.flyingTag]
   final Object? flyingTag;
-
-  /// 见 [ArtistGridView.onCoverMenu]
-  final void Function(AlbumGroup album, Offset globalPosition)? onCoverMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +197,6 @@ class AlbumGridView extends StatelessWidget {
         return _AlbumCard(
           album: album,
           onSelect: onSelect,
-          onCoverMenu: onCoverMenu,
           hidden: flyingTag == albumCoverTag(album.key),
         );
       },
@@ -229,16 +208,12 @@ class _AlbumCard extends StatefulWidget {
   const _AlbumCard({
     required this.album,
     required this.onSelect,
-    this.onCoverMenu,
     this.hidden = false,
   });
 
   final AlbumGroup album;
   final void Function(AlbumGroup album, Rect coverRect, Rect? viewport)
   onSelect;
-
-  /// 见 [ArtistGridView.onCoverMenu]
-  final void Function(AlbumGroup album, Offset globalPosition)? onCoverMenu;
 
   /// 这张的封面正在飞行中：先让位给飞行层
   final bool hidden;
@@ -276,11 +251,6 @@ class _AlbumCardState extends State<_AlbumCard> {
           rectOfKey(_coverKey) ?? Rect.zero,
           scrollViewportOf(context),
         ),
-        // 右键换封面
-        onSecondaryTapDown: widget.onCoverMenu == null
-            ? null
-            : (TapDownDetails details) =>
-                  widget.onCoverMenu!(album, details.globalPosition),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
           padding: const EdgeInsets.all(10),
