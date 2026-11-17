@@ -6,6 +6,7 @@
 //! 各模块职责：
 //! - [`model`]：跨语言数据模型（`Track`、`Playlist` 等）
 //! - [`db`]：曲库持久化（SQLite + FTS5）
+//! - [`cover_override`]：自定义艺术家 / 专辑封面
 //! - [`collections`]：歌单 / 收藏 / 播放历史
 //! - [`scan`]：目录扫描与元数据解析
 //! - [`player`]：BASS 播放引擎
@@ -17,6 +18,7 @@
 
 pub mod appearance;
 pub mod collections;
+pub mod cover_override;
 pub mod db;
 pub mod desktop_lyrics;
 pub mod lyrics;

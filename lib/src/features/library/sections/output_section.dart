@@ -600,12 +600,16 @@ extension _OutputSection on _LibraryPageState {
   }
 
   void _rebuildGroupsIfNeeded() {
-    if (identical(_groupedTracks, _tracks)) {
+    // 曲目列表换了要重算；用户换过自定义封面也要重算——那时 `_tracks` 的
+    // 身份没变，只靠它判断会让新封面等到下次扫描才出现
+    if (identical(_groupedTracks, _tracks) &&
+        _groupedCoverEpoch == _coverEpoch) {
       return;
     }
     _groupedTracks = _tracks;
-    _artistGroups = groupTracksByArtist(_tracks);
-    _albumGroups = groupTracksByAlbum(_tracks);
+    _groupedCoverEpoch = _coverEpoch;
+    _artistGroups = groupTracksByArtist(_tracks, coverOverrides: _artistCovers);
+    _albumGroups = groupTracksByAlbum(_tracks, coverOverrides: _albumCovers);
   }
 
   /// 引擎是否处于停止态（还没起播 / 已播完 / 引擎不可用）。

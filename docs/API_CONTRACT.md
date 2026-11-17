@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.14（2026-11-14）**
+> **当前版本：v0.15（2026-11-17）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.15 变更：**新增** `api::cover_override` 三个函数（`set_cover_override` /
+> `clear_cover_override` / `list_cover_overrides`）与 `CoverOverride` 结构，配套
+> 曲库结构升到 v9（新增 `cover_overrides` 表）。纯新增，不改现有语义。
 >
 > v0.14 变更：**删除** `media_hotkeys_supported` / `media_hotkey_commands` 与
 > `MediaHotkeyCommand`（全局媒体键 `RegisterHotKey` 整体移除）。媒体键统一交给 SMTC
@@ -449,7 +453,34 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 - 写完后要重扫该文件所在目录，曲库里的 `replay_gain` 才会更新。增量扫描按
   mtime / size 判定，改过标签的文件必然重新解析。
 
-## 13. 生成代码规则
+## 13. 自定义封面 `api::cover_override`
+
+给艺术家 / 专辑指定一张本地图片作封面。扫描出来的封面是「自动」的（专辑取内嵌图、
+艺术家取第一首有封面的曲目），这里是用户显式覆盖，优先于自动结果。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `set_cover_override(kind: String, name: String, artist: String, source_path: String) -> Result<String>` | `Future<String> setCoverOverride({required String kind, required String name, required String artist, required String sourcePath})` | 否 | **已实现** |
+| `clear_cover_override(kind: String, name: String, artist: String) -> Result<bool>` | `Future<bool> clearCoverOverride({required String kind, required String name, required String artist})` | 否 | **已实现** |
+| `list_cover_overrides() -> Result<Vec<CoverOverride>>` | `Future<List<CoverOverride>> listCoverOverrides()` | 否 | **已实现** |
+
+`CoverOverride` 字段：`kind`（`artist` / `album`）、`name`（艺术家名或专辑名）、
+`artist`（专辑所属艺术家，艺术家封面为空串）、`path`（缓存文件绝对路径）、`updated_at`（秒）。
+
+语义补充：
+
+- `kind` 只接受 `artist` 与 `album`，其它值报错；`album` 必须带非空 `artist`，
+  因为同名专辑在不同艺术家下是两张不同的专辑。
+- 图片由 Rust 侧解码校验（不是图片直接报错）、缩到 1024 长边、按内容哈希去重，
+  落到 `<支持目录>/custom_covers/`，返回缓存路径。**不复制进 `covers/`**：那是扫描缓存，
+  `prune_unused_covers` 会删掉没有被 `tracks.cover_path` 引用的文件，自定义封面会被误清。
+- 同一目标重复调用即「换一张」，旧缓存文件会被删除；`clear` 也会删文件。
+- `clear` 在本来就没有自定义封面时返回 `false`，不算错误。
+- `list` 会跳过缓存文件已不存在（用户手动删过）的记录。
+- 键拆成 `name` + `artist` 两列存储，不用 Dart 侧的 `albumGroupKey`：那个键含 `\u0000`，
+  而 SQLite 的 TEXT 以 NUL 结尾，含 NUL 的字符串存进去会被截断。
+
+## 14. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。
