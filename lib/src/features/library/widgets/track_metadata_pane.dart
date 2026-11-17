@@ -226,7 +226,11 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        p.basename(widget.filePath),
+                        // 显式用 `p.windows`：路径风格是**数据**的属性，不是
+                        // 跑测试那台机器的。`p.basename` 会按当前平台挑风格，
+                        // CI 在 ubuntu 上跑时 Windows 路径切不开，界面会把整条
+                        // 路径当地名显示（这条断言当年就是这么挂的）
+                        p.windows.basename(widget.filePath),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
