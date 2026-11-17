@@ -17,6 +17,7 @@ extension _FilterSection on _LibraryPageState {
     LibrarySection.artists => _selectedArtist != null ? '搜索艺术家歌曲' : '搜索艺术家',
     LibrarySection.albums => _selectedAlbumKey != null ? '搜索专辑歌曲' : '搜索专辑',
     LibrarySection.settings => '搜索设置项',
+    LibrarySection.library => '搜索音乐库',
   };
 
   /// 只有音乐分区需要问数据库

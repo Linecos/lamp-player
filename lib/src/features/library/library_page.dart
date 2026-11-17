@@ -67,6 +67,7 @@ import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
 import 'widgets/playlist_dialogs.dart';
 import 'widgets/playlist_grid.dart';
+import 'views/library_manage_view.dart';
 import 'widgets/track_list_view.dart';
 
 part 'sections/output_section.dart';
@@ -75,6 +76,7 @@ part 'sections/directory_section.dart';
 part 'sections/playback_section.dart';
 part 'sections/search_section.dart';
 part 'sections/selection_section.dart';
+part 'sections/library_section.dart';
 part 'sections/settings_section.dart';
 part 'sections/history_section.dart';
 part 'sections/favorites_section.dart';
@@ -559,14 +561,11 @@ class _LibraryPageState extends State<LibraryPage>
   bool _playlistTracksLoading = false;
   Object? _playlistTracksError;
 
-  /// 设置分区里是否正开着「听歌统计」子界面。
+  /// 音乐库分区里是否正开着「听歌统计」子界面。
   ///
   /// 只在打开时构建它（关掉即销毁）：统计要查四次库、还要铺一年热力图，
   /// 没进来没必要留着。
-  bool _settingsStatsOpen = false;
-
-  /// 设置分区里是否正开着「音乐库」子界面
-  bool _settingsLibraryOpen = false;
+  bool _libraryStatsOpen = false;
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -2098,7 +2097,7 @@ class _LibraryPageState extends State<LibraryPage>
       _selectedPlaylist == null ? null : _playlistTracks,
     LibrarySection.artists => _selectedArtistGroup?.tracks,
     LibrarySection.albums => _selectedAlbumGroup?.tracks,
-    LibrarySection.settings => null,
+    LibrarySection.settings || LibrarySection.library => null,
   };
 
   /// 与 [_locatableTracks] 对应的滚动控制器
@@ -2111,7 +2110,7 @@ class _LibraryPageState extends State<LibraryPage>
     LibrarySection.artists =>
       _selectedArtistGroup == null ? null : _artistScroll,
     LibrarySection.albums => _selectedAlbumGroup == null ? null : _albumScroll,
-    LibrarySection.settings => null,
+    LibrarySection.settings || LibrarySection.library => null,
   };
 
   /// 把正在播放的曲目滚到列表中间，并短暂强调那一行。
@@ -2257,12 +2256,8 @@ class _LibraryPageState extends State<LibraryPage>
   /// 顺序与「侧栏再点当前分区」一致；艺术家 / 专辑走 `_closeXxxDetail`，
   /// 顺带保留封面飞回卡片的动画。
   bool _leaveSubPage() {
-    if (_settingsStatsOpen) {
-      _update(() => _settingsStatsOpen = false);
-      return true;
-    }
-    if (_settingsLibraryOpen) {
-      _update(() => _settingsLibraryOpen = false);
+    if (_libraryStatsOpen) {
+      _update(() => _libraryStatsOpen = false);
       return true;
     }
     if (_selectedPlaylistId != null) {
@@ -2629,8 +2624,7 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
-          _settingsStatsOpen = false;
-          _settingsLibraryOpen = false;
+          _libraryStatsOpen = false;
           select();
         });
         _clearSelection();
@@ -2639,15 +2633,13 @@ class _LibraryPageState extends State<LibraryPage>
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
           _selectedAlbumKey != null ||
-          _settingsStatsOpen ||
-          _settingsLibraryOpen) {
+          _libraryStatsOpen) {
         _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
-          // 再点一次「设置」= 从统计 / 音乐库退回设置列表
-          _settingsStatsOpen = false;
-          _settingsLibraryOpen = false;
+          // 再点一次「音乐库」= 从统计退回列表
+          _libraryStatsOpen = false;
         });
       }
       _clearSelection();
@@ -2660,10 +2652,9 @@ class _LibraryPageState extends State<LibraryPage>
     final bool leavingDetail = _selectionSignature(previous).isNotEmpty;
     _section = section;
     _sectionNotifier.value = section;
-    // 离开设置就收起统计 / 音乐库子页：下次进来是设置列表，子页的列表也不
+    // 离开音乐库就收起统计子页：下次进来是列表，统计的曲线与热力图也不
     // 必留在 Offstage 里占着内存
-    _settingsStatsOpen = false;
-    _settingsLibraryOpen = false;
+    _libraryStatsOpen = false;
     _saveSessionNow();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 期间用户又点了别的分区：让最后一次点击自己走完切换
@@ -2955,12 +2946,12 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.playlists => _selectedPlaylistId?.toString() ?? '',
       LibrarySection.artists => _selectedArtist ?? '',
       LibrarySection.albums => _selectedAlbumKey ?? '',
-      // 设置分区里，统计与音乐库都是子界面
-      LibrarySection.settings =>
-        _settingsStatsOpen ? 'stats' : (_settingsLibraryOpen ? 'library' : ''),
+      // 音乐库分区里，统计是子界面
+      LibrarySection.library => _libraryStatsOpen ? 'stats' : '',
       LibrarySection.music ||
       LibrarySection.favorites ||
-      LibrarySection.history => '',
+      LibrarySection.history ||
+      LibrarySection.settings => '',
     };
   }
 
@@ -3001,6 +2992,7 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.artists => _buildArtistsSection(context),
       LibrarySection.albums => _buildAlbumsSection(context),
       LibrarySection.settings => _buildSettingsSection(context),
+      LibrarySection.library => _buildLibrarySection(context),
     };
   }
 }
