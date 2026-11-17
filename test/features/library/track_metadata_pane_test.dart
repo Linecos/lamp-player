@@ -87,6 +87,10 @@ void main() {
       findsOneWidget,
       reason: '副标题显示文件名而不是整条路径',
     );
+    // CI 跑在 ubuntu 上：若哪天真用了按平台风格切分的 `p.basename`，
+    // Windows 路径在那边切不开，这里会整条路径显示出来 —— 这条断言就是
+    // 为它守的（本地 Windows 看不出差别）
+    expect(find.text(_filePath), findsNothing, reason: '整条路径不能出现在标题里');
     for (final String label in <String>[
       '标题',
       '艺术家',
