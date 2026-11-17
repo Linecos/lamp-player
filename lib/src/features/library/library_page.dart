@@ -32,7 +32,7 @@ import 'widgets/cover_backdrop.dart';
 import 'widgets/cover_editor_dialog.dart';
 import 'widgets/cover_flight.dart';
 import 'widgets/lamp_brand_mark.dart';
-import 'widgets/track_metadata_dialog.dart';
+import 'widgets/track_metadata_pane.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
 import '../player/playback_mode.dart';
@@ -812,6 +812,18 @@ class _LibraryPageState extends State<LibraryPage>
   /// 但封面覆盖变了 `_tracks` 并不会变——不加这个版本号，换完封面要等下次
   /// 扫描或切分区才看得出效果。
   int _coverEpoch = 0;
+
+  /* -------------------------------------------------- 元数据编辑区块 */
+
+  /// 正在编辑元数据的曲目；非空时内容区整块换成编辑界面（与「历史」这类
+  /// 分区同级，占满右侧，不是弹窗）
+  Track? _metadataTrack;
+
+  /// 编辑界面的初始数据：进来时读一次，之后由界面自己管
+  TrackTags? _metadataTags;
+  String _metadataLyrics = '';
+  String _metadataSource = 'none';
+  bool _metadataLoading = false;
   int _groupedCoverEpoch = 0;
 
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
@@ -2606,6 +2618,8 @@ class _LibraryPageState extends State<LibraryPage>
   /// 目标详情的选中与分区切换落在同一帧，不会先露出目标分区的列表。
   void _selectSection(LibrarySection section, {VoidCallback? select}) {
     hangMark('分区：${section.name}${select == null ? '' : '（带详情）'}');
+    // 正在改元数据时点导航：等同于「返回」，别把人困在编辑界面里
+    _closeMetadataEditor();
     if (section == _section) {
       // 已在该分区时，再点一次导航相当于「回到列表」：
       // 不应把用户困在歌单 / 艺术家 / 专辑详情里。
@@ -2816,7 +2830,7 @@ class _LibraryPageState extends State<LibraryPage>
       ..._sections.keys,
       _displayedSection,
     };
-    return Stack(
+    final Widget sections = Stack(
       fit: StackFit.expand,
       children: <Widget>[
         for (final LibrarySection section in visited)
@@ -2831,6 +2845,60 @@ class _LibraryPageState extends State<LibraryPage>
             ),
           ),
       ],
+    );
+    // 改元数据时整块内容区换成编辑界面：等价于一个临时分区，但目标曲目来自
+    // 右键菜单，不该出现在侧栏。原来的分区用 Offstage 留在树里——返回时
+    // 滚动位置、图片缓存、快照都还在，不用重建。
+    if (_metadataTrack == null && !_metadataLoading) {
+      return sections;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Offstage(child: sections),
+        Positioned.fill(
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            child: _buildMetadataEditor(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 元数据编辑区块（内容区已被替换）
+  Widget _buildMetadataEditor(BuildContext context) {
+    final Track? track = _metadataTrack;
+    final TrackTags? tags = _metadataTags;
+    if (track == null || tags == null) {
+      return const Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('正在读取标签…'),
+          ],
+        ),
+      );
+    }
+    return TrackMetadataPane(
+      // 换一首歌要整块重建（输入框的 controller 在 State 里）
+      key: ValueKey<String>('metadata-${track.path}'),
+      filePath: track.path,
+      coverPath: track.coverPath,
+      tags: tags,
+      lyricsText: _metadataLyrics,
+      lyricsSource: _metadataSource,
+      onShiftLyrics: (String text, int deltaMs) =>
+          lyrics_api.lyricsShiftRaw(text: text, deltaMs: deltaMs),
+      onSave: (TrackTags edited, String lyrics) =>
+          _saveMetadata(track, edited, lyrics),
+      onClose: _closeMetadataEditor,
     );
   }
 
