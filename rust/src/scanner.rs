@@ -361,7 +361,11 @@ fn store_cover(covers_dir: &Path, picture: &Picture) -> Option<String> {
 }
 
 /// 把图片字节按内容哈希写进缓存目录（内嵌封面与外挂图共用）。
-fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str) -> Option<String> {
+///
+/// `pub(crate)`：自定义封面（[`crate::api::cover_override`]）也走这里——
+/// 同一套归一化与去重逻辑，用户丢一张 4000px 的手机照片进来也会被压到
+/// 1024 长边，不会让界面上某个封面单独变卡。
+pub(crate) fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str) -> Option<String> {
     if data.is_empty() || data.len() > MAX_COVER_BYTES {
         return None;
     }

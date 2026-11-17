@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rust_lib_lamp_player::api::model::Track;
-use rust_lib_lamp_player::api::{collections, db};
+use rust_lib_lamp_player::api::{collections, cover_override, db};
 
 static DB_LOCK: Mutex<()> = Mutex::new(());
 
@@ -330,7 +330,9 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("读取版本");
-    assert_eq!(version, 8, "升级后应写入当前结构版本");
+    // 版本号跟着 SCHEMA_VERSION 走：每加一次迁移都要改这里，
+    // 忘了改就等于没验证「升级后写入的是当前版本」
+    assert_eq!(version, 9, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -372,6 +374,14 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
     assert!(collections::daily_playtime(0)
         .expect("时长表已建")
         .is_empty());
+
+    // v9 的自定义封面表：老库升级后应当是空表（升级不动用户已有数据）
+    assert!(
+        cover_override::list_cover_overrides()
+            .expect("自定义封面表已建")
+            .is_empty(),
+        "v9 应建好 cover_overrides 表"
+    );
 
     // 触发器与索引在升级时补齐/重建，老数据也要能搜到
     assert_eq!(

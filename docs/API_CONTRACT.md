@@ -1,8 +1,20 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.14（2026-11-14）**
+> **当前版本：v0.17（2026-11-17）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.17 变更：**新增** `api::metadata` 两个函数（`read_track_tags` / `write_track_tags`）
+> 与 `TrackTags` 结构；`api::lyrics` 新增 `lyrics_read_raw` / `lyrics_shift_raw` /
+> `lyrics_save_raw` 与 `RawLyrics` 结构（歌词编辑与整体平移时间戳）。纯新增，
+> 不改现有函数语义。
+>
+> v0.16 变更：`api::cover_override` 的 `kind` 增加 `playlist`（歌单封面，键为歌单 id），
+> 纯增量，签名不变。
+>
+> v0.15 变更：**新增** `api::cover_override` 三个函数（`set_cover_override` /
+> `clear_cover_override` / `list_cover_overrides`）与 `CoverOverride` 结构，配套
+> 曲库结构升到 v9（新增 `cover_overrides` 表）。纯新增，不改现有语义。
 >
 > v0.14 变更：**删除** `media_hotkeys_supported` / `media_hotkey_commands` 与
 > `MediaHotkeyCommand`（全局媒体键 `RegisterHotKey` 整体移除）。媒体键统一交给 SMTC
@@ -365,6 +377,21 @@
 | Rust 签名 | Dart 签名 | 状态 |
 |---|---|---|
 | `lyrics_load(path: String) -> Result<TrackLyrics>` | `Future<TrackLyrics> lyricsLoad({required String path})` | **已实现** |
+| `lyrics_read_raw(path: String) -> Result<RawLyrics>` | `Future<RawLyrics> lyricsReadRaw({required String path})` | **已实现** |
+| `lyrics_shift_raw(text: String, delta_ms: i64) -> String`（sync） | `String lyricsShiftRaw({required String text, required int deltaMs})` | **已实现** |
+| `lyrics_save_raw(path: String, text: String) -> Result<String>` | `Future<String> lyricsSaveRaw({required String path, required String text})` | **已实现** |
+
+编辑用的三支（v0.17）：
+
+- `RawLyrics`：`text`（原文，含 `[ti:]` 与逐字标签原样）+ `source`（`sidecar` / `embedded` / `none`）。
+  没有歌词返回空文本 + `none`，不报错。
+- `lyrics_shift_raw` 是**纯文本变换**，不碰文件：负数是提前、正数是延后，平移后夹到 0；
+  方括号 `[mm:ss.xx]` 与尖括号 `<mm:ss.xx>` 都平移（逐字标签是绝对时间，只改行首会错位），
+  `[ti:]` / `[offset:]` 这类元数据与正文里的普通方括号原样保留；小数位数按原样保留。
+- `lyrics_save_raw` **统一写同名 `.lrc`**（UTF-8 无 BOM），返回写入路径。不写内嵌标签：
+  改内嵌要重写整个音频文件，风险大得多。原本只有内嵌歌词的曲目保存后也会有 `.lrc`，
+  读取侧旁载优先，行为一致。
+- 界面顺序：先 `shift_raw` 拿到新文本给用户看，确认后 `save_raw` 落盘。
 
 语义补充：
 
@@ -449,7 +476,63 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 - 写完后要重扫该文件所在目录，曲库里的 `replay_gain` 才会更新。增量扫描按
   mtime / size 判定，改过标签的文件必然重新解析。
 
-## 13. 生成代码规则
+## 13. 自定义封面 `api::cover_override`
+
+给艺术家 / 专辑指定一张本地图片作封面。扫描出来的封面是「自动」的（专辑取内嵌图、
+艺术家取第一首有封面的曲目），这里是用户显式覆盖，优先于自动结果。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `set_cover_override(kind: String, name: String, artist: String, source_path: String) -> Result<String>` | `Future<String> setCoverOverride({required String kind, required String name, required String artist, required String sourcePath})` | 否 | **已实现** |
+| `clear_cover_override(kind: String, name: String, artist: String) -> Result<bool>` | `Future<bool> clearCoverOverride({required String kind, required String name, required String artist})` | 否 | **已实现** |
+| `list_cover_overrides() -> Result<Vec<CoverOverride>>` | `Future<List<CoverOverride>> listCoverOverrides()` | 否 | **已实现** |
+
+`CoverOverride` 字段：`kind`（`artist` / `album` / `playlist`）、`name`（艺术家名 / 专辑名 / **歌单 id 的十进制字符串**）、
+`artist`（专辑所属艺术家，艺术家与歌单为空串）、`path`（缓存文件绝对路径）、`updated_at`（秒）。
+
+语义补充：
+
+- `kind` 只接受 `artist`、`album`、`playlist`，其它值报错；`album` 必须带非空 `artist`，
+  因为同名专辑在不同艺术家下是两张不同的专辑。
+- **歌单用 id 不用名字**：歌单可以重命名，用名字当键的话改一次名自定义封面就找不回来了
+  （旧名字那行还会留在表里变成孤儿）。调用方传 `playlist.id.toString()`。
+- 图片由 Rust 侧解码校验（不是图片直接报错）、缩到 1024 长边、按内容哈希去重，
+  落到 `<支持目录>/custom_covers/`，返回缓存路径。**不复制进 `covers/`**：那是扫描缓存，
+  `prune_unused_covers` 会删掉没有被 `tracks.cover_path` 引用的文件，自定义封面会被误清。
+- 同一目标重复调用即「换一张」，旧缓存文件会被删除；`clear` 也会删文件。
+- `clear` 在本来就没有自定义封面时返回 `false`，不算错误。
+- `list` 会跳过缓存文件已不存在（用户手动删过）的记录。
+- 键拆成 `name` + `artist` 两列存储，不用 Dart 侧的 `albumGroupKey`：那个键含 `\u0000`，
+  而 SQLite 的 TEXT 以 NUL 结尾，含 NUL 的字符串存进去会被截断。
+
+## 14. 标签元数据 `api::metadata`
+
+曲目右键「修改元数据」的落盘端：读的是**文件标签本身**，不是曲库缓存（曲库只存
+标题 / 艺术家 / 专辑 / 曲目号，年份、流派、专辑艺术家、碟号库里没有）。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `read_track_tags(path: String) -> Result<TrackTags>` | `Future<TrackTags> readTrackTags({required String path})` | 否 | **已实现** |
+| `write_track_tags(path: String, tags: TrackTags) -> Result<TrackTags>` | `Future<TrackTags> writeTrackTags({required String path, required TrackTags tags})` | 否 | **已实现** |
+
+`TrackTags` 字段全部是字符串：`title` / `artist` / `album` / `album_artist` / `year` /
+`track_no` / `disc_no` / `genre`。不用数字类型是因为标签里的值不保证是数字
+（`2003-05-01` 的日期、`03/12` 的曲目号都真实存在），强转会在保存时静默丢内容。
+
+语义补充：
+
+- **会修改用户文件**：调用方必须先明确告知；写盘由 lofty 先写临时文件再替换，
+  失败不会留下半截文件。
+- 空字符串表示**清掉这个键**，不会写一个空值进去；写入前统一 trim。
+- 返回值是**写完重新读出来**的结果：不同标签格式会做归一化（补零、多值合并、
+  不支持的键被丢弃），调用方拿它刷新界面才不会出现「显示 3、文件里是 03」。
+- 没有标签的文件（`read_track_tags` 返回全空）可正常写：会自动建一个主标签。
+- 写完标签**曲库那一行不会自动更新**：调用方用返回的 `title` / `artist` / `album` /
+  `track_no` 组装 `Track` 后调 `upsert_tracks`（保留原 `added_at` / `cover_path` /
+  `replay_gain`），再刷新列表。不要为此整库重扫。
+- 封面不在读写范围内：自定义封面走 `api::cover_override`。
+
+## 15. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。
