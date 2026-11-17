@@ -1028,6 +1028,9 @@ extension _PlaybackSection on _LibraryPageState {
   Future<void> _editTrackMetadata(Track track) async {
     final int request = ++_metadataRequest;
     _metadataOpenTimer?.cancel();
+    // 淡入：从透明 + 略微下移的位置浮上来，和分区详情用同一条曲线
+    _metadataClosing = false;
+    _metadataFade.forward(from: 0);
     _metadataOpenTimer = Timer(_metadataLoadingDelay, () {
       if (!mounted || request != _metadataRequest) {
         return;
@@ -1074,45 +1077,92 @@ extension _PlaybackSection on _LibraryPageState {
   /// 重新打开。
   void _closeMetadataEditor() {
     _metadataOpenTimer?.cancel();
-    _metadataRequest += 1;
+    final int token = ++_metadataRequest;
     if (_metadataTrack == null && !_metadataLoading) {
       return;
     }
-    _update(() {
-      _metadataTrack = null;
-      _metadataTags = null;
-      _metadataLyrics = '';
-      _metadataSource = 'none';
-      _metadataLoading = false;
+    // 先淡出再清状态：动画期间界面还在（下面的分区已经放出来），播完才换回
+    // 列表。清状态放进回调里，是为了让「淡出」有东西可淡
+    _metadataClosing = true;
+    _update(() {});
+    _metadataFade.reverse().whenComplete(() {
+      // 期间又打开了另一首（或又关了一次）：这次回调作废，别把它盖掉
+      if (!mounted || token != _metadataRequest) {
+        return;
+      }
+      _metadataClosing = false;
+      _update(() {
+        _metadataTrack = null;
+        _metadataTags = null;
+        _metadataLyrics = '';
+        _metadataSource = 'none';
+        _metadataLoading = false;
+      });
     });
   }
 
-  /// 编辑界面点「保存」：写标签 → 写 `.lrc` → 同步曲库那一行。
+  /// 编辑界面里点封面：选一张本地图片。
+  ///
+  /// 只选不写——回来的路径先显示在界面上，点「保存」才真正嵌进音频文件，
+  /// 中途取消不该改动任何文件。
+  ///
+  /// 只列能解码的格式：webp 不在 `image` crate 启用的解码器里，
+  /// 选进来只会换来一句「这不是有效的图片文件」。
+  Future<String?> _pickMetadataCover() async {
+    final XFile? file = await openFile(
+      acceptedTypeGroups: <XTypeGroup>[
+        const XTypeGroup(
+          label: '图片',
+          extensions: <String>['jpg', 'jpeg', 'png', 'gif', 'bmp'],
+        ),
+      ],
+    );
+    return file?.path;
+  }
+
+  /// 编辑界面点「保存」：写标签 → 写封面 → 写歌词 → 同步曲库那一行。
   ///
   /// 出错直接抛给界面（它在底部显示原因），这里不吞——写不进去多半是文件
   /// 只读或格式不支持，用户需要知道。
-  Future<void> _saveMetadata(
-    Track track,
-    TrackTags edited,
-    String lyrics,
-  ) async {
+  Future<void> _saveMetadata(Track track, MetadataDraft draft) async {
     final TrackTags written = await writeTrackTags(
       path: track.path,
-      tags: edited,
+      tags: draft.tags,
     );
-    // 空歌词不落盘：删用户已有的 `.lrc` 是破坏性操作，不在这里顺手做
-    if (lyrics.trim().isNotEmpty) {
-      await lyrics_api.lyricsSaveRaw(path: track.path, text: lyrics);
+    // 换封面：嵌进音频文件，同时落一份到封面缓存。顺序放在标签之后——
+    // 它要重写整个文件，先写标签再写封面，两次保存互不覆盖
+    String? coverPath = track.coverPath;
+    final String? coverSource = draft.coverSource;
+    if (coverSource != null) {
+      final String cached = await writeTrackCover(
+        path: track.path,
+        source: coverSource,
+      );
+      if (cached.isNotEmpty) {
+        coverPath = cached;
+      }
     }
-    await _upsertEditedTrack(track, written);
+    // 空歌词不落盘：删用户已有的 `.lrc` 是破坏性操作，不在这里顺手做
+    if (draft.lyrics.trim().isNotEmpty) {
+      await lyrics_api.lyricsSaveRaw(
+        path: track.path,
+        text: draft.lyrics,
+        target: draft.embedLyrics ? 'embedded' : 'sidecar',
+      );
+    }
+    await _upsertEditedTrack(track, written, coverPath: coverPath);
     if (!mounted) {
       return;
     }
-    _showMessage('已保存「${written.title}」的标签与歌词');
+    _showMessage('已保存「${written.title}」');
   }
 
   /// 把改完的标签同步进曲库那一行（保留入库时间、封面、增益等文件外的信息）
-  Future<void> _upsertEditedTrack(Track track, TrackTags written) async {
+  Future<void> _upsertEditedTrack(
+    Track track,
+    TrackTags written, {
+    String? coverPath,
+  }) async {
     await db.upsertTracks(
       tracks: <Track>[
         Track(
@@ -1124,7 +1174,7 @@ extension _PlaybackSection on _LibraryPageState {
           // `03/12` 这种「第 3 首，共 12 首」只取前半截；清空就是 null
           trackNum: int.tryParse(written.trackNo.split('/').first.trim()),
           addedAt: track.addedAt,
-          coverPath: track.coverPath,
+          coverPath: coverPath ?? track.coverPath,
           replayGain: track.replayGain,
         ),
       ],

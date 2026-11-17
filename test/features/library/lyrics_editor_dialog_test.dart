@@ -14,6 +14,7 @@ Future<void> _open(
   WidgetTester tester, {
   String lyrics = _lrc,
   String source = 'sidecar',
+  bool embedTarget = false,
   Future<String> Function(String text, int deltaMs)? onShiftLyrics,
 }) async {
   await tester.pumpWidget(
@@ -27,6 +28,7 @@ Future<void> _open(
                 builder: (BuildContext _) => LyricsEditorDialog(
                   lyricsText: lyrics,
                   lyricsSource: source,
+                  embedTarget: embedTarget,
                   onShiftLyrics:
                       onShiftLyrics ?? (String text, int deltaMs) async => text,
                 ),
@@ -50,10 +52,31 @@ void _bigWindow(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
+/// 来源小标签的 tooltip：说明保存会落到哪儿
+String? _chipMessage(WidgetTester tester) {
+  return tester
+      .widget<Tooltip>(
+        find.ancestor(of: find.text('来自 .lrc'), matching: find.byType(Tooltip)),
+      )
+      .message;
+}
+
 void main() {
   setUp(() {
     _result = null;
     _closed = false;
+  });
+
+  testWidgets('来源标签说明旁载歌词会写成 .lrc', (WidgetTester tester) async {
+    _bigWindow(tester);
+    await _open(tester);
+    expect(_chipMessage(tester), '保存时写入同名 .lrc');
+  });
+
+  testWidgets('选了内嵌时，来源标签说明写进音频标签', (WidgetTester tester) async {
+    _bigWindow(tester);
+    await _open(tester, embedTarget: true);
+    expect(_chipMessage(tester), '保存时写入音频标签');
   });
 
   testWidgets('预填原文，标题与来源都在', (WidgetTester tester) async {

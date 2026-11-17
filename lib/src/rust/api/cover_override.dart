@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `check_kind`, `custom_covers_dir`, `normalize_artist`, `now_secs`, `read_existing`
+// These functions are ignored because they are not marked as `pub`: `check_kind`, `custom_covers_dir`, `normalize_artist`, `now_secs`, `read_existing`, `still_referenced`
 
 /// 给某位艺术家 / 某张专辑指定一张本地图片作封面。
 ///

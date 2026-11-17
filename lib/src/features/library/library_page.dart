@@ -172,7 +172,7 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _searchDebounce = Duration(milliseconds: 300);
 
   /// 进度轮询周期。
@@ -834,6 +834,24 @@ class _LibraryPageState extends State<LibraryPage>
   /// 每次打开 / 关闭编辑界面自增，用来作废还在飞的读取
   int _metadataRequest = 0;
 
+  /// 元数据编辑区的淡入淡出：和分区详情同款 180ms + 一点上浮
+  late final AnimationController _metadataFade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  );
+  late final Animation<double> _metadataFadeCurve = CurvedAnimation(
+    parent: _metadataFade,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeOutCubic,
+  );
+  late final Animation<Offset> _metadataSlide = Tween<Offset>(
+    begin: const Offset(0, 0.012),
+    end: Offset.zero,
+  ).animate(_metadataFadeCurve);
+
+  /// 关闭动画还在播：这期间界面留着（底下分区已经放开），播完再清状态
+  bool _metadataClosing = false;
+
   int _groupedCoverEpoch = 0;
 
   /// 拆到 `sections/` 的代码不能直接调 `@protected` 的 `setState`，统一走这里。
@@ -1068,6 +1086,7 @@ class _LibraryPageState extends State<LibraryPage>
     _nowPlayingDeviceTimer?.cancel();
     _coverSeedTimer?.cancel();
     _metadataOpenTimer?.cancel();
+    _metadataFade.dispose();
     libraryRevision.removeListener(_onLibraryChanged);
     _theme?.removeListener(_onThemeChanged);
     _sectionFade.dispose();
@@ -2806,19 +2825,28 @@ class _LibraryPageState extends State<LibraryPage>
     // 改元数据时整块内容区换成编辑界面：等价于一个临时分区，但目标曲目来自
     // 右键菜单，不该出现在侧栏。原来的分区用 Offstage 留在树里——返回时
     // 滚动位置、图片缓存、快照都还在，不用重建。
-    if (_metadataTrack == null && !_metadataLoading) {
-      return sections;
-    }
+    //
+    // 外层 Stack / Offstage 一直挂着（不只是编辑时才套）：结构一变，下面的
+    // 分区子树会换位置重新挂载，滚动位置和图片缓存都白留了。打开与关闭都走
+    // 淡入淡出 + 一点上浮，和分区详情同一条曲线。
+    final bool editing = _metadataTrack != null || _metadataLoading;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        Offstage(child: sections),
-        Positioned.fill(
-          child: ColoredBox(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            child: _buildMetadataEditor(context),
+        Offstage(offstage: editing && !_metadataClosing, child: sections),
+        if (editing)
+          Positioned.fill(
+            child: FadeTransition(
+              opacity: _metadataFadeCurve,
+              child: SlideTransition(
+                position: _metadataSlide,
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  child: _buildMetadataEditor(context),
+                ),
+              ),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2853,8 +2881,8 @@ class _LibraryPageState extends State<LibraryPage>
       lyricsSource: _metadataSource,
       onShiftLyrics: (String text, int deltaMs) =>
           lyrics_api.lyricsShiftRaw(text: text, deltaMs: deltaMs),
-      onSave: (TrackTags edited, String lyrics) =>
-          _saveMetadata(track, edited, lyrics),
+      onPickCover: _pickMetadataCover,
+      onSave: (MetadataDraft draft) => _saveMetadata(track, draft),
       onClose: _closeMetadataEditor,
     );
   }

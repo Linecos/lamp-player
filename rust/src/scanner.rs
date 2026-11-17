@@ -388,13 +388,13 @@ pub(crate) fn store_cover_bytes(covers_dir: &Path, data: &[u8], extension: &str)
 ///
 /// 播放页那个大封面在 440 逻辑像素、2x 屏下也只有 880，1024 已经留了余量；
 /// 再大就是白白占解码内存和磁盘。
-const COVER_MAX_EDGE: u32 = 1024;
+pub(crate) const COVER_MAX_EDGE: u32 = 1024;
 
 /// 小于这个就不重新编码：已经够小，重编只会掉画质。
-const COVER_MAX_BYTES_KEEP: usize = 300 * 1024;
+pub(crate) const COVER_MAX_BYTES_KEEP: usize = 300 * 1024;
 
 /// JPEG 编码质量：q85 在缩过的封面上肉眼与原始无差，体积只有几分之一。
-const COVER_JPEG_QUALITY: u8 = 85;
+pub(crate) const COVER_JPEG_QUALITY: u8 = 85;
 
 /// 把原始封面缩到 [`COVER_MAX_EDGE`] 以内并统一转成 JPEG。
 ///

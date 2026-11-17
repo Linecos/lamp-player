@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `apply`, `text_of`
+// These functions are ignored because they are not marked as `pub`: `apply`, `mime_of`, `shrink_cover`, `text_of`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
 
 /// 读取一个文件的标签。
@@ -37,6 +37,25 @@ Future<TrackTags> writeTrackTags({
 }) =>
     RustLib.instance.api.crateApiMetadataWriteTrackTags(path: path, tags: tags);
 
+/// 把一张本地图片设为曲目封面：嵌进音频标签，同时落一份到封面缓存。
+///
+/// 返回**封面缓存文件**的路径——调用方拿它去更新曲库那一行（`cover_path`），
+/// 与扫描时提取封面的行为一致：界面上显示的永远是缓存里那张缩略图，不是
+/// 音频文件里那份原始数据。
+///
+/// 图片会先缩到 1024 以内、转成 JPEG 再嵌入：一张 3000px 的 PNG 塞进标签
+/// 会让文件胖几 MB，而播放页最大也只用到 880 设备像素。
+///
+/// # Errors
+/// 路径为空、图片读不出 / 解不开、文件标签不支持图片、写盘失败时返回错误。
+Future<String> writeTrackCover({
+  required String path,
+  required String source,
+}) => RustLib.instance.api.crateApiMetadataWriteTrackCover(
+  path: path,
+  source: source,
+);
+
 /// 编辑窗里可改的标签字段。
 ///
 /// 全部用字符串承载：标签里这些值本来就不保证是数字（`2003-05-01` 这种日期、
@@ -59,6 +78,15 @@ class TrackTags {
   final String discNo;
   final String genre;
 
+  /// 作曲（TCOM）
+  final String composer;
+
+  /// 作词（TEXT / `©wrt`）
+  final String lyricist;
+
+  /// 注释（COMM）；多行原样保存
+  final String comment;
+
   const TrackTags({
     required this.title,
     required this.artist,
@@ -68,6 +96,9 @@ class TrackTags {
     required this.trackNo,
     required this.discNo,
     required this.genre,
+    required this.composer,
+    required this.lyricist,
+    required this.comment,
   });
 
   static Future<TrackTags> default_() =>
@@ -82,7 +113,10 @@ class TrackTags {
       year.hashCode ^
       trackNo.hashCode ^
       discNo.hashCode ^
-      genre.hashCode;
+      genre.hashCode ^
+      composer.hashCode ^
+      lyricist.hashCode ^
+      comment.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -96,5 +130,8 @@ class TrackTags {
           year == other.year &&
           trackNo == other.trackNo &&
           discNo == other.discNo &&
-          genre == other.genre;
+          genre == other.genre &&
+          composer == other.composer &&
+          lyricist == other.lyricist &&
+          comment == other.comment;
 }

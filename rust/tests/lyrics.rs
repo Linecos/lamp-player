@@ -149,3 +149,72 @@ fn sidecar_with_inline_words_and_translation() {
     assert_eq!(first.end_ms, 9_019);
     assert_eq!(lyrics.lines[1].words.len(), 2);
 }
+
+#[test]
+fn sidecar_target_writes_the_lrc_file() {
+    use rust_lib_lamp_player::api::lyrics::lyrics_save_raw;
+
+    let dir = TempDir::new("save_sidecar");
+    let song = dir.0.join("旁载.wav");
+    write_wav(&song);
+
+    let written = lyrics_save_raw(
+        song.to_string_lossy().into_owned(),
+        "[00:01.00]第一行\n".to_string(),
+        "sidecar".to_string(),
+    )
+    .expect("写入旁载");
+    assert_eq!(written, song.with_extension("lrc").to_string_lossy());
+
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    assert_eq!(lyrics.source, "sidecar");
+    assert_eq!(lyrics.lines.len(), 1);
+}
+
+#[test]
+fn embedded_target_writes_into_the_audio_file() {
+    use rust_lib_lamp_player::api::lyrics::lyrics_save_raw;
+
+    let dir = TempDir::new("save_embedded");
+    let song = dir.0.join("内嵌写.wav");
+    write_wav(&song);
+    let lrc = song.with_extension("lrc");
+
+    lyrics_save_raw(
+        song.to_string_lossy().into_owned(),
+        "[00:02.50]写进文件\n".to_string(),
+        "embedded".to_string(),
+    )
+    .expect("写入内嵌");
+
+    assert!(!lrc.exists(), "选了内嵌就不该再生成 .lrc");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    assert_eq!(lyrics.source, "embedded");
+    assert_eq!(lyrics.lines.len(), 1);
+    assert_eq!(lyrics.lines[0].time_ms, 2_500);
+    assert_eq!(lyrics.lines[0].text, "写进文件");
+}
+
+#[test]
+fn embedded_target_refreshes_an_existing_sidecar() {
+    use rust_lib_lamp_player::api::lyrics::lyrics_save_raw;
+
+    let dir = TempDir::new("embedded_sidecar");
+    let song = dir.0.join("两边都有.wav");
+    write_wav(&song);
+    let lrc = song.with_extension("lrc");
+    fs::write(&lrc, "[00:01.00]旧旁载\n").expect("写入旧 lrc");
+
+    lyrics_save_raw(
+        song.to_string_lossy().into_owned(),
+        "[00:03.00]新的\n".to_string(),
+        "embedded".to_string(),
+    )
+    .expect("写入内嵌");
+
+    // 旁载优先：不刷新的话读出来还是「旧旁载」，等于这次保存白做
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    assert_eq!(lyrics.source, "sidecar");
+    assert_eq!(lyrics.lines[0].text, "新的");
+    assert!(fs::read_to_string(&lrc).expect("读 lrc").contains("新的"));
+}

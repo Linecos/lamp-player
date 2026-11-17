@@ -16,6 +16,7 @@ class LyricsEditorDialog extends StatefulWidget {
     super.key,
     required this.lyricsText,
     required this.lyricsSource,
+    required this.embedTarget,
     required this.onShiftLyrics,
   });
 
@@ -24,6 +25,12 @@ class LyricsEditorDialog extends StatefulWidget {
 
   /// 来源：`sidecar`（同名 `.lrc` / `.ttml`）/ `embedded`（音频标签）/ `none`
   final String lyricsSource;
+
+  /// 上一层选的写入位置：true = 音频标签，false = 同名 `.lrc`。
+  ///
+  /// 子窗只负责改文本，落盘在上一层做；这里读它只是为了把「保存到哪儿」
+  /// 说清楚，免得改完才发现写错了地方。
+  final bool embedTarget;
 
   /// 整体平移时间戳：返回平移后的新文本（负数提前、正数延后）
   final Future<String> Function(String text, int deltaMs) onShiftLyrics;
@@ -181,10 +188,11 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
 
   /// 歌词来源小标签：告诉用户保存会落到哪个文件
   Widget _sourceChip(ThemeData theme, ColorScheme scheme) {
+    final String targetLabel = widget.embedTarget ? '音频标签' : '同名 .lrc';
     final (String label, String tip) = switch (widget.lyricsSource) {
-      'sidecar' => ('来自 .lrc', '保存时写回同名 .lrc'),
-      'embedded' => ('来自文件内嵌', '保存时会新建同名 .lrc（不改音频文件）'),
-      _ => ('暂无歌词', '保存时新建同名 .lrc'),
+      'sidecar' => ('来自 .lrc', '保存时写入$targetLabel'),
+      'embedded' => ('来自文件内嵌', '保存时写入$targetLabel'),
+      _ => ('暂无歌词', '保存时写入$targetLabel'),
     };
     return Tooltip(
       message: tip,
