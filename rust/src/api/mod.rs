@@ -11,7 +11,8 @@
 //! - [`scan`]：目录扫描与元数据解析
 //! - [`player`]：BASS 播放引擎
 //! - [`replaygain`]：ReplayGain 标签写入（多选「计算 ReplayGain」）
-//! - [`lyrics`]：歌词读取（`.lrc` / 内嵌标签）
+//! - [`metadata`]：标签元数据读写（右键「修改元数据」）
+//! - [`lyrics`]：歌词读取（`.lrc` / 内嵌标签）与编辑保存
 //! - [`media`]：系统媒体控制（SMTC）与单实例
 //! - [`appearance`]：系统强调色（动态取色）
 //! - [`simple`]：桥接自检函数（`greet`），用于确认 FFI 正常
@@ -23,6 +24,7 @@ pub mod db;
 pub mod desktop_lyrics;
 pub mod lyrics;
 pub mod media;
+pub mod metadata;
 pub mod model;
 pub mod player;
 pub mod replaygain;
