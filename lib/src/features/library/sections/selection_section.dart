@@ -41,6 +41,7 @@ extension _SelectionSection on _LibraryPageState {
         }
         return const <Track>[];
       case LibrarySection.settings:
+      case LibrarySection.library:
         return const <Track>[];
     }
   }

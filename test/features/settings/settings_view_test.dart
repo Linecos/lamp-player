@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../support/fake_library.dart';
 
 Widget _harness({ThemeController? controller}) {
-  final Widget view = Scaffold(body: SettingsView(trackCount: 2));
+  final Widget view = Scaffold(body: SettingsView());
   return controller == null
       ? MaterialApp(theme: AppTheme.light(AppTheme.defaultSeed), home: view)
       : ThemeScope(
@@ -63,60 +63,6 @@ void main() {
           .selected,
       <ThemeMode>{ThemeMode.system},
     );
-  });
-
-  testWidgets('设置页可触发添加音乐目录', (WidgetTester tester) async {
-    tester.view.physicalSize = canvas;
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    int calls = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(AppTheme.defaultSeed),
-        home: Scaffold(
-          body: SettingsView(
-            libraryOpen: true,
-            trackCount: 2,
-            onAddFolder: () => calls += 1,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('添加音乐目录'));
-    await tester.tap(find.text('添加音乐目录'));
-    expect(calls, 1);
-  });
-
-  testWidgets('扫描中禁用添加目录入口并显示进度', (WidgetTester tester) async {
-    tester.view.physicalSize = canvas;
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    int calls = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(AppTheme.defaultSeed),
-        home: Scaffold(
-          body: SettingsView(
-            libraryOpen: true,
-            trackCount: 2,
-            scanning: true,
-            onAddFolder: () => calls += 1,
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    await tester.ensureVisible(find.text('正在扫描…'));
-    await tester.tap(find.text('添加音乐目录'));
-    expect(calls, 0);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
   testWidgets('点击主题行可切换到深色并写入存储', (WidgetTester tester) async {
@@ -196,61 +142,6 @@ void main() {
     expect(Theme.of(context).brightness, Brightness.dark);
   });
 
-  testWidgets('音乐目录为空时显示空态提示', (WidgetTester tester) async {
-    tester.view.physicalSize = canvas;
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(
-          body: SettingsView(libraryOpen: true, trackCount: 0),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
-  });
-
-  testWidgets('目录行提供重新扫描与移除回调', (WidgetTester tester) async {
-    tester.view.physicalSize = canvas;
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final List<String> rescanned = <String>[];
-    final List<String> removed = <String>[];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(AppTheme.defaultSeed),
-        home: Scaffold(
-          body: SettingsView(
-            libraryOpen: true,
-            trackCount: 3,
-            folders: const <String>['D:/Music', 'E:/Songs'],
-            onRescanFolder: rescanned.add,
-            onRemoveFolder: removed.add,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('D:/Music'), findsOneWidget);
-    expect(find.text('E:/Songs'), findsOneWidget);
-    expect(find.byTooltip('重新扫描'), findsNWidgets(2));
-
-    await tester.tap(find.byTooltip('重新扫描').first);
-    expect(rescanned, <String>['D:/Music']);
-
-    await tester.tap(find.byTooltip('从列表移除').last);
-    expect(removed, <String>['E:/Songs']);
-  });
-
   testWidgets('独占输出行展示状态并回调开关', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
@@ -263,7 +154,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 3,
             exclusive: false,
             exclusiveActive: false,
             onExclusiveChanged: changes.add,
@@ -293,7 +183,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 3,
             exclusive: true,
             switchingOutput: true,
             onExclusiveChanged: (_) {},
@@ -323,7 +212,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 1,
             flowBackground: true,
             onFlowBackgroundChanged: changes.add,
           ),
@@ -354,10 +242,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
-          body: SettingsView(
-            trackCount: 1,
-            onCircularCoversChanged: changes.add,
-          ),
+          body: SettingsView(onCircularCoversChanged: changes.add),
         ),
       ),
     );
@@ -386,7 +271,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 1,
             closeToTray: true,
             onCloseToTrayChanged: changes.add,
           ),
@@ -414,7 +298,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(AppTheme.defaultSeed),
-        home: const Scaffold(body: SettingsView(trackCount: 1)),
+        home: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -436,7 +320,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 1,
             eqEnabled: true,
             eqGains: List<double>.filled(10, 0),
             eqPresetName: '摇滚',
@@ -478,7 +361,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 1,
             eqEnabled: false,
             onEqualizerChanged: (_, _, _) {},
           ),
@@ -508,7 +390,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -568,7 +450,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -634,7 +516,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -703,7 +585,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(body: SettingsView(trackCount: 1)),
+          home: const Scaffold(body: SettingsView()),
         ),
       ),
     );
@@ -739,7 +621,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(body: SettingsView(trackCount: 1)),
+          home: const Scaffold(body: SettingsView()),
         ),
       ),
     );
@@ -783,7 +665,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light(controller.effectiveSeed),
-          home: const Scaffold(body: SettingsView(trackCount: 1)),
+          home: const Scaffold(body: SettingsView()),
         ),
       ),
     );
@@ -811,9 +693,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 2,
-            onOpenLibrary: () {},
-            onAddFolder: () {},
             onExclusiveChanged: (_) {},
             onCloseToTrayChanged: (_) {},
           ),
@@ -858,7 +737,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            trackCount: 1,
             devices: const <rust.PlayerDevice>[
               rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
               rust.PlayerDevice(index: 2, name: '耳机', isDefault: false),
@@ -951,7 +829,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -1015,7 +893,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -1102,7 +980,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();
@@ -1142,7 +1020,6 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: const Scaffold(
           body: SettingsView(
-            trackCount: 2,
             // 曲库页传的就是 PlayerBar.occupiedHeight + 8
             bottomPadding: 116,
           ),

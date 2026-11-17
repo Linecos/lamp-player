@@ -135,6 +135,9 @@ void main() {
     await openSection(tester, '专辑');
     expect(find.text('搜索专辑'), findsOneWidget);
 
+    await openLibrarySettings(tester);
+    expect(find.text('搜索音乐库'), findsOneWidget);
+
     await openSettings(tester);
     expect(find.text('搜索设置项'), findsOneWidget);
     // enabled 不传即为可输入（null 表示走默认的 true）
@@ -148,13 +151,13 @@ void main() {
     await pumpLibrary(tester, tracks: twoTracks());
     await openSettings(tester);
 
-    expect(find.text('听歌统计'), findsOneWidget);
+    expect(find.text('快捷键'), findsOneWidget);
     expect(find.text('输出设备'), findsOneWidget);
 
     await search(tester, '均衡器');
     expect(find.text('均衡器'), findsWidgets, reason: '命中的行留着');
-    expect(find.text('听歌统计'), findsNothing, reason: '没命中的行收起来');
-    expect(find.text('音乐库'), findsNothing, reason: '整组没命中，分区标题一起收起');
+    expect(find.text('快捷键'), findsNothing, reason: '没命中的行收起来');
+    expect(find.text('外观'), findsNothing, reason: '整组没命中，分区标题一起收起');
     expect(find.text('播放'), findsWidgets, reason: '命中行所在分区的标题还在');
   });
 
@@ -164,10 +167,10 @@ void main() {
 
     await search(tester, 'zzz没有这个设置');
     expect(find.text('没有匹配的设置项'), findsOneWidget);
-    expect(find.text('听歌统计'), findsNothing);
+    expect(find.text('快捷键'), findsNothing);
 
     await tester.tap(find.text('清除搜索'));
     await tester.pumpAndSettle();
-    expect(find.text('听歌统计'), findsOneWidget, reason: '清除后恢复全部设置');
+    expect(find.text('快捷键'), findsOneWidget, reason: '清除后恢复全部设置');
   });
 }

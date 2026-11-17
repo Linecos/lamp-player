@@ -3,36 +3,23 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../app/app_toast.dart';
 import '../../app/app_version.dart';
 import '../../common/common.dart';
-import '../../rust/api/db.dart' as db;
 import '../../rust/api/player.dart' as rust;
-import '../../rust/api/model.dart' show Track;
-import '../../rust/api/scan.dart';
 import '../../theme/app_theme.dart';
-import '../library/library_revision.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
 import '../player/shortcuts.dart';
 
-import 'hidden_tracks_view.dart';
 import 'theme_controller.dart';
+import 'widgets/settings_rows.dart';
 
 /// 设置页骨架。
 ///
-/// 展示曲库统计与引擎状态；「外观 → 主题」可切换并持久化。
-/// 「添加音乐目录」由曲库页负责扫描，本页展示进度、结果与失败重试。
+/// 「外观 → 主题」可切换并持久化；曲库目录与扫描结果在「音乐库」分区里。
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
-    required this.trackCount,
-    this.onOpenStats,
-    this.libraryOpen = false,
-    this.onOpenLibrary,
-    this.onCloseLibrary,
-    this.onPlayStatsTrack,
-    this.onOpenStatsArtist,
     this.exclusive = false,
     this.exclusiveActive = false,
     this.switchingOutput = false,
@@ -63,43 +50,10 @@ class SettingsView extends StatelessWidget {
     this.circularCovers = false,
     this.onCircularCoversChanged,
     this.bottomPadding = 16,
-    this.scanning = false,
-    this.folders = const <String>[],
-    this.onAddFolder,
-    this.onRescanFolder,
-    this.onRemoveFolder,
-    this.scanFolder,
-    this.scanReport,
-    this.scanError,
-    this.onRetry,
-    this.pruningMissing = false,
-    this.prunedMissingCount,
-    this.pruneMissingError,
-    this.onPruneMissing,
     this.query = '',
     this.matcher,
     this.onClearSearch,
   });
-
-  final int trackCount;
-
-  /// 打开「听歌统计」：它是设置分区里的子界面，具体切换由分区容器负责
-  final VoidCallback? onOpenStats;
-
-  /// 是否正开着「音乐库」子界面
-  final bool libraryOpen;
-
-  /// 打开「音乐库」子界面
-  final VoidCallback? onOpenLibrary;
-
-  /// 从子界面退回设置列表
-  final VoidCallback? onCloseLibrary;
-
-  /// 统计页点歌曲：整份榜单当队列播出去；为空则行不可点
-  final void Function(List<Track> queue, Track track)? onPlayStatsTrack;
-
-  /// 统计页点艺术家：跳到曲库的艺术家详情；为空则行不可点
-  final ValueChanged<String>? onOpenStatsArtist;
 
   /// 是否请求 WASAPI 独占输出（用户偏好）
   final bool exclusive;
@@ -187,43 +141,6 @@ class SettingsView extends StatelessWidget {
   /// 否则最后一栏（关于）会滚不进可视区。
   final double bottomPadding;
 
-  final bool scanning;
-
-  /// 已添加的音乐目录（按添加顺序）
-  final List<String> folders;
-
-  final VoidCallback? onAddFolder;
-
-  /// 重新扫描某个目录；为空表示当前不可操作（例如正在扫描）
-  final ValueChanged<String>? onRescanFolder;
-
-  /// 从列表移除某个目录（不删除已入库曲目）
-  final ValueChanged<String>? onRemoveFolder;
-
-  /// 当前（或最近一次）扫描的目录，用于进度与结果展示。
-  final String? scanFolder;
-
-  /// 本次扫描结果；为 null 表示还没有成功扫描过。
-  final ScanReport? scanReport;
-
-  /// 本次扫描失败原因；为 null 表示没有待处理的失败。
-  final Object? scanError;
-
-  /// 重新扫描 [scanFolder]；为空时只展示错误，不提供重试。
-  final VoidCallback? onRetry;
-
-  /// 正在清理「文件已不存在」的曲库记录
-  final bool pruningMissing;
-
-  /// 最近一次清理的条数；为 null 表示还没清理过
-  final int? prunedMissingCount;
-
-  /// 清理失败原因；为 null 表示没有待处理的失败
-  final Object? pruneMissingError;
-
-  /// 触发清理；为空表示当前不可操作
-  final VoidCallback? onPruneMissing;
-
   /// 常驻搜索框的关键词：非空时只留命中的设置行
   final String query;
 
@@ -235,9 +152,6 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (libraryOpen) {
-      return _buildLibraryPage(context);
-    }
     final String query = this.query.trim();
     final List<Widget> children = <Widget>[];
 
@@ -247,25 +161,10 @@ class SettingsView extends StatelessWidget {
       if (kept.isEmpty) {
         return;
       }
-      children.add(_SectionLabel(label));
-      children.add(_SettingsCard(children: kept));
+      children.add(SettingsSectionLabel(label));
+      children.add(SettingsCard(children: kept));
     }
 
-    section('音乐库', <Widget>[
-      _ActionRow(
-        key: const ValueKey<String>('settings-open-library'),
-        icon: Icons.library_music_outlined,
-        title: '音乐库',
-        subtitle: '$trackCount 首曲目，目录与清理',
-        onTap: onOpenLibrary,
-      ),
-      _ActionRow(
-        icon: Icons.insights_outlined,
-        title: '听歌统计',
-        subtitle: '累计时长与次数排行',
-        onTap: onOpenStats,
-      ),
-    ]);
     section('播放', <Widget>[
       _ChoiceRow<int>(
         icon: Icons.speaker_outlined,
@@ -327,7 +226,7 @@ class SettingsView extends StatelessWidget {
         value: volumeFade,
         onChanged: onVolumeFadeChanged,
       ),
-      _ActionRow(
+      SettingsActionRow(
         icon: Icons.equalizer,
         title: '均衡器',
         subtitle: eqEnabled
@@ -337,7 +236,7 @@ class SettingsView extends StatelessWidget {
             ? null
             : () => _openEqualizer(context),
       ),
-      _ActionRow(
+      SettingsActionRow(
         icon: Icons.keyboard_outlined,
         title: '快捷键',
         subtitle: '点一行再按组合键改键',
@@ -374,7 +273,7 @@ class SettingsView extends StatelessWidget {
       ),
     ]);
     section('关于', <Widget>[
-      _InfoRow(
+      SettingsInfoRow(
         icon: Icons.info_outline,
         title: 'Lamp Player',
         subtitle: 'Flutter + Rust + BASS',
@@ -400,111 +299,6 @@ class SettingsView extends StatelessWidget {
     );
   }
 
-  /// 音乐库子界面：曲目数量、目录管理、隐藏与清理都收在这里。
-  ///
-  /// 与听歌统计同一套「分区内切换」：左侧栏与播放岛不动，返回只换内容。
-  Widget _buildLibraryPage(BuildContext context) {
-    final List<Widget> children = <Widget>[];
-
-    void section(String label, List<Widget> rows) {
-      children.add(_SectionLabel(label));
-      children.add(_SettingsCard(children: rows));
-    }
-
-    section('音乐库', <Widget>[
-      _InfoRow(
-        icon: Icons.library_music_outlined,
-        title: '曲目数量',
-        value: '$trackCount 首',
-      ),
-      _ActionRow(
-        icon: Icons.create_new_folder_outlined,
-        title: '添加音乐目录',
-        subtitle: scanning ? '正在扫描…' : '递归扫描，增量入库',
-        onTap: scanning ? null : onAddFolder,
-        trailing: scanning
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
-      _ActionRow(
-        icon: Icons.visibility_off_outlined,
-        title: '被隐藏的歌曲',
-        subtitle: '扫描时跳过，可在这里恢复',
-        onTap: () => unawaited(_openHiddenTracks(context)),
-      ),
-      _ActionRow(
-        icon: Icons.cleaning_services_outlined,
-        title: '清理缺失文件',
-        subtitle: pruningMissing ? '正在检查…' : '只删库记录，不动音频文件',
-        onTap: pruningMissing ? null : onPruneMissing,
-        trailing: pruningMissing
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-      ),
-    ]);
-    if (!pruningMissing &&
-        pruneMissingError != null &&
-        onPruneMissing != null) {
-      children.add(
-        ErrorRetry(
-          title: '清理失败',
-          error: pruneMissingError!,
-          onRetry: onPruneMissing!,
-        ),
-      );
-    }
-    if (!pruningMissing &&
-        pruneMissingError == null &&
-        prunedMissingCount != null) {
-      children.add(_PruneSummary(count: prunedMissingCount!));
-    }
-
-    section('音乐目录', <Widget>[
-      if (folders.isEmpty)
-        const _EmptyFolders()
-      else
-        for (final String folder in folders)
-          _FolderRow(
-            folder: folder,
-            scanning: scanning && folder == scanFolder,
-            onRescan: onRescanFolder == null
-                ? null
-                : () => onRescanFolder!(folder),
-            onRemove: onRemoveFolder == null
-                ? null
-                : () => onRemoveFolder!(folder),
-          ),
-    ]);
-    if (scanning && scanFolder != null) {
-      children.add(_ScanProgress(folder: scanFolder!));
-    }
-    if (!scanning && scanError != null && onRetry != null) {
-      children.add(
-        ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-      );
-    }
-    if (!scanning && scanError == null && scanReport != null) {
-      children.add(_ScanSummary(report: scanReport!, folder: scanFolder ?? ''));
-    }
-
-    return ListView(
-      padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
-      children: <Widget>[
-        _LibraryBackHeader(onBack: onCloseLibrary),
-        const SizedBox(height: 6),
-        ...children,
-      ],
-    );
-  }
-
   /// 搜索时只留命中的行；没命中的行（含状态类小组件）一起收起来
   List<Widget> _filterRows(List<Widget> rows, String query) {
     if (query.isEmpty) {
@@ -512,10 +306,10 @@ class SettingsView extends StatelessWidget {
     }
     final List<Widget> kept = <Widget>[];
     for (final Widget row in rows) {
-      if (row is! _Searchable) {
+      if (row is! SettingsSearchable) {
         continue;
       }
-      final _Searchable searchable = row as _Searchable;
+      final SettingsSearchable searchable = row as SettingsSearchable;
       if (_hit(searchable.searchText, query)) {
         kept.add(row);
       }
@@ -529,13 +323,6 @@ class SettingsView extends StatelessWidget {
       return custom(text, query);
     }
     return text.toLowerCase().contains(query.toLowerCase());
-  }
-
-  static Future<void> _openHiddenTracks(BuildContext context) {
-    return showDialog<void>(
-      context: context,
-      builder: (BuildContext dialogContext) => const _HiddenTracksDialog(),
-    );
   }
 
   /// 均衡器：与正在播放页同一个弹窗（以前这里是 push 一整页，风格不统一）
@@ -552,50 +339,8 @@ class SettingsView extends StatelessWidget {
   }
 }
 
-/// 设置子页的返回头：56 的点击区 + 大标题，与听歌统计保持一致。
-class _LibraryBackHeader extends StatelessWidget {
-  const _LibraryBackHeader({this.onBack});
-
-  final VoidCallback? onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Row(
-      children: <Widget>[
-        SizedBox(
-          width: 56,
-          height: 56,
-          child: IconButton(
-            key: const ValueKey<String>('library-back'),
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back),
-            tooltip: '返回设置',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 56, height: 56),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          '音乐库',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 设置行的搜索索引：常驻搜索框按 [searchText] 过滤本页的行。
-///
-/// 索引直接取行自己展示的标题 / 副标题，改文案时不会漏更新。
-abstract interface class _Searchable {
-  String get searchText;
-}
-
 /// 一行「标题 + 下拉选择」，用于输出设备、淡变时长这类多选一设置。
-class _ChoiceRow<T> extends StatefulWidget implements _Searchable {
+class _ChoiceRow<T> extends StatefulWidget implements SettingsSearchable {
   const _ChoiceRow({
     required this.icon,
     required this.title,
@@ -734,69 +479,11 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    // 水平不缩进：分组标题要和下面的卡片左边缘对齐（卡片自身有内边距）
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
-  }
-}
-
-/// 卡片用 Material 承载底色：内部 InkWell 的水波纹与 hover 高光必须画在
-/// Material 上，被不透明的 Container 盖住就完全看不见。
-class _SettingsCard extends StatelessWidget {
-  const _SettingsCard({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(32),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Column(
-          children: <Widget>[
-            for (int i = 0; i < children.length; i += 1) ...<Widget>[
-              if (i > 0)
-                Divider(
-                  height: 1,
-                  indent: 64,
-                  color: scheme.outlineVariant.withValues(alpha: 0.6),
-                ),
-              children[i],
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// 一行「标题 + 滑块」：用于淡变时长这类连续取值。
 ///
 /// 拖动只改本地预览、松手才回调：若每次 onChanged 都写会话并下发引擎，
 /// 整页会跟着重建，手感发涩（与取色弹窗里的滑杆同一套做法）。
-class _SliderRow extends StatefulWidget implements _Searchable {
+class _SliderRow extends StatefulWidget implements SettingsSearchable {
   const _SliderRow({
     required this.icon,
     required this.title,
@@ -939,9 +626,10 @@ class _SliderRowState extends State<_SliderRow> {
 
 /// 可点击的操作行，样式与只读信息行保持一致。
 /// 带开关的设置行
-class _SwitchRow extends StatelessWidget implements _Searchable {
+class _SwitchRow extends StatelessWidget implements SettingsSearchable {
   const _SwitchRow({
-    required this.icon,
+    this.icon,
+    this.iconBuilder,
     required this.title,
     this.subtitle,
     required this.value,
@@ -950,7 +638,12 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
     this.switchKey,
   });
 
-  final IconData icon;
+  /// 内置字形；与 [iconBuilder] 二选一
+  final IconData? icon;
+
+  /// 自绘图标：内置集里没有的字形走这条，颜色由行自己给
+  final Widget Function(Color color)? iconBuilder;
+
   final String title;
   final String? subtitle;
   final bool value;
@@ -983,7 +676,9 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
                 color: scheme.surfaceContainerHigh,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+              child:
+                  iconBuilder?.call(scheme.onSurfaceVariant) ??
+                  Icon(icon, size: 20, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -1019,140 +714,6 @@ class _SwitchRow extends StatelessWidget implements _Searchable {
   }
 }
 
-class _ActionRow extends StatelessWidget implements _Searchable {
-  const _ActionRow({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.trailing,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-  final Widget? trailing;
-
-  @override
-  String get searchText => '$title $subtitle';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      hoverColor: scheme.surfaceContainerHigh,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(title, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            if (trailing != null)
-              trailing!
-            else if (onTap != null)
-              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget implements _Searchable {
-  const _InfoRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-    this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final String? subtitle;
-
-  @override
-  String get searchText => '$title ${subtitle ?? ''} $value';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title, style: theme.textTheme.bodyLarge),
-                if (subtitle != null) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 主题选择行：有 [ThemeScope] 时可点击切换，没有时退化为只读展示。
 ///
 /// 不带小标题：卡片里只有这一行是「整组选择」，加个「主题」反而多一层缩进；
@@ -1162,7 +723,7 @@ class _InfoRow extends StatelessWidget implements _Searchable {
 /// ColoredBox），问题是选中底色画在描边之上，会把选中段自己的外框和分隔线
 /// 盖掉，看起来像浮在控件上的一块灰块；原生组件由 ButtonStyle 统一处理
 /// 描边、分隔线与选中填充的层叠，也自带 MD3 的勾选图标与状态色。
-class _ThemeRow extends StatelessWidget implements _Searchable {
+class _ThemeRow extends StatelessWidget implements SettingsSearchable {
   const _ThemeRow();
 
   /// 三段顺序固定：跟随系统 / 浅色 / 深色
@@ -1214,7 +775,7 @@ class _ThemeRow extends StatelessWidget implements _Searchable {
 ///
 /// 放在配色弹窗**外面**单独一行：它是个总开关，和「选哪个颜色」是两件事，
 /// 塞进气泡卡格里既容易被当成一张色卡，也表达不出「优先级最高」。
-class _DynamicThemeRow extends StatelessWidget implements _Searchable {
+class _DynamicThemeRow extends StatelessWidget implements SettingsSearchable {
   const _DynamicThemeRow();
 
   @override
@@ -1225,7 +786,8 @@ class _DynamicThemeRow extends StatelessWidget implements _Searchable {
     final ThemeController? controller = ThemeScope.maybeOf(context);
     final bool on = controller?.followsCover ?? false;
     return _SwitchRow(
-      icon: Icons.palette_outlined,
+      // mdi:brush-variant 内置集没有：自绘笔刷（宽扁刷头 + 手柄）
+      iconBuilder: (Color color) => _BrushVariantIcon(size: 20, color: color),
       title: '动态主题色',
       switchKey: const ValueKey<String>('settings-dynamic-theme-switch'),
       subtitle: on ? '已开启 · 优先于手动强调色' : '跟随当前播放封面的主色',
@@ -1237,7 +799,7 @@ class _DynamicThemeRow extends StatelessWidget implements _Searchable {
   }
 }
 
-class _AccentColorRow extends StatelessWidget implements _Searchable {
+class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
   const _AccentColorRow();
 
   @override
@@ -1649,250 +1211,6 @@ class _ToneQuadPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ToneQuadPainter oldDelegate) =>
       oldDelegate.colors != colors;
-}
-
-class _ScanProgress extends StatelessWidget {
-  const _ScanProgress({required this.folder});
-
-  final String folder;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '正在扫描 $folder',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScanSummary extends StatelessWidget {
-  const _ScanSummary({required this.report, required this.folder});
-
-  final ScanReport report;
-  final String folder;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final List<String> parts = <String>[
-      // upserted 是「入库或更新」的条数，不是纯新增
-      '入库 ${report.upserted} 首',
-      if (report.unchanged > 0) '跳过 ${report.unchanged} 首',
-      if (report.pruned > 0) '清理 ${report.pruned} 条',
-      if (report.failed > 0) '失败 ${report.failed} 个',
-      if (report.walkErrors > 0) '无法读取 ${report.walkErrors} 个',
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(Icons.check_circle_outline, size: 16, color: scheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                '扫描完成',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: scheme.primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(parts.join(' · '), style: theme.textTheme.bodyMedium),
-          const SizedBox(height: 2),
-          Text(
-            folder,
-            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
-            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 清理缺失文件的结果摘要
-class _PruneSummary extends StatelessWidget {
-  const _PruneSummary({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.check_circle_outline, size: 16, color: scheme.primary),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              count > 0 ? '已清理 $count 条缺失记录' : '没有发现缺失文件',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 还没添加任何目录时的占位提示
-class _EmptyFolders extends StatelessWidget implements _Searchable {
-  const _EmptyFolders();
-
-  @override
-  String get searchText => '音乐目录 还没有添加目录';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
-      child: Row(
-        children: <Widget>[
-          Icon(
-            Icons.folder_off_outlined,
-            size: 20,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '还没有添加音乐目录，先在上方添加一个',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 单个目录：路径 + 重新扫描 / 移除
-class _FolderRow extends StatelessWidget implements _Searchable {
-  const _FolderRow({
-    required this.folder,
-    required this.scanning,
-    this.onRescan,
-    this.onRemove,
-  });
-
-  final String folder;
-  final bool scanning;
-  final VoidCallback? onRescan;
-  final VoidCallback? onRemove;
-
-  @override
-  String get searchText => '音乐目录 $folder';
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.folder_open_outlined,
-              size: 20,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  folder,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  scanning ? '正在扫描…' : '已添加',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (scanning)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-          else
-            IconButton(
-              onPressed: onRescan,
-              tooltip: '重新扫描',
-              iconSize: 20,
-              icon: const Icon(Icons.refresh),
-            ),
-          IconButton(
-            onPressed: onRemove,
-            tooltip: '从列表移除',
-            iconSize: 20,
-            icon: const Icon(Icons.delete_outline),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// 自定义种子色：二维色域方块（横向饱和度、纵向明度）+ 上方一条色相滑杆。
@@ -2319,136 +1637,58 @@ class _FieldPainter extends CustomPainter {
   bool shouldRepaint(_FieldPainter oldDelegate) => oldDelegate.hsv != hsv;
 }
 
-/// 「被隐藏的歌曲」列表：从曲库隐藏的曲目，可逐条恢复。
+/// 画笔图标（对齐 mdi:brush-variant）：圆角宽刷头 + 中间横槽 + 顶部缺口 + 手炳。
 ///
-/// 数据直接从曲库读，不经过曲库页——隐藏列表和当前播放状态无关，
-/// 设置页单独打开也能看。
-class _HiddenTracksDialog extends StatefulWidget {
-  const _HiddenTracksDialog();
+/// 与音乐库的四柱图标同一套做法：字形大小只认传入的 [size]，在可用空间居中，
+/// 不按 layout 尺寸缩放（行首圆形底给的是 40×40 紧约束）。
+///
+/// 横槽与缺口用 [Path.combine] 从刷头里真正挖掉，不是盖一层底色——底下是
+/// 主题色圆形底，盖色在不同主题下会露馅。
+class _BrushVariantIcon extends StatelessWidget {
+  const _BrushVariantIcon({required this.size, required this.color});
 
-  @override
-  State<_HiddenTracksDialog> createState() => _HiddenTracksDialogState();
-}
-
-class _HiddenTracksDialogState extends State<_HiddenTracksDialog> {
-  List<db.HiddenTrack>? _items;
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final List<db.HiddenTrack> items = await db.hiddenTracks();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _items = items;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = '读取失败：${ErrorRetry.describe(error)}';
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _restore(db.HiddenTrack track) async {
-    try {
-      await db.unhideTracks(paths: <String>[track.path]);
-      // 曲库页不在同一棵子树里，靠进程内通知让它重新拉一次列表
-      markLibraryChanged();
-      await _load();
-      if (!mounted) {
-        return;
-      }
-      AppToast.show(context, '已恢复：${track.title}');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      AppToast.show(context, '恢复失败：${ErrorRetry.describe(error)}');
-    }
-  }
+  final double size;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
+    return CustomPaint(painter: _BrushVariantPainter(color, size));
+  }
+}
 
-    return AlertDialog(
-      title: const Text('被隐藏的歌曲'),
-      contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      content: SizedBox(
-        // 多了 40px 封面与一列信息，比原来的纯文字列表宽一点
-        width: 560,
-        height: 360,
-        child: _buildBody(theme, scheme),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('完成'),
-        ),
-      ],
-    );
+class _BrushVariantPainter extends CustomPainter {
+  const _BrushVariantPainter(this.color, this.iconSize);
+
+  final Color color;
+  final double iconSize;
+
+  static final Path _body = () {
+    final Path head = Path()
+      ..addRRect(RRect.fromLTRBR(4, 4, 20.5, 13, const Radius.circular(2.5)));
+    final Path cuts = Path()
+      ..addRect(const Rect.fromLTRB(4, 9.2, 20.5, 10.6))
+      ..addRect(const Rect.fromLTRB(12.6, 4, 14.2, 7.2))
+      ..addRect(const Rect.fromLTRB(16.8, 4, 18.2, 7.2));
+    return Path.combine(PathOperation.difference, head, cuts);
+  }();
+
+  static final RRect _handle = RRect.fromRectAndCorners(
+    const Rect.fromLTRB(9.5, 11.5, 15.5, 20.5),
+    bottomLeft: const Radius.circular(2.5),
+    bottomRight: const Radius.circular(2.5),
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double scale = iconSize / 24;
+    canvas.translate((size.width - iconSize) / 2, (size.height - iconSize) / 2);
+    canvas.scale(scale);
+    final Paint paint = Paint()..color = color;
+    canvas.drawRRect(_handle, paint);
+    canvas.drawPath(_body, paint);
   }
 
-  Widget _buildBody(ThemeData theme, ColorScheme scheme) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final String? error = _error;
-    if (error != null) {
-      return Center(
-        child: Text(
-          error,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error),
-        ),
-      );
-    }
-    final List<db.HiddenTrack> items = _items ?? const <db.HiddenTrack>[];
-    if (items.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(
-              Icons.visibility_off_outlined,
-              size: 40,
-              color: scheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '没有被隐藏的歌曲',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '在曲目上右键「隐藏歌曲」会放到这里',
-              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return HiddenTracksView(items: items, onRestore: _restore);
-  }
+  @override
+  bool shouldRepaint(covariant _BrushVariantPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.iconSize != iconSize;
 }
