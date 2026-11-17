@@ -4,6 +4,11 @@ part of '../library_page.dart';
 ///
 /// 从 `_LibraryPageState` 拆出，仍直接读写页面状态：这一轮只做文件切分。
 extension _DirectorySection on _LibraryPageState {
+  /// 当前分区自带扫描进度 / 结果面板：这两处不必再弹 toast，拖放导入
+  /// 也要先把用户带回有曲目列表的分区。
+  bool get _showsScanReport =>
+      _section == LibrarySection.settings || _section == LibrarySection.library;
+
   /* ------------------------------------------------------------ 音乐目录 */
 
   Future<void> _loadFolders() async {
@@ -140,7 +145,7 @@ extension _DirectorySection on _LibraryPageState {
       _showMessage('没有可导入的音频文件或文件夹');
       return;
     }
-    if (_section == LibrarySection.settings) {
+    if (_showsScanReport) {
       _selectSection(LibrarySection.music);
     }
 
@@ -200,7 +205,7 @@ extension _DirectorySection on _LibraryPageState {
         _coverBackfillAttempted = true;
         unawaited(_saveSession());
       }
-      if (notify && _section != LibrarySection.settings) {
+      if (notify && !_showsScanReport) {
         _showMessage(
           '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
           '清理 ${report.pruned} 首',
@@ -219,7 +224,7 @@ extension _DirectorySection on _LibraryPageState {
         _coverBackfillAttempted = true;
         unawaited(_saveSession());
       }
-      if (notify && _section != LibrarySection.settings) {
+      if (notify && !_showsScanReport) {
         _showMessage('扫描失败：${ErrorRetry.describe(error)}');
       }
       return false;

@@ -307,7 +307,7 @@ void main() {
     // 所以旧分区立即移除、只让新分区淡入
     expect(find.text('2 首音乐'), findsNothing, reason: '旧分区应立即移除');
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
       findsOneWidget,
       reason: '新分区应已挂载',
     );
@@ -315,7 +315,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('2 首音乐'), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('settings-exclusive-switch')),
       findsOneWidget,
     );
   });
