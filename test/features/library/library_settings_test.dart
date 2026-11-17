@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,12 +21,14 @@ void main() {
 
     await openLibrarySettings(tester);
     expect(find.text('曲目'), findsOneWidget);
+    // 指标值是 Text.rich（数字 + 小一号的单位），textSpan 才是内容
     expect(
       tester
           .widget<Text>(
             find.byKey(const ValueKey<String>('library-count-tracks')),
           )
-          .data,
+          .textSpan!
+          .toPlainText(),
       '2',
     );
 
@@ -209,8 +210,10 @@ void main() {
     expect(find.text(r'D:\Music'), findsOneWidget);
     expect(find.text(r'E:\Songs'), findsOneWidget);
 
-    // 两个目录卡里各有一个「重新扫描」，点第一个
-    await tester.tap(find.byTooltip('重新扫描').first);
+    // 重新扫描收进每行的「更多」菜单，点第一行的
+    await tester.tap(find.byTooltip('更多操作').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重新扫描'));
     await tester.pumpAndSettle();
 
     expect(repo.scannedFolders, <String>[r'D:\Music']);
@@ -223,35 +226,43 @@ void main() {
     await pumpLibrary(tester, tracks: twoTracks(), folderStore: store);
     await openLibrarySettings(tester);
 
-    await tester.tap(find.byTooltip('从列表移除'));
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除目录…'));
+    await tester.pumpAndSettle();
+    // 移除是不可逆的配置改动：先确认
+    await tester.tap(find.widgetWithText(FilledButton, '移除'));
     await tester.pumpAndSettle();
 
     expect(find.text(r'D:\Music'), findsNothing);
     expect(store.folders, isEmpty);
-    expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
+    expect(find.text('还没有音乐目录'), findsOneWidget);
   });
 
-  testWidgets('鼠标悬停「添加音乐目录」时胶囊高亮', (WidgetTester tester) async {
+  testWidgets('「添加音乐目录」是带图标的标准按钮', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
     await openLibrarySettings(tester);
 
-    final Finder pill = find.byKey(
+    final Finder button = find.byKey(
       const ValueKey<String>('library-add-folder'),
     );
-    Material surface() => tester.widget<Material>(
-      find.descendant(of: pill, matching: find.byType(Material)).first,
+    expect(button, findsOneWidget);
+    // 以前是手写的文字胶囊（约 29 高，低于 MD3 的 40 最小触摸高度），
+    // 现在是 FilledButton.tonal + 图标
+    expect(
+      tester.getSize(button).height,
+      greaterThanOrEqualTo(40),
+      reason: '按钮高度要过 40',
     );
-    expect(surface().color, Colors.transparent, reason: '默认无底色');
-
-    final TestGesture mouse = await tester.createGesture(
-      kind: PointerDeviceKind.mouse,
+    expect(
+      find.descendant(of: button, matching: find.byIcon(Icons.add)),
+      findsOneWidget,
     );
-    await mouse.addPointer(location: Offset.zero);
-    addTearDown(mouse.removePointer);
-    await mouse.moveTo(tester.getCenter(pill));
-    await tester.pumpAndSettle();
-
-    expect(surface().color, isNot(Colors.transparent), reason: '悬停给底色');
+    expect(
+      tester.widget<FilledButton>(button).onPressed,
+      isNotNull,
+      reason: '没在扫描，按钮可点',
+    );
   });
 
   testWidgets('添加目录会写回存储并立即扫描', (WidgetTester tester) async {
@@ -500,7 +511,8 @@ void main() {
           .widget<Text>(
             find.byKey(const ValueKey<String>('library-count-tracks')),
           )
-          .data,
+          .textSpan!
+          .toPlainText(),
       '1',
       reason: '曲目数量应跟着刷新',
     );
