@@ -1344,7 +1344,11 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                       children: <Widget>[
                         Text(
                           '调色板风格',
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          // 一律用弹窗自己的 context：`context` 是设置页里那一行的，
+                          // 设置分区一旦因换主题（快照版本 +1）整体重建，那一行的
+                          // Element 就没了，这里再查祖先会抛
+                          // 「Looking up a deactivated widget's ancestor is unsafe」
+                          style: Theme.of(dialogContext).textTheme.bodyMedium,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -1373,7 +1377,7 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
                         const SizedBox(width: 16),
                         Text(
                           '高对比',
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          style: Theme.of(dialogContext).textTheme.bodyMedium,
                         ),
                         Switch(
                           key: const ValueKey<String>(
@@ -1458,7 +1462,9 @@ class _AccentColorRow extends StatelessWidget implements _Searchable {
       showDialog<void>(
         context: dialogContext,
         builder: (BuildContext inner) {
-          final ThemeController current = ThemeScope.of(inner);
+          // readOf：这个路由本身不需要跟着换主题重建，里面的控件各自挂在
+          // Theme 上；少一条依赖就少一次「树在拆时被叫醒」的机会
+          final ThemeController current = ThemeScope.readOf(inner)!;
           return AlertDialog(
             title: const Text('自定义颜色'),
             contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
@@ -1933,9 +1939,19 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
 
   @override
   void dispose() {
-    // 拖到一半就关弹窗：把最后预览的颜色补提交，否则这次拖动白拖
+    // 拖到一半就关弹窗：把最后预览的颜色补提交，否则这次拖动白拖。
+    //
+    // 但**不能在 dispose 里同步推**：setSeedColor 会 notifyListeners，
+    // 监听者是 ThemeScope 的 dependents（分区快照、弹窗 builder…）。此刻整棵树
+    // 正在拆，被叫醒的那个 widget 可能已经失活，它再去查祖先就会抛
+    // 「Looking up a deactivated widget's ancestor is unsafe」。
+    // 挪到下一帧，等树稳下来再提交。
     if (_dirty) {
-      unawaited(widget.controller.setSeedColor(_hsv.value.toColor()));
+      final Color color = _hsv.value.toColor();
+      final ThemeController controller = widget.controller;
+      WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+        unawaited(controller.setSeedColor(color));
+      });
     }
     _hsv.removeListener(_syncHexField);
     _hexFocus.removeListener(_syncHexField);
