@@ -14,6 +14,29 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<TrackLyrics> lyricsLoad({required String path}) =>
     RustLib.instance.api.crateApiLyricsLyricsLoad(path: path);
 
+/// 读取歌词原文：旁载优先，其次内嵌。没有歌词返回空结构，不报错。
+Future<RawLyrics> lyricsReadRaw({required String path}) =>
+    RustLib.instance.api.crateApiLyricsLyricsReadRaw(path: path);
+
+/// 整体平移歌词时间戳（单位毫秒，负数提前 / 正数延后），返回新文本。
+///
+/// 纯文本变换，不碰文件——界面先调它把新文本显示出来，用户确认后再
+/// [`lyrics_save_raw`] 落盘，这样「快进多少」是看得见的。
+Future<String> lyricsShiftRaw({
+  required String text,
+  required PlatformInt64 deltaMs,
+}) => RustLib.instance.api.crateApiLyricsLyricsShiftRaw(
+  text: text,
+  deltaMs: deltaMs,
+);
+
+/// 保存歌词原文为同名 `.lrc`（UTF-8），返回写入的文件路径。
+///
+/// 统一写旁载：改内嵌标签要重写整个音频文件，风险与代价都大得多。
+/// 原本只有内嵌歌词的曲目，保存后也会有 `.lrc`——读取侧旁载优先，行为一致。
+Future<String> lyricsSaveRaw({required String path, required String text}) =>
+    RustLib.instance.api.crateApiLyricsLyricsSaveRaw(path: path, text: text);
+
 /// 一行带时间戳的歌词
 class LyricLine {
   /// 起始时间（毫秒）
@@ -75,6 +98,28 @@ class LyricWord {
           runtimeType == other.runtimeType &&
           timeMs == other.timeMs &&
           text == other.text;
+}
+
+/// 编辑用的歌词原文。
+class RawLyrics {
+  /// 原文（LRC / TTML 原样，没有歌词时为空字符串）
+  final String text;
+
+  /// 来源：`sidecar`（同名 `.lrc` / `.ttml`）/ `embedded`（音频标签）/ `none`
+  final String source;
+
+  const RawLyrics({required this.text, required this.source});
+
+  @override
+  int get hashCode => text.hashCode ^ source.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RawLyrics &&
+          runtimeType == other.runtimeType &&
+          text == other.text &&
+          source == other.source;
 }
 
 /// 一次歌词读取的结果

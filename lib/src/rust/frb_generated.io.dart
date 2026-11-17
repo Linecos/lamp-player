@@ -10,6 +10,7 @@ import 'api/db.dart';
 import 'api/desktop_lyrics.dart';
 import 'api/lyrics.dart';
 import 'api/media.dart';
+import 'api/metadata.dart';
 import 'api/model.dart';
 import 'api/player.dart';
 import 'api/replaygain.dart';
@@ -65,6 +66,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
+
+  @protected
+  TrackTags dco_decode_box_autoadd_track_tags(dynamic raw);
 
   @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
@@ -180,6 +184,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Playlist dco_decode_playlist(dynamic raw);
 
   @protected
+  RawLyrics dco_decode_raw_lyrics(dynamic raw);
+
+  @protected
   ScanReport dco_decode_scan_report(dynamic raw);
 
   @protected
@@ -190,6 +197,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TrackPlayStat dco_decode_track_play_stat(dynamic raw);
+
+  @protected
+  TrackTags dco_decode_track_tags(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -235,6 +245,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
+
+  @protected
+  TrackTags sse_decode_box_autoadd_track_tags(SseDeserializer deserializer);
 
   @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
@@ -364,6 +377,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Playlist sse_decode_playlist(SseDeserializer deserializer);
 
   @protected
+  RawLyrics sse_decode_raw_lyrics(SseDeserializer deserializer);
+
+  @protected
   ScanReport sse_decode_scan_report(SseDeserializer deserializer);
 
   @protected
@@ -374,6 +390,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TrackPlayStat sse_decode_track_play_stat(SseDeserializer deserializer);
+
+  @protected
+  TrackTags sse_decode_track_tags(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -428,6 +447,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_track_tags(
+    TrackTags self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
@@ -589,6 +614,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_playlist(Playlist self, SseSerializer serializer);
 
   @protected
+  void sse_encode_raw_lyrics(RawLyrics self, SseSerializer serializer);
+
+  @protected
   void sse_encode_scan_report(ScanReport self, SseSerializer serializer);
 
   @protected
@@ -599,6 +627,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_track_play_stat(TrackPlayStat self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_track_tags(TrackTags self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
