@@ -71,8 +71,15 @@ class TrackListView extends StatefulWidget {
     this.flashPath,
   });
 
-  /// 行高。定位正在播放要用它算目标偏移，别再各处写 56
-  static const double rowExtent = 56;
+  /// 行高（逻辑像素）。定位正在播放要用它算目标偏移，别再各处写这个数。
+  ///
+  /// 行本身是 [rowExtent]，里面还有上下各 1px 的 `Padding`，所以**看得见的
+  /// 那块卡片**高度是 `rowExtent - 2`。这里取 66 让卡片正好 64。
+  static const double rowExtent = 66;
+
+  /// 行内封面边长。跟着卡片高度走（约 2/3）：64 高的卡片配 44 的图，
+  /// 上下各留 10 才不挤。
+  static const double coverExtent = 44;
 
   final List<Track> tracks;
   final ValueChanged<Track> onPlay;
@@ -332,7 +339,9 @@ class _TrackHeader extends StatelessWidget {
             width: 32,
             child: Text('#', textAlign: TextAlign.center, style: style),
           ),
-          const SizedBox(width: 40),
+          // 让出封面的位置（宽度与行内封面一致）+ 它右边那段间距，
+          // 否则「标题」列头会和下面的歌名错开
+          const SizedBox(width: TrackListView.coverExtent),
           const SizedBox(width: 12),
           Expanded(flex: 5, child: Text('标题', style: style)),
           if (showArtist) ...<Widget>[
@@ -608,7 +617,7 @@ class _TrackRow extends StatelessWidget {
                   ),
                   AlbumCover(
                     path: track.coverPath,
-                    size: 40,
+                    size: TrackListView.coverExtent,
                     radius: 12,
                     playing: playing,
                   ),
