@@ -4,11 +4,14 @@
 //! 编辑窗要显示的年份、流派、专辑艺术家、碟号库里根本没有。写完把归一化后的值
 //! 回传，调用方再用 [`crate::api::db::upsert_tracks`] 刷新库里那一条。
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use image::ImageEncoder;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::ItemKey;
 use lofty::tag::Tag;
+use std::path::Path;
 
 /// 编辑窗里可改的标签字段。
 ///
@@ -29,6 +32,12 @@ pub struct TrackTags {
     pub track_no: String,
     pub disc_no: String,
     pub genre: String,
+    /// 作曲（TCOM）
+    pub composer: String,
+    /// 作词（TEXT / `©wrt`）
+    pub lyricist: String,
+    /// 注释（COMM）；多行原样保存
+    pub comment: String,
 }
 
 /// 读取一个文件的标签。
@@ -63,6 +72,9 @@ pub fn read_track_tags(path: String) -> Result<TrackTags> {
         track_no: text_of(tag, ItemKey::TrackNumber),
         disc_no: text_of(tag, ItemKey::DiscNumber),
         genre: text_of(tag, ItemKey::Genre),
+        composer: text_of(tag, ItemKey::Composer),
+        lyricist: text_of(tag, ItemKey::Lyricist),
+        comment: text_of(tag, ItemKey::Comment),
     })
 }
 
@@ -97,6 +109,9 @@ pub fn write_track_tags(path: String, tags: TrackTags) -> Result<TrackTags> {
     apply(tag, ItemKey::TrackNumber, &tags.track_no);
     apply(tag, ItemKey::DiscNumber, &tags.disc_no);
     apply(tag, ItemKey::Genre, &tags.genre);
+    apply(tag, ItemKey::Composer, &tags.composer);
+    apply(tag, ItemKey::Lyricist, &tags.lyricist);
+    apply(tag, ItemKey::Comment, &tags.comment);
 
     tagged
         .save_to_path(&path, WriteOptions::default())
@@ -104,6 +119,111 @@ pub fn write_track_tags(path: String, tags: TrackTags) -> Result<TrackTags> {
 
     // 标签已经落盘；重读失败不该把「写成功」变成错误，退回入参即可
     Ok(read_track_tags(path).unwrap_or(tags))
+}
+
+/// 用户挑的封面图允许的最大字节数。
+///
+/// 正常封面图撑死几 MB，32MB 已经宽松得离谱；再大基本是选错了文件
+/// （比如整个 PSD / 一整个壁纸包），读进内存再解码只会白占几百 MB。
+const MAX_COVER_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
+
+/// 把一张本地图片设为曲目封面：嵌进音频标签，同时落一份到封面缓存。
+///
+/// 返回**封面缓存文件**的路径——调用方拿它去更新曲库那一行（`cover_path`），
+/// 与扫描时提取封面的行为一致：界面上显示的永远是缓存里那张缩略图，不是
+/// 音频文件里那份原始数据。
+///
+/// 图片会先缩到 1024 以内、转成 JPEG 再嵌入：一张 3000px 的 PNG 塞进标签
+/// 会让文件胖几 MB，而播放页最大也只用到 880 设备像素。
+///
+/// # Errors
+/// 路径为空、图片读不出 / 解不开、文件标签不支持图片、写盘失败时返回错误。
+pub fn write_track_cover(path: String, source: String) -> Result<String> {
+    if path.trim().is_empty() {
+        bail!("音频路径为空");
+    }
+    if source.trim().is_empty() {
+        bail!("没有选择图片");
+    }
+    let meta = std::fs::metadata(&source).with_context(|| format!("读取图片失败: {source}"))?;
+    if meta.len() > MAX_COVER_SOURCE_BYTES {
+        bail!("图片太大（{} MB，上限 32 MB）", meta.len() / 1024 / 1024);
+    }
+    let raw = std::fs::read(&source).with_context(|| format!("读取图片失败: {source}"))?;
+    let extension = Path::new(&source)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let (bytes, extension) = shrink_cover(&raw, &extension)?;
+
+    let mut tagged =
+        lofty::read_from_path(&path).with_context(|| format!("解析元数据失败: {path}"))?;
+    if tagged.primary_tag_mut().is_none() {
+        let tag_type = tagged.primary_tag_type();
+        tagged.insert_tag(Tag::new(tag_type));
+    }
+    let tag = tagged.primary_tag_mut().context("无法为该格式创建标签")?;
+    // 只换正面封面：封底、艺人照那些留着，用户改的是「这张专辑的封面」
+    tag.remove_picture_type(PictureType::CoverFront);
+    tag.push_picture(
+        Picture::unchecked(bytes.clone())
+            .pic_type(PictureType::CoverFront)
+            .mime_type(mime_of(&extension))
+            .build(),
+    );
+    tagged
+        .save_to_path(&path, WriteOptions::default())
+        .with_context(|| format!("写入封面失败: {path}"))?;
+
+    // 音频文件已经改了，缓存写失败也不该整个报错：下次扫描会重新提取一份
+    Ok(crate::api::db::covers_dir()
+        .ok()
+        .and_then(|dir| crate::scanner::store_cover_bytes(&dir, &bytes, &extension))
+        .unwrap_or_default())
+}
+
+/// 校验并压缩用户选的图：解码失败直接报错（这是用户自己挑的文件，
+/// 静默塞进去只会换来一句「怎么不显示」）。
+fn shrink_cover(raw: &[u8], extension: &str) -> Result<(Vec<u8>, String)> {
+    let decoded = image::load_from_memory(raw).map_err(|_| anyhow!("这不是有效的图片文件"))?;
+    let oversized = decoded.width().max(decoded.height()) > crate::scanner::COVER_MAX_EDGE;
+    if !oversized && raw.len() <= crate::scanner::COVER_MAX_BYTES_KEEP {
+        return Ok((raw.to_vec(), extension.to_string()));
+    }
+    let scaled = if oversized {
+        decoded.thumbnail(
+            crate::scanner::COVER_MAX_EDGE,
+            crate::scanner::COVER_MAX_EDGE,
+        )
+    } else {
+        decoded
+    };
+    let rgb = scaled.into_rgb8();
+    let mut out: Vec<u8> = Vec::with_capacity(128 * 1024);
+    image::codecs::jpeg::JpegEncoder::new_with_quality(
+        &mut out,
+        crate::scanner::COVER_JPEG_QUALITY,
+    )
+    .write_image(
+        rgb.as_raw(),
+        rgb.width(),
+        rgb.height(),
+        image::ExtendedColorType::Rgb8,
+    )
+    .context("重新编码封面失败")?;
+    Ok((out, "jpg".to_string()))
+}
+
+/// 扩展名 → MIME：ID3v2 的 APIC 帧要写 MIME 字符串，写错了播放器不认
+fn mime_of(extension: &str) -> MimeType {
+    match extension {
+        "png" => MimeType::Png,
+        "gif" => MimeType::Gif,
+        "bmp" => MimeType::Bmp,
+        "tif" | "tiff" => MimeType::Tiff,
+        _ => MimeType::Jpeg,
+    }
 }
 
 /// 单个键的写入：空值 → 删除该键，非空 → 覆盖

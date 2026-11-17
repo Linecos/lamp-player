@@ -30,12 +30,24 @@ Future<String> lyricsShiftRaw({
   deltaMs: deltaMs,
 );
 
-/// 保存歌词原文为同名 `.lrc`（UTF-8），返回写入的文件路径。
+/// 保存歌词原文，返回写入的路径。
 ///
-/// 统一写旁载：改内嵌标签要重写整个音频文件，风险与代价都大得多。
-/// 原本只有内嵌歌词的曲目，保存后也会有 `.lrc`——读取侧旁载优先，行为一致。
-Future<String> lyricsSaveRaw({required String path, required String text}) =>
-    RustLib.instance.api.crateApiLyricsLyricsSaveRaw(path: path, text: text);
+/// `target` 决定落到哪儿：
+/// - `sidecar`（默认）：同名 `.lrc`（UTF-8），不动音频文件
+/// - `embedded`：写进音频文件自己的标签（`Lyrics`，退回 `UnsyncLyrics`）
+///
+/// 默认写旁载是有原因的：改内嵌标签要重写整个音频文件，风险与代价都大得多。
+/// 但有些用户就是想让歌词跟着文件走（换机器、丢 `.lrc` 都还在），所以给一个
+/// 显式开关，由界面上的分段按钮决定，不替用户做选择。
+Future<String> lyricsSaveRaw({
+  required String path,
+  required String text,
+  required String target,
+}) => RustLib.instance.api.crateApiLyricsLyricsSaveRaw(
+  path: path,
+  text: text,
+  target: target,
+);
 
 /// 一行带时间戳的歌词
 class LyricLine {

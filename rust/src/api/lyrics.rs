@@ -95,11 +95,32 @@ pub fn lyrics_shift_raw(text: String, delta_ms: i64) -> String {
     core::shift_timestamps(&text, delta_ms)
 }
 
-/// 保存歌词原文为同名 `.lrc`（UTF-8），返回写入的文件路径。
+/// 保存歌词原文，返回写入的路径。
 ///
-/// 统一写旁载：改内嵌标签要重写整个音频文件，风险与代价都大得多。
-/// 原本只有内嵌歌词的曲目，保存后也会有 `.lrc`——读取侧旁载优先，行为一致。
-pub fn lyrics_save_raw(path: String, text: String) -> Result<String> {
-    let written = core::write_sidecar(Path::new(&path), &text)?;
+/// `target` 决定落到哪儿：
+/// - `sidecar`（默认）：同名 `.lrc`（UTF-8），不动音频文件
+/// - `embedded`：写进音频文件自己的标签（`Lyrics`，退回 `UnsyncLyrics`）
+///
+/// 默认写旁载是有原因的：改内嵌标签要重写整个音频文件，风险与代价都大得多。
+/// 但有些用户就是想让歌词跟着文件走（换机器、丢 `.lrc` 都还在），所以给一个
+/// 显式开关，由界面上的分段按钮决定，不替用户做选择。
+pub fn lyrics_save_raw(path: String, text: String, target: String) -> Result<String> {
+    let audio = Path::new(&path);
+    let written = if target == "embedded" {
+        let written = core::write_embedded(audio, &text)?;
+        // 读取侧是「旁载优先」（见 `core::raw_text`）。已经有同名 `.lrc` 时
+        // 顺手把同一份文本刷进去，否则旧的 `.lrc` 会把刚落进标签的新歌词盖住，
+        // 用户看到的还是改之前那份，像没保存成功。
+        // 没有 `.lrc` 就不建：选了「写进标签」却凭空多出一个旁载文件更怪。
+        let sidecar = audio.with_extension("lrc");
+        if sidecar.is_file() {
+            std::fs::write(&sidecar, &text).map_err(|error| {
+                anyhow::anyhow!("更新同名 .lrc 失败（{}）: {error}", sidecar.display())
+            })?;
+        }
+        written
+    } else {
+        core::write_sidecar(audio, &text)?
+    };
     Ok(written.to_string_lossy().into_owned())
 }

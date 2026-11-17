@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1793867284;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -314275620;
 
 // Section: executor
 
@@ -1230,11 +1230,13 @@ fn wire__crate__api__lyrics__lyrics_save_raw_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
+            let api_target = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::lyrics::lyrics_save_raw(api_path, api_text)?;
+                        let output_ok =
+                            crate::api::lyrics::lyrics_save_raw(api_path, api_text, api_target)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )
@@ -3331,6 +3333,43 @@ fn wire__crate__api__replaygain__write_replay_gain_impl(
         },
     )
 }
+fn wire__crate__api__metadata__write_track_cover_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "write_track_cover",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            let api_source = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::metadata::write_track_cover(api_path, api_source)?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__metadata__write_track_tags_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3983,6 +4022,9 @@ impl SseDecode for crate::api::metadata::TrackTags {
         let mut var_trackNo = <String>::sse_decode(deserializer);
         let mut var_discNo = <String>::sse_decode(deserializer);
         let mut var_genre = <String>::sse_decode(deserializer);
+        let mut var_composer = <String>::sse_decode(deserializer);
+        let mut var_lyricist = <String>::sse_decode(deserializer);
+        let mut var_comment = <String>::sse_decode(deserializer);
         return crate::api::metadata::TrackTags {
             title: var_title,
             artist: var_artist,
@@ -3992,6 +4034,9 @@ impl SseDecode for crate::api::metadata::TrackTags {
             track_no: var_trackNo,
             disc_no: var_discNo,
             genre: var_genre,
+            composer: var_composer,
+            lyricist: var_lyricist,
+            comment: var_comment,
         };
     }
 }
@@ -4219,7 +4264,8 @@ fn pde_ffi_dispatcher_primary_impl(
         95 => {
             wire__crate__api__replaygain__write_replay_gain_impl(port, ptr, rust_vec_len, data_len)
         }
-        96 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__api__metadata__write_track_cover_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -4729,6 +4775,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::metadata::TrackTags {
             self.track_no.into_into_dart().into_dart(),
             self.disc_no.into_into_dart().into_dart(),
             self.genre.into_into_dart().into_dart(),
+            self.composer.into_into_dart().into_dart(),
+            self.lyricist.into_into_dart().into_dart(),
+            self.comment.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5238,6 +5287,9 @@ impl SseEncode for crate::api::metadata::TrackTags {
         <String>::sse_encode(self.track_no, serializer);
         <String>::sse_encode(self.disc_no, serializer);
         <String>::sse_encode(self.genre, serializer);
+        <String>::sse_encode(self.composer, serializer);
+        <String>::sse_encode(self.lyricist, serializer);
+        <String>::sse_encode(self.comment, serializer);
     }
 }
 

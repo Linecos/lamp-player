@@ -81,7 +81,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1793867284;
+  int get rustContentHash => -314275620;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -187,6 +187,7 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiLyricsLyricsSaveRaw({
     required String path,
     required String text,
+    required String target,
   });
 
   Future<String> crateApiLyricsLyricsShiftRaw({
@@ -364,6 +365,11 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiReplaygainWriteReplayGain({
     required String path,
     required double gainDb,
+  });
+
+  Future<String> crateApiMetadataWriteTrackCover({
+    required String path,
+    required String source,
   });
 
   Future<TrackTags> crateApiMetadataWriteTrackTags({
@@ -1348,6 +1354,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<String> crateApiLyricsLyricsSaveRaw({
     required String path,
     required String text,
+    required String target,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1355,6 +1362,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
           sse_encode_String(text, serializer);
+          sse_encode_String(target, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1367,7 +1375,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLyricsLyricsSaveRawConstMeta,
-        argValues: [path, text],
+        argValues: [path, text, target],
         apiImpl: this,
       ),
     );
@@ -1376,7 +1384,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiLyricsLyricsSaveRawConstMeta =>
       const TaskConstMeta(
         debugName: "lyrics_save_raw",
-        argNames: ["path", "text"],
+        argNames: ["path", "text", "target"],
       );
 
   @override
@@ -3153,6 +3161,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiMetadataWriteTrackCover({
+    required String path,
+    required String source,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          sse_encode_String(source, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 96,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiMetadataWriteTrackCoverConstMeta,
+        argValues: [path, source],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMetadataWriteTrackCoverConstMeta =>
+      const TaskConstMeta(
+        debugName: "write_track_cover",
+        argNames: ["path", "source"],
+      );
+
+  @override
   Future<TrackTags> crateApiMetadataWriteTrackTags({
     required String path,
     required TrackTags tags,
@@ -3166,7 +3209,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 97,
             port: port_,
           );
         },
@@ -3644,8 +3687,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TrackTags dco_decode_track_tags(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return TrackTags(
       title: dco_decode_String(arr[0]),
       artist: dco_decode_String(arr[1]),
@@ -3655,6 +3698,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       trackNo: dco_decode_String(arr[5]),
       discNo: dco_decode_String(arr[6]),
       genre: dco_decode_String(arr[7]),
+      composer: dco_decode_String(arr[8]),
+      lyricist: dco_decode_String(arr[9]),
+      comment: dco_decode_String(arr[10]),
     );
   }
 
@@ -4248,6 +4294,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_trackNo = sse_decode_String(deserializer);
     var var_discNo = sse_decode_String(deserializer);
     var var_genre = sse_decode_String(deserializer);
+    var var_composer = sse_decode_String(deserializer);
+    var var_lyricist = sse_decode_String(deserializer);
+    var var_comment = sse_decode_String(deserializer);
     return TrackTags(
       title: var_title,
       artist: var_artist,
@@ -4257,6 +4306,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       trackNo: var_trackNo,
       discNo: var_discNo,
       genre: var_genre,
+      composer: var_composer,
+      lyricist: var_lyricist,
+      comment: var_comment,
     );
   }
 
@@ -4800,6 +4852,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.trackNo, serializer);
     sse_encode_String(self.discNo, serializer);
     sse_encode_String(self.genre, serializer);
+    sse_encode_String(self.composer, serializer);
+    sse_encode_String(self.lyricist, serializer);
+    sse_encode_String(self.comment, serializer);
   }
 
   @protected

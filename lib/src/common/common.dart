@@ -9,5 +9,6 @@ export 'widgets/artist_avatar.dart';
 export 'widgets/cover_shape.dart';
 export 'widgets/empty_state.dart';
 export 'widgets/error_retry.dart';
+export 'widgets/field_border.dart';
 export 'widgets/loading_state.dart';
 export 'widgets/slider_semantics_scope.dart';

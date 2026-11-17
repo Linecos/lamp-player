@@ -15,8 +15,8 @@
 //! 翻译」三行歌词的标准结构。
 
 use anyhow::Result;
-use lofty::config::ParseOptions;
-use lofty::file::TaggedFileExt;
+use lofty::config::{ParseOptions, WriteOptions};
+use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::prelude::ItemKey;
 use lofty::probe::Probe;
 use std::path::{Path, PathBuf};
@@ -457,6 +457,37 @@ pub fn write_sidecar(audio: &Path, text: &str) -> Result<PathBuf> {
     std::fs::write(&path, text)
         .map_err(|error| anyhow::anyhow!("写入歌词失败（{}）: {error}", path.display()))?;
     Ok(path)
+}
+
+/// 把歌词写进音频文件自己的标签（而不是同名 `.lrc`）。
+///
+/// 返回写入后音频文件的路径，方便调用方提示「已写入文件」。
+///
+/// ID3v2 没有「无时间轴歌词」以外的通用歌词帧，lofty 对 `Lyrics` 的支持也
+/// 分格式：先按 `Lyrics` 写，写不进去再退回 `UnsyncLyrics`（ID3v2 的 USLT）。
+/// 两条都不成就报错——静默当作成功，用户下次打开只会看到歌词「没了」。
+pub fn write_embedded(audio: &Path, text: &str) -> Result<PathBuf> {
+    let mut tagged = lofty::read_from_path(audio)
+        .map_err(|error| anyhow::anyhow!("解析元数据失败（{}）: {error}", audio.display()))?;
+    if tagged.primary_tag_mut().is_none() {
+        let tag_type = tagged.primary_tag_type();
+        tagged.insert_tag(lofty::tag::Tag::new(tag_type));
+    }
+    let tag = tagged
+        .primary_tag_mut()
+        .ok_or_else(|| anyhow::anyhow!("无法为该格式创建标签"))?;
+    let written = tag.insert_text(ItemKey::Lyrics, text.to_string());
+    if !written {
+        tag.insert_text(ItemKey::UnsyncLyrics, text.to_string());
+    }
+    if tag.get_string(ItemKey::Lyrics).is_none() && tag.get_string(ItemKey::UnsyncLyrics).is_none()
+    {
+        anyhow::bail!("该文件格式不支持写入内嵌歌词");
+    }
+    tagged
+        .save_to_path(audio, WriteOptions::default())
+        .map_err(|error| anyhow::anyhow!("写入内嵌歌词失败（{}）: {error}", audio.display()))?;
+    Ok(audio.to_path_buf())
 }
 
 /// 整体平移所有时间戳，单位毫秒。
