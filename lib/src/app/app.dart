@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'app_lifecycle.dart';
 import 'routes.dart';
+import 'theme_reveal.dart';
 import 'title_bar.dart';
 import 'tray_controller.dart';
 import 'window_controls.dart';
@@ -95,22 +96,27 @@ class _LampAppState extends State<LampApp> {
               variant: _theme.effectiveVariant,
               contrastLevel: _theme.highContrast ? 1.0 : 0.0,
             ),
-            // 换主题不做过场。MaterialApp 默认是 200ms 的 ThemeData 过渡，
-            // 而过渡期间**每一帧**都要整棵树重建：实测 2000 首曲库页上中位
-            // 24ms/帧、累计 1.4s，比瞬时切换贵 5 倍还多。跟随封面时每个换歌
-            // 都会换主题，这条开销必须省掉。
+            // 不用 MaterialApp 自带的 200ms ThemeData 过渡：那意味着每一帧换
+            // 一次配色，而曲库页的分区快照是按「建快照那一刻的颜色」定死的，
+            // 每换一次配色就要整页重建一次 —— 2000 首曲库上实测中位 24ms/帧、
+            // 累计 1.4s，比瞬时切换贵 5 倍还多。主题照旧一帧切完，
+            // 视觉上的渐变交给下面 builder 里的 [ThemeReveal]：它把切换前
+            // 那一帧抓成图，从点击处画出一个不断变大的圆把它「挤掉」，
+            // 过渡期间每帧只多一次 drawPath，不重建任何 widget。
             themeAnimationStyle: AnimationStyle.noAnimation,
             themeMode: _theme.mode,
             initialRoute: AppRoutes.library,
             // 自绘标题栏：原生标题栏已在 main.dart 里关掉；
             // 底色跟随曲库页，避免出现一条色带
-            builder: (BuildContext context, Widget? child) => WindowChrome(
-              controls: _windowControls,
-              background: Theme.of(context).colorScheme.surfaceContainerLow,
-              // 曲库页自己绘制顶栏、搜索框与拖动区，这里只保留右侧窗口按钮。
-              overlay: true,
-              controlsOnly: true,
-              child: child ?? const SizedBox.shrink(),
+            builder: (BuildContext context, Widget? child) => ThemeReveal(
+              child: WindowChrome(
+                controls: _windowControls,
+                background: Theme.of(context).colorScheme.surfaceContainerLow,
+                // 曲库页自己绘制顶栏、搜索框与拖动区，这里只保留右侧窗口按钮。
+                overlay: true,
+                controlsOnly: true,
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
             onGenerateRoute: (RouteSettings settings) =>
                 LampRouter.onGenerateRoute(
