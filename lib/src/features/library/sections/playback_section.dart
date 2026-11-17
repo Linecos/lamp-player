@@ -817,6 +817,7 @@ extension _PlaybackSection on _LibraryPageState {
         // 单文件操作：批量菜单里不出现，真被调用到就忽略
         case TrackContextAction.revealInExplorer:
         case TrackContextAction.copyPath:
+        case TrackContextAction.editMetadata:
         case TrackContextAction.openWithMusicTag:
           break;
       }
@@ -842,6 +843,8 @@ extension _PlaybackSection on _LibraryPageState {
         unawaited(_revealInExplorer(track));
       case TrackContextAction.copyPath:
         unawaited(_copyPath(track));
+      case TrackContextAction.editMetadata:
+        unawaited(_editTrackMetadata(track));
       case TrackContextAction.openWithMusicTag:
         unawaited(_openWithMusicTag(track));
     }
@@ -1011,6 +1014,77 @@ extension _PlaybackSection on _LibraryPageState {
       // MusicTag 是外部程序，改标签要花几分钟：这条提示不能自己消失
       persistent: true,
     );
+  }
+
+  /// 右键「修改元数据」：内置的标签 + 歌词编辑窗。
+  ///
+  /// 读的是**文件标签本身**（不是曲库里那一行）：年份、流派、专辑艺术家、
+  /// 碟号曲库根本没有。保存分三步——写标签、写同名 `.lrc`、把新的标题 /
+  /// 艺术家 / 专辑 / 音轨号 upsert 回曲库。**不重扫目录**：为一次编辑遍历
+  /// 整个文件夹不划算，曲库那一行完全可以按新标签直接改。
+  Future<void> _editTrackMetadata(Track track) async {
+    final TrackTags tags;
+    final lyrics_api.RawLyrics raw;
+    try {
+      tags = await readTrackTags(path: track.path);
+      raw = await lyrics_api.lyricsReadRaw(path: track.path);
+    } catch (error) {
+      if (mounted) {
+        _showMessage('读取标签失败：${_errorText(error)}');
+      }
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => TrackMetadataDialog(
+        coverPath: track.coverPath,
+        tags: tags,
+        lyricsText: raw.text,
+        lyricsSource: raw.source,
+        onShiftLyrics: (String text, int deltaMs) =>
+            lyrics_api.lyricsShiftRaw(text: text, deltaMs: deltaMs),
+        onSave: (TrackTags edited, String lyrics) async {
+          final TrackTags written = await writeTrackTags(
+            path: track.path,
+            tags: edited,
+          );
+          // 空歌词不落盘：删用户已有的 `.lrc` 是破坏性操作，不在这里顺手做
+          if (lyrics.trim().isNotEmpty) {
+            await lyrics_api.lyricsSaveRaw(path: track.path, text: lyrics);
+          }
+          await _upsertEditedTrack(track, written);
+        },
+      ),
+    );
+    if (!mounted || saved != true) {
+      return;
+    }
+    _showMessage('已保存「${track.title}」的标签与歌词');
+  }
+
+  /// 把改完的标签同步进曲库那一行（保留入库时间、封面、增益等文件外的信息）
+  Future<void> _upsertEditedTrack(Track track, TrackTags written) async {
+    await db.upsertTracks(
+      tracks: <Track>[
+        Track(
+          path: track.path,
+          title: written.title.isEmpty ? track.title : written.title,
+          artist: written.artist.isEmpty ? null : written.artist,
+          album: written.album.isEmpty ? null : written.album,
+          durationSecs: track.durationSecs,
+          // `03/12` 这种「第 3 首，共 12 首」只取前半截；清空就是 null
+          trackNum: int.tryParse(written.trackNo.split('/').first.trim()),
+          addedAt: track.addedAt,
+          coverPath: track.coverPath,
+          replayGain: track.replayGain,
+        ),
+      ],
+    );
+    // 收藏 / 历史 / 歌单各自持有曲目副本，只重拉 `_tracks` 它们会停在旧标题上
+    markLibraryChanged();
   }
 
   /// 外部工具改过标签后重扫所在目录，刷新标题 / 专辑 / 封面
