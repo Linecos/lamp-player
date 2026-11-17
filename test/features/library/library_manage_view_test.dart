@@ -82,9 +82,11 @@ Future<void> _pumpManage(
   }
 }
 
-/// 读某个指标块上显示的数字
-String _metric(WidgetTester tester, String key) =>
-    tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
+/// 读某个指标块上显示的数字（值是 Text.rich：数字 + 小一号的单位）
+String _metric(WidgetTester tester, String key) => tester
+    .widget<Text>(find.byKey(ValueKey<String>(key)))
+    .textSpan!
+    .toPlainText();
 
 void main() {
   testWidgets('顶部四个指标从曲目算出来', (WidgetTester tester) async {
@@ -127,7 +129,7 @@ void main() {
     expect(find.text('1 个'), findsOneWidget);
   });
 
-  testWidgets('两个块高度固定，不随内容变高', (WidgetTester tester) async {
+  testWidgets('两块等高，高度跟着窗口走', (WidgetTester tester) async {
     await _pumpManage(
       tester,
       folders: const <String>[r'D://Music', r'E://Songs', r'F://Other'],
@@ -137,9 +139,18 @@ void main() {
       ],
     );
 
-    // 251 逻辑像素 = 本机 125% 缩放下标尺上的 314
-    expect(tester.panelSize('library-panel-folders').height, 251);
-    expect(tester.panelSize('library-panel-hidden').height, 251);
+    final Size folders = tester.panelSize('library-panel-folders');
+    final Size hidden = tester.panelSize('library-panel-hidden');
+    expect(folders.height, hidden.height, reason: '两块始终等高');
+    // 以前写死 251：大屏空、小屏被播放岛压住；现在按可用高度分比例再夹区间
+    expect(
+      folders.height,
+      closeTo(
+        LibraryManageView.panelHeightFor(tester.view.physicalSize.height),
+        0.5,
+      ),
+    );
+    expect(folders.height, inInclusiveRange(220, 340));
   });
 
   testWidgets('听歌统计瓷贴可点开统计子页', (WidgetTester tester) async {
@@ -254,7 +265,7 @@ void main() {
       onAddFolder: () => added += 1,
     );
 
-    expect(find.text('还没有添加音乐目录，先在上方添加一个'), findsOneWidget);
+    expect(find.text('还没有音乐目录'), findsOneWidget);
     await tester.tap(find.text('添加音乐目录'));
     await tester.pumpAndSettle();
     expect(added, 1);
@@ -301,7 +312,7 @@ void main() {
     expect(retries, 1);
   });
 
-  testWidgets('目录行的重新扫描与移除回调', (WidgetTester tester) async {
+  testWidgets('目录行的重新扫描与移除收在菜单里，移除要确认', (WidgetTester tester) async {
     final List<String> rescanned = <String>[];
     final List<String> removed = <String>[];
     await _pumpManage(
@@ -310,11 +321,31 @@ void main() {
       onRemoveFolder: removed.add,
     );
 
-    await tester.tap(find.byTooltip('重新扫描'));
+    // 两个动作不再并排成两颗图标（删除键离刷新键只有 8px，点歪就少一个目录）
+    expect(find.byTooltip('重新扫描'), findsNothing);
+    expect(find.byTooltip('从列表移除'), findsNothing);
+
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重新扫描'));
     await tester.pumpAndSettle();
     expect(rescanned, <String>[r'D:\Music']);
 
-    await tester.tap(find.byTooltip('从列表移除'));
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除目录…'));
+    await tester.pumpAndSettle();
+
+    expect(removed, isEmpty, reason: '先弹确认，不能点一下就移除');
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(removed, isEmpty, reason: '取消不该移除');
+
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除目录…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '移除'));
     await tester.pumpAndSettle();
     expect(removed, <String>[r'D:\Music']);
   });

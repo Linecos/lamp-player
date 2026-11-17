@@ -61,10 +61,13 @@ extension _LibrarySection on _LibraryPageState {
               ),
             ),
             const Spacer(),
-            _ToolPill(
+            // 页头动作走标准按钮：手写的「文字胶囊」只有 29 高，低于 MD3
+            // 40 的最小触摸高度，也没有 state layer / focus ring
+            FilledButton.tonalIcon(
               key: const ValueKey<String>('library-add-folder'),
-              label: '添加音乐目录',
-              onTap: _scanning ? null : () => unawaited(_addMusicFolder()),
+              onPressed: _scanning ? null : () => unawaited(_addMusicFolder()),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加音乐目录'),
             ),
           ],
         ),
@@ -163,63 +166,5 @@ extension _LibrarySection on _LibraryPageState {
       });
       _showMessage('清理失败：${ErrorRetry.describe(error)}');
     }
-  }
-}
-
-/// 页头右侧的胶囊按钮
-class _ToolPill extends StatefulWidget {
-  const _ToolPill({super.key, required this.label, this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  State<_ToolPill> createState() => _ToolPillState();
-}
-
-class _ToolPillState extends State<_ToolPill> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final bool enabled = widget.onTap != null;
-    // 悬停 / 聚焦才点亮：整颗胶囊变底色 + 描边与文字转强调色
-    final bool lit = enabled && (_hovered || _focused);
-
-    return Material(
-      color: lit ? scheme.surfaceContainerHigh : Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
-        side: BorderSide(
-          color: lit
-              ? scheme.primary
-              : enabled
-              ? scheme.outline
-              : scheme.outlineVariant,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: widget.onTap,
-        onHover: (bool value) => setState(() => _hovered = value),
-        onFocusChange: (bool value) => setState(() => _focused = value),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          child: Text(
-            widget.label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: !enabled
-                  ? scheme.outline
-                  : lit
-                  ? scheme.primary
-                  : scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
