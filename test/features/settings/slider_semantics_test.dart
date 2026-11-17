@@ -60,7 +60,7 @@ void main() {
             home: child,
           ),
         ),
-        child: const Scaffold(body: SettingsView(trackCount: 1)),
+        child: const Scaffold(body: SettingsView()),
       ),
     );
     await tester.pumpAndSettle();

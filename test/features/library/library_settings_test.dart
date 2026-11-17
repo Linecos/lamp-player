@@ -16,84 +16,29 @@ import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
 void main() {
-  testWidgets('设置分区展示真实曲库统计', (WidgetTester tester) async {
+  testWidgets('音乐库分区展示真实曲库统计', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
 
-    await tester.tap(
-      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
-    );
-    await tester.pumpAndSettle();
-
-    // 曲目数量收在「音乐库」子界面里
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-open-library')),
-    );
-    await tester.pumpAndSettle();
+    await openLibrarySettings(tester);
     expect(find.text('曲目数量'), findsOneWidget);
     expect(find.text('2 首'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey<String>('library-back')));
-    await tester.pumpAndSettle();
-
-    // 设置页很长，外观分区要滚得更多
+    // 设置分区不再管曲库，只留外观 / 播放这些
+    await openSettings(tester);
     await tester.drag(find.byType(SettingsView), const Offset(0, -700));
     await tester.pumpAndSettle();
     expect(find.text('跟随系统'), findsOneWidget);
   });
 
-  testWidgets('音乐库子界面不再叠一层「设置」大标题', (WidgetTester tester) async {
-    await pumpLibrary(tester, tracks: twoTracks());
-    await openSettings(tester);
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-open-library')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
-    expect(find.text('设置'), findsOneWidget, reason: '只剩侧栏那一个，子界面的标题由「← 音乐库」承担');
-    expect(
-      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('离开设置分区会收起音乐库子界面，切回来是设置列表', (WidgetTester tester) async {
-    await pumpLibrary(tester, tracks: twoTracks());
-    await openSettings(tester);
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-open-library')),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
-
-    await tester.tap(
-      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey<String>('library-back')), findsNothing);
-    expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
-      findsOneWidget,
-      reason: '切回来应该落到设置列表，而不是上次的音乐库子页',
-    );
-  });
-
-  testWidgets('听歌统计是设置里的子界面：侧栏与播放岛仍在，可退回列表', (WidgetTester tester) async {
+  testWidgets('听歌统计是音乐库里的子界面：侧栏与播放岛仍在，可退回列表', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
       tracks: twoTracks(),
       statsRepository: _FakeStatsRepository(),
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
-    await tester.tap(find.text('听歌统计'));
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
     await tester.pumpAndSettle();
 
     expect(find.byType(ListeningStatsView), findsOneWidget);
@@ -107,31 +52,35 @@ void main() {
 
     expect(find.byType(ListeningStatsView), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('library-open-stats')),
       findsOneWidget,
-      reason: '回到设置列表',
+      reason: '回到音乐库列表',
     );
     expect(find.byType(LibraryRail), findsOneWidget);
   });
 
-  testWidgets('Esc 从听歌统计退回设置列表', (WidgetTester tester) async {
+  testWidgets('Esc 从听歌统计退回音乐库列表', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
       tracks: twoTracks(),
       statsRepository: _FakeStatsRepository(),
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
-    await tester.tap(find.text('听歌统计'));
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
     await tester.pumpAndSettle();
     expect(find.byType(ListeningStatsView), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
-    expect(find.byType(ListeningStatsView), findsNothing, reason: 'Esc 退回设置列表');
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byType(ListeningStatsView),
+      findsNothing,
+      reason: 'Esc 退回音乐库列表',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('library-open-stats')),
       findsOneWidget,
     );
   });
@@ -142,17 +91,17 @@ void main() {
       tracks: twoTracks(),
       statsRepository: _FakeStatsRepository(),
     );
-    await openSettings(tester);
+    await openLibrarySettings(tester);
 
-    await tester.tap(find.text('听歌统计'));
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
     await tester.pump();
 
     // 过渡的第一帧：新旧两份都在（旧的正在淡出）
     expect(find.byType(ListeningStatsView), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('library-open-stats')),
       findsOneWidget,
-      reason: '设置列表正在淡出',
+      reason: '音乐库列表正在淡出',
     );
 
     await tester.pumpAndSettle();
@@ -160,19 +109,19 @@ void main() {
     // 结束后只剩统计，淡出的那份被丢掉
     expect(find.byType(ListeningStatsView), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('library-open-stats')),
       findsNothing,
     );
   });
 
-  testWidgets('离开设置分区后再回来，统计子界面已经收起', (WidgetTester tester) async {
+  testWidgets('离开音乐库分区后再回来，统计子界面已经收起', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
       tracks: twoTracks(),
       statsRepository: _FakeStatsRepository(),
     );
-    await openSettings(tester);
-    await tester.tap(find.text('听歌统计'));
+    await openLibrarySettings(tester);
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
     await tester.pumpAndSettle();
     expect(find.byType(ListeningStatsView), findsOneWidget);
 
@@ -181,12 +130,12 @@ void main() {
       find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
     );
     await tester.pumpAndSettle();
-    await openSettings(tester);
+    await openLibrarySettings(tester);
     await tester.pumpAndSettle();
 
     expect(find.byType(ListeningStatsView), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('settings-open-library')),
+      find.byKey(const ValueKey<String>('library-open-stats')),
       findsOneWidget,
     );
   });
@@ -197,8 +146,8 @@ void main() {
       tracks: twoTracks(),
       statsRepository: _FakeStatsRepository(),
     );
-    await openSettings(tester);
-    await tester.tap(find.text('听歌统计'));
+    await openLibrarySettings(tester);
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey<String>('rank-tab-artists')));
