@@ -2282,13 +2282,15 @@ class _LibraryPageState extends State<LibraryPage>
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
           _selectedAlbumKey != null ||
-          _settingsStatsOpen) {
+          _settingsStatsOpen ||
+          _settingsLibraryOpen) {
         _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
-          // 再点一次「设置」= 从统计退回设置列表
+          // 再点一次「设置」= 从统计 / 音乐库退回设置列表
           _settingsStatsOpen = false;
+          _settingsLibraryOpen = false;
         });
       }
       _clearSelection();
@@ -2301,9 +2303,10 @@ class _LibraryPageState extends State<LibraryPage>
     final bool leavingDetail = _selectionSignature(previous).isNotEmpty;
     _section = section;
     _sectionNotifier.value = section;
-    // 离开设置就收起统计子页：下次进来是设置列表，统计的列表与热力图也不
+    // 离开设置就收起统计 / 音乐库子页：下次进来是设置列表，子页的列表也不
     // 必留在 Offstage 里占着内存
     _settingsStatsOpen = false;
+    _settingsLibraryOpen = false;
     _saveSessionNow();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 期间用户又点了别的分区：让最后一次点击自己走完切换
@@ -2541,8 +2544,9 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.playlists => _selectedPlaylistId?.toString() ?? '',
       LibrarySection.artists => _selectedArtist ?? '',
       LibrarySection.albums => _selectedAlbumKey ?? '',
-      // 设置分区里，统计是子界面
-      LibrarySection.settings => _settingsStatsOpen ? 'stats' : '',
+      // 设置分区里，统计与音乐库都是子界面
+      LibrarySection.settings =>
+        _settingsStatsOpen ? 'stats' : (_settingsLibraryOpen ? 'library' : ''),
       LibrarySection.music ||
       LibrarySection.favorites ||
       LibrarySection.history => '',

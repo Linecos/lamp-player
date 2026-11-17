@@ -41,6 +41,50 @@ void main() {
     expect(find.text('跟随系统'), findsOneWidget);
   });
 
+  testWidgets('音乐库子界面不再叠一层「设置」大标题', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget, reason: '只剩侧栏那一个，子界面的标题由「← 音乐库」承担');
+    expect(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('离开设置分区会收起音乐库子界面，切回来是设置列表', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: twoTracks());
+    await openSettings(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('library-back')), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('设置')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('library-back')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('settings-open-library')),
+      findsOneWidget,
+      reason: '切回来应该落到设置列表，而不是上次的音乐库子页',
+    );
+  });
+
   testWidgets('听歌统计是设置里的子界面：侧栏与播放岛仍在，可退回列表', (WidgetTester tester) async {
     await pumpLibrary(
       tester,
