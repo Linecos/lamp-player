@@ -52,16 +52,26 @@ extension _LibrarySection on _LibraryPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          '音乐库',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: <Widget>[
+            Text(
+              '音乐库',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            _ToolPill(
+              key: const ValueKey<String>('library-add-folder'),
+              label: '添加音乐目录',
+              onTap: _scanning ? null : () => unawaited(_addMusicFolder()),
+            ),
+          ],
         ),
         const SizedBox(height: 2),
         Expanded(
           child: LibraryManageView(
-            trackCount: _tracks.length,
+            tracks: _tracks,
             onOpenStats: () => _update(() => _libraryStatsOpen = true),
             scanning: _scanning,
             folders: _folders,
@@ -85,8 +95,6 @@ extension _LibrarySection on _LibraryPageState {
             // 播放岛是浮层：最后一行得能滚到它上面
             bottomPadding: PlayerBar.occupiedHeight + 8,
             query: _query,
-            matcher: _matchesText,
-            onClearSearch: _clearSearch,
           ),
         ),
       ],
@@ -155,5 +163,63 @@ extension _LibrarySection on _LibraryPageState {
       });
       _showMessage('清理失败：${ErrorRetry.describe(error)}');
     }
+  }
+}
+
+/// 页头右侧的胶囊按钮
+class _ToolPill extends StatefulWidget {
+  const _ToolPill({super.key, required this.label, this.onTap});
+
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  State<_ToolPill> createState() => _ToolPillState();
+}
+
+class _ToolPillState extends State<_ToolPill> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool enabled = widget.onTap != null;
+    // 悬停 / 聚焦才点亮：整颗胶囊变底色 + 描边与文字转强调色
+    final bool lit = enabled && (_hovered || _focused);
+
+    return Material(
+      color: lit ? scheme.surfaceContainerHigh : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(999),
+        side: BorderSide(
+          color: lit
+              ? scheme.primary
+              : enabled
+              ? scheme.outline
+              : scheme.outlineVariant,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.onTap,
+        onHover: (bool value) => setState(() => _hovered = value),
+        onFocusChange: (bool value) => setState(() => _focused = value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Text(
+            widget.label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: !enabled
+                  ? scheme.outline
+                  : lit
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
