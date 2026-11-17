@@ -79,6 +79,22 @@ fn normalize_artist(kind: &str, artist: &str) -> String {
     }
 }
 
+/// 这张缓存文件是否还有别的记录在用。
+///
+/// 落盘按内容哈希去重（见 `scanner::store_cover_bytes`），所以「两位艺术家用
+/// 同一张图」会指向同一个文件。换图 / 恢复默认时不能直接删——先看还有没有
+/// 别的记录引用它，否则另一边的封面会凭空消失（记录还在、文件没了）。
+fn still_referenced(path: &str) -> anyhow::Result<bool> {
+    let count: i64 = with_conn(|conn| {
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM cover_overrides WHERE path = ?1",
+            params![path],
+            |row| row.get(0),
+        )?)
+    })?;
+    Ok(count > 0)
+}
+
 fn read_existing(kind: &str, name: &str, artist: &str) -> anyhow::Result<Option<String>> {
     with_conn(|conn| {
         Ok(conn
@@ -163,9 +179,10 @@ pub fn set_cover_override(
         Ok(())
     })?;
 
-    // 换了图：旧缓存文件已经没人引用，顺手删掉，免得用户反复换图时越攒越多
+    // 换了图：旧缓存文件如果没人再引用，顺手删掉，免得用户反复换图时越攒越多。
+    // 上面已经 upsert 过，这里查到的引用数不含当前这条
     if let Some(previous) = previous {
-        if previous != stored {
+        if previous != stored && !still_referenced(&previous)? {
             let _ = fs::remove_file(&previous);
         }
     }
@@ -189,9 +206,12 @@ pub fn clear_cover_override(kind: String, name: String, artist: String) -> anyho
         )? > 0)
     })?;
 
+    // 记录已经删掉了，这时还在引用的就是别的目标
     if removed {
         if let Some(path) = previous {
-            let _ = fs::remove_file(&path);
+            if !still_referenced(&path)? {
+                let _ = fs::remove_file(&path);
+            }
         }
     }
     Ok(removed)
