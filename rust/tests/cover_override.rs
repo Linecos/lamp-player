@@ -250,6 +250,35 @@ fn rejects_bad_input() {
 }
 
 #[test]
+fn playlist_cover_uses_id_and_ignores_artist() {
+    let (_lock, dir) = begin("playlist");
+    let source = write_png(&dir.0, "cover.png", [40, 120, 200]);
+
+    // 歌单用 id 当键：重命名不影响封面
+    let stored = cover_override::set_cover_override(
+        "playlist".to_string(),
+        "42".to_string(),
+        "多余的艺术家长".to_string(),
+        source,
+    )
+    .expect("设置歌单封面");
+
+    let list = cover_override::list_cover_overrides().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].kind, "playlist");
+    assert_eq!(list[0].name, "42");
+    assert_eq!(list[0].artist, "", "歌单封面不带 artist，传了也要归零");
+
+    assert!(Path::new(&stored).is_file());
+    assert!(cover_override::clear_cover_override(
+        "playlist".to_string(),
+        "42".to_string(),
+        String::new()
+    )
+    .unwrap());
+}
+
+#[test]
 fn clear_missing_override_is_false() {
     let (_lock, _dir) = begin("clear");
     assert!(

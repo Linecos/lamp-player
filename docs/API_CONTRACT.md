@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.15（2026-11-17）**
+> **当前版本：v0.16（2026-11-17）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.16 变更：`api::cover_override` 的 `kind` 增加 `playlist`（歌单封面，键为歌单 id），
+> 纯增量，签名不变。
 >
 > v0.15 变更：**新增** `api::cover_override` 三个函数（`set_cover_override` /
 > `clear_cover_override` / `list_cover_overrides`）与 `CoverOverride` 结构，配套
@@ -464,13 +467,15 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 | `clear_cover_override(kind: String, name: String, artist: String) -> Result<bool>` | `Future<bool> clearCoverOverride({required String kind, required String name, required String artist})` | 否 | **已实现** |
 | `list_cover_overrides() -> Result<Vec<CoverOverride>>` | `Future<List<CoverOverride>> listCoverOverrides()` | 否 | **已实现** |
 
-`CoverOverride` 字段：`kind`（`artist` / `album`）、`name`（艺术家名或专辑名）、
-`artist`（专辑所属艺术家，艺术家封面为空串）、`path`（缓存文件绝对路径）、`updated_at`（秒）。
+`CoverOverride` 字段：`kind`（`artist` / `album` / `playlist`）、`name`（艺术家名 / 专辑名 / **歌单 id 的十进制字符串**）、
+`artist`（专辑所属艺术家，艺术家与歌单为空串）、`path`（缓存文件绝对路径）、`updated_at`（秒）。
 
 语义补充：
 
-- `kind` 只接受 `artist` 与 `album`，其它值报错；`album` 必须带非空 `artist`，
+- `kind` 只接受 `artist`、`album`、`playlist`，其它值报错；`album` 必须带非空 `artist`，
   因为同名专辑在不同艺术家下是两张不同的专辑。
+- **歌单用 id 不用名字**：歌单可以重命名，用名字当键的话改一次名自定义封面就找不回来了
+  （旧名字那行还会留在表里变成孤儿）。调用方传 `playlist.id.toString()`。
 - 图片由 Rust 侧解码校验（不是图片直接报错）、缩到 1024 长边、按内容哈希去重，
   落到 `<支持目录>/custom_covers/`，返回缓存路径。**不复制进 `covers/`**：那是扫描缓存，
   `prune_unused_covers` 会删掉没有被 `tracks.cover_path` 引用的文件，自定义封面会被误清。
