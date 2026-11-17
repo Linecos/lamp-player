@@ -1,24 +1,26 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'
-    show FilteringTextInputFormatter, TextInputFormatter;
+import 'package:path/path.dart' as p;
 
 import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/metadata.dart';
+import 'lyrics_editor_dialog.dart';
 
-/// 曲目「修改元数据」弹窗：左边改歌词，右边（右上角）看封面、改信息。
+/// 「编辑音频信息」界面：大标题 + 文件路径 + 一块卡片（左封面、右表单）。
 ///
-/// 数据与副作用全部由调用方注入——`tags` / `lyricsText` 是进来时的快照，
-/// `onSave` / `onShiftLyrics` 才是真正落盘与平移时间戳的地方。这样这个文件
-/// 只负责「长得对、改得动」，单元测试里不需要初始化 Rust。
+/// 早先是一个窄弹窗，左边歌词编辑器吃掉一半宽度、右边八个字段挤在 380 里。
+/// 歌词常年只有几行，字段却要滚动——主次反了。现在按「信息编辑」重排：
+/// 封面在左、表单在右，歌词收成表单里的一个入口（点开是子窗），
+/// 编辑信息不再被歌词挤掉地方。
 ///
-/// 尺寸策略：980×660（跟随窗口缩，留 48 的边）。右侧信息列固定 380 宽、
-/// 封面 168 见方贴**右上角**；左边歌词编辑器吃掉剩下的全部空间，因为歌词
-/// 是一屏几十行、比八个单行输入框更需要地方。
+/// 数据与副作用全部由调用方注入：`tags` / `lyricsText` 是进来时的快照，
+/// `onSave` / `onShiftLyrics` 才是真正落盘与平移时间戳的地方，所以这个文件
+/// 只负责「长得对、改得动」，单元测试不需要初始化 Rust。
 class TrackMetadataDialog extends StatefulWidget {
   const TrackMetadataDialog({
     super.key,
+    required this.filePath,
     required this.coverPath,
     required this.tags,
     required this.lyricsText,
@@ -26,6 +28,9 @@ class TrackMetadataDialog extends StatefulWidget {
     required this.onShiftLyrics,
     required this.onSave,
   });
+
+  /// 音频文件绝对路径：标题下面显示文件名，完整路径放 tooltip
+  final String filePath;
 
   /// 封面缓存文件路径（可空：没有封面时显示占位）
   final String? coverPath;
@@ -39,10 +44,10 @@ class TrackMetadataDialog extends StatefulWidget {
   /// 歌词来源：`sidecar`（同名 `.lrc` / `.ttml`）/ `embedded`（音频标签）/ `none`
   final String lyricsSource;
 
-  /// 整体平移时间戳：返回平移后的新文本（负数提前、正数延后）
+  /// 整体平移时间戳：透传给歌词子窗（负数提前、正数延后）
   final Future<String> Function(String text, int deltaMs) onShiftLyrics;
 
-  /// 保存：标签 + 歌词原文。抛异常表示失败，弹窗保持打开并显示原因。
+  /// 保存：标签 + 歌词原文。抛异常表示失败，界面保持打开并显示原因。
   final Future<void> Function(TrackTags tags, String lyrics) onSave;
 
   @override
@@ -50,11 +55,8 @@ class TrackMetadataDialog extends StatefulWidget {
 }
 
 class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
-  /// 信息列固定宽度：窗口再宽也不拉长输入框
-  static const double _infoWidth = 380;
-
-  /// 封面边长：够看清是哪张图，又不至于把字段挤到屏幕外
-  static const double _coverSide = 168;
+  /// 封面边长上限：参考图里封面是卡片的视觉主体，但不能大到把表单挤没
+  static const double _coverMaxSide = 320;
 
   late final TextEditingController _title = _from(widget.tags.title);
   late final TextEditingController _artist = _from(widget.tags.artist);
@@ -66,19 +68,13 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
   late final TextEditingController _trackNo = _from(widget.tags.trackNo);
   late final TextEditingController _discNo = _from(widget.tags.discNo);
   late final TextEditingController _genre = _from(widget.tags.genre);
-  late final TextEditingController _lyrics = _from(widget.lyricsText);
 
-  /// 偏移输入的「秒」「毫秒」两格，分开填更符合「快进 1 秒 200 毫秒」的说法
-  final TextEditingController _offsetSeconds = TextEditingController();
-  final TextEditingController _offsetMillis = TextEditingController();
-
-  /// 提前还是延后：提前 = 时间戳减小（歌词更早出现）
-  bool _delay = true;
+  /// 歌词在子窗里改，这里只留当前文本（子窗返回 null 表示用户取消了）
+  late String _lyrics = widget.lyricsText;
 
   bool _saving = false;
-  bool _shifting = false;
 
-  /// 弹窗底部的错误提示（保存失败、平移失败、标题空）
+  /// 底部错误提示（保存失败、标题空）
   String? _error;
 
   TextEditingController _from(String value) =>
@@ -100,66 +96,27 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
     for (final TextEditingController controller in _fields) {
       controller.dispose();
     }
-    _lyrics.dispose();
-    _offsetSeconds.dispose();
-    _offsetMillis.dispose();
     super.dispose();
   }
 
-  /// 把「秒 + 毫秒 + 提前/延后」换算成毫秒增量；没填合法数字时返回 null
-  int? _deltaMs() {
-    final int seconds = int.tryParse(_offsetSeconds.text.trim()) ?? 0;
-    final int millis = int.tryParse(_offsetMillis.text.trim()) ?? 0;
-    if (seconds == 0 && millis == 0) {
-      return null;
-    }
-    final int total = seconds * 1000 + millis;
-    return _delay ? -total : total;
-  }
-
-  Future<void> _applyOffset() async {
-    if (_shifting || _saving) {
+  /// 点「编辑歌词…」：子窗返回新文本才覆盖，取消则原样留着
+  Future<void> _editLyrics() async {
+    final String? edited = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => LyricsEditorDialog(
+        lyricsText: _lyrics,
+        lyricsSource: widget.lyricsSource,
+        onShiftLyrics: widget.onShiftLyrics,
+      ),
+    );
+    if (!mounted || edited == null) {
       return;
     }
-    final int? delta = _deltaMs();
-    if (delta == null) {
-      setState(() => _error = '先填要快进 / 延后多少秒或多少毫秒');
-      return;
-    }
-    setState(() {
-      _shifting = true;
-      _error = null;
-    });
-    try {
-      final String before = _lyrics.text;
-      final String after = await widget.onShiftLyrics(before, delta);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        if (after == before) {
-          // 没有时间戳可动（纯文本歌词 / 已经是 0 秒）：说清楚，别让人以为点坏了
-          _error = '这段歌词里没有可平移的时间戳，或平移后没有变化';
-        } else {
-          _lyrics.text = after;
-          _lyrics.selection = TextSelection.collapsed(offset: after.length);
-          _offsetSeconds.clear();
-          _offsetMillis.clear();
-        }
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = '平移时间戳失败：$error');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _shifting = false);
-      }
-    }
+    setState(() => _lyrics = edited);
   }
 
   Future<void> _save() async {
-    if (_saving || _shifting) {
+    if (_saving) {
       return;
     }
     if (_title.text.trim().isEmpty) {
@@ -182,7 +139,7 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
           discNo: _discNo.text.trim(),
           genre: _genre.text.trim(),
         ),
-        _lyrics.text,
+        _lyrics,
       );
       if (mounted) {
         Navigator.of(context).pop(true);
@@ -194,10 +151,6 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
           _error = '保存失败：$error';
         });
       }
-      return;
-    }
-    if (mounted) {
-      setState(() => _saving = false);
     }
   }
 
@@ -207,9 +160,14 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
     final ColorScheme scheme = theme.colorScheme;
     final Size viewport = MediaQuery.sizeOf(context);
 
-    final double width = math.min(980, math.max(560, viewport.width - 48));
-    final double height = math.min(660, math.max(420, viewport.height - 48));
-    final double infoWidth = math.min(_infoWidth, width * 0.44);
+    final double width = math.min(1120, math.max(640, viewport.width - 48));
+    final double height = math.min(760, math.max(480, viewport.height - 48));
+    // 封面跟着窗口缩，但不超过上限；留给表单的最小宽度不参与计算，
+    // 因为表单是 Expanded，会自己吃掉剩下的空间
+    final double coverSide = math.max(
+      120,
+      math.min(_coverMaxSide, math.min(width * 0.34, height - 240)),
+    );
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
@@ -217,208 +175,129 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
       child: SizedBox(
         width: width,
         height: height,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // 左：歌词编辑器（占剩下的全部宽度）
-                  Expanded(child: _buildLyricsPane(theme, scheme)),
-                  // 右：封面在右上角，下面是信息字段
-                  SizedBox(
-                    width: infoWidth,
-                    child: _buildInfoPane(theme, scheme),
-                  ),
-                ],
-              ),
-            ),
-            _buildFooter(theme, scheme),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 22, 28, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _buildHeader(theme, scheme),
+              const SizedBox(height: 18),
+              Expanded(child: _buildCard(theme, scheme, coverSide)),
+              const SizedBox(height: 14),
+              _buildFooter(theme, scheme),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLyricsPane(ThemeData theme, ColorScheme scheme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
+  /// 顶部：大标题 + 文件名（完整路径放 tooltip，长路径不占版面）
+  Widget _buildHeader(ThemeData theme, ColorScheme scheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          '编辑音频信息',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Tooltip(
+          message: widget.filePath,
+          waitDuration: const Duration(milliseconds: 400),
+          child: Row(
             children: <Widget>[
-              Text('歌词', style: theme.textTheme.titleSmall),
-              const SizedBox(width: 8),
-              _sourceChip(theme, scheme),
-              const Spacer(),
-              Text(
-                '支持 LRC 时间戳，可直接编辑文本',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              Icon(
+                Icons.insert_drive_file_outlined,
+                size: 14,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  p.basename(widget.filePath),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: TextField(
-              key: const ValueKey<String>('lyrics-editor'),
-              controller: _lyrics,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              textAlignVertical: TextAlignVertical.top,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                // 等宽字体：时间戳与文本对得齐，改偏移时一眼看出哪行变了
-                fontFamily: 'Consolas',
-                height: 1.5,
-              ),
-              decoration: const InputDecoration(
-                hintText: '还没有歌词。可以直接粘贴 LRC 文本…',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildOffsetRow(theme, scheme),
-        ],
-      ),
-    );
-  }
-
-  /// 歌词来源小标签：告诉用户保存会落到哪个文件
-  Widget _sourceChip(ThemeData theme, ColorScheme scheme) {
-    final (String label, String tip) = switch (widget.lyricsSource) {
-      'sidecar' => ('来自 .lrc', '保存时写回同名 .lrc'),
-      'embedded' => ('来自文件内嵌', '保存时会新建同名 .lrc（不改音频文件）'),
-      _ => ('暂无歌词', '保存时新建同名 .lrc'),
-    };
-    return Tooltip(
-      message: tip,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
         ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 整体平移一行：秒 / 毫秒 + 提前、延后 + 应用
-  Widget _buildOffsetRow(ThemeData theme, ColorScheme scheme) {
-    return Row(
-      children: <Widget>[
-        Text('整体偏移', style: theme.textTheme.labelLarge),
-        const SizedBox(width: 10),
-        SizedBox(width: 64, child: _numberField(_offsetSeconds, '秒')),
-        const SizedBox(width: 8),
-        SizedBox(width: 84, child: _numberField(_offsetMillis, '毫秒')),
-        const SizedBox(width: 12),
-        SegmentedButton<bool>(
-          showSelectedIcon: false,
-          style: const ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          segments: const <ButtonSegment<bool>>[
-            ButtonSegment<bool>(value: true, label: Text('提前')),
-            ButtonSegment<bool>(value: false, label: Text('延后')),
-          ],
-          selected: <bool>{_delay},
-          onSelectionChanged: (Set<bool> value) =>
-              setState(() => _delay = value.first),
-        ),
-        const SizedBox(width: 12),
-        OutlinedButton.icon(
-          onPressed: _shifting || _saving ? null : _applyOffset,
-          icon: const Icon(Icons.fast_rewind, size: 18),
-          label: Text(_shifting ? '平移中…' : '应用到时间轴'),
-        ),
-        const Spacer(),
       ],
     );
   }
 
-  Widget _numberField(TextEditingController controller, String label) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      inputFormatters: <TextInputFormatter>[
-        FilteringTextInputFormatter.digitsOnly,
-      ],
-      decoration: InputDecoration(
-        labelText: label,
-        isDense: true,
-        border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+  /// 卡片：左封面、右表单
+  Widget _buildCard(ThemeData theme, ColorScheme scheme, double coverSide) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant),
       ),
-      style: Theme.of(context).textTheme.bodyMedium,
-    );
-  }
-
-  Widget _buildInfoPane(ThemeData theme, ColorScheme scheme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 20, 24, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // 封面贴右上角
-          Align(
-            alignment: Alignment.topRight,
-            child: AlbumCover(
-              path: widget.coverPath,
-              size: _coverSide,
-              radius: 14,
-            ),
-          ),
-          const SizedBox(height: 16),
+          // 左：封面
+          AlbumCover(path: widget.coverPath, size: coverSide, radius: 16),
+          const SizedBox(width: 24),
           Expanded(
             child: SingleChildScrollView(
-              // 长字段单列，短字段两两并排：8 个字段一列排下来会比信息列高，
-              // 底部那个「流派」会被裁掉半截；并排之后 660 高的窗里正好放下
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  _textField(_title, '标题'),
-                  _textField(_artist, '艺术家'),
-                  _textField(_album, '专辑'),
-                  _textField(_albumArtist, '专辑艺术家'),
+                  _field(_title, '标题', Icons.music_note),
+                  _field(_artist, '艺术家', Icons.person_outline),
+                  _field(_album, '专辑', Icons.album_outlined),
+                  _field(_albumArtist, '专辑艺术家', Icons.groups_outlined),
+                  // 短字段两两并排：一列排到底会把「流派」挤出可视区
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Expanded(
                         flex: 3,
-                        child: _textField(
+                        child: _field(
                           _year,
                           '年份',
+                          Icons.calendar_today_outlined,
                           hint: '2003 或 2003-05-01',
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
                         flex: 2,
-                        child: _textField(_trackNo, '音轨号', hint: '3 或 03/12'),
+                        child: _field(
+                          _trackNo,
+                          '音轨号',
+                          Icons.numbers,
+                          hint: '3 或 03/12',
+                        ),
                       ),
                     ],
                   ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Expanded(flex: 2, child: _textField(_discNo, '碟号')),
-                      const SizedBox(width: 10),
-                      Expanded(flex: 3, child: _textField(_genre, '流派')),
+                      Expanded(
+                        flex: 2,
+                        child: _field(_discNo, '碟号', Icons.album),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 3,
+                        child: _field(_genre, '流派', Icons.category_outlined),
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 2),
+                  _buildLyricsEntry(theme, scheme),
+                  const SizedBox(height: 10),
                   Text(
                     '留空表示清掉这个标签。',
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -434,56 +313,139 @@ class _TrackMetadataDialogState extends State<TrackMetadataDialog> {
     );
   }
 
-  Widget _textField(
+  /// 单个字段：标签在框外（参考图那样），图标在框内左侧
+  Widget _field(
     TextEditingController controller,
-    String label, {
+    String label,
+    IconData icon, {
     String? hint,
   }) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          isDense: true,
-          border: const OutlineInputBorder(),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 6),
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
           ),
-        ),
+          TextField(
+            key: ValueKey<String>('metadata-field-$label'),
+            controller: controller,
+            style: theme.textTheme.bodyMedium,
+            decoration: InputDecoration(
+              hintText: hint,
+              isDense: true,
+              filled: true,
+              fillColor: scheme.surfaceContainerHighest,
+              prefixIcon: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 40,
+                minHeight: 40,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: scheme.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: scheme.outlineVariant),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFooter(ThemeData theme, ColorScheme scheme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              _error ?? '保存会写入音频文件的标签；歌词写入同名 .lrc（不改音频文件）。',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: _error == null ? scheme.onSurfaceVariant : scheme.error,
-              ),
+  /// 歌词入口：只显示来源与行数，真正的改动在子窗里做
+  Widget _buildLyricsEntry(ThemeData theme, ColorScheme scheme) {
+    final int lines = _lyrics
+        .split('\n')
+        .where((String line) => line.trim().isNotEmpty)
+        .length;
+    final String sourceLabel = switch (widget.lyricsSource) {
+      'sidecar' => '来自 .lrc',
+      'embedded' => '来自文件内嵌',
+      _ => '暂无歌词',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 6),
+          child: Text(
+            '歌词',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(width: 12),
-          TextButton(
-            onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+        ),
+        Row(
+          children: <Widget>[
+            Icon(
+              Icons.lyrics_outlined,
+              size: 18,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                lines == 0 ? '$sourceLabel · 还没有内容' : '$sourceLabel · $lines 行',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _editLyrics,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('编辑歌词…'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFooter(ThemeData theme, ColorScheme scheme) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            _error ?? '保存会写入音频文件的标签；歌词写入同名 .lrc（不改音频文件）。',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: _error == null ? scheme.onSurfaceVariant : scheme.error,
+            ),
           ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _saving || _shifting ? null : _save,
-            child: Text(_saving ? '保存中…' : '保存'),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 12),
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? '保存中…' : '保存'),
+        ),
+      ],
     );
   }
 }
