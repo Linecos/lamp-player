@@ -136,7 +136,7 @@ void main() {
     expect(find.text('搜索专辑'), findsOneWidget);
 
     await openLibrarySettings(tester);
-    expect(find.text('搜索音乐库'), findsOneWidget);
+    expect(find.text('搜索目录或隐藏歌曲'), findsOneWidget);
 
     await openSettings(tester);
     expect(find.text('搜索设置项'), findsOneWidget);

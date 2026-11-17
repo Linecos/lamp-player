@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/features/library/library_revision.dart';
+import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/library/views/library_manage_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/rust/api/scan.dart';
@@ -79,6 +81,10 @@ Future<void> _pumpManage(
     await tester.pumpAndSettle();
   }
 }
+
+/// 读某个指标块上显示的数字
+String _metric(WidgetTester tester, String key) =>
+    tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
 
 void main() {
   testWidgets('顶部四个指标从曲目算出来', (WidgetTester tester) async {
@@ -168,6 +174,75 @@ void main() {
 
     await _pumpManage(tester, prunedCount: 3, onPrune: () => runs += 1);
     expect(find.text('已清理 3 条'), findsOneWidget);
+  });
+
+  testWidgets('隐藏列表跟着曲库变化重拉，面板销毁后不再响应', (WidgetTester tester) async {
+    await _pumpManage(tester);
+    expect(find.textContaining('读取失败'), findsOneWidget);
+
+    // 在别处隐藏了歌 / 扫描完成：这个块在分区快照里始终活着，只靠
+    // initState 拉一次的话新数据永远进不来，所以它得盯着 libraryRevision
+    markLibraryChanged();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('读取失败'), findsOneWidget, reason: '重拉不应崩');
+
+    // 面板跟着页面走掉之后，再通知一次不该碰到已销毁的 State
+    await tester.pumpWidget(const SizedBox.shrink());
+    markLibraryChanged();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('清理不可用时仍显示运行按钮，不换成进入箭头', (WidgetTester tester) async {
+    // 正在扫描 / 正在清理时 onRun 传的是 null：如果按 onRun 判类型，
+    // 这一块会在那几秒里变成可进入的箭头，像换了个功能
+    await _pumpManage(tester, onPrune: null);
+
+    expect(find.text('运行'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('library-prune-missing')),
+        matching: find.byIcon(Icons.chevron_right),
+      ),
+      findsNothing,
+      reason: '这一块不该变成「可进入」的样子',
+    );
+  });
+
+  testWidgets('专辑数与专辑分区算的一致（同一个聚合键）', (WidgetTester tester) async {
+    // 自己拼 `album|artist` 当键会多算：同一张专辑的艺术家标签只差一个
+    // 尾随空格，裸字符串是两条，albumGroupKey 会先 trim 再拼，是一条
+    final List<Track> tracks = <Track>[
+      sampleTrack(title: 'a', artist: '甲', album: '合辑', path: r'D://M//1.mp3'),
+      sampleTrack(title: 'b', artist: '甲 ', album: '合辑', path: r'D://M//2.mp3'),
+      sampleTrack(title: 'c', artist: null, album: null, path: r'D://M//3.mp3'),
+    ];
+    await _pumpManage(tester, tracks: tracks, folders: const <String>[]);
+
+    expect(
+      _metric(tester, 'library-count-albums'),
+      '${groupTracksByAlbum(tracks).length}',
+    );
+  });
+
+  testWidgets('艺术家数与艺术家分区算的一致（多艺术家拆开算）', (WidgetTester tester) async {
+    // `甲/乙` 在艺术家分区是两个人，没有标签的曲目落进「未知艺术家」；
+    // 按裸字符串数只会得到两条
+    final List<Track> tracks = <Track>[
+      sampleTrack(
+        title: 'a',
+        artist: '甲/乙',
+        album: '合辑',
+        path: r'D://M//1.mp3',
+      ),
+      sampleTrack(title: 'b', artist: null, album: null, path: r'D://M//2.mp3'),
+    ];
+    await _pumpManage(tester, tracks: tracks, folders: const <String>[]);
+
+    expect(
+      _metric(tester, 'library-count-artists'),
+      '${groupTracksByArtist(tracks).length}',
+    );
   });
 
   testWidgets('没有目录时给空态与添加入口', (WidgetTester tester) async {

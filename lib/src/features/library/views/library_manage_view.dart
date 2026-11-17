@@ -8,6 +8,7 @@ import '../../../rust/api/db.dart' as db;
 import '../../../rust/api/model.dart' show Track;
 import '../../../rust/api/scan.dart';
 import '../library_revision.dart';
+import '../library_sort.dart';
 
 /// 音乐库分区的主体。
 ///
@@ -152,7 +153,7 @@ class LibraryManageView extends StatelessWidget {
                 child: _Panel(
                   key: const ValueKey<String>('library-panel-hidden'),
                   title: '被隐藏的歌曲',
-                  child: const _HiddenTracksPanel(),
+                  child: _HiddenTracksPanel(query: query),
                 ),
               ),
             ],
@@ -200,6 +201,9 @@ class LibraryManageView extends StatelessWidget {
               ? '没有发现缺失文件'
               : '已清理 $prunedMissingCount 条',
           busy: pruningMissing,
+          // 不可操作（正在扫描 / 正在清理）时 [onRun] 是 null，
+          // 但这一块始终是「运行」型，不能在那几秒里变成可进入的箭头
+          showsRun: true,
           onRun: pruningMissing ? null : onPruneMissing,
         ),
         if (!pruningMissing &&
@@ -288,10 +292,18 @@ bool _inFolder(String path, String folder) {
   return source == target || source.startsWith('$target\\');
 }
 
+/// 专辑数与艺术家数。
+///
+/// 必须用**专辑分区 / 艺术家分区同一套键**：[albumGroupKey] 与
+/// [splitTrackArtists]。自己拼 `album|artist` 的话，两边会差出好几张——
+/// 没有标签的曲目在专辑分区是「未知专辑」一张卡，按裸字符串拼却会算成
+/// 每个艺术家各一张；`A/B` 这种多艺术家曲目在艺术家分区是两个人，
+/// 按裸字符串算又是各一次。这里只算键、不建分组，也不排序，代价是逐曲
+/// 一次字符串拼接。
 int _albumCount(List<Track> tracks) {
   final Set<String> keys = <String>{};
   for (final Track track in tracks) {
-    keys.add('${track.album ?? ''}|${track.artist ?? ''}');
+    keys.add(albumGroupKey(track));
   }
   return keys.length;
 }
@@ -299,10 +311,7 @@ int _albumCount(List<Track> tracks) {
 int _artistCount(List<Track> tracks) {
   final Set<String> names = <String>{};
   for (final Track track in tracks) {
-    final String? artist = track.artist;
-    if (artist != null && artist.isNotEmpty) {
-      names.add(artist);
-    }
+    names.addAll(splitTrackArtists(track));
   }
   return names.length;
 }
@@ -498,9 +507,12 @@ class _FolderRow extends StatelessWidget {
   }
 }
 
-/// 块内的隐藏歌曲列表：就近展示，恢复一键完成，多了再走弹窗
+/// 块内的隐藏歌曲列表：就近展示，恢复一键完成，多了就在块内滚
 class _HiddenTracksPanel extends StatefulWidget {
-  const _HiddenTracksPanel();
+  const _HiddenTracksPanel({this.query = ''});
+
+  /// 常驻搜索框的关键词：非空时按标题 / 艺术家 / 路径筛，和目录块同一口径
+  final String query;
 
   @override
   State<_HiddenTracksPanel> createState() => _HiddenTracksPanelState();
@@ -514,7 +526,23 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
   @override
   void initState() {
     super.initState();
+    // 曲库内容在别处变了（右键隐藏了歌、刚扫完目录）就重拉一次：这一块
+    // 在分区快照里会一直活着，只在 initState 拉一次的话，新隐藏的歌要等
+    // 切走再切回来才看得见
+    libraryRevision.addListener(_reload);
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    libraryRevision.removeListener(_reload);
+    super.dispose();
+  }
+
+  void _reload() {
+    if (mounted) {
+      unawaited(_load());
+    }
   }
 
   Future<void> _load() async {
@@ -541,12 +569,12 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
   Future<void> _restore(db.HiddenTrack track) async {
     try {
       await db.unhideTracks(paths: <String>[track.path]);
+      // 列表靠 libraryRevision 的监听重拉，这里不用再手动 _load 一次
       markLibraryChanged();
       if (!mounted) {
         return;
       }
       AppToast.show(context, '已恢复：${track.title}');
-      await _load();
     } catch (error) {
       if (!mounted) {
         return;
@@ -576,11 +604,30 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
         child: Text('读取失败：$error', style: hint, maxLines: 3),
       );
     }
-    final List<db.HiddenTrack> items = _items ?? const <db.HiddenTrack>[];
-    if (items.isEmpty) {
+    final List<db.HiddenTrack> all = _items ?? const <db.HiddenTrack>[];
+    if (all.isEmpty) {
       return Align(
         alignment: Alignment.topLeft,
         child: Text('没有被隐藏的歌曲', style: hint),
+      );
+    }
+    // 和目录块一样就地过滤：搜索框的提示语说的是「搜索目录或隐藏歌曲」，
+    // 只筛目录的话，搜歌名会得到一句「没有匹配的音乐目录」，看着像功能坏了
+    final String query = widget.query.trim().toLowerCase();
+    final List<db.HiddenTrack> items = query.isEmpty
+        ? all
+        : all
+              .where(
+                (db.HiddenTrack track) =>
+                    track.title.toLowerCase().contains(query) ||
+                    track.artist.toLowerCase().contains(query) ||
+                    track.path.toLowerCase().contains(query),
+              )
+              .toList(growable: false);
+    if (items.isEmpty) {
+      return Align(
+        alignment: Alignment.topLeft,
+        child: Text('没有匹配的隐藏歌曲', style: hint),
       );
     }
 
@@ -645,6 +692,7 @@ class _IconTile extends StatefulWidget {
     this.onTap,
     this.onRun,
     this.busy = false,
+    this.showsRun = false,
   });
 
   final Widget icon;
@@ -653,6 +701,12 @@ class _IconTile extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onRun;
   final bool busy;
+
+  /// 这一块是「直接执行」型（右侧显示运行按钮）而不是「可进入」型。
+  ///
+  /// 不能只按 [onRun] 是否为空判断：不可操作时（正在扫描 / 正在清理）传进来
+  /// 的就是 null，那样这一块会突然换成可进入的箭头，看着像变成了另一个功能。
+  final bool showsRun;
 
   @override
   State<_IconTile> createState() => _IconTileState();
@@ -666,7 +720,7 @@ class _IconTileState extends State<_IconTile> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final bool action = widget.onRun != null || widget.busy;
+    final bool action = widget.showsRun || widget.busy;
     final bool active = !action && widget.onTap != null;
     final bool lit = active && (_hovered || _focused);
 
