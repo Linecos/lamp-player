@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
+import 'package:lamp_player/src/features/library/widgets/lyrics_editor_dialog.dart';
 import 'package:lamp_player/src/features/library/widgets/track_metadata_dialog.dart';
 import 'package:lamp_player/src/rust/api/metadata.dart';
 
@@ -27,9 +28,10 @@ TrackTags _tags({
 }
 
 const String _lrc = '[ti:夜航]\n[00:10.00]第一行\n[00:20.00]第二行\n';
+const String _filePath = r'E:\Music\夜航\Afterglow_(2020)-littlealone100.flac';
 
 /// 用 `showDialog` 打开（跟真机一致）：直接塞进 `Scaffold` 的话保存后
-/// `Navigator.pop` 会把唯一的路由弹掉，测不出「弹窗关掉了」
+/// `Navigator.pop` 会把唯一的路由弹掉，测不出「界面关掉了」
 Future<void> _open(
   WidgetTester tester, {
   String lyrics = _lrc,
@@ -47,6 +49,7 @@ Future<void> _open(
             onPressed: () => showDialog<bool>(
               context: context,
               builder: (BuildContext _) => TrackMetadataDialog(
+                filePath: _filePath,
                 coverPath: coverPath,
                 tags: tags ?? _tags(),
                 lyricsText: lyrics,
@@ -67,14 +70,24 @@ Future<void> _open(
   await tester.pump(const Duration(milliseconds: 400));
 }
 
+/// 这个界面是 1120×760：默认 800×600 的测试窗口放不下，每个用例都先放大
+void _bigWindow(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1400, 1000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
-  testWidgets('字段按初始标签预填，歌词与来源都在', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('大标题、文件名与八个字段都在，字段按标签预填', (WidgetTester tester) async {
+    _bigWindow(tester);
+    await _open(tester);
 
-    await _open(tester, lyrics: _lrc);
-
+    expect(find.text('编辑音频信息'), findsOneWidget);
+    expect(
+      find.text('Afterglow_(2020)-littlealone100.flac'),
+      findsOneWidget,
+      reason: '副标题显示文件名而不是整条路径',
+    );
     for (final String label in <String>[
       '标题',
       '艺术家',
@@ -86,50 +99,52 @@ void main() {
       '流派',
     ]) {
       expect(
-        find.widgetWithText(TextField, label),
+        find.byKey(ValueKey<String>('metadata-field-$label')),
         findsOneWidget,
         reason: '缺少字段：$label',
       );
     }
-    expect(find.text('夜航'), findsWidgets, reason: '标题要预填成标签里的值');
-    expect(find.text('来自 .lrc'), findsOneWidget);
     expect(
       tester
           .widget<TextField>(
-            find.byKey(const ValueKey<String>('lyrics-editor')),
+            find.byKey(const ValueKey<String>('metadata-field-标题')),
           )
           .controller!
           .text,
-      _lrc,
+      '夜航',
+    );
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey<String>('metadata-field-专辑')),
+          )
+          .controller!
+          .text,
+      '深夜频道',
     );
   });
 
-  testWidgets('封面在右上角，窗口做大到 980×660', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
+  testWidgets('封面在左边、表单在右边，界面做到 1120×760', (WidgetTester tester) async {
+    _bigWindow(tester);
     await _open(tester);
 
-    // 外层 Column 才是内容框（Dialog 的矩形含全屏留白）
+    // 内容列（`SizedBox` 里已经扣掉左右 28、上下 22/18 的页边距）：
+    // 1120-56 × 760-40。不用 Dialog 的矩形——它含全屏留白
     final Rect content = tester.getRect(find.byType(Column).first);
-    expect(content.width, closeTo(980, 1));
-    expect(content.height, closeTo(660, 1));
+    expect(content.width, closeTo(1064, 1));
+    expect(content.height, closeTo(720, 1));
 
     final Rect cover = tester.getRect(find.byType(AlbumCover));
-    expect(cover.width, closeTo(168, 0.5));
-    expect(
-      content.right - cover.right,
-      closeTo(24, 0.5),
-      reason: '封面贴右边（信息列的右边距）',
+    final Rect titleField = tester.getRect(
+      find.byKey(const ValueKey<String>('metadata-field-标题')),
     );
-    expect(cover.top - content.top, closeTo(20, 0.5), reason: '封面贴顶边，落在右上角');
+    expect(cover.width, closeTo(320, 0.5), reason: '封面是卡片的视觉主体');
+    expect(cover.left - content.left, lessThan(60), reason: '封面贴左边');
+    expect(titleField.left, greaterThan(cover.right), reason: '表单排在封面右侧，不压在图上');
   });
 
   testWidgets('改完字段点保存，回调收到新标签与歌词原文', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    _bigWindow(tester);
 
     TrackTags? savedTags;
     String? savedLyrics;
@@ -141,9 +156,18 @@ void main() {
       },
     );
 
-    await tester.enterText(find.widgetWithText(TextField, '标题'), '  夜航（重制）  ');
-    await tester.enterText(find.widgetWithText(TextField, '专辑'), '深夜频道 II');
-    await tester.enterText(find.widgetWithText(TextField, '流派'), '');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('metadata-field-标题')),
+      '  夜航（重制）  ',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('metadata-field-专辑')),
+      '深夜频道 II',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('metadata-field-流派')),
+      '',
+    );
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -158,9 +182,7 @@ void main() {
   });
 
   testWidgets('标题清空时拦住保存并提示', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    _bigWindow(tester);
 
     int saves = 0;
     await _open(
@@ -168,19 +190,20 @@ void main() {
       onSave: (TrackTags tags, String lyrics) async => saves += 1,
     );
 
-    await tester.enterText(find.widgetWithText(TextField, '标题'), '   ');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('metadata-field-标题')),
+      '   ',
+    );
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pump();
 
     expect(saves, 0);
     expect(find.textContaining('标题不能为空'), findsOneWidget);
-    expect(find.byType(TrackMetadataDialog), findsOneWidget, reason: '弹窗不关闭');
+    expect(find.byType(TrackMetadataDialog), findsOneWidget, reason: '界面不关闭');
   });
 
-  testWidgets('保存失败时弹窗留着并说明原因', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('保存失败时界面留着并说明原因', (WidgetTester tester) async {
+    _bigWindow(tester);
 
     await _open(
       tester,
@@ -195,91 +218,90 @@ void main() {
     expect(find.byType(TrackMetadataDialog), findsOneWidget);
   });
 
-  testWidgets('整体提前 1 秒 200 毫秒：按 -1200ms 平移并替换编辑器文本', (
-    WidgetTester tester,
-  ) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('歌词是入口而不是输入框：只显示来源与行数', (WidgetTester tester) async {
+    _bigWindow(tester);
+    await _open(tester);
 
-    int? delta;
-    String? received;
-    await _open(
-      tester,
-      onShiftLyrics: (String text, int deltaMs) async {
-        delta = deltaMs;
-        received = text;
-        return text.replaceAll('[00:10.00]', '[00:08.80]');
-      },
-    );
-
-    await tester.enterText(find.widgetWithText(TextField, '秒'), '1');
-    await tester.enterText(find.widgetWithText(TextField, '毫秒'), '200');
-    await tester.tap(find.widgetWithText(OutlinedButton, '应用到时间轴'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(delta, -1200, reason: '默认「提前」= 时间戳减小');
-    expect(received, _lrc, reason: '要把当前编辑器里的全文交出去');
-    final TextField editor = tester.widget<TextField>(
-      find.byKey(const ValueKey<String>('lyrics-editor')),
-    );
-    expect(editor.controller!.text, contains('[00:08.80]'));
-
-    // 平移成功后输入框清空，避免连点两次却以为是同一次
+    expect(find.text('来自 .lrc · 3 行'), findsOneWidget);
     expect(
-      tester
-          .widget<TextField>(find.widgetWithText(TextField, '秒'))
-          .controller!
-          .text,
-      '',
+      find.byKey(const ValueKey<String>('lyrics-editor')),
+      findsNothing,
+      reason: '歌词编辑搬进子窗了',
     );
+    expect(find.widgetWithText(OutlinedButton, '编辑歌词…'), findsOneWidget);
   });
 
-  testWidgets('切到「延后」时增量是正数', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('没有歌词时入口说明是空的', (WidgetTester tester) async {
+    _bigWindow(tester);
+    await _open(tester, lyrics: '', source: 'none');
 
-    int? delta;
+    expect(find.textContaining('还没有内容'), findsOneWidget);
+  });
+
+  testWidgets('点「编辑歌词…」打开子窗，回来保存的是改过的歌词', (WidgetTester tester) async {
+    _bigWindow(tester);
+
+    String? savedLyrics;
     await _open(
       tester,
-      onShiftLyrics: (String text, int deltaMs) async {
-        delta = deltaMs;
-        return text;
-      },
+      onSave: (TrackTags tags, String lyrics) async => savedLyrics = lyrics,
     );
 
-    await tester.tap(find.text('延后'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '编辑歌词…'));
     await tester.pump();
-    await tester.enterText(find.widgetWithText(TextField, '毫秒'), '250');
-    await tester.tap(find.widgetWithText(OutlinedButton, '应用到时间轴'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(LyricsEditorDialog), findsOneWidget);
+
+    const String edited = '[00:10.00]改过的第一行\n';
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('lyrics-editor')),
+      edited,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '完成'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(delta, 250);
-    // 文本没变（stub 原样返回）：要提示「没有可平移的时间戳」，别让人以为点坏了
-    expect(find.textContaining('没有可平移的时间戳'), findsOneWidget);
+    expect(find.byType(LyricsEditorDialog), findsNothing);
+    expect(find.text('来自 .lrc · 1 行'), findsOneWidget, reason: '入口摘要要跟着变');
+
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(savedLyrics, edited);
   });
 
-  testWidgets('没填偏移就点应用：提示先填数字', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('歌词子窗里点取消，原来的歌词不变', (WidgetTester tester) async {
+    _bigWindow(tester);
 
-    int calls = 0;
+    String? savedLyrics;
     await _open(
       tester,
-      onShiftLyrics: (String text, int deltaMs) async {
-        calls += 1;
-        return text;
-      },
+      onSave: (TrackTags tags, String lyrics) async => savedLyrics = lyrics,
     );
 
-    await tester.tap(find.widgetWithText(OutlinedButton, '应用到时间轴'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '编辑歌词…'));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('lyrics-editor')),
+      '[00:10.00]不该被保存\n',
+    );
+    // 父界面也有一个「取消」：限定在歌词子窗里点
+    await tester.tap(
+      find.descendant(
+        of: find.byType(LyricsEditorDialog),
+        matching: find.widgetWithText(TextButton, '取消'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
-    expect(calls, 0);
-    expect(find.textContaining('先填要快进'), findsOneWidget);
+    expect(find.byType(LyricsEditorDialog), findsNothing);
+    expect(find.text('来自 .lrc · 3 行'), findsOneWidget, reason: '行数没变');
+
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(savedLyrics, _lrc, reason: '取消等于没改');
   });
 }

@@ -1040,6 +1040,7 @@ extension _PlaybackSection on _LibraryPageState {
     final bool? saved = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) => TrackMetadataDialog(
+        filePath: track.path,
         coverPath: track.coverPath,
         tags: tags,
         lyricsText: raw.text,
