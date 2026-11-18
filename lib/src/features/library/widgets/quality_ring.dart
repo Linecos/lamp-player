@@ -201,6 +201,12 @@ class _QualityRingState extends State<QualityRing>
     final AudioQuality? active = _hovered ?? widget.selected;
     final double size = widget.size;
 
+    // 中间读数跟着环径缩放：环会随窗口变高变矮，字号写死的话大环里显得空、
+    // 小环里又会顶到内圈（0.15 / 0.068 是环径 160 时 headlineSmall 24 与
+    // labelSmall 11 的比例）
+    final double numberSize = (size * 0.15).clamp(20.0, 34.0);
+    final double labelSize = (size * 0.068).clamp(10.0, 12.0);
+
     final Widget center = Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -209,6 +215,8 @@ class _QualityRingState extends State<QualityRing>
               ? '${widget.breakdown.total}'
               : '${widget.breakdown.countOf(active)}',
           style: theme.textTheme.headlineSmall?.copyWith(
+            fontSize: numberSize,
+            height: 1.1,
             fontWeight: FontWeight.w600,
             color: active == null
                 ? scheme.onSurface
@@ -220,6 +228,7 @@ class _QualityRingState extends State<QualityRing>
               ? '首'
               : '${(widget.breakdown.fractionOf(active) * 100).toStringAsFixed(1)}%',
           style: theme.textTheme.labelSmall?.copyWith(
+            fontSize: labelSize,
             color: scheme.onSurfaceVariant,
           ),
         ),
@@ -306,22 +315,109 @@ class _Slice {
   final double sweep;
 }
 
-/// 档位配色：同一个强调色的四阶，靠向背景过渡出「深 → 浅」。
+/// 档位配色：同一个强调色的四阶，按「与面板底色的对比度」定档。
 ///
-/// 取 `scheme.primary` 为最深的一阶（HR），依次混入 `scheme.surface`：
-/// 浅色主题下越往后越浅，深色主题下越往后越暗——两种主题都保持「与背景
-/// 对比度递减」的同一套阶梯，不出现刺眼的浅档。
+/// 以前是按固定比例往背景混（0 / 0.22 / 0.42 / 0.6）：浅色主题下第四档混出来
+/// 只有 1.5:1，扇形和图例几乎贴在卡片上；深色主题下 2.1:1 也偏灰。现在反过来，
+/// 给定对比度目标去反解混入比例。
+///
+/// 目标不是写死的几个数——原色自己的对比度在不同 seed / 深浅色下差很多
+/// （浅色 accent 常在 4~5:1，深色能到 9:1），写死会在浅色下把两档压成同一个
+/// 颜色。所以从**原色对比度**到图形元素的可辨识下限 3.1:1（WCAG 1.4.11）
+/// 按对数等分：四档在「看起来差多少」上每级相同，且最后一档压在 3.1 上。
 Color sliceColor(ColorScheme scheme, AudioQuality quality) {
-  final double mix = switch (quality) {
-    AudioQuality.hiRes => 0,
-    AudioQuality.standard => 0.22,
-    AudioQuality.high => 0.42,
-    AudioQuality.other => 0.6,
-  };
-  if (mix == 0) {
+  if (quality == AudioQuality.hiRes) {
     return scheme.primary;
   }
-  return Color.lerp(scheme.primary, scheme.surface, mix)!;
+  final Color base = scheme.primary;
+  final Color background = _tierBackground(scheme);
+  final double baseContrast = _contrast(base, background);
+  // 极端配色下原色本来就和底色差不多：没有可分的阶梯，老老实实用原色
+  if (baseContrast <= _minTierContrast * 1.05) {
+    return base;
+  }
+  final int step = switch (quality) {
+    AudioQuality.standard => 1,
+    AudioQuality.high => 2,
+    _ => 3,
+  };
+  final double target =
+      baseContrast *
+      math.pow(_minTierContrast / baseContrast, step / 3).toDouble();
+  return _mutedTier(base, background, target, quality);
+}
+
+/// 图形元素与相邻底色的可辨识下限（WCAG 1.4.11）
+const double _minTierContrast = 3.1;
+
+/// 环形图与图例所在的卡片底色：`_QualityPanel` 画在 `surfaceContainerHigh` 上
+Color _tierBackground(ColorScheme scheme) => scheme.surfaceContainerHigh;
+
+/// 每个「原色 + 底色 + 档位」只算一次：绘制与四行图例每帧都要问颜色
+final Map<(int, int, int), Color> _tierCache = <(int, int, int), Color>{};
+
+/// 按对比度目标求「最淡但仍达标」的那一档
+Color _mutedTier(
+  Color base,
+  Color background,
+  double target,
+  AudioQuality quality,
+) {
+  final (int, int, int) key = (
+    base.toARGB32(),
+    background.toARGB32(),
+    quality.index,
+  );
+  final Color? cached = _tierCache[key];
+  if (cached != null) {
+    return cached;
+  }
+  final Color color = _blendToContrast(base, background, target);
+  // 主题切换次数有限，但别让缓存无限长（换封面主题时会换 seed）
+  if (_tierCache.length > 96) {
+    _tierCache.clear();
+  }
+  _tierCache[key] = color;
+  return color;
+}
+
+/// 从 [base] 向 [background] 混，二分出对比度刚好不低于 [target] 的比例
+Color _blendToContrast(Color base, Color background, double target) {
+  if (_contrast(base, background) <= target) {
+    return base;
+  }
+  double low = 0;
+  double high = 1;
+  for (int i = 0; i < 14; i += 1) {
+    final double mid = (low + high) / 2;
+    if (_contrast(Color.lerp(base, background, mid)!, background) >= target) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return Color.lerp(base, background, low)!;
+}
+
+/// WCAG 2.x 相对亮度
+double _luminance(Color color) {
+  double channel(double value) => value <= 0.03928
+      ? value / 12.92
+      : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+  return 0.2126 * channel(color.r) +
+      0.7152 * channel(color.g) +
+      0.0722 * channel(color.b);
+}
+
+/// WCAG 对比度（1~21）
+double contrastRatio(Color a, Color b) => _contrast(a, b);
+
+double _contrast(Color a, Color b) {
+  final double first = _luminance(a);
+  final double second = _luminance(b);
+  final double high = math.max(first, second);
+  final double low = math.min(first, second);
+  return (high + 0.05) / (low + 0.05);
 }
 
 /// 档位的显示名与中文说明
