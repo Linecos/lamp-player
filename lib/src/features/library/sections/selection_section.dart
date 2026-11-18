@@ -9,7 +9,11 @@ extension _SelectionSection on _LibraryPageState {
   List<Track> get _selectionVisibleTracks {
     switch (_section) {
       case LibrarySection.music:
-        return _query.isEmpty ? _tracks : (_results ?? const <Track>[]);
+        // 音质筛选也得算进来：少了这一层，表头「全选」会把被筛掉的那些也勾上，
+        // 批量隐藏 / 收藏 / 入队于是作用到一整库，而屏幕上只看得见一档
+        return _applyQualityFilter(
+          _query.isEmpty ? _tracks : (_results ?? const <Track>[]),
+        );
       case LibrarySection.favorites:
         return _filterTracks(_favoriteTracks);
       case LibrarySection.history:
