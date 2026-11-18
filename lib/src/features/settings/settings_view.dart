@@ -12,6 +12,7 @@ import '../player/equalizer_dialog.dart';
 import '../player/shortcuts.dart';
 
 import 'theme_controller.dart';
+import 'about_dialog.dart';
 import 'widgets/settings_rows.dart';
 
 /// 设置页骨架。
@@ -278,6 +279,7 @@ class SettingsView extends StatelessWidget {
         title: 'Lamp Player',
         subtitle: 'Flutter + Rust + BASS',
         value: appVersion,
+        onTap: () => unawaited(showAppAboutDialog(context)),
       ),
     ]);
 
