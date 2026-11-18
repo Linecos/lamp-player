@@ -17,6 +17,14 @@ pub struct Track {
     pub cover_path: Option<String>,
     /// ReplayGain 曲目增益（dB）；标签里没有时为 0
     pub replay_gain: f64,
+    /// 文件大小（字节）；未知为 0
+    pub file_size: i64,
+    /// 平均码率（kbps）；未知为 0（有损文件的位深也恒为 0）
+    pub audio_bitrate: i32,
+    /// 采样率（Hz）；未知为 0
+    pub sample_rate: i32,
+    /// 位深（bit）；有损编码没有这个值，为 0
+    pub bit_depth: i32,
 }
 
 /// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。

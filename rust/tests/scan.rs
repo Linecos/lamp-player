@@ -142,6 +142,10 @@ fn scan_folder_is_incremental_and_prunes_deleted_files() {
     let tracks = db::all_tracks().expect("读取曲库");
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].title, "本地音乐");
+    // v10 的音质三列要真的从文件里读出来（测试音频是 8kHz / 16bit）
+    assert_eq!(tracks[0].sample_rate, 8_000, "应读出采样率");
+    assert_eq!(tracks[0].bit_depth, 16, "应读出位深");
+    assert!(tracks[0].file_size > 0, "应记录文件大小");
 
     // FTS5 对 CJK 不分词，只能前缀匹配：搜「本地」能命中
     let hits = db::search_tracks("本地".to_string(), 10).expect("检索");
@@ -277,6 +281,10 @@ fn scan_merges_legacy_separator_variants() {
         added_at: 1,
         cover_path: None,
         replay_gain: 0.0,
+        file_size: 0,
+        audio_bitrate: 0,
+        sample_rate: 0,
+        bit_depth: 0,
     }])
     .expect("写入旧记录");
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);

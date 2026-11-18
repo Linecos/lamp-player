@@ -61,6 +61,10 @@ fn track(path: &str, title: &str) -> Track {
         added_at: 1,
         cover_path: None,
         replay_gain: 0.0,
+        file_size: 0,
+        audio_bitrate: 0,
+        sample_rate: 0,
+        bit_depth: 0,
     }
 }
 

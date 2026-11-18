@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 9;
+const SCHEMA_VERSION: i32 = 10;
 
 struct Database {
     path: String,
@@ -478,6 +478,23 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         tx.pragma_update(None, "user_version", 9)?;
     }
 
+    if version < 10 {
+        // v10：音质字段（码率 / 采样率 / 位深），供音乐库的音质分布统计用。
+        // 老行的这几列是 0，而增量扫描按 mtime/size 命中会直接跳过它们，永远补不上，
+        // 所以把指纹清零，让下次扫描重新解析一遍（与 v3 补封面的做法一致）。
+        for (column, decl) in [
+            ("audio_bitrate", "INTEGER NOT NULL DEFAULT 0"),
+            ("sample_rate", "INTEGER NOT NULL DEFAULT 0"),
+            ("bit_depth", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            if !column_exists(&tx, "tracks", column)? {
+                tx.execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {column} {decl};"))?;
+            }
+        }
+        tx.execute_batch("UPDATE tracks SET file_mtime = 0, file_size = 0;")?;
+        tx.pragma_update(None, "user_version", 10)?;
+    }
+
     tx.commit()?;
     Ok(())
 }
@@ -517,7 +534,8 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
     let mut results = with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain
+            SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain,
+                   t.file_size, t.audio_bitrate, t.sample_rate, t.bit_depth
             FROM tracks t
             JOIN tracks_fts f ON f.rowid = t.id
             WHERE t.hidden = 0 AND tracks_fts MATCH ?1
@@ -563,7 +581,8 @@ fn substring_search(query: &str, limit: i32) -> anyhow::Result<Vec<Track>> {
 
     let fields = "(title || ' ' || COALESCE(artist, '') || ' ' || COALESCE(album, ''))";
     let mut sql = String::from(
-        "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain \
+        "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain, \
+         file_size, audio_bitrate, sample_rate, bit_depth \
          FROM tracks WHERE hidden = 0 AND ",
     );
     for index in 0..terms.len() {
@@ -622,7 +641,8 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
             r#"
-            SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain
+            SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain,
+                   file_size, audio_bitrate, sample_rate, bit_depth
             FROM tracks
             WHERE hidden = 0
             ORDER BY artist, album, track_num, title
@@ -648,8 +668,10 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
         {
             let mut stmt = tx.prepare_cached(
                 r#"
-                INSERT INTO tracks (path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, ''), ?9)
+                INSERT INTO tracks
+                    (path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain,
+                     file_size, audio_bitrate, sample_rate, bit_depth)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, ''), ?9, ?10, ?11, ?12, ?13)
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
@@ -662,6 +684,23 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                     replay_gain   = CASE
                         WHEN excluded.replay_gain <> 0 THEN excluded.replay_gain
                         ELSE tracks.replay_gain
+                    END,
+                    -- 音质字段同理：调用方没带（0）就保留库里已有的值
+                    file_size     = CASE
+                        WHEN excluded.file_size <> 0 THEN excluded.file_size
+                        ELSE tracks.file_size
+                    END,
+                    audio_bitrate = CASE
+                        WHEN excluded.audio_bitrate <> 0 THEN excluded.audio_bitrate
+                        ELSE tracks.audio_bitrate
+                    END,
+                    sample_rate   = CASE
+                        WHEN excluded.sample_rate <> 0 THEN excluded.sample_rate
+                        ELSE tracks.sample_rate
+                    END,
+                    bit_depth     = CASE
+                        WHEN excluded.bit_depth <> 0 THEN excluded.bit_depth
+                        ELSE tracks.bit_depth
                     END
                 "#,
             )?;
@@ -675,7 +714,11 @@ pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
                     t.track_num.unwrap_or(0),
                     t.added_at,
                     t.cover_path,
-                    t.replay_gain
+                    t.replay_gain,
+                    t.file_size,
+                    t.audio_bitrate,
+                    t.sample_rate,
+                    t.bit_depth
                 ])?;
             }
         }
@@ -700,8 +743,9 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
             let mut stmt = tx.prepare_cached(
                 r#"
                 INSERT INTO tracks
-                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, ''), ?11)
+                    (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size,
+                     cover_path, replay_gain, audio_bitrate, sample_rate, bit_depth)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, ''), ?11, ?12, ?13, ?14)
                 ON CONFLICT(path) DO UPDATE SET
                     title         = excluded.title,
                     artist        = excluded.artist,
@@ -719,6 +763,19 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     replay_gain   = CASE
                         WHEN excluded.replay_gain <> 0 THEN excluded.replay_gain
                         ELSE tracks.replay_gain
+                    END,
+                    -- 解析不出版本信息时（0）保留旧值，别把上次的结果清掉
+                    audio_bitrate = CASE
+                        WHEN excluded.audio_bitrate <> 0 THEN excluded.audio_bitrate
+                        ELSE tracks.audio_bitrate
+                    END,
+                    sample_rate   = CASE
+                        WHEN excluded.sample_rate <> 0 THEN excluded.sample_rate
+                        ELSE tracks.sample_rate
+                    END,
+                    bit_depth     = CASE
+                        WHEN excluded.bit_depth <> 0 THEN excluded.bit_depth
+                        ELSE tracks.bit_depth
                     END
                 "#,
             )?;
@@ -735,7 +792,10 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
                     item.mtime_ns,
                     item.size,
                     t.cover_path,
-                    t.replay_gain
+                    t.replay_gain,
+                    t.audio_bitrate,
+                    t.sample_rate,
+                    t.bit_depth
                 ])?;
             }
         }
@@ -1317,6 +1377,10 @@ pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
         added_at: row.get(6)?,
         cover_path: some_if_not_empty(row.get::<_, String>(7)?),
         replay_gain: row.get(8)?,
+        file_size: row.get(9)?,
+        audio_bitrate: row.get(10)?,
+        sample_rate: row.get(11)?,
+        bit_depth: row.get(12)?,
     })
 }
 
@@ -1682,6 +1746,10 @@ mod tests {
             added_at: 0,
             cover_path: None,
             replay_gain: gain,
+            file_size: 0,
+            audio_bitrate: 0,
+            sample_rate: 0,
+            bit_depth: 0,
         };
 
         upsert_tracks(vec![track(0.0)]).expect("首次入库");

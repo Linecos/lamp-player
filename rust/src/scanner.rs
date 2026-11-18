@@ -279,7 +279,16 @@ fn read_track(
     let tagged = lofty::read_from_path(path)
         .with_context(|| format!("解析元数据失败: {}", path.display()))?;
 
-    let duration_secs = tagged.properties().duration().as_secs_f64();
+    let props = tagged.properties();
+    let duration_secs = props.duration().as_secs_f64();
+    // 有损编码（mp3/aac/vorbis/opus）没有位深，置 0 即可当「有损」判据
+    let audio_bitrate = props
+        .audio_bitrate()
+        .map_or(0, |v| i32::try_from(v).unwrap_or(0));
+    let sample_rate = props
+        .sample_rate()
+        .map_or(0, |v| i32::try_from(v).unwrap_or(0));
+    let bit_depth = props.bit_depth().map_or(0, i32::from);
 
     // primary_tag 按容器的主标签类型取（如 FLAC → VorbisComment），取不到再退到第一个标签
     let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
@@ -328,6 +337,10 @@ fn read_track(
             added_at,
             cover_path,
             replay_gain,
+            file_size: size,
+            audio_bitrate,
+            sample_rate,
+            bit_depth,
         },
         mtime_ns,
         size,

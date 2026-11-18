@@ -3643,8 +3643,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Track dco_decode_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
     return Track(
       path: dco_decode_String(arr[0]),
       title: dco_decode_String(arr[1]),
@@ -3655,6 +3655,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       addedAt: dco_decode_i_64(arr[6]),
       coverPath: dco_decode_opt_String(arr[7]),
       replayGain: dco_decode_f_64(arr[8]),
+      fileSize: dco_decode_i_64(arr[9]),
+      audioBitrate: dco_decode_i_32(arr[10]),
+      sampleRate: dco_decode_i_32(arr[11]),
+      bitDepth: dco_decode_i_32(arr[12]),
     );
   }
 
@@ -4253,6 +4257,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_addedAt = sse_decode_i_64(deserializer);
     var var_coverPath = sse_decode_opt_String(deserializer);
     var var_replayGain = sse_decode_f_64(deserializer);
+    var var_fileSize = sse_decode_i_64(deserializer);
+    var var_audioBitrate = sse_decode_i_32(deserializer);
+    var var_sampleRate = sse_decode_i_32(deserializer);
+    var var_bitDepth = sse_decode_i_32(deserializer);
     return Track(
       path: var_path,
       title: var_title,
@@ -4263,6 +4271,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       addedAt: var_addedAt,
       coverPath: var_coverPath,
       replayGain: var_replayGain,
+      fileSize: var_fileSize,
+      audioBitrate: var_audioBitrate,
+      sampleRate: var_sampleRate,
+      bitDepth: var_bitDepth,
     );
   }
 
@@ -4821,6 +4833,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.addedAt, serializer);
     sse_encode_opt_String(self.coverPath, serializer);
     sse_encode_f_64(self.replayGain, serializer);
+    sse_encode_i_64(self.fileSize, serializer);
+    sse_encode_i_32(self.audioBitrate, serializer);
+    sse_encode_i_32(self.sampleRate, serializer);
+    sse_encode_i_32(self.bitDepth, serializer);
   }
 
   @protected
