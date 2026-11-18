@@ -143,12 +143,16 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
     required this.title,
     required this.value,
     this.subtitle,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String? subtitle;
+
+  /// 给了就整行可点（末尾补一个进入箭头），例如「关于」弹窗
+  final VoidCallback? onTap;
 
   @override
   String get searchText => '$title ${subtitle ?? ''} $value';
@@ -158,45 +162,54 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              shape: BoxShape.circle,
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      hoverColor: scheme.surfaceContainerHigh,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
             ),
-            child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title, style: theme.textTheme.bodyLarge),
-                if (subtitle != null) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(title, style: theme.textTheme.bodyLarge),
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
+            const SizedBox(width: 12),
+            Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
-          ),
-        ],
+            if (onTap != null) ...<Widget>[
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+            ],
+          ],
+        ),
       ),
     );
   }

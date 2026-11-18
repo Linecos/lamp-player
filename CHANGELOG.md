@@ -16,6 +16,7 @@
 ### 变更
 
 - 接口契约升到 **v0.18**（`docs/API_CONTRACT.md`）：`Track` 增加 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`（曲库结构 v10）、`lyrics_save_raw` 增加 `target` 入参（`sidecar` / `embedded`）、新增 `write_track_cover`、`TrackTags` 增加作曲 / 作词 / 注释三项，都是 v0.17 之后已经落地的改动，这次补齐文档
+- 设置页的「关于」一行改成**可点开弹窗**
 
 ## [0.1.0] - 2026-11-18
 
