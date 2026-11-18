@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `backup_before_upgrade`, `cell`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `hidden_path_keys`, `lock_db`, `merge_track_path`, `migrate`, `now_secs`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `store_replay_gain`, `substring_search`, `table_exists`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
+// These functions are ignored because they are not marked as `pub`: `backup_before_upgrade`, `cell`, `collect_missing_covers`, `column_exists`, `covers_dir`, `delete_tracks`, `escape_like`, `file_missing`, `file_signatures`, `folder_prefix`, `fts_prefix_query`, `hidden_path_keys`, `lock_db`, `merge_track_path`, `migrate`, `now_secs`, `prune_tracks_under`, `prune_unused_covers`, `reconcile_paths`, `row_to_track`, `some_if_not_empty`, `store_replay_gain`, `substring_search`, `table_exists`, `tracks_with_missing_covers`, `upsert_scanned`, `volume_root`, `with_conn`, `with_scanning`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Database`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `hidden_path_keys_for_test`
 
@@ -39,7 +39,9 @@ Future<List<Track>> allTracks() => RustLib.instance.api.crateApiDbAllTracks();
 
 /// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
 ///
-/// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
+/// 不携带文件指纹的 mtime，因此不会覆盖扫描记录里的增量信息；
+/// `file_size` 与音质三列（码率 / 采样率 / 位深）传 0 表示「调用方没带」，
+/// 保留库里已有的值——写标签、换封面这类操作构造的 `Track` 不必逐列填全。
 Future<int> upsertTracks({required List<Track> tracks}) =>
     RustLib.instance.api.crateApiDbUpsertTracks(tracks: tracks);
 
