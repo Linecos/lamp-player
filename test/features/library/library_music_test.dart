@@ -465,6 +465,29 @@ void main() {
     expect(repository.scannedFolders, isEmpty);
   });
 
+  // 曲库升到 v10 后老行的音质原始量全是 0，不补扫的话音质分布永远「全部未知」；
+  // 封面早就补扫过（会话标志已记）也不能挡住这一次。
+  testWidgets('音质原始量全为 0 时即使补扫过也再扫一次', (WidgetTester tester) async {
+    final FakeMusicFolderStore folders = FakeMusicFolderStore(
+      folders: <String>[r'D:\Music'],
+    );
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(coverBackfillAttempted: true),
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '甲', fileSize: 0),
+        sampleTrack(title: '乙', fileSize: 0),
+      ],
+      folderStore: folders,
+      sessionStore: session,
+    );
+
+    expect(repository.scannedFolders, <String>[r'D:\Music']);
+    expect(find.byType(ToastPill), findsNothing, reason: '补扫应静默进行');
+  });
+
   testWidgets('空曲库可添加音乐目录并触发扫描', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
