@@ -433,9 +433,17 @@ void main() {
     expect(find.text('重新读取'), findsOneWidget);
   });
 
+  // 补扫前会先探目录在不在（移动硬盘拔了就别扫），所以这里用真实临时目录
+  Directory tempFolder() {
+    final Directory dir = Directory.systemTemp.createTempSync('lamp-backfill-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    return dir;
+  }
+
   testWidgets('升级后缺封面时自动补扫已添加目录一次', (WidgetTester tester) async {
+    final String folder = tempFolder().path;
     final FakeMusicFolderStore folders = FakeMusicFolderStore(
-      folders: <String>[r'D:\Music'],
+      folders: <String>[folder],
     );
     final FakeSessionStore session = FakeSessionStore(
       snapshot: const SessionSnapshot(coverBackfillAttempted: false),
@@ -447,14 +455,15 @@ void main() {
       sessionStore: session,
     );
 
-    expect(repository.scannedFolders, <String>[r'D:\Music']);
+    expect(repository.scannedFolders, <String>[folder]);
     expect(session.snapshot.coverBackfillAttempted, isTrue);
     expect(find.byType(ToastPill), findsNothing, reason: '补扫应静默进行');
   });
 
   testWidgets('已尝试过补扫时启动不再自动扫描', (WidgetTester tester) async {
+    final String folder = tempFolder().path;
     final FakeMusicFolderStore folders = FakeMusicFolderStore(
-      folders: <String>[r'D:\Music'],
+      folders: <String>[folder],
     );
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
@@ -465,11 +474,36 @@ void main() {
     expect(repository.scannedFolders, isEmpty);
   });
 
+  testWidgets('音乐目录不可达时这一轮不补扫，也不记为已尝试', (WidgetTester tester) async {
+    // 移动硬盘 / 网络盘没挂：扫也扫不出东西，`file_size` 仍是 0；
+    // 要是记了「已尝试」，盘挂回来也不会再补了
+    final FakeMusicFolderStore folders = FakeMusicFolderStore(
+      folders: <String>[r'D:\LampMissingFolder'],
+    );
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(coverBackfillAttempted: false),
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: folders,
+      sessionStore: session,
+    );
+
+    expect(repository.scannedFolders, isEmpty);
+    expect(
+      session.snapshot.coverBackfillAttempted,
+      isFalse,
+      reason: '不可达时不能占掉这次补扫机会',
+    );
+  });
+
   // 曲库升到 v10 后老行的音质原始量全是 0，不补扫的话音质分布永远「全部未知」；
   // 封面早就补扫过（会话标志已记）也不能挡住这一次。
   testWidgets('音质原始量全为 0 时即使补扫过也再扫一次', (WidgetTester tester) async {
+    final String folder = tempFolder().path;
     final FakeMusicFolderStore folders = FakeMusicFolderStore(
-      folders: <String>[r'D:\Music'],
+      folders: <String>[folder],
     );
     final FakeSessionStore session = FakeSessionStore(
       snapshot: const SessionSnapshot(coverBackfillAttempted: true),
@@ -484,7 +518,7 @@ void main() {
       sessionStore: session,
     );
 
-    expect(repository.scannedFolders, <String>[r'D:\Music']);
+    expect(repository.scannedFolders, <String>[folder]);
     expect(find.byType(ToastPill), findsNothing, reason: '补扫应静默进行');
   });
 
