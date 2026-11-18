@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show File, Platform, Process;
+import 'dart:io' show Directory, File, Platform, Process;
 import 'dart:math';
 
 import 'package:desktop_drop/desktop_drop.dart';

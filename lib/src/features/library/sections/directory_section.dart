@@ -33,6 +33,10 @@ extension _DirectorySection on _LibraryPageState {
   /// 成败都记为「已尝试」，否则没有内嵌封面的曲库会每次启动都全量扫一遍。
   /// 音质缺失例外：迁移后第一次启动必须补一次，不能因为封面早试过就跳过，
   /// 否则音质分布永远是「全部未知」；扫过一次就有大小了，条件自然失效。
+  ///
+  /// **目录不可达时整轮跳过、也不记「已尝试」**：移动硬盘 / 网络盘没挂时扫了
+  /// 个寂寞（`file_size` 还是 0），于是下次启动又满足条件、再全量扫一遍。
+  /// 探一下目录在不在很便宜，盘挂回来时再补，也不丢这次机会。
   Future<void> _backfillCoversIfNeeded() async {
     if (!mounted || _scanning) {
       return;
@@ -55,9 +59,15 @@ extension _DirectorySection on _LibraryPageState {
       unawaited(_saveSession());
       return;
     }
+    final List<String> reachable = _folders
+        .where((String folder) => Directory(folder).existsSync())
+        .toList(growable: false);
+    if (reachable.isEmpty) {
+      return;
+    }
 
     _update(() => _backfillingCovers = true);
-    for (final String folder in List<String>.of(_folders)) {
+    for (final String folder in reachable) {
       if (!mounted) {
         return;
       }
