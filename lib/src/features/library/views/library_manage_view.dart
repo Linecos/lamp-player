@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -102,17 +103,54 @@ class LibraryManageView extends StatelessWidget {
   /// 常驻搜索框的关键词：非空时只留路径命中的目录、标题命中的隐藏歌曲
   final String query;
 
-  /// 两块面板的高度。
+  /// 页面里除音质卡与两块面板以外的固定占用（逻辑像素）：
+  /// 顶部留白 4 + 指标卡 94 + 指标与音质卡之间 16 + 音质卡与面板之间 12 +
+  /// 面板与入口之间 16 + 两块入口瓷贴 138 + 默认 16 的底部留白。
   ///
-  /// 以前写死 251：大屏上两块又矮又空，675 高的窗口里下面的入口还会被
-  /// 播放岛压住一角。现在按可用高度分比例，再夹进一个读着舒服的区间；
-  /// 两块始终等高（外层 `SizedBox` 撑住，里面各自滚）。
-  static double panelHeightFor(double viewportHeight) {
+  /// 这些间距 / 高度是页面的手感值，改动时要同步这里（实测总高 ≤ 视口高度）；
+  /// `library_manage_view_test` 里「小窗口下两个入口仍在折叠线以上」的用例
+  /// 会兜住漏改。
+  static const double _reservedHeight = 278;
+
+  static const double _minPanelHeight = 184;
+  static const double _maxPanelHeight = 340;
+  static const double minQualityHeight = 168;
+  static const double maxQualityHeight = 208;
+
+  /// 音质卡高度：窗口越矮越薄。
+  ///
+  /// 以前写死 208，在 720~760 这类「1080p + 150% 缩放」的窗口里会把下面
+  /// 两个入口（听歌统计 / 清理缺失文件）推到折叠线以下——页面能滚，但第一屏
+  /// 看不见入口。现在跟着可用高度收，最薄留 168（环形图直径 144）。
+  static double qualityHeightFor(double viewportHeight) {
+    if (!viewportHeight.isFinite || viewportHeight <= 0) {
+      return maxQualityHeight;
+    }
+    return (viewportHeight * 0.26).clamp(minQualityHeight, maxQualityHeight);
+  }
+
+  /// 两块面板的高度：吃掉音质卡与入口之外剩下的空间，再夹进舒服的区间。
+  ///
+  /// 两块始终等高（外层 `SizedBox` 撑住，里面各自滚）。窗口很高时封顶 340，
+  /// 不再跟着长；窗口矮的时候优先保证下面两个入口留在第一屏内。
+  static double panelHeightFor(
+    double viewportHeight, {
+    double bottomPadding = 16,
+  }) {
     if (!viewportHeight.isFinite || viewportHeight <= 0) {
       return 260;
     }
-    return (viewportHeight * 0.42).clamp(220.0, 340.0);
+    final double reserved = _reservedHeight - 16 + bottomPadding;
+    final double room =
+        viewportHeight -
+        reserved -
+        qualityHeightFor(viewportHeight) -
+        _foldSlack;
+    return room.clamp(_minPanelHeight, _maxPanelHeight);
   }
+
+  /// 折叠线以上的余量：留一点呼吸，不贴着窗口底边算
+  static const double _foldSlack = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -164,8 +202,9 @@ class LibraryManageView extends StatelessWidget {
 
             // 音质分布：环形图点扇区 = 音乐分区只看这一档
             SizedBox(
-              height: _QualityPanel.extent,
+              height: qualityHeightFor(constraints.maxHeight),
               child: _QualityPanel(
+                extent: qualityHeightFor(constraints.maxHeight),
                 breakdown: qualityBreakdown ?? QualityBreakdown.of(tracks),
                 selected: qualitySelected,
                 onSelect: onSelectQuality,
@@ -174,7 +213,10 @@ class LibraryManageView extends StatelessWidget {
             const SizedBox(height: 12),
             SizedBox(
               // 两块等高：里面各自滚，页面不让它们撑长
-              height: panelHeightFor(constraints.maxHeight),
+              height: panelHeightFor(
+                constraints.maxHeight,
+                bottomPadding: bottomPadding,
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -220,7 +262,8 @@ class LibraryManageView extends StatelessWidget {
               const SizedBox(height: 10),
             ],
 
-            const SizedBox(height: 18),
+            // 与上面那 16 是同一个间距：入口瓷贴不该比别人离得远（原来这里是
+            // 16 + 18 两段，没有 banner 时看着凭空多出一截空当）
             _ActionTile(
               key: const ValueKey<String>('library-open-stats'),
               // material-symbols:bar-chart-4-bars 没有内置字形：四柱 + 基线，自绘
@@ -524,27 +567,49 @@ class _PanelEmpty extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    // 块本身有固定高度：内容超了要能滚，不能溢出
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      children: <Widget>[
-        Icon(icon, size: 26, color: scheme.onSurfaceVariant),
-        const SizedBox(height: 10),
-        Text(title, style: theme.textTheme.bodyMedium),
-        const SizedBox(height: 2),
-        Text(
-          caption,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: scheme.onSurfaceVariant,
+    // 空态是「这一块里什么都没有」的说明，不是列表项：图标、标题、说明、动作
+    // 一律居中。以前按 ListView 排，图标被撑满宽度的 `Icon` 自己居中、文字却
+    // 靠左，一块空白里左右不齐。
+    // 块本身有固定高度，内容超了要能滚，不能溢出
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: math.max(0, constraints.maxHeight - 16),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(icon, size: 26, color: scheme.onSurfaceVariant),
+                  const SizedBox(height: 10),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    caption,
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (action != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    action!,
+                  ],
+                ],
+              ),
+            ),
           ),
-        ),
-        if (action != null) ...<Widget>[
-          const SizedBox(height: 12),
-          Align(alignment: Alignment.centerLeft, child: action!),
-        ],
-      ],
+        );
+      },
     );
   }
 }
@@ -1150,9 +1215,15 @@ class _BarChart4Painter extends CustomPainter {
 /// 图例做成按钮而不是纯文字：扇区很窄时不好点，图例是稳妥的入口；
 /// 选中态下扇区变淡、图例加底色，两边指向同一个 [selected]。
 class _QualityPanel extends StatelessWidget {
-  const _QualityPanel({required this.breakdown, this.selected, this.onSelect});
+  const _QualityPanel({
+    required this.extent,
+    required this.breakdown,
+    this.selected,
+    this.onSelect,
+  });
 
-  static const double extent = 208;
+  /// 卡片高度（由页面按窗口高度算，见 `qualityHeightFor`）
+  final double extent;
 
   final QualityBreakdown breakdown;
   final AudioQuality? selected;
@@ -1173,14 +1244,14 @@ class _QualityPanel extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // 环形图在窄窗口里也能放下：高度固定，直径比面板小一圈
+          // 环形图在窄窗口里也能放下：直径跟着卡片高度走（上下各让 12）
           Center(
             child: QualityRing(
               key: const ValueKey<String>('library-quality-ring'),
               breakdown: breakdown,
               selected: selected,
               onSelect: empty ? null : onSelect,
-              size: extent - 48,
+              size: extent - 24,
             ),
           ),
           const SizedBox(width: 18),

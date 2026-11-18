@@ -44,8 +44,9 @@ Future<void> _pumpManage(
   ValueChanged<String>? onRescanFolder,
   ValueChanged<String>? onRemoveFolder,
   String query = '',
+  double height = 1200,
 }) async {
-  tester.view.physicalSize = const Size(1200, 1200);
+  tester.view.physicalSize = Size(1200, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -155,6 +156,32 @@ void main() {
     expect(folders.height, inInclusiveRange(220, 340));
   });
 
+  testWidgets('窗口矮到 720 时两个入口仍留在第一屏内', (WidgetTester tester) async {
+    // 1080p + 150% 缩放 ≈ 720 逻辑高：音质卡以前写死 208，会把下面两个入口
+    // 推到折叠线以下；页面能滚，但第一屏看不见「听歌统计 / 清理缺失文件」
+    await _pumpManage(tester, height: 720);
+
+    final Rect prune = tester.getRect(
+      find.byKey(const ValueKey<String>('library-prune-missing')),
+    );
+    expect(
+      prune.bottom,
+      lessThanOrEqualTo(720),
+      reason: '入口瓷贴的底边应在窗口内，实际 ${prune.bottom}',
+    );
+    // 音质卡跟着矮下来，但环形图仍要有可点的面积
+    final Rect ring = tester.getRect(
+      find.byKey(const ValueKey<String>('library-quality-ring')),
+    );
+    expect(ring.width, greaterThanOrEqualTo(100));
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey<String>('library-panel-folders')))
+          .height,
+      closeTo(LibraryManageView.panelHeightFor(720), 0.5),
+    );
+  });
+
   testWidgets('听歌统计瓷贴可点开统计子页', (WidgetTester tester) async {
     int opened = 0;
     await _pumpManage(tester, onOpenStats: () => opened += 1);
@@ -163,6 +190,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(opened, 1);
+  });
+
+  testWidgets('空态的图标与文案都在块里居中', (WidgetTester tester) async {
+    await _pumpManage(tester, folders: const <String>[]);
+
+    final Rect body = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('library-panel-folders')),
+        matching: find.byType(SingleChildScrollView),
+      ),
+    );
+    final Rect icon = tester.getRect(
+      find.byIcon(Icons.create_new_folder_outlined),
+    );
+    final Rect title = tester.getRect(find.text('还没有音乐目录'));
+    final Rect caption = tester.getRect(find.text('添加一个文件夹，扫描会把里面的音频递归入库'));
+    final Rect action = tester.getRect(find.byType(FilledButton));
+
+    // 水平：图标、两行字、动作按钮都以内容区的中轴为准（以前图标被 `Icon`
+    // 自己居中、文字靠左，一块空白里左右不齐）
+    expect(icon.center.dx, closeTo(body.center.dx, 1));
+    expect(title.center.dx, closeTo(body.center.dx, 1));
+    expect(caption.center.dx, closeTo(body.center.dx, 1));
+    expect(action.center.dx, closeTo(body.center.dx, 1));
+    // 竖直：内容整体居中，上下留白对称
+    expect(icon.top - body.top, closeTo(body.bottom - action.bottom, 2));
   });
 
   testWidgets('被隐藏的歌曲单独成块', (WidgetTester tester) async {
