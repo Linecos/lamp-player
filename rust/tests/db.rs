@@ -58,6 +58,10 @@ fn track(path: &str, title: &str, artist: Option<&str>, album: Option<&str>) -> 
         added_at: 1,
         cover_path: None,
         replay_gain: 0.0,
+        file_size: 0,
+        audio_bitrate: 0,
+        sample_rate: 0,
+        bit_depth: 0,
     }
 }
 
@@ -332,7 +336,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         .expect("读取版本");
     // 版本号跟着 SCHEMA_VERSION 走：每加一次迁移都要改这里，
     // 忘了改就等于没验证「升级后写入的是当前版本」
-    assert_eq!(version, 9, "升级后应写入当前结构版本");
+    assert_eq!(version, 10, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -353,6 +357,21 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         columns.contains(&"hidden".to_string()) && columns.contains(&"hidden_at".to_string()),
         "v8 应补上隐藏标记两列"
     );
+    assert!(
+        columns.contains(&"audio_bitrate".to_string())
+            && columns.contains(&"sample_rate".to_string())
+            && columns.contains(&"bit_depth".to_string()),
+        "v10 应补上音质三列"
+    );
+    // v10 同时清零老行的指纹，让下次扫描把这三列重新读出来
+    let pending: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tracks WHERE file_mtime > 0",
+            [],
+            |row| row.get(0),
+        )
+        .expect("统计待重扫");
+    assert_eq!(pending, 0, "升级后老行都应标记为待重扫");
     drop(conn);
 
     // v2 新增的三张表也要在升级时建好

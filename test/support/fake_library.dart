@@ -21,6 +21,10 @@ Track sampleTrack({
   String? path,
   String? coverPath,
   double replayGain = 0,
+  int fileSize = 0,
+  int audioBitrate = 0,
+  int sampleRate = 0,
+  int bitDepth = 0,
 }) {
   return Track(
     path: path ?? '/music/$title.mp3',
@@ -32,6 +36,10 @@ Track sampleTrack({
     addedAt: addedAt,
     coverPath: coverPath,
     replayGain: replayGain,
+    fileSize: fileSize,
+    audioBitrate: audioBitrate,
+    sampleRate: sampleRate,
+    bitDepth: bitDepth,
   );
 }
 

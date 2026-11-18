@@ -1176,6 +1176,11 @@ extension _PlaybackSection on _LibraryPageState {
           addedAt: track.addedAt,
           coverPath: coverPath ?? track.coverPath,
           replayGain: track.replayGain,
+          // 音质字段与标签无关，原样带回去，别被这次重写的 0 覆盖掉
+          fileSize: track.fileSize,
+          audioBitrate: track.audioBitrate,
+          sampleRate: track.sampleRate,
+          bitDepth: track.bitDepth,
         ),
       ],
     );

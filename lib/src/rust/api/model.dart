@@ -180,6 +180,18 @@ class Track {
   /// ReplayGain 曲目增益（dB）；标签里没有时为 0
   final double replayGain;
 
+  /// 文件大小（字节）；未知为 0
+  final PlatformInt64 fileSize;
+
+  /// 平均码率（kbps）；未知为 0（有损文件的位深也恒为 0）
+  final int audioBitrate;
+
+  /// 采样率（Hz）；未知为 0
+  final int sampleRate;
+
+  /// 位深（bit）；有损编码没有这个值，为 0
+  final int bitDepth;
+
   const Track({
     required this.path,
     required this.title,
@@ -190,6 +202,10 @@ class Track {
     required this.addedAt,
     this.coverPath,
     required this.replayGain,
+    required this.fileSize,
+    required this.audioBitrate,
+    required this.sampleRate,
+    required this.bitDepth,
   });
 
   @override
@@ -202,7 +218,11 @@ class Track {
       trackNum.hashCode ^
       addedAt.hashCode ^
       coverPath.hashCode ^
-      replayGain.hashCode;
+      replayGain.hashCode ^
+      fileSize.hashCode ^
+      audioBitrate.hashCode ^
+      sampleRate.hashCode ^
+      bitDepth.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -217,7 +237,11 @@ class Track {
           trackNum == other.trackNum &&
           addedAt == other.addedAt &&
           coverPath == other.coverPath &&
-          replayGain == other.replayGain;
+          replayGain == other.replayGain &&
+          fileSize == other.fileSize &&
+          audioBitrate == other.audioBitrate &&
+          sampleRate == other.sampleRate &&
+          bitDepth == other.bitDepth;
 }
 
 /// 单曲播放次数（排行榜用）。

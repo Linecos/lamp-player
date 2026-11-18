@@ -3971,6 +3971,10 @@ impl SseDecode for crate::api::model::Track {
         let mut var_addedAt = <i64>::sse_decode(deserializer);
         let mut var_coverPath = <Option<String>>::sse_decode(deserializer);
         let mut var_replayGain = <f64>::sse_decode(deserializer);
+        let mut var_fileSize = <i64>::sse_decode(deserializer);
+        let mut var_audioBitrate = <i32>::sse_decode(deserializer);
+        let mut var_sampleRate = <i32>::sse_decode(deserializer);
+        let mut var_bitDepth = <i32>::sse_decode(deserializer);
         return crate::api::model::Track {
             path: var_path,
             title: var_title,
@@ -3981,6 +3985,10 @@ impl SseDecode for crate::api::model::Track {
             added_at: var_addedAt,
             cover_path: var_coverPath,
             replay_gain: var_replayGain,
+            file_size: var_fileSize,
+            audio_bitrate: var_audioBitrate,
+            sample_rate: var_sampleRate,
+            bit_depth: var_bitDepth,
         };
     }
 }
@@ -4710,6 +4718,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::model::Track {
             self.added_at.into_into_dart().into_dart(),
             self.cover_path.into_into_dart().into_dart(),
             self.replay_gain.into_into_dart().into_dart(),
+            self.file_size.into_into_dart().into_dart(),
+            self.audio_bitrate.into_into_dart().into_dart(),
+            self.sample_rate.into_into_dart().into_dart(),
+            self.bit_depth.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5256,6 +5268,10 @@ impl SseEncode for crate::api::model::Track {
         <i64>::sse_encode(self.added_at, serializer);
         <Option<String>>::sse_encode(self.cover_path, serializer);
         <f64>::sse_encode(self.replay_gain, serializer);
+        <i64>::sse_encode(self.file_size, serializer);
+        <i32>::sse_encode(self.audio_bitrate, serializer);
+        <i32>::sse_encode(self.sample_rate, serializer);
+        <i32>::sse_encode(self.bit_depth, serializer);
     }
 }
 

@@ -17,6 +17,10 @@ Track _track(
   addedAt: 0,
   coverPath: null,
   replayGain: 0,
+  fileSize: 0,
+  audioBitrate: 0,
+  sampleRate: 0,
+  bitDepth: 0,
 );
 
 void main() {
