@@ -1,8 +1,18 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.17（2026-11-17）**
+> **当前版本：v0.18（2026-11-18）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.18 变更（**破坏性，Dart 侧已同步**）：
+>
+> - `Track` 新增 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`
+>   （音质原始量，未知为 `0`），曲库结构升到 v10。升级时老行的 `file_mtime` /
+>   `file_size` 会清零，下次扫描重新解析；**升级后第一次启动会自动补扫一次**已添加目录。
+> - `lyrics_save_raw` 增加 `target: String` 入参（`sidecar` / `embedded`）：
+>   原来恒定写同名 `.lrc`，现在可选写进音频标签。入参变了，属于破坏性改动。
+> - 新增 `metadata::write_track_cover`（把图片写进音频文件的封面标签并落缓存）。
+> - `TrackTags` 新增 `composer` / `lyricist` / `comment` 三个字段。
 >
 > v0.17 变更：**新增** `api::metadata` 两个函数（`read_track_tags` / `write_track_tags`）
 > 与 `TrackTags` 结构；`api::lyrics` 新增 `lyrics_read_raw` / `lyrics_shift_raw` /
@@ -99,6 +109,13 @@
 | `replay_gain` | `replayGain` | `double` | ReplayGain 曲目增益（dB）；标签里没有时为 `0`（现场分析出的值也写回这一列） |
 | `added_at` | `addedAt` | `PlatformInt64` | 入库时间戳（Unix 秒；native 上就是 `int`，web 上是 `BigInt`） |
 | `cover_path` | `coverPath` | `String?` | 内嵌封面的缓存文件绝对路径；无封面或提取失败为空 |
+| `file_size` | `fileSize` | `PlatformInt64` | 文件大小（字节）；未知为 `0`（v0.18 起） |
+| `audio_bitrate` | `audioBitrate` | `int` | 平均码率（kbps）；未知为 `0`（v0.18 起） |
+| `sample_rate` | `sampleRate` | `int` | 采样率（Hz）；未知为 `0`（v0.18 起） |
+| `bit_depth` | `bitDepth` | `int` | 位深（bit）；有损编码没有这个值，恒为 `0`（v0.18 起） |
+
+后四个字段是**音质评级的原始量**，评级本身不落库：`lib/src/common/audio/audio_quality.dart`
+用它们算 `AudioQuality`（HR / SQ / HQ / 其他），规则调整只需重算列表。
 
 ### `Playlist`（`rust/src/api/model.rs`）
 
@@ -146,7 +163,9 @@
 - `init_db` 幂等：**同一路径**重复调用复用已有连接；换成别的路径会返回错误，
   必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
 - 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
-  库版本高于程序支持的版本时报错，提示升级。
+  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v10**：`tracks` 增加
+  `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`，升级时老行的
+  `file_mtime` / `file_size` 清零，下次扫描重新解析（Dart 侧升级后首次启动会自动补扫一次）。
 - 升级前会先 `wal_checkpoint(TRUNCATE)` 再把库复制成 `<path>.bak`，迁移失败可回退；
   这是新库（0 字节）或版本已是最新时不做备份。
 - `close_db` 不只是关连接：先 `PRAGMA optimize`，再 `wal_checkpoint(TRUNCATE)` 把 WAL
@@ -156,7 +175,8 @@
   空查询直接返回空列表。结果按 `bm25` 相关度排序。
   中文不做分词，搜「周杰」能命中「周杰伦」，搜「杰伦」命中不了 —— 这是已知限制。
 - `upsert_tracks` 在单个事务里完成，失败回滚；返回本次处理的条数（不等于实际新增数）。
-  它不携带文件指纹（mtime/大小），因此不会破坏扫描记录的增量信息。
+  它不携带文件指纹的 mtime，因此不会破坏扫描记录的增量信息；`file_size` 与音质三列传
+  `0` 表示「调用方没带」，会保留库里已有的值（写标签、换封面构造的 `Track` 不必填全）。
 - `prune_missing_tracks` 只清理磁盘上已不存在的 `path` 记录；磁盘检查在锁外完成，
   删除在单事务里完成。
 - `remove_tracks` 按路径批量删除曲库记录，**只删记录、不动磁盘上的音频文件**；
@@ -379,18 +399,20 @@
 | `lyrics_load(path: String) -> Result<TrackLyrics>` | `Future<TrackLyrics> lyricsLoad({required String path})` | **已实现** |
 | `lyrics_read_raw(path: String) -> Result<RawLyrics>` | `Future<RawLyrics> lyricsReadRaw({required String path})` | **已实现** |
 | `lyrics_shift_raw(text: String, delta_ms: i64) -> String`（sync） | `String lyricsShiftRaw({required String text, required int deltaMs})` | **已实现** |
-| `lyrics_save_raw(path: String, text: String) -> Result<String>` | `Future<String> lyricsSaveRaw({required String path, required String text})` | **已实现** |
+| `lyrics_save_raw(path: String, text: String, target: String) -> Result<String>` | `Future<String> lyricsSaveRaw({required String path, required String text, required String target})` | **已实现** |
 
-编辑用的三支（v0.17）：
+编辑用的三支（v0.17，`lyrics_save_raw` 在 v0.18 加了 `target`）：
 
 - `RawLyrics`：`text`（原文，含 `[ti:]` 与逐字标签原样）+ `source`（`sidecar` / `embedded` / `none`）。
   没有歌词返回空文本 + `none`，不报错。
 - `lyrics_shift_raw` 是**纯文本变换**，不碰文件：负数是提前、正数是延后，平移后夹到 0；
   方括号 `[mm:ss.xx]` 与尖括号 `<mm:ss.xx>` 都平移（逐字标签是绝对时间，只改行首会错位），
   `[ti:]` / `[offset:]` 这类元数据与正文里的普通方括号原样保留；小数位数按原样保留。
-- `lyrics_save_raw` **统一写同名 `.lrc`**（UTF-8 无 BOM），返回写入路径。不写内嵌标签：
-  改内嵌要重写整个音频文件，风险大得多。原本只有内嵌歌词的曲目保存后也会有 `.lrc`，
-  读取侧旁载优先，行为一致。
+- `lyrics_save_raw` 的 `target` 取 `sidecar` / `embedded`（其他值按 `sidecar` 处理）：
+  - `sidecar`：写同名 `.lrc`（UTF-8 无 BOM），返回写入路径。
+  - `embedded`：写音频标签（ID3v2 的 USLT / Vorbis 的 `LYRICS`），返回音频文件路径。
+    读取侧是「旁载优先」，所以**同目录已有同名 `.lrc` 时会一并把同样的文本刷进去**，
+    否则旧旁载会盖住刚落进标签的新歌词；没有 `.lrc` 就不新建。
 - 界面顺序：先 `shift_raw` 拿到新文本给用户看，确认后 `save_raw` 落盘。
 
 语义补充：
@@ -514,10 +536,12 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 |---|---|---|---|
 | `read_track_tags(path: String) -> Result<TrackTags>` | `Future<TrackTags> readTrackTags({required String path})` | 否 | **已实现** |
 | `write_track_tags(path: String, tags: TrackTags) -> Result<TrackTags>` | `Future<TrackTags> writeTrackTags({required String path, required TrackTags tags})` | 否 | **已实现** |
+| `write_track_cover(path: String, source: String) -> Result<String>` | `Future<String> writeTrackCover({required String path, required String source})` | 否 | **已实现**（v0.18） |
 
 `TrackTags` 字段全部是字符串：`title` / `artist` / `album` / `album_artist` / `year` /
-`track_no` / `disc_no` / `genre`。不用数字类型是因为标签里的值不保证是数字
-（`2003-05-01` 的日期、`03/12` 的曲目号都真实存在），强转会在保存时静默丢内容。
+`track_no` / `disc_no` / `genre` / `composer` / `lyricist` / `comment`（后三个 v0.18 新增）。
+不用数字类型是因为标签里的值不保证是数字（`2003-05-01` 的日期、`03/12` 的曲目号都真实存在），
+强转会在保存时静默丢内容。
 
 语义补充：
 
@@ -527,10 +551,14 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 - 返回值是**写完重新读出来**的结果：不同标签格式会做归一化（补零、多值合并、
   不支持的键被丢弃），调用方拿它刷新界面才不会出现「显示 3、文件里是 03」。
 - 没有标签的文件（`read_track_tags` 返回全空）可正常写：会自动建一个主标签。
-- 写完标签**曲库那一行不会自动更新**：调用方用返回的 `title` / `artist` / `album` /
+- 写完后曲库那一行**不会自动更新**：调用方用返回的 `title` / `artist` / `album` /
   `track_no` 组装 `Track` 后调 `upsert_tracks`（保留原 `added_at` / `cover_path` /
   `replay_gain`），再刷新列表。不要为此整库重扫。
-- 封面不在读写范围内：自定义封面走 `api::cover_override`。
+- `write_track_cover`（v0.18）：把 `source` 指向的图片**嵌进音频标签**（只换正面封面，
+  封底 / 艺人照保留），同时落一份到封面缓存，返回**缓存文件路径**——界面显示的永远是
+  缓存里那张，调用方拿它更新 `Track.cover_path`。超过 1024 长边会缩、非 JPEG 会转 JPEG；
+  缓存写失败不报错（下次扫描会重新提取），音频文件本身写失败才报错。
+- 自定义封面（艺术家 / 专辑 / 歌单）不走这里，走 `api::cover_override`。
 
 ## 15. 生成代码规则
 
