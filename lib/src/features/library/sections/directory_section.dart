@@ -24,19 +24,33 @@ extension _DirectorySection on _LibraryPageState {
     await _backfillCoversIfNeeded();
   }
 
-  /// 曲库升到 v3 后老曲目没有封面：首次启动补扫一次已添加目录。
+  /// 老库升级后补扫一次已添加目录（封面与音质原始量一起补）。
+  ///
+  /// 曲库升到 v3 后老曲目没有封面；升到 v10 后老曲目的 `file_size` /
+  /// `sample_rate` / `bit_depth` 全是 0（迁移把指纹清零了，等重扫）。
+  /// 两种都是「老库还没重扫」，扫一遍同时解决。
   ///
   /// 成败都记为「已尝试」，否则没有内嵌封面的曲库会每次启动都全量扫一遍。
+  /// 音质缺失例外：迁移后第一次启动必须补一次，不能因为封面早试过就跳过，
+  /// 否则音质分布永远是「全部未知」；扫过一次就有大小了，条件自然失效。
   Future<void> _backfillCoversIfNeeded() async {
-    if (!mounted || _coverBackfillAttempted || _scanning) {
+    if (!mounted || _scanning) {
       return;
     }
     if (_tracks.isEmpty || _folders.isEmpty) {
       return;
     }
-    // 只有「全部没有封面」才视为升级后的老曲库；混合状态通常说明用户
-    // 已经手动扫过一部分目录，不再自动全量重扫。
-    if (!_tracks.every((Track track) => track.coverPath == null)) {
+    final bool missingQuality = _tracks.every(
+      (Track track) => track.fileSize == 0,
+    );
+    if (_coverBackfillAttempted && !missingQuality) {
+      return;
+    }
+    // 混合状态通常说明用户已经手动扫过一部分目录，不再自动全量重扫。
+    final bool missingCovers = _tracks.every(
+      (Track track) => track.coverPath == null,
+    );
+    if (!missingCovers && !missingQuality) {
       _update(() => _coverBackfillAttempted = true);
       unawaited(_saveSession());
       return;

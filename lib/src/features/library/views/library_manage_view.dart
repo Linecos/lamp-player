@@ -9,6 +9,7 @@ import '../../../rust/api/model.dart' show Track;
 import '../../../rust/api/scan.dart';
 import '../library_revision.dart';
 import '../library_sort.dart';
+import '../widgets/quality_ring.dart';
 
 /// 音乐库分区的主体。
 ///
@@ -38,10 +39,22 @@ class LibraryManageView extends StatelessWidget {
     this.onPruneMissing,
     this.bottomPadding = 16,
     this.query = '',
+    this.qualityBreakdown,
+    this.qualitySelected,
+    this.onSelectQuality,
   });
 
-  /// 全库曲目：目录行的曲目数、顶部指标都从这份数据算出来
+  /// 全库曲目：目录行的曲目数、顶部指标与音质分布都从这份数据算出来
   final List<Track> tracks;
+
+  /// 音质分布统计（页面按 `_tracks` 身份缓存后传进来）；空则就地算一遍
+  final QualityBreakdown? qualityBreakdown;
+
+  /// 当前音质筛选档位；null 表示不筛
+  final AudioQuality? qualitySelected;
+
+  /// 点扇形 / 点图例切换筛选
+  final ValueChanged<AudioQuality>? onSelectQuality;
 
   /// 打开「听歌统计」子页
   final VoidCallback? onOpenStats;
@@ -147,7 +160,18 @@ class LibraryManageView extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // 音质分布：环形图点扇区 = 音乐分区只看这一档
+            SizedBox(
+              height: _QualityPanel.extent,
+              child: _QualityPanel(
+                breakdown: qualityBreakdown ?? QualityBreakdown.of(tracks),
+                selected: qualitySelected,
+                onSelect: onSelectQuality,
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               // 两块等高：里面各自滚，页面不让它们撑长
               height: panelHeightFor(constraints.maxHeight),
@@ -1120,3 +1144,280 @@ class _BarChart4Painter extends CustomPainter {
   bool shouldRepaint(covariant _BarChart4Painter oldDelegate) =>
       oldDelegate.color != color || oldDelegate.iconSize != iconSize;
 }
+
+/// 音质分布：左边环形图，右边四档图例（可点，与扇形同一效果）。
+///
+/// 图例做成按钮而不是纯文字：扇区很窄时不好点，图例是稳妥的入口；
+/// 选中态下扇区变淡、图例加底色，两边指向同一个 [selected]。
+class _QualityPanel extends StatelessWidget {
+  const _QualityPanel({required this.breakdown, this.selected, this.onSelect});
+
+  static const double extent = 208;
+
+  final QualityBreakdown breakdown;
+  final AudioQuality? selected;
+  final ValueChanged<AudioQuality>? onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool empty = breakdown.total == 0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // 环形图在窄窗口里也能放下：高度固定，直径比面板小一圈
+          Center(
+            child: QualityRing(
+              key: const ValueKey<String>('library-quality-ring'),
+              breakdown: breakdown,
+              selected: selected,
+              onSelect: empty ? null : onSelect,
+              size: extent - 48,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Text(
+                      '音质分布',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      empty
+                          ? '还没有曲目'
+                          : '大小 ${formatFileSize(breakdown.totalBytes)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder:
+                        (BuildContext context, BoxConstraints constraints) {
+                          // 窄窗口放下「标签 + 比例条 + 数字」会挤，比例条先撤掉
+                          final bool dense = constraints.maxWidth < 300;
+                          return Column(
+                            children: <Widget>[
+                              for (final AudioQuality quality
+                                  in AudioQuality.values)
+                                Expanded(
+                                  child: _QualityLegendRow(
+                                    quality: quality,
+                                    count: breakdown.countOf(quality),
+                                    fraction: breakdown.fractionOf(quality),
+                                    selected: selected == quality,
+                                    // 选了别的档位就整体压暗，一眼看出「筛的是哪一档」
+                                    dimmed:
+                                        selected != null && selected != quality,
+                                    dense: dense,
+                                    onTap: empty || onSelect == null
+                                        ? null
+                                        : () => onSelect!(quality),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QualityLegendRow extends StatelessWidget {
+  const _QualityLegendRow({
+    required this.quality,
+    required this.count,
+    required this.fraction,
+    required this.selected,
+    required this.dimmed,
+    required this.dense,
+    this.onTap,
+  });
+
+  final AudioQuality quality;
+  final int count;
+  final double fraction;
+  final bool selected;
+  final bool dimmed;
+  final bool dense;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final double alpha = dimmed ? 0.5 : 1;
+    final Color accent = sliceColor(scheme, quality).withValues(alpha: alpha);
+    final Color primaryText = selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurface.withValues(alpha: alpha);
+    final Color secondaryText = selected
+        ? scheme.onSecondaryContainer.withValues(alpha: 0.8)
+        : scheme.onSurfaceVariant.withValues(alpha: alpha);
+
+    // 定宽数字：四行的数字对齐成一列，占比不会随位数跳
+    final TextStyle numberStyle = theme.textTheme.bodySmall!.copyWith(
+      color: primaryText,
+      fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+    );
+
+    return Material(
+      color: selected ? scheme.secondaryContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 9),
+              if (dense)
+                Expanded(
+                  child: Text(
+                    '${qualityLabel(quality)} · ${qualityCaption(quality)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: secondaryText,
+                    ),
+                  ),
+                )
+              else ...<Widget>[
+                SizedBox(
+                  width: 148,
+                  child: Text(
+                    '${qualityLabel(quality)} · ${qualityCaption(quality)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: secondaryText,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // 占比条把这个宽窗口里的大片空白用起来，长度 = 占比
+                Expanded(
+                  child: _ShareBar(
+                    fraction: fraction,
+                    color: accent,
+                    track: selected
+                        ? scheme.onSecondaryContainer.withValues(alpha: 0.12)
+                        : scheme.surfaceContainerHighest,
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              SizedBox(
+                width: 34,
+                child: Text(
+                  count == 0 ? '—' : '$count',
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: numberStyle.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: count == 0 ? secondaryText : primaryText,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 46,
+                child: Text(
+                  _percentText(fraction),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: numberStyle.copyWith(
+                    color: fraction <= 0 ? secondaryText : primaryText,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一根按占比填充的细胶囊：轨道常驻，四档空着也看得出「四个格子」
+class _ShareBar extends StatelessWidget {
+  const _ShareBar({
+    required this.fraction,
+    required this.color,
+    required this.track,
+  });
+
+  final double fraction;
+  final Color color;
+  final Color track;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 6,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: track,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: fraction.clamp(0, 1),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: const SizedBox(height: 6),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 占比文字；0 首时留一个短横，别显示一片「0.0%」
+String _percentText(double fraction) =>
+    fraction <= 0 ? '—' : '${(fraction * 100).toStringAsFixed(1)}%';

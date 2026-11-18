@@ -7,11 +7,15 @@ extension _MusicSection on _LibraryPageState {
   Widget _buildMusicSection(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<Track> visible = _query.isEmpty
+    final List<Track> base = _query.isEmpty
         ? _tracks
         : (_results ?? const <Track>[]);
+    final List<Track> visible = _applyQualityFilter(base);
+    final AudioQuality? quality = _qualityFilter;
     final String countLabel = _query.isEmpty
-        ? '${_tracks.length} 首音乐'
+        ? (quality == null
+              ? '${_tracks.length} 首音乐'
+              : '${visible.length} 首 · ${qualityLabel(quality)}')
         : (_searching
               ? '正在搜索…'
               : (_searchTruncated
@@ -55,11 +59,17 @@ extension _MusicSection on _LibraryPageState {
           ],
         ),
         const SizedBox(height: 2),
-        Text(
-          countLabel,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              countLabel,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            _buildQualityFilterChip(context),
+          ],
         ),
         if (_searching)
           Padding(
@@ -137,23 +147,27 @@ extension _MusicSection on _LibraryPageState {
           ),
         );
       }
+      final List<Track> list = _applyQualityFilter(_results!);
+      if (list.isEmpty) {
+        return _qualityEmptyState();
+      }
       return TrackListView(
         controller: _musicScroll,
         flashPath: _flashTrackPath,
-        tracks: _results!,
+        tracks: list,
         storageKey: const PageStorageKey<String>('tracks:search'),
         playingPath: _currentTrack?.path,
-        onPlay: (Track track) => unawaited(_playFrom(_results!, track)),
+        onPlay: (Track track) => unawaited(_playFrom(list, track)),
         favoritePaths: _favoritePaths,
         onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
         onContextAction: (Track track, TrackContextAction action) =>
-            _onTrackContext(_results!, track, action),
+            _onTrackContext(list, track, action),
         selectionMode: _selectionMode,
         onSelectAll: _selectionMode ? _toggleSelectAll : null,
         selectionAllFavored: _selectionAllFavored,
         selectedPaths: _selectedPaths,
         onSelect: (Track track, {required bool toggle, required bool range}) =>
-            _onTrackSelect(_results!, track, toggle: toggle, range: range),
+            _onTrackSelect(list, track, toggle: toggle, range: range),
       );
     }
     if (_tracks.isEmpty) {
@@ -187,23 +201,27 @@ extension _MusicSection on _LibraryPageState {
         ),
       );
     }
+    final List<Track> list = _applyQualityFilter(_tracks);
+    if (list.isEmpty) {
+      return _qualityEmptyState();
+    }
     return TrackListView(
       controller: _musicScroll,
       flashPath: _flashTrackPath,
-      tracks: _tracks,
+      tracks: list,
       storageKey: const PageStorageKey<String>('tracks:music'),
       playingPath: _currentTrack?.path,
-      onPlay: (Track track) => unawaited(_playFrom(_tracks, track)),
+      onPlay: (Track track) => unawaited(_playFrom(list, track)),
       favoritePaths: _favoritePaths,
       onToggleFavorite: (Track track) => unawaited(_toggleFavorite(track)),
       onContextAction: (Track track, TrackContextAction action) =>
-          _onTrackContext(_tracks, track, action),
+          _onTrackContext(list, track, action),
       selectionMode: _selectionMode,
       onSelectAll: _selectionMode ? _toggleSelectAll : null,
       selectionAllFavored: _selectionAllFavored,
       selectedPaths: _selectedPaths,
       onSelect: (Track track, {required bool toggle, required bool range}) =>
-          _onTrackSelect(_tracks, track, toggle: toggle, range: range),
+          _onTrackSelect(list, track, toggle: toggle, range: range),
     );
   }
 }

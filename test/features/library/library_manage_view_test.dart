@@ -111,10 +111,12 @@ void main() {
     );
 
     expect(find.text('曲目'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    // 图例里也有数字，按指标块的 key 读，别用裸 find.text
+    expect(_metric(tester, 'library-count-tracks'), '3');
     expect(find.text('专辑'), findsOneWidget);
     // 专辑 2 张、艺术家 2 位（林间电台 / 陈屿）
-    expect(find.text('2'), findsNWidgets(2));
+    expect(_metric(tester, 'library-count-albums'), '2');
+    expect(_metric(tester, 'library-count-artists'), '2');
     expect(find.text('艺术家'), findsOneWidget);
     expect(find.text('总时长'), findsOneWidget);
     expect(find.text('0.1 小时'), findsOneWidget);

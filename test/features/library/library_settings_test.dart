@@ -495,6 +495,8 @@ void main() {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
+      // 音乐库页多了音质卡，底部入口在 800 高时会被挤出可视区
+      viewSize: const Size(1280, 1100),
       configure: (FakeLibraryRepository repo) {
         repo.prunedPaths.add('/music/夜航.mp3');
       },
@@ -523,6 +525,7 @@ void main() {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
+      viewSize: const Size(1280, 1100),
       configure: (FakeLibraryRepository repo) {
         repo.pruneError = StateError('曲库目录似乎不可用，已拒绝清理');
       },

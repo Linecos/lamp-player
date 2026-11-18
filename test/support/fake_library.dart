@@ -21,7 +21,7 @@ Track sampleTrack({
   String? path,
   String? coverPath,
   double replayGain = 0,
-  int fileSize = 0,
+  int fileSize = 1024,
   int audioBitrate = 0,
   int sampleRate = 0,
   int bitDepth = 0,

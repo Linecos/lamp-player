@@ -98,6 +98,9 @@ extension _LibrarySection on _LibraryPageState {
             // 播放岛是浮层：最后一行得能滚到它上面
             bottomPadding: PlayerBar.occupiedHeight + 8,
             query: _query,
+            qualityBreakdown: _qualityBreakdown,
+            qualitySelected: _qualityFilter,
+            onSelectQuality: _toggleQualityFilter,
           ),
         ),
       ],

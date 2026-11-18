@@ -67,6 +67,7 @@ import 'widgets/collection_grids.dart';
 import 'widgets/library_rail.dart';
 import 'widgets/playlist_dialogs.dart';
 import 'widgets/playlist_grid.dart';
+import 'widgets/quality_ring.dart';
 import 'views/library_manage_view.dart';
 import 'widgets/track_list_view.dart';
 
@@ -85,6 +86,7 @@ part 'sections/music_section.dart';
 part 'sections/artists_section.dart';
 part 'sections/albums_section.dart';
 part 'sections/filter_section.dart';
+part 'sections/quality_section.dart';
 
 /// 目录选择器，测试可注入假实现。
 typedef DirectoryPicker = Future<String?> Function();
@@ -477,6 +479,15 @@ class _LibraryPageState extends State<LibraryPage>
   }
 
   List<Track> _tracks = const <Track>[];
+
+  /// 音质筛选（音乐库页点扇区设置）：null 表示不筛，只在音乐分区生效
+  AudioQuality? _qualityFilter;
+
+  /// 分档结果与统计，按 `_tracks` 的对象身份缓存
+  Map<AudioQuality, List<Track>>? _qualityBuckets;
+  List<Track>? _qualityBucketsSource;
+  QualityBreakdown? _qualityBreakdownCache;
+  List<Track>? _qualityBreakdownSource;
 
   /// 曲库加载的请求代次。
   ///
@@ -2065,8 +2076,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 艺术家 / 专辑的详情页也挂着同一份 [TrackListView]，所以进详情之后
   /// 定位要落到那位的曲目上，而不是判成「没有正在播放的曲目」。
   List<Track>? get _locatableTracks => switch (_displayedSection) {
-    LibrarySection.music =>
+    LibrarySection.music => _applyQualityFilter(
       _query.isEmpty ? _tracks : (_results ?? const <Track>[]),
+    ),
     LibrarySection.favorites => _filterTracks(_favoriteTracks),
     LibrarySection.history => _filterTracks(_historyTracks),
     LibrarySection.playlists =>
