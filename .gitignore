@@ -64,3 +64,4 @@ library.db.bak
 *.lampdb-wal
 *.lampdb-shm
 *.db-journal
+dist/
