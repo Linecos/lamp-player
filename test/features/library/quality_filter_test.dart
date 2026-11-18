@@ -275,6 +275,29 @@ void main() {
       expect(find.text('5 首音乐'), findsOne);
     });
 
+    testWidgets('筛了音质之后全选只勾可见的那几首', (WidgetTester tester) async {
+      // 多选的可见列表原来直接取 `_tracks`，没叠音质筛选：表头「全选」会把
+      // 被筛掉的那些也勾上，紧接着的批量隐藏 / 收藏 / 入队就作用到一整库
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HQ · '));
+      await tester.pumpAndSettle();
+      expect(find.text('1 首 · HQ'), findsOne);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('library-selection-toggle')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('track-select-all')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('已选 1 首'),
+        findsOne,
+        reason: '列表里只有 1 首，全选不该把筛掉的那 4 首也算进来',
+      );
+    });
+
     // 分区切换有一帧会先拿目标分区的旧快照顶上（淡入完再补新数据），
     // 点音质直接跳筛选时那份旧快照是「未筛选」的列表，看着就是闪一下
     testWidgets('点图例切分区不会先闪一下未筛选的列表', (WidgetTester tester) async {
