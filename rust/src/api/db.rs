@@ -655,7 +655,9 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
 
 /// 批量写入/更新（按 path 去重），整个批次在一个事务里完成。
 ///
-/// 不携带文件指纹（mtime/size），因此不会覆盖扫描记录里的增量信息。
+/// 不携带文件指纹的 mtime，因此不会覆盖扫描记录里的增量信息；
+/// `file_size` 与音质三列（码率 / 采样率 / 位深）传 0 表示「调用方没带」，
+/// 保留库里已有的值——写标签、换封面这类操作构造的 `Track` 不必逐列填全。
 pub fn upsert_tracks(tracks: Vec<Track>) -> anyhow::Result<i32> {
     if tracks.is_empty() {
         return Ok(0);
@@ -1065,11 +1067,13 @@ fn merge_track_path(
 
     if target_exists == 0 {
         // 目标行可能尚未由本次 upsert 插入；先复制旧行，外键才允许挂引用。
+        // 音质四列（大小 / 码率 / 采样率 / 位深）一起带走：漏掉的话换路径后
+        // 评级会掉回「其他」，而下次扫描如果要按指纹命中，这三列不会补回来。
         let copied = tx.execute(
             r#"
             INSERT INTO tracks
-                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain, hidden, hidden_at)
-            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, cover_path, replay_gain, hidden, hidden_at
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, hidden, hidden_at)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, hidden, hidden_at
             FROM tracks
             WHERE path = ?2
             "#,
@@ -1408,6 +1412,9 @@ mod tests {
                 added_at      INTEGER NOT NULL DEFAULT 0,
                 file_mtime    INTEGER NOT NULL DEFAULT 0,
                 file_size     INTEGER NOT NULL DEFAULT 0,
+                audio_bitrate INTEGER NOT NULL DEFAULT 0,
+                sample_rate   INTEGER NOT NULL DEFAULT 0,
+                bit_depth     INTEGER NOT NULL DEFAULT 0,
                 cover_path    TEXT NOT NULL DEFAULT '',
                 replay_gain   REAL NOT NULL DEFAULT 0,
                 hidden        INTEGER NOT NULL DEFAULT 0,
@@ -1451,7 +1458,8 @@ mod tests {
     fn merge_track_path_keeps_user_data_when_target_is_new() {
         let mut conn = merge_fixture();
         conn.execute(
-            "INSERT INTO tracks (path, title, added_at) VALUES (?1, '旧标题', 42)",
+            "INSERT INTO tracks (path, title, added_at, file_size, audio_bitrate, sample_rate, bit_depth)
+             VALUES (?1, '旧标题', 42, 7340032, 1411, 44100, 16)",
             ["/music/Old.mp3"],
         )
         .expect("旧曲目");
@@ -1491,6 +1499,20 @@ mod tests {
             .expect("目标曲目");
         assert_eq!(title, "旧标题");
         assert_eq!(added_at, 42, "合并应保留原入库时间");
+
+        let quality: (i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT file_size, audio_bitrate, sample_rate, bit_depth
+                 FROM tracks WHERE path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("目标曲目音质列");
+        assert_eq!(
+            quality,
+            (7340032, 1411, 44100, 16),
+            "换路径后音质四列要跟着走，否则评级会掉回「其他」"
+        );
 
         let favorite: i64 = conn
             .query_row(
