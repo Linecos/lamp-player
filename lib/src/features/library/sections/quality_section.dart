@@ -60,6 +60,9 @@ extension _QualitySection on _LibraryPageState {
     }
     _update(() => _qualityFilter = quality);
     if (_section != LibrarySection.music) {
+      // 切换帧会先拿目标分区的旧快照顶上（淡入结束后才补新数据），那份快照
+      // 是「未筛选」的列表，露出来就是闪一下。丢掉它，这一帧直接建筛完的。
+      _forgetSection(LibrarySection.music);
       _selectSection(LibrarySection.music);
     }
   }

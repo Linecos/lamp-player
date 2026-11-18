@@ -274,5 +274,20 @@ void main() {
       );
       expect(find.text('5 首音乐'), findsOne);
     });
+
+    // 分区切换有一帧会先拿目标分区的旧快照顶上（淡入完再补新数据），
+    // 点音质直接跳筛选时那份旧快照是「未筛选」的列表，看着就是闪一下
+    testWidgets('点图例切分区不会先闪一下未筛选的列表', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+
+      await tester.tap(find.textContaining('HQ · '));
+      // 切换帧 + 补数据的那一帧
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('甲'), findsNothing, reason: '第一帧就该是筛完的列表，不能先露出未筛选的全量');
+      expect(find.text('丁'), findsOneWidget);
+    });
   });
 }
