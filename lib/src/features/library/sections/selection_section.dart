@@ -40,8 +40,16 @@ extension _SelectionSection on _LibraryPageState {
           }
         }
         return const <Track>[];
-      case LibrarySection.settings:
       case LibrarySection.library:
+        // 音乐库的三个子页各有自己的列表：音质档、目录、统计（统计自管多选）
+        if (_qualityDetail != null) {
+          return _filterTracks(_tracksByQuality[_qualityDetail!]!);
+        }
+        if (_folderDetail != null) {
+          return _filterTracks(_folderDetailTracks);
+        }
+        return const <Track>[];
+      case LibrarySection.settings:
         return const <Track>[];
     }
   }

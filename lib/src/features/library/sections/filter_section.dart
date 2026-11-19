@@ -18,7 +18,8 @@ extension _FilterSection on _LibraryPageState {
     LibrarySection.albums => _selectedAlbumKey != null ? '搜索专辑歌曲' : '搜索专辑',
     LibrarySection.settings => '搜索设置项',
     // 能搜什么跟着子页走：音质子页搜的是曲目，首页搜的是目录与隐藏歌曲
-    LibrarySection.library => _qualityDetail != null ? '搜索音乐' : '搜索目录或隐藏歌曲',
+    LibrarySection.library =>
+      _qualityDetail != null || _folderDetail != null ? '搜索音乐' : '搜索目录或隐藏歌曲',
   };
 
   /// 只有音乐分区需要问数据库
