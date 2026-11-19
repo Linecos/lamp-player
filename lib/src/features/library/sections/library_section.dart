@@ -7,6 +7,7 @@ part of '../library_page.dart';
 extension _LibrarySection on _LibraryPageState {
   Widget _buildLibrarySection(BuildContext context) {
     final bool statsOpen = _libraryStatsOpen;
+    final AudioQuality? quality = _qualityDetail;
 
     // 与设置页原来那套一样：列表 ↔ 子界面之间淡入上滑，两份子树各自
     // RepaintBoundary，过渡的 180ms 里才共存。
@@ -37,9 +38,13 @@ extension _LibrarySection on _LibraryPageState {
         );
       },
       child: KeyedSubtree(
-        key: ValueKey<String>('library-$statsOpen'),
+        key: ValueKey<String>('library-$statsOpen-${quality?.name ?? ''}'),
         child: RepaintBoundary(
-          child: statsOpen ? _buildStatsSubView() : _buildLibraryHome(context),
+          child: statsOpen
+              ? _buildStatsSubView()
+              : quality == null
+              ? _buildLibraryHome(context)
+              : _buildQualityDetail(context),
         ),
       ),
     );
@@ -99,8 +104,8 @@ extension _LibrarySection on _LibraryPageState {
             bottomPadding: PlayerBar.occupiedHeight + 8,
             query: _query,
             qualityBreakdown: _qualityBreakdown,
-            qualitySelected: _qualityFilter,
-            onSelectQuality: _toggleQualityFilter,
+            qualitySelected: _qualityDetail,
+            onSelectQuality: _openQualityDetail,
           ),
         ),
       ],

@@ -1,9 +1,9 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/audio/audio_quality.dart';
 import 'package:lamp_player/src/features/library/widgets/quality_ring.dart';
@@ -244,8 +244,8 @@ void main() {
     });
   });
 
-  group('点扇区筛选', () {
-    testWidgets('点图例切到音乐分区，列表只剩这一档', (WidgetTester tester) async {
+  group('点扇区打开音质子界面', () {
+    testWidgets('点图例进入这一档的子界面，列表只剩这一档', (WidgetTester tester) async {
       await pumpLibrary(tester, tracks: mixedQualityTracks());
       await openLibrarySettings(tester);
 
@@ -254,63 +254,77 @@ void main() {
       await tester.tap(hqRow);
       await tester.pumpAndSettle();
 
-      // 切到音乐分区并带上筛选胶囊
-      expect(
-        find.byKey(const ValueKey<String>('quality-filter-chip')),
-        findsOne,
-      );
-      expect(find.textContaining('只看 HQ · 1 首'), findsOne);
-      expect(find.text('1 首 · HQ'), findsOne);
-      // HQ 只有「丁」：其余四首不该出现
-      expect(find.text('丁'), findsOne);
-      expect(find.text('甲'), findsNothing);
-
-      // 胶囊上的 × 恢复全部
-      await tester.tap(find.byTooltip('清除音质筛选'));
-      await tester.pumpAndSettle();
+      // 不再切到音乐分区、也不再挂筛选胶囊
       expect(
         find.byKey(const ValueKey<String>('quality-filter-chip')),
         findsNothing,
       );
-      expect(find.text('5 首音乐'), findsOne);
+      expect(find.text('HQ · 有损高码率'), findsOneWidget);
+      expect(find.text('1 首 · 占全库 20.0%'), findsOneWidget);
+      // HQ 只有「丁」：其余四首不该出现
+      expect(find.text('丁'), findsOneWidget);
+      expect(find.text('甲'), findsNothing);
     });
 
-    testWidgets('筛了音质之后全选只勾可见的那几首', (WidgetTester tester) async {
-      // 多选的可见列表原来直接取 `_tracks`，没叠音质筛选：表头「全选」会把
-      // 被筛掉的那些也勾上，紧接着的批量隐藏 / 收藏 / 入队就作用到一整库
+    testWidgets('返回按钮回到音乐库首页', (WidgetTester tester) async {
       await pumpLibrary(tester, tracks: mixedQualityTracks());
       await openLibrarySettings(tester);
       await tester.tap(find.textContaining('HQ · '));
       await tester.pumpAndSettle();
-      expect(find.text('1 首 · HQ'), findsOne);
 
       await tester.tap(
-        find.byKey(const ValueKey<String>('library-selection-toggle')),
+        find.byKey(const ValueKey<String>('quality-detail-back')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey<String>('track-select-all')));
+
+      // 首页的环形图图例里也有「HQ · 有损高码率」，所以按返回按钮判断子页已关
+      expect(
+        find.byKey(const ValueKey<String>('quality-detail-back')),
+        findsNothing,
+      );
+      expect(find.text('音乐目录'), findsOneWidget, reason: '回到音乐库首页');
+    });
+
+    testWidgets('Esc 从音质子界面退回音乐库首页', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HR · '));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('quality-detail-back')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
 
       expect(
-        find.text('已选 1 首'),
-        findsOne,
-        reason: '列表里只有 1 首，全选不该把筛掉的那 4 首也算进来',
+        find.byKey(const ValueKey<String>('quality-detail-back')),
+        findsNothing,
       );
+      expect(find.text('音乐目录'), findsOneWidget);
     });
 
-    // 分区切换有一帧会先拿目标分区的旧快照顶上（淡入完再补新数据），
-    // 点音质直接跳筛选时那份旧快照是「未筛选」的列表，看着就是闪一下
-    testWidgets('点图例切分区不会先闪一下未筛选的列表', (WidgetTester tester) async {
-      await pumpLibrary(tester, tracks: mixedQualityTracks());
+    testWidgets('子界面里点播放全部只放这一档', (WidgetTester tester) async {
+      final FakePlaybackService playback = FakePlaybackService(
+        isAvailable: true,
+        durationSecs: 180,
+      );
+      await pumpLibrary(
+        tester,
+        tracks: mixedQualityTracks(),
+        playback: playback,
+      );
       await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HR · '));
+      await tester.pumpAndSettle();
 
-      await tester.tap(find.textContaining('HQ · '));
-      // 切换帧 + 补数据的那一帧
-      await tester.pump();
-      await tester.pump();
+      await tester.tap(find.text('播放全部'));
+      await tester.pumpAndSettle();
 
-      expect(find.text('甲'), findsNothing, reason: '第一帧就该是筛完的列表，不能先露出未筛选的全量');
-      expect(find.text('丁'), findsOneWidget);
+      // 播放全部 = 以这一档为队列、从第一首起播，只调一次 play
+      expect(playback.playedPaths, <String>['/music/甲.mp3']);
+      expect(find.text('2 首 · 占全库 40.0%'), findsOneWidget);
     });
   });
 }
