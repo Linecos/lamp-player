@@ -8,6 +8,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 
 import '../../common/paint_cache.dart';
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import 'lyric_alignment.dart';
@@ -268,7 +269,7 @@ const double _linePaddingX = 12;
 const double _lyricBlockWidth = 640;
 
 class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
-  final ScrollController _scroll = ScrollController();
+  final SmoothScrollController _scroll = SmoothScrollController();
 
   /// 译文的展开进度：1 = 展开、0 = 收起。
   ///

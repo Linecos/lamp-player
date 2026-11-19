@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../common/scroll/smooth_scroll.dart';
 import '../../rust/api/player.dart' as rust;
 
 /// 输出设备选择弹窗。
@@ -63,7 +64,7 @@ class _OutputDeviceDialog extends StatelessWidget {
           // 列表自己的透明 Material：悬停与点击的水波纹只落在列表里
           child: Material(
             type: MaterialType.transparency,
-            child: ListView(
+            child: SmoothListView(
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
               children: <Widget>[

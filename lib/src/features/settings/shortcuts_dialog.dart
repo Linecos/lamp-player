@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../player/shortcuts.dart';
+import '../../common/scroll/smooth_scroll.dart';
 
 /// 快捷键弹窗：点一行 → 按下想要的组合键 → 立即生效并保存。
 ///
@@ -48,9 +49,13 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
 
   final FocusNode _focus = FocusNode(debugLabel: 'shortcut-record');
 
+  /// 键位列表滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
   @override
   void dispose() {
     _focus.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -132,6 +137,7 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
                   autofocus: true,
                   onKeyEvent: _onKeyEvent,
                   child: ListView(
+                    controller: _scroll,
                     shrinkWrap: true,
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                     children: <Widget>[

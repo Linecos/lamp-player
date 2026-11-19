@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/scroll/smooth_scroll.dart';
+
 /// 主界面左侧导航分区。
 ///
 /// 与设计稿保持一致，共八个入口。
@@ -143,22 +145,28 @@ class _LibraryRailState extends State<LibraryRail> {
                 // 64dp 让整列入口整体下移一截，顶上留一块空。
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: <Widget>[
-                      for (final LibrarySection item in LibrarySection.values)
-                        // 间距固定：条目位置在整段动画里不动，才不会抖
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: _RailItem(
-                            section: item,
-                            expanded: widget.expanded,
-                            showLabel: _showLabels,
-                            selected: item == widget.section,
-                            onTap: () => widget.onSelect(item),
-                          ),
-                        ),
-                    ],
+                  child: SmoothScroll(
+                    builder:
+                        (BuildContext context, ScrollController controller) =>
+                            ListView(
+                              controller: controller,
+                              padding: EdgeInsets.zero,
+                              children: <Widget>[
+                                for (final LibrarySection item
+                                    in LibrarySection.values)
+                                  // 间距固定：条目位置在整段动画里不动，才不会抖
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 2),
+                                    child: _RailItem(
+                                      section: item,
+                                      expanded: widget.expanded,
+                                      showLabel: _showLabels,
+                                      selected: item == widget.section,
+                                      onTap: () => widget.onSelect(item),
+                                    ),
+                                  ),
+                              ],
+                            ),
                   ),
                 ),
               ),

@@ -55,6 +55,15 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
   /// 下半部分看哪一套排行
   RankTab _tab = RankTab.songs;
 
+  /// 整页滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   Future<_StatsBundle> _load() async {
     final DateTime start = _heatmapStart(DateTime.now(), _maxWeeks);
     // 三个查询互不依赖，并行发起；用 record 的 wait 保证任一失败都会被捕获，
@@ -183,6 +192,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
               );
 
         return CustomScrollView(
+          controller: _scroll,
           slivers: <Widget>[
             SliverToBoxAdapter(child: head),
             SliverPadding(

@@ -124,6 +124,9 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
   /// 底部错误提示（保存失败、标题空）
   String? _error;
 
+  /// 表单滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
   TextEditingController _from(String value) =>
       TextEditingController(text: value);
 
@@ -146,6 +149,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
     for (final TextEditingController controller in _fields) {
       controller.dispose();
     }
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -234,6 +238,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
         _buildHeader(theme, scheme),
         Expanded(
           child: SingleChildScrollView(
+            controller: _scroll,
             // 底部留出播放岛的高度：滚到底时「保存」停在岛上方，不被压住
             padding: EdgeInsets.only(bottom: PlayerBar.occupiedHeight + 8),
             child: Column(

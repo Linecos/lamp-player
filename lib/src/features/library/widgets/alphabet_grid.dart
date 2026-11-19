@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../common/scroll/smooth_scroll.dart';
 import '../alphabet_index.dart';
 import 'library_rail.dart';
 
@@ -153,7 +154,7 @@ class AlphabetGridView<T> extends StatefulWidget {
 /// 先出现一帧错位、下一帧再跳回来——每帧一次，看起来是「卡片快速上下浮动」。
 /// 这里把修正放到 [ScrollPosition.applyContentDimensions]：布局刚知道新的滚动
 /// 范围、还没落笔，直接改 `pixels`，这一帧画出来的就是修正后的位置。
-class _AnchorScrollController extends ScrollController {
+class _AnchorScrollController extends SmoothScrollController {
   /// 下一次布局要落到的像素（build 阶段按新几何算好），用掉即清
   double? pendingPixels;
 
@@ -175,7 +176,7 @@ class _AnchorScrollController extends ScrollController {
   }
 }
 
-class _AnchorScrollPosition extends ScrollPositionWithSingleContext {
+class _AnchorScrollPosition extends SmoothScrollPosition {
   _AnchorScrollPosition({
     required super.physics,
     required super.context,

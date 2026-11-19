@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../player/equalizer.dart';
@@ -50,6 +51,9 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
   late String? _presetName = widget.presetName;
   late bool _enabled = widget.enabled;
 
+  /// 滚轮平滑：整块重放面板超高时要能滚，编辑器里也是滚轮（不是拖拽）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
   @override
   void didUpdateWidget(EqualizerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -71,6 +75,7 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
       _wheelCommit!.cancel();
       widget.onChanged?.call(_enabled, List<double>.of(_gains), null);
     }
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -97,6 +102,7 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
           return content;
         }
         return SingleChildScrollView(
+          controller: _scroll,
           child: SizedBox(height: 460, child: content),
         );
       },
