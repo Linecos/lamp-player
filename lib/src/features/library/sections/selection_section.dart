@@ -9,11 +9,7 @@ extension _SelectionSection on _LibraryPageState {
   List<Track> get _selectionVisibleTracks {
     switch (_section) {
       case LibrarySection.music:
-        // 音质筛选也得算进来：少了这一层，表头「全选」会把被筛掉的那些也勾上，
-        // 批量隐藏 / 收藏 / 入队于是作用到一整库，而屏幕上只看得见一档
-        return _applyQualityFilter(
-          _query.isEmpty ? _tracks : (_results ?? const <Track>[]),
-        );
+        return _query.isEmpty ? _tracks : (_results ?? const <Track>[]);
       case LibrarySection.favorites:
         return _filterTracks(_favoriteTracks);
       case LibrarySection.history:
@@ -44,8 +40,16 @@ extension _SelectionSection on _LibraryPageState {
           }
         }
         return const <Track>[];
-      case LibrarySection.settings:
       case LibrarySection.library:
+        // 音乐库的三个子页各有自己的列表：音质档、目录、统计（统计自管多选）
+        if (_qualityDetail != null) {
+          return _filterTracks(_tracksByQuality[_qualityDetail!]!);
+        }
+        if (_folderDetail != null) {
+          return _filterTracks(_folderDetailTracks);
+        }
+        return const <Track>[];
+      case LibrarySection.settings:
         return const <Track>[];
     }
   }

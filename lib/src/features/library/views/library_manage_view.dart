@@ -28,6 +28,7 @@ class LibraryManageView extends StatelessWidget {
     this.scanning = false,
     this.folders = const <String>[],
     this.onAddFolder,
+    this.onOpenFolder,
     this.onRescanFolder,
     this.onRemoveFolder,
     this.scanFolder,
@@ -66,6 +67,9 @@ class LibraryManageView extends StatelessWidget {
   final List<String> folders;
 
   final VoidCallback? onAddFolder;
+
+  /// 点某个目录：进这个目录的曲目子页
+  final ValueChanged<String>? onOpenFolder;
 
   /// 重新扫描某个目录；为空表示当前不可操作（例如正在扫描）
   final ValueChanged<String>? onRescanFolder;
@@ -343,8 +347,9 @@ class LibraryManageView extends StatelessWidget {
             _FolderRow(
               folder: folder,
               count: tracks
-                  .where((Track track) => _inFolder(track.path, folder))
+                  .where((Track track) => trackInFolder(track.path, folder))
                   .length,
+              onOpen: onOpenFolder == null ? null : () => onOpenFolder!(folder),
               scanning: scanning && folder == scanFolder,
               onRescan: onRescanFolder == null || scanning
                   ? null
@@ -359,8 +364,11 @@ class LibraryManageView extends StatelessWidget {
   }
 }
 
-/// [path] 是否落在 [folder] 里
-bool _inFolder(String path, String folder) {
+/// [path] 是否落在音乐目录 [folder] 里。
+///
+/// 反斜杠统一 + 小写比较：Windows 路径大小写不敏感，两种大小写写法必须算
+/// 同一个目录；结尾的反斜杠也要先削掉，否则带不带尾巴会判成两个目录。
+bool trackInFolder(String path, String folder) {
   String norm(String value) => value.replaceAll('/', r'\').toLowerCase();
   final String target = norm(folder).replaceAll(RegExp(r'\\+$'), '');
   final String source = norm(path);
@@ -626,6 +634,7 @@ class _FolderRow extends StatelessWidget {
     required this.folder,
     required this.count,
     required this.scanning,
+    this.onOpen,
     this.onRescan,
     this.onRemove,
   });
@@ -633,6 +642,9 @@ class _FolderRow extends StatelessWidget {
   final String folder;
   final int count;
   final bool scanning;
+
+  /// 点整行：进这个目录的曲目子页
+  final VoidCallback? onOpen;
   final VoidCallback? onRescan;
   final VoidCallback? onRemove;
 
@@ -664,81 +676,94 @@ class _FolderRow extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.folder_outlined,
-              size: 18,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  folder,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
+    // 整行可点：点开是这个目录的曲目子页；右侧「更多」菜单仍是独立热区
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        hoverColor: scheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  scanning ? '正在扫描…' : '$count 首',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scanning ? scheme.primary : scheme.onSurfaceVariant,
+                child: Icon(
+                  Icons.folder_outlined,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      folder,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      scanning ? '正在扫描…' : '$count 首',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scanning
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (scanning)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
+                )
+              else
+                PopupMenuButton<String>(
+                  tooltip: '更多操作',
+                  icon: Icon(
+                    Icons.more_vert,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  onSelected: (String action) {
+                    if (action == 'rescan') {
+                      onRescan?.call();
+                    } else if (action == 'remove') {
+                      unawaited(_confirmRemove(context));
+                    }
+                  },
+                  itemBuilder: (BuildContext context) =>
+                      <PopupMenuEntry<String>>[
+                        const PopupMenuItem<String>(
+                          value: 'rescan',
+                          child: Text('重新扫描'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'remove',
+                          child: Text('移除目录…'),
+                        ),
+                      ],
                 ),
-              ],
-            ),
+            ],
           ),
-          if (scanning)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-          else
-            PopupMenuButton<String>(
-              tooltip: '更多操作',
-              icon: Icon(
-                Icons.more_vert,
-                size: 18,
-                color: scheme.onSurfaceVariant,
-              ),
-              onSelected: (String action) {
-                if (action == 'rescan') {
-                  onRescan?.call();
-                } else if (action == 'remove') {
-                  unawaited(_confirmRemove(context));
-                }
-              },
-              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                const PopupMenuItem<String>(
-                  value: 'rescan',
-                  child: Text('重新扫描'),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'remove',
-                  child: Text('移除目录…'),
-                ),
-              ],
-            ),
-        ],
+        ),
       ),
     );
   }

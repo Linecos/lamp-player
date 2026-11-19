@@ -10,12 +10,9 @@ extension _MusicSection on _LibraryPageState {
     final List<Track> base = _query.isEmpty
         ? _tracks
         : (_results ?? const <Track>[]);
-    final List<Track> visible = _applyQualityFilter(base);
-    final AudioQuality? quality = _qualityFilter;
+    final List<Track> visible = base;
     final String countLabel = _query.isEmpty
-        ? (quality == null
-              ? '${_tracks.length} 首音乐'
-              : '${visible.length} 首 · ${qualityLabel(quality)}')
+        ? '${_tracks.length} 首音乐'
         : (_searching
               ? '正在搜索…'
               : (_searchTruncated
@@ -68,7 +65,6 @@ extension _MusicSection on _LibraryPageState {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            _buildQualityFilterChip(context),
           ],
         ),
         if (_searching)
@@ -147,10 +143,7 @@ extension _MusicSection on _LibraryPageState {
           ),
         );
       }
-      final List<Track> list = _applyQualityFilter(_results!);
-      if (list.isEmpty) {
-        return _qualityEmptyState();
-      }
+      final List<Track> list = _results!;
       return TrackListView(
         controller: _musicScroll,
         flashPath: _flashTrackPath,
@@ -201,10 +194,7 @@ extension _MusicSection on _LibraryPageState {
         ),
       );
     }
-    final List<Track> list = _applyQualityFilter(_tracks);
-    if (list.isEmpty) {
-      return _qualityEmptyState();
-    }
+    final List<Track> list = _tracks;
     return TrackListView(
       controller: _musicScroll,
       flashPath: _flashTrackPath,
