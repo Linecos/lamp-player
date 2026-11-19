@@ -25,6 +25,10 @@
 
 ### 变更
 
+- 艺术家详情头部也加了**封面虚影背景**：与专辑 / 歌单详情同一套做法（头像放大铺满、
+  只取中间那一条，在小图层上模糊后压暗，底部渐隐进页面底色，整块
+  `RepaintBoundary` 交给 Skia 缓存）。此前只有专辑与歌单有，艺术家详情是一块素的
+  页面底色；这一处是 `ad1964d` 漏掉的
 - 接口契约升到 **v0.19**（`docs/API_CONTRACT.md`）：新增 `media_set_play_mode` 与
   `MediaRepeatMode`，`MediaCommand` 增加 `repeatOff` / `repeatAll` / `repeatOne` /
   `shuffleOn` / `shuffleOff` 五个分支（系统浮层改了循环 / 随机时下发）

@@ -112,87 +112,109 @@ extension _ArtistsSection on _LibraryPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _DetailBar(
-          label: '艺术家',
-          // 退回列表时让头像按原路飞回去
-          onBack: _closeArtistDetail,
-        ),
-        Padding(
-          padding: const EdgeInsets.only(
-            left: _detailHeaderInset,
-            top: 8,
-            bottom: 8,
-          ),
-          child: Row(
-            // 名字 / 统计 / 播放键贴住头像底边，见专辑详情的同一处注释
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              // 飞行期间先藏着，等列表那张飞到位再显形
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                // 点封面 → 打开封面编辑窗
-                onTap: () => unawaited(_openCoverEditorFor(artist: group)),
-                child: CoverFlightTarget(
-                  key: _artistDetailCoverKey,
-                  hidden: _coverFlightTag == artistCoverTag(group.name),
-                  child: artistAvatar(
-                    context,
-                    group.name,
-                    detailCoverSize,
-                    coverPath: group.coverPath,
+        Stack(
+          // 背景要铺到内容区那 16 的左右内边距外面
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            Positioned(
+              left: -_detailHeaderInset,
+              right: -_detailHeaderInset,
+              // 贴到分区内容区的顶部（那里还留着 12 的上内边距）
+              top: -12,
+              bottom: 0,
+              // 和专辑 / 歌单详情同一套：头像放大铺满、模糊、压暗，
+              // 底部收进页面底色，跟下面的曲目列表接上
+              child: CoverBackdrop(coverPath: group.coverPath),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _DetailBar(
+                  label: '艺术家',
+                  // 退回列表时让头像按原路飞回去
+                  onBack: _closeArtistDetail,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: _detailHeaderInset,
+                    top: 8,
+                    bottom: 8,
+                  ),
+                  child: Row(
+                    // 名字 / 统计 / 播放键贴住头像底边，见专辑详情的同一处注释
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      // 飞行期间先藏着，等列表那张飞到位再显形
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        // 点封面 → 打开封面编辑窗
+                        onTap: () =>
+                            unawaited(_openCoverEditorFor(artist: group)),
+                        child: CoverFlightTarget(
+                          key: _artistDetailCoverKey,
+                          hidden: _coverFlightTag == artistCoverTag(group.name),
+                          child: artistAvatar(
+                            context,
+                            group.name,
+                            detailCoverSize,
+                            coverPath: group.coverPath,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              group.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${group.albumCount} 张专辑 · ${group.trackCount} 首音乐',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: <Widget>[
+                                FilledButton.tonalIcon(
+                                  style: _headerButtonStyle(),
+                                  onPressed: () => unawaited(_playAll(tracks)),
+                                  icon: const Icon(Icons.play_arrow),
+                                  // 搜着的时候放的是命中结果，不是这位艺术家的全部
+                                  label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
+                                ),
+                                const SizedBox(width: 12),
+                                _buildSelectionToggle(context),
+                                const SizedBox(width: 12),
+                                // 默认「原序」＝这位艺术家的原有顺序
+                                _SortButton(
+                                  mode: _detailSort,
+                                  ascending: _detailAscending,
+                                  keySuffix: 'artist-detail',
+                                  onSelected: (LibrarySort? sort) {
+                                    if (sort != null) {
+                                      _changeDetailSort(sort);
+                                    }
+                                  },
+                                  onToggleDirection: _toggleDetailSortDirection,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      group.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${group.albumCount} 张专辑 · ${group.trackCount} 首音乐',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: <Widget>[
-                        FilledButton.tonalIcon(
-                          style: _headerButtonStyle(),
-                          onPressed: () => unawaited(_playAll(tracks)),
-                          icon: const Icon(Icons.play_arrow),
-                          // 搜着的时候放的是命中结果，不是这位艺术家的全部
-                          label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
-                        ),
-                        const SizedBox(width: 12),
-                        _buildSelectionToggle(context),
-                        const SizedBox(width: 12),
-                        // 默认「原序」＝这位艺术家的原有顺序
-                        _SortButton(
-                          mode: _detailSort,
-                          ascending: _detailAscending,
-                          keySuffix: 'artist-detail',
-                          onSelected: (LibrarySort? sort) {
-                            if (sort != null) {
-                              _changeDetailSort(sort);
-                            }
-                          },
-                          onToggleDirection: _toggleDetailSortDirection,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Expanded(
