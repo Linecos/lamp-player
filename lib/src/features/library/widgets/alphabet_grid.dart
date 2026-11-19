@@ -265,7 +265,11 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
     return buckets;
   }
 
-  void _jumpTo(int index) {
+  /// [index] 段的标题贴到视口顶部。
+  ///
+  /// 按住导航条滑动时用 `animate: false`：连续换段时每段都起 220ms 动画会
+  /// 「追不上手指」，看着像卡住。
+  void _jumpTo(int index, {bool animate = true}) {
     if (!_controller.hasClients ||
         index < 0 ||
         index >= _sectionOffsets.length) {
@@ -275,6 +279,10 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
       0.0,
       _controller.position.maxScrollExtent,
     );
+    if (!animate) {
+      _controller.jumpTo(target);
+      return;
+    }
     _controller.animateTo(
       target,
       duration: const Duration(milliseconds: 220),
@@ -516,7 +524,7 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                         letters: letters,
                         active: active,
                         onSelect: (String letter) {
-                          _jumpTo(letters.indexOf(letter));
+                          _jumpTo(letters.indexOf(letter), animate: false);
                         },
                       );
                     },
@@ -575,8 +583,11 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// 最右侧的字母导航条：`A`…`Z` 再接 `#`，点了跳到对应段。
-class AlphabetRail extends StatelessWidget {
+/// 最右侧的字母导航条：`A`…`Z` 再接 `#`。
+///
+/// 鼠标按住后上下滑动就跟着走（不是只有点一下才跳，按住时左边弹一个放大的
+/// 当前字母）。桌面端没有触摸屏那种「手指压住」的反馈，气泡是唯一提示。
+class AlphabetRail extends StatefulWidget {
   const AlphabetRail({
     super.key,
     required this.letters,
@@ -591,31 +602,123 @@ class AlphabetRail extends StatelessWidget {
   final String? active;
 
   @override
+  State<AlphabetRail> createState() => _AlphabetRailState();
+}
+
+class _AlphabetRailState extends State<AlphabetRail> {
+  /// 按住时手指 / 鼠标落在哪一段；null 表示没按住
+  String? _pressed;
+
+  void _selectAt(Offset local, double rowHeight) {
+    if (widget.letters.isEmpty) {
+      return;
+    }
+    final int index = (local.dy / rowHeight).floor().clamp(
+      0,
+      widget.letters.length - 1,
+    );
+    final String letter = widget.letters[index];
+    if (letter == _pressed) {
+      return;
+    }
+    setState(() => _pressed = letter);
+    widget.onSelect(letter);
+  }
+
+  void _release() {
+    if (_pressed == null) {
+      return;
+    }
+    setState(() => _pressed = null);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (letters.isEmpty) {
+    if (widget.letters.isEmpty) {
       return const SizedBox.shrink();
     }
+    final ColorScheme scheme = Theme.of(context).colorScheme;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         // 高度不够时按均分缩小，宁可字小一点也不能溢出
         final double rowHeight = math.min(
           18,
-          constraints.maxHeight / letters.length,
+          constraints.maxHeight / widget.letters.length,
         );
-        return Material(
-          type: MaterialType.transparency,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              for (final String letter in letters)
-                _RailLetter(
-                  letter: letter,
-                  height: rowHeight,
-                  active: letter == active,
-                  onTap: () => onSelect(letter),
+        final double total = rowHeight * widget.letters.length;
+        final int pressedIndex = _pressed == null
+            ? -1
+            : widget.letters.indexOf(_pressed!);
+        return Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: railWidth,
+            height: total,
+            // 气泡要越出这根窄条，Stack 默认会裁掉
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (PointerDownEvent event) =>
+                      _selectAt(event.localPosition, rowHeight),
+                  // 按下后指针移出去也还归这里：pointer 路由是按下时定的
+                  onPointerMove: (PointerMoveEvent event) =>
+                      _selectAt(event.localPosition, rowHeight),
+                  onPointerUp: (PointerUpEvent event) => _release(),
+                  onPointerCancel: (PointerCancelEvent event) => _release(),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        for (final String letter in widget.letters)
+                          _RailLetter(
+                            letter: letter,
+                            height: rowHeight,
+                            active:
+                                letter == widget.active || letter == _pressed,
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-            ],
+                if (pressedIndex >= 0)
+                  Positioned(
+                    // 气泡挂在字母左边：导航条只有 22 宽，放里面会盖住字母
+                    right: railWidth + 10,
+                    top: pressedIndex * rowHeight + rowHeight / 2 - 20,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                          boxShadow: <BoxShadow>[
+                            BoxShadow(
+                              color: scheme.shadow.withValues(alpha: 0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          _pressed!,
+                          key: const ValueKey<String>('alphabet-rail-bubble'),
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 1,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -628,34 +731,28 @@ class _RailLetter extends StatelessWidget {
     required this.letter,
     required this.height,
     required this.active,
-    required this.onTap,
   });
 
   final String letter;
   final double height;
   final bool active;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return SizedBox(
+      key: ValueKey<String>('alphabet-rail-$letter'),
       height: height,
       width: railWidth,
-      child: InkWell(
-        key: ValueKey<String>('alphabet-rail-$letter'),
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(height / 2),
-        child: Center(
-          child: Text(
-            letter,
-            style: TextStyle(
-              // 字跟着行高走：窗口再矮也不会把字母挤出格子
-              fontSize: math.min(11, height * 0.82),
-              height: 1,
-              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              color: active ? scheme.primary : scheme.onSurfaceVariant,
-            ),
+      child: Center(
+        child: Text(
+          letter,
+          style: TextStyle(
+            // 字跟着行高走：窗口再矮也不会把字母挤出格子
+            fontSize: math.min(11, height * 0.82),
+            height: 1,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? scheme.primary : scheme.onSurfaceVariant,
           ),
         ),
       ),

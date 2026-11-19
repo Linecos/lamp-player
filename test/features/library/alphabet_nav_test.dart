@@ -83,6 +83,59 @@ void main() {
     expect(tester.getTopLeft(header).dy - top, lessThan(2));
   });
 
+  testWidgets('按住导航条上下滑动就跟着跳，左边气泡显示当前字母', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder railM = find.byKey(const ValueKey<String>('alphabet-rail-M'));
+    final Finder railA = find.byKey(const ValueKey<String>('alphabet-rail-A'));
+    // 从 A 按住，滑到 M 的位置：不是「点一下」，中途一直按着
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(railA),
+    );
+    await tester.pump();
+    // 按住即弹气泡，且显示当前字母
+    expect(
+      find.byKey(const ValueKey<String>('alphabet-rail-bubble')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('alphabet-rail-bubble')),
+          )
+          .data,
+      'A',
+    );
+
+    await gesture.moveTo(tester.getCenter(railM));
+    await tester.pump();
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('alphabet-rail-bubble')),
+          )
+          .data,
+      'M',
+    );
+    // 滑动途中就跳到 M 段，不用等松手
+    expect(
+      find.byKey(const ValueKey<String>('alphabet-header-M')),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    // 松手气泡收起
+    expect(
+      find.byKey(const ValueKey<String>('alphabet-rail-bubble')),
+      findsNothing,
+    );
+  });
+
   testWidgets('窗口变窄后位置跟着内容走，加重项还是同一段', (WidgetTester tester) async {
     await _pump(
       tester,
