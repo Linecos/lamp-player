@@ -31,7 +31,8 @@ enum LibrarySection {
 /// 可展开 / 折叠的侧边导航栏，画成一块浮在底色上的圆角卡片（岛）。
 ///
 /// 展开 220dp、折叠 72dp。应用图标与名称不在这里——它们在顶部通栏条里
-/// （见 `library_page` 的顶栏），侧栏从折叠按钮开始。
+/// （见 `library_page` 的顶栏）。七项入口从卡片顶部起排，展开 / 收起按钮
+/// 沉在卡片最下方：入口不为一颗按钮让位，按钮也不会随条目增减而挪动。
 ///
 /// 宽度 / 条目高度 / 文字透明度全部交给隐式动画（`AnimatedContainer`、
 /// `AnimatedOpacity`）：它们只更新 RenderObject，**不会每帧重建整列子树**。
@@ -132,38 +133,16 @@ class _LibraryRailState extends State<LibraryRail> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              SizedBox(
-                height: 64,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 8),
-                    child: IconButton(
-                      onPressed: widget.onToggle,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 48,
-                        height: 48,
-                      ),
-                      iconSize: 24,
-                      tooltip: widget.expanded ? '收起导航栏' : '展开导航栏',
-                      icon: Icon(
-                        widget.expanded ? Icons.menu_open : Icons.menu,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
               Expanded(
                 // 左右内边距固定 8、条目自己的左内边距固定 16，两者相加 24 与图标
                 // 的原始左边距完全一致 —— 展开时 220-16=204 宽，收起时 72-16=56 宽，
                 // 图标都停在 x=36。这里不留任何动画：两个隐式动画各自起跑，
                 // 中途会把图标带偏几像素（试过，会漂 4px）。
+                //
+                // 折叠按钮已经沉到卡片底部，入口从卡片顶部起排：原来按钮占的
+                // 64dp 让整列入口整体下移一截，顶上留一块空。
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
                   child: ListView(
                     padding: EdgeInsets.zero,
                     children: <Widget>[
@@ -180,6 +159,30 @@ class _LibraryRailState extends State<LibraryRail> {
                           ),
                         ),
                     ],
+                  ),
+                ),
+              ),
+              // 展开 / 收起放在卡片最下方：七项入口从顶上排下来，按钮固定在
+              // 底部不随列表滚动、也不会因为条目增减而挪位置。
+              SizedBox(
+                height: 64,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12, bottom: 8),
+                    child: IconButton(
+                      onPressed: widget.onToggle,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 48,
+                        height: 48,
+                      ),
+                      iconSize: 24,
+                      tooltip: widget.expanded ? '收起导航栏' : '展开导航栏',
+                      icon: Icon(
+                        widget.expanded ? Icons.menu_open : Icons.menu,
+                      ),
+                    ),
                   ),
                 ),
               ),

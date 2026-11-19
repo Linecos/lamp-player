@@ -20,6 +20,7 @@
 - 接口契约升到 **v0.18**（`docs/API_CONTRACT.md`）：`Track` 增加 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`（曲库结构 v10）、`lyrics_save_raw` 增加 `target` 入参（`sidecar` / `embedded`）、新增 `write_track_cover`、`TrackTags` 增加作曲 / 作词 / 注释三项，都是 v0.17 之后已经落地的改动，这次补齐文档
 - 设置页的「关于」一行改成**可点开弹窗**
 - Windows 安装包向导支持**简体中文**：中文系统按系统 UI 语言自动进中文向导，其它语言仍走英文，都不匹配时才弹语言选择页。中文语言包（Inno 官方 6.5.0+ 翻译，作者 Zhenghan Yang）随仓库放在 `installer\ChineseSimplified.isl`，不依赖本机 Inno 是否自带；编译要求相应提到 **Inno Setup 6.5+**
+- 侧栏**展开 / 收起按钮下沉到卡片最下方**：七项入口从卡片顶部起排（原先给按钮让出的 64dp 空白没了），按钮不再随条目增减挪位置，也不会被列表滚动带走
 
 ## [0.1.0] - 2026-11-18
 
