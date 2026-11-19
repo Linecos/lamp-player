@@ -87,6 +87,7 @@ part 'sections/artists_section.dart';
 part 'sections/albums_section.dart';
 part 'sections/filter_section.dart';
 part 'sections/quality_section.dart';
+part 'sections/folder_detail_section.dart';
 
 /// 目录选择器，测试可注入假实现。
 typedef DirectoryPicker = Future<String?> Function();
@@ -487,6 +488,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 点环形图的扇区 / 图例进来，不再是「切到音乐分区 + 挂筛选胶囊」——
   /// 那样会占掉整个音乐页，只能靠 × 恢复。
   AudioQuality? _qualityDetail;
+
+  /// 目录子页：非空表示音乐库分区里正开着某个目录的曲目列表。
+  String? _folderDetail;
 
   /// 分档结果与统计，按 `_tracks` 的对象身份缓存
   Map<AudioQuality, List<Track>>? _qualityBuckets;
@@ -2250,6 +2254,10 @@ class _LibraryPageState extends State<LibraryPage>
   /// 顺序与「侧栏再点当前分区」一致；艺术家 / 专辑走 `_closeXxxDetail`，
   /// 顺带保留封面飞回卡片的动画。
   bool _leaveSubPage() {
+    if (_folderDetail != null) {
+      _update(() => _folderDetail = null);
+      return true;
+    }
     if (_qualityDetail != null) {
       _update(() => _qualityDetail = null);
       return true;
@@ -2624,6 +2632,7 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedPlaylistId = null;
           _libraryStatsOpen = false;
           _qualityDetail = null;
+          _folderDetail = null;
           select();
         });
         _clearSelection();
@@ -2633,7 +2642,8 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedArtist != null ||
           _selectedAlbumKey != null ||
           _libraryStatsOpen ||
-          _qualityDetail != null) {
+          _qualityDetail != null ||
+          _folderDetail != null) {
         _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
@@ -2641,6 +2651,7 @@ class _LibraryPageState extends State<LibraryPage>
           // 再点一次「音乐库」= 从子页退回列表
           _libraryStatsOpen = false;
           _qualityDetail = null;
+          _folderDetail = null;
         });
       }
       _clearSelection();
@@ -2657,6 +2668,7 @@ class _LibraryPageState extends State<LibraryPage>
     // 留在 Offstage 里占着内存
     _libraryStatsOpen = false;
     _qualityDetail = null;
+    _folderDetail = null;
     _saveSessionNow();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 期间用户又点了别的分区：让最后一次点击自己走完切换
@@ -2957,11 +2969,15 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.playlists => _selectedPlaylistId?.toString() ?? '',
       LibrarySection.artists => _selectedArtist ?? '',
       LibrarySection.albums => _selectedAlbumKey ?? '',
-      // 音乐库分区里，统计与某一档音质的列表都是子界面
+      // 音乐库分区里，统计、某一档音质、某个目录都是子界面
       LibrarySection.library =>
         _libraryStatsOpen
             ? 'stats'
-            : (_qualityDetail == null ? '' : 'quality-${_qualityDetail!.name}'),
+            : _qualityDetail != null
+            ? 'quality-${_qualityDetail!.name}'
+            : _folderDetail != null
+            ? 'folder-$_folderDetail'
+            : '',
       LibrarySection.music ||
       LibrarySection.favorites ||
       LibrarySection.history ||

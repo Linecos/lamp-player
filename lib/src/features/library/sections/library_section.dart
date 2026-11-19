@@ -8,6 +8,7 @@ extension _LibrarySection on _LibraryPageState {
   Widget _buildLibrarySection(BuildContext context) {
     final bool statsOpen = _libraryStatsOpen;
     final AudioQuality? quality = _qualityDetail;
+    final String? folder = _folderDetail;
 
     // 与设置页原来那套一样：列表 ↔ 子界面之间淡入上滑，两份子树各自
     // RepaintBoundary，过渡的 180ms 里才共存。
@@ -38,13 +39,17 @@ extension _LibrarySection on _LibraryPageState {
         );
       },
       child: KeyedSubtree(
-        key: ValueKey<String>('library-$statsOpen-${quality?.name ?? ''}'),
+        key: ValueKey<String>(
+          'library-$statsOpen-${quality?.name ?? ''}-${folder ?? ''}',
+        ),
         child: RepaintBoundary(
           child: statsOpen
               ? _buildStatsSubView()
-              : quality == null
-              ? _buildLibraryHome(context)
-              : _buildQualityDetail(context),
+              : quality != null
+              ? _buildQualityDetail(context)
+              : folder != null
+              ? _buildFolderDetail(context)
+              : _buildLibraryHome(context),
         ),
       ),
     );
@@ -84,6 +89,8 @@ extension _LibrarySection on _LibraryPageState {
             scanning: _scanning,
             folders: _folders,
             onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
+            onOpenFolder: (String folder) =>
+                _update(() => _folderDetail = folder),
             onRescanFolder: _scanning
                 ? null
                 : (String folder) => unawaited(_rescanFolder(folder)),
