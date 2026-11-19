@@ -98,6 +98,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onToggleDesktopLyricLock,
   void Function(Track track, String artist)? onOpenArtist,
   ValueChanged<Track>? onOpenAlbum,
+  String? Function(String artist)? artistCoverOf,
   ValueListenable<List<double>>? spectrum,
   WindowControls? windowControls,
   ValueListenable<LyricAlignment>? lyricAlignment,
@@ -144,6 +145,7 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onToggleDesktopLyricLock: onToggleDesktopLyricLock,
         onOpenArtist: onOpenArtist,
         onOpenAlbum: onOpenAlbum,
+        artistCoverOf: artistCoverOf,
         spectrum: spectrum,
         windowControls: windowControls,
         lyricAlignment: lyricAlignment,
@@ -356,6 +358,48 @@ void main() {
       find.byKey(const ValueKey<String>('artist-picker-dialog')),
       findsNothing,
       reason: '选完要关窗',
+    );
+  });
+
+  testWidgets('弹窗里给了封面就画头像，不再用首字母占位', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      data: _data(
+        track: sampleTrack(
+          title: 'Citrus Love',
+          artist: 'Bao The Whale/Overspace',
+        ),
+      ),
+      onOpenArtist: (Track track, String artist) {},
+      // 只有第一位能取到封面：另一位要走回退
+      artistCoverOf: (String artist) =>
+          artist == 'Bao The Whale' ? '/music/bao.jpg' : null,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-artist')));
+    await tester.pumpAndSettle();
+
+    final Finder baoRow = find.byKey(
+      const ValueKey<String>('artist-picker-Bao The Whale'),
+    );
+    expect(
+      find.descendant(of: baoRow, matching: find.byType(AlbumCover)),
+      findsOneWidget,
+      reason: '有封面就该画封面',
+    );
+    expect(
+      find.descendant(of: baoRow, matching: find.text('B')),
+      findsNothing,
+      reason: '有封面时不该再出现首字母',
+    );
+
+    final Finder overRow = find.byKey(
+      const ValueKey<String>('artist-picker-Overspace'),
+    );
+    expect(
+      find.descendant(of: overRow, matching: find.text('O')),
+      findsOneWidget,
+      reason: '取不到封面时仍回退首字母',
     );
   });
 

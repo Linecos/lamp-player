@@ -600,6 +600,21 @@ extension _OutputSection on _LibraryPageState {
     return _albumGroups ?? const <AlbumGroup>[];
   }
 
+  /// 按名字取某位艺术家的头像封面（选择艺术家弹窗用）。
+  ///
+  /// 走同一份聚合结果：自定义封面与「第一首带封面的曲目」的合并规则只有
+  /// 那一处，弹窗里不该再算一遍。找不到（标签里的名字和聚合键对不上）就
+  /// 返回 null，弹窗自然回退到首字母。
+  String? _artistCoverOf(String name) {
+    final String key = name.trim();
+    for (final ArtistGroup group in _artistGroupsCache) {
+      if (group.name == key) {
+        return group.coverPath;
+      }
+    }
+    return null;
+  }
+
   void _rebuildGroupsIfNeeded() {
     // 曲目列表换了要重算；用户换过自定义封面也要重算——那时 `_tracks` 的
     // 身份没变，只靠它判断会让新封面等到下次扫描才出现

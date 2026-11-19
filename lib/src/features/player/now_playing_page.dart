@@ -105,6 +105,7 @@ class NowPlayingPage extends StatefulWidget {
     this.onToggleDesktopLyricLock,
     this.onOpenArtist,
     this.onOpenAlbum,
+    this.artistCoverOf,
     this.lyricAlignment,
     this.onCycleLyricAlignment,
     this.showTranslation,
@@ -123,6 +124,11 @@ class NowPlayingPage extends StatefulWidget {
   /// 决定去哪位，本页先弹窗让用户选，再把选中的那位传出去。
   final void Function(Track track, String artist)? onOpenArtist;
   final ValueChanged<Track>? onOpenAlbum;
+
+  /// 按艺术家名取头像封面（选择艺术家弹窗用）。
+  ///
+  /// 曲库知道每位艺术家的封面，播放页不知道；为空时弹窗退回首字母。
+  final String? Function(String artist)? artistCoverOf;
 
   /// 开关桌面歌词；为空时不显示该按钮
   final VoidCallback? onToggleDesktopLyrics;
@@ -1025,6 +1031,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final String? picked = await showArtistPickerDialog(
       context,
       artists: artists,
+      coverPathOf: widget.artistCoverOf,
     );
     // 弹窗期间可能已经把播放页退掉了（比如又点了别处），别再去动曲库状态
     if (picked == null || !mounted) {

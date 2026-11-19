@@ -10,20 +10,27 @@ import '../../common/widgets/artist_avatar.dart';
 ///
 /// 返回值：选中的艺术家名；用户直接关掉时返回 `null`。
 /// 视觉与输出设备 / 播放队列那几个弹窗同一套：图标 + 标题 + 列表。
+///
+/// [coverPathOf] 由调用方注入：弹窗自己没有曲库，只知道名字。给了就按名字取
+/// 这位艺术家的头像（曲库里第一首带封面的曲目 / 自定义封面），取不到才回退
+/// 首字母——两位候选各自有封面，才认得出谁是谁。
 Future<String?> showArtistPickerDialog(
   BuildContext context, {
   required List<String> artists,
+  String? Function(String artist)? coverPathOf,
 }) {
   return showDialog<String>(
     context: context,
-    builder: (BuildContext context) => _ArtistPickerDialog(artists: artists),
+    builder: (BuildContext context) =>
+        _ArtistPickerDialog(artists: artists, coverPathOf: coverPathOf),
   );
 }
 
 class _ArtistPickerDialog extends StatelessWidget {
-  const _ArtistPickerDialog({required this.artists});
+  const _ArtistPickerDialog({required this.artists, this.coverPathOf});
 
   final List<String> artists;
+  final String? Function(String artist)? coverPathOf;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +63,11 @@ class _ArtistPickerDialog extends StatelessWidget {
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
               children: <Widget>[
-                for (final String artist in artists) _ArtistRow(name: artist),
+                for (final String artist in artists)
+                  _ArtistRow(
+                    name: artist,
+                    coverPath: coverPathOf?.call(artist),
+                  ),
               ],
             ),
           ),
@@ -67,9 +78,12 @@ class _ArtistPickerDialog extends StatelessWidget {
 }
 
 class _ArtistRow extends StatelessWidget {
-  const _ArtistRow({required this.name});
+  const _ArtistRow({required this.name, this.coverPath});
 
   final String name;
+
+  /// 这位艺术家的封面；没有时才回退首字母
+  final String? coverPath;
 
   @override
   Widget build(BuildContext context) {
@@ -84,9 +98,8 @@ class _ArtistRow extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          // 这里仍用首字母：弹窗只知道名字（没有曲库），而列表里几位候选
-          // 如果都塞同一张「正在播的这首」的封面，反而分不出谁是谁
-          leading: artistInitialsAvatar(context, name, 36),
+          // 与艺术家卡片 / 详情头部同一个组件：圆形裁切、有封面用封面
+          leading: artistAvatar(context, name, 36, coverPath: coverPath),
           title: Text(
             name,
             maxLines: 1,
