@@ -45,13 +45,8 @@ class ThemeController extends ChangeNotifier {
   /// 跟随封面的存储值
   static const String _coverSeedValue = 'cover';
 
-  /// 跟随封面时强制使用的调色板风格。
-  ///
-  /// Tonal spot 会把颜色洗淡（实测薄荷 `S86 → 48`、封面绿 `S60 → 45`），
-  /// 跟封面联动就会「颜色明明很艳、界面却灰扑扑」。Fidelity / Content 保留源色的
-  /// 色相与彩度，遇到灰封面又老实变中性，正是这里要的行为。
-  static const DynamicSchemeVariant coverVariant =
-      DynamicSchemeVariant.fidelity;
+  /// 跟随封面时强制使用的调色板风格（定义在 [AppTheme]，取色一侧也要用同一个）。
+  static const DynamicSchemeVariant coverVariant = AppTheme.coverVariant;
 
   ThemeMode _mode;
   Color? _seedColor;
