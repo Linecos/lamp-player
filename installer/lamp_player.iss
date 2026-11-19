@@ -1,4 +1,4 @@
-; Lamp Player 的 Windows 安装包（Inno Setup 6.3+）
+; Lamp Player 的 Windows 安装包（Inno Setup 6.5+；中文语言包随仓库带在 installer\ChineseSimplified.isl）
 ;
 ; 手动编译：ISCC.exe installer\lamp_player.iss /DMyAppVersion=0.1.0
 ; 常规做法：.\scripts\package.ps1 —— 它会先 flutter build，再带版本号调这里
@@ -69,6 +69,13 @@ VersionInfoTextVersion={#MyAppVersion}
 ; 覆盖安装时如果程序还开着，先请求关闭（用户数据在 %APPDATA%，不会被碰）
 CloseApplications=yes
 RestartApplications=no
+
+; 中英双语：中文包不是 Inno 自带（6.5 起官方发布里才有），随仓库带上，
+; 免得换机器 / CI 上编译因为找不到 isl 直接失败。
+; 装在中文系统上按 UI 语言自动选中文，其它语言走英文；都没匹配时弹语言选择页。
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
