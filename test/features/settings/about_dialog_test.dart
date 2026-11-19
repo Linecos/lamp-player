@@ -138,6 +138,62 @@ void main() {
     }
   });
 
+  test('弹窗按窗口比例缩放：基准以上 1.0，小窗按比例缩，0.75 兜底', () {
+    expect(AppAboutDialog.scaleFor(const Size(1920, 1080)), 1.0);
+    expect(AppAboutDialog.scaleFor(AppAboutDialog.designViewport), 1.0);
+
+    const Size windowed = Size(1000, 700);
+    final double s = AppAboutDialog.scaleFor(windowed);
+    expect(s, lessThan(1.0), reason: '窗口比设计基准小就该缩');
+    expect(
+      s,
+      closeTo(1000 / AppAboutDialog.designViewport.width, 1e-9),
+      reason: '取宽高两条比例里小的那条',
+    );
+
+    expect(
+      AppAboutDialog.scaleFor(const Size(600, 500)),
+      AppAboutDialog.minScale,
+    );
+    expect(
+      AppAboutDialog.scaleFor(const Size(600, 300)),
+      AppAboutDialog.minScale,
+    );
+  });
+
+  testWidgets('小窗口里弹窗跟着缩，不是固定 440 宽', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // 直接挂弹窗：1000×700 下设置页的「关于」一栏在折叠线以下，点不到
+    await tester.pumpWidget(
+      _app(Center(child: AppAboutDialog(openUrl: (String url) async => true))),
+    );
+    await tester.pumpAndSettle();
+
+    final double s = AppAboutDialog.scaleFor(const Size(1000, 700));
+    expect(s, lessThan(1.0));
+
+    final Finder icon = find.descendant(
+      of: find.byType(AppAboutDialog),
+      matching: find.byType(Image),
+    );
+    expect(
+      tester.getSize(icon).width,
+      closeTo(128 * s, 0.5),
+      reason: '图标跟着一起缩，说明整块内容都按同一比例',
+    );
+    // 面板宽度就是缩放后的设计宽度（Dialog 自己在外面还套 insetPadding，
+    // 直接量 Dialog 会连 padding 一起算进来）
+    expect(
+      tester.getSize(find.byType(SingleChildScrollView)).width,
+      closeTo(AppAboutDialog.designWidth * s, 1),
+      reason: '窗口缩到 1000 宽时面板不该还是 440 宽',
+    );
+  });
+
   test('外部链接只接受 http(s)，别的协议直接拒绝', () async {
     // 拒绝发生在拉起浏览器之前，所以这条用例不会真的开窗口
     expect(await openExternalUrl('file:///C:/Windows'), isFalse);
