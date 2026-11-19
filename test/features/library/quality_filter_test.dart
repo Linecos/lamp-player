@@ -21,6 +21,12 @@ List<Track> mixedQualityTracks() => <Track>[
   sampleTrack(title: '戊', path: '/music/戊.mp3', audioBitrate: 96),
 ];
 
+Future<void> _search(WidgetTester tester, String query) async {
+  await tester.enterText(find.byType(TextField), query);
+  await tester.pump(const Duration(milliseconds: 350));
+  await tester.pumpAndSettle();
+}
+
 /// 环上某个角度（0° 在 12 点、顺时针）上、半径 [radius] 处的落点
 Offset pointAt(Rect rect, double degrees, double radius) {
   final double rad = (degrees - 90) * math.pi / 180;
@@ -303,6 +309,21 @@ void main() {
         findsNothing,
       );
       expect(find.text('音乐目录'), findsOneWidget);
+    });
+
+    testWidgets('子界面里搜索框提示是「搜索音乐」，输入只筛这一档', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HR · '));
+      await tester.pumpAndSettle();
+
+      expect(find.text('搜索音乐'), findsOneWidget);
+      expect(find.text('搜索目录或隐藏歌曲'), findsNothing);
+
+      await _search(tester, '甲');
+      expect(find.text('找到 1 首'), findsOneWidget);
+      // 「甲」在搜索框里也有一份（EditableText），所以只断言另一首被筛掉
+      expect(find.text('乙'), findsNothing);
     });
 
     testWidgets('子界面里点播放全部只放这一档', (WidgetTester tester) async {

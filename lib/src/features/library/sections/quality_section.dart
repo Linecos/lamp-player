@@ -47,11 +47,14 @@ extension _QualitySection on _LibraryPageState {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final AudioQuality quality = _qualityDetail!;
-    final List<Track> tracks = _tracksByQuality[quality]!;
+    final List<Track> all = _tracksByQuality[quality]!;
+    // 常驻搜索框在这个子页里搜的就是曲目：与收藏 / 历史同一套就地过滤
+    final List<Track> tracks = _filterTracks(all);
+    final bool searching = _query.isNotEmpty;
     final int total = _tracks.length;
     final String percent = total == 0
         ? '0%'
-        : '${(tracks.length * 100 / total).toStringAsFixed(1)}%';
+        : '${(all.length * 100 / total).toStringAsFixed(1)}%';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -94,7 +97,9 @@ extension _QualitySection on _LibraryPageState {
         ),
         const SizedBox(height: 2),
         Text(
-          '${tracks.length} 首 · 占全库 $percent',
+          searching
+              ? '找到 ${tracks.length} 首'
+              : '${all.length} 首 · 占全库 $percent',
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
