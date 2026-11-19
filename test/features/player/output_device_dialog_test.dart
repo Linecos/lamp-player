@@ -14,6 +14,7 @@ Future<void> _open(
   WidgetTester tester,
   void Function(int? picked) onPicked, {
   int selected = -1,
+  List<rust.PlayerDevice> devices = _devices,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -25,7 +26,7 @@ Future<void> _open(
               onPressed: () async => onPicked(
                 await showOutputDeviceDialog(
                   context,
-                  devices: _devices,
+                  devices: devices,
                   selected: selected,
                 ),
               ),
@@ -66,6 +67,78 @@ void main() {
         matching: find.byIcon(Icons.check),
       ),
       findsNothing,
+    );
+  });
+
+  testWidgets('只有耳机那条换成耳机图标，其余与标题仍是音箱', (WidgetTester tester) async {
+    await _open(tester, (int? _) {}, selected: 2);
+
+    // 耳机那行（选中）用实心耳机
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item-2')),
+        matching: find.byIcon(Icons.headphones),
+      ),
+      findsOneWidget,
+      reason: '名字里有「耳机」的那条用耳机字形',
+    );
+    // 扬声器那行、系统默认那行仍是音箱，选中与否只在实心 / 描边之间切
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item-1')),
+        matching: find.byIcon(Icons.speaker_outlined),
+      ),
+      findsOneWidget,
+      reason: '扬声器不该被换成耳机',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item--1')),
+        matching: find.byIcon(Icons.speaker_outlined),
+      ),
+      findsOneWidget,
+      reason: '系统默认不是耳机',
+    );
+    // 标题图标照旧
+    expect(find.byIcon(Icons.speaker_outlined), findsWidgets);
+    // 只有一朵耳机图标（那条设备行），没有泛滥到每一行
+    expect(find.byIcon(Icons.headphones), findsOneWidget);
+    expect(find.byIcon(Icons.headphones_outlined), findsNothing);
+  });
+
+  testWidgets('英文名的耳机也能认出来（headphone / airpods）', (WidgetTester tester) async {
+    final List<rust.PlayerDevice> mixed = <rust.PlayerDevice>[
+      rust.PlayerDevice(index: 1, name: 'Realtek(R) Audio', isDefault: true),
+      rust.PlayerDevice(
+        index: 2,
+        name: 'Headphones (USB Audio)',
+        isDefault: false,
+      ),
+      rust.PlayerDevice(index: 3, name: 'AirPods Pro', isDefault: false),
+    ];
+    await _open(tester, (int? _) {}, selected: -1, devices: mixed);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item-2')),
+        matching: find.byIcon(Icons.headphones_outlined),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item-3')),
+        matching: find.byIcon(Icons.headphones_outlined),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('output-device-item-1')),
+        matching: find.byIcon(Icons.speaker_outlined),
+      ),
+      findsOneWidget,
+      reason: '声卡仍用音箱',
     );
   });
 

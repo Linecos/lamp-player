@@ -103,6 +103,7 @@ class _DeviceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final bool looksLikeHeadphones = _isHeadphoneName(name);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -124,8 +125,13 @@ class _DeviceRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            // 耳机类设备单独给一个耳机字形，其余（扬声器 / 声卡 / 系统默认）
+            // 仍用音箱：原来那条「音箱柜子」对耳机端点确实不像，但换成清一色
+            // 耳机又会让「这是台扬声器」的信息丢掉
             leading: Icon(
-              active ? Icons.speaker : Icons.speaker_outlined,
+              looksLikeHeadphones
+                  ? (active ? Icons.headphones : Icons.headphones_outlined)
+                  : (active ? Icons.speaker : Icons.speaker_outlined),
               size: 20,
               color: active ? scheme.primary : scheme.onSurfaceVariant,
             ),
@@ -146,4 +152,28 @@ class _DeviceRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 设备名看起来是不是耳机类。
+///
+/// 只能按名字猜：`BASS_DEVICEINFO` 里没有可靠的「设备类型」字段，
+/// `PlayerDevice` 也只带了 index / name / isDefault，所以从名字里找词。
+/// 猜错只是图标不同，不影响能不能选、选哪个。
+///
+/// 覆盖 Windows 上常见的几种写法：中文「耳机 / 耳麦」、英文
+/// headphone(s) / headset / earphone、以及高频的型号词 AirPods / Buds。
+bool _isHeadphoneName(String name) {
+  final String lower = name.toLowerCase();
+  const List<String> markers = <String>[
+    '耳机',
+    '耳機',
+    '耳麦',
+    '耳麥',
+    'headphone',
+    'headset',
+    'earphone',
+    'airpods',
+    'buds',
+  ];
+  return markers.any(lower.contains);
 }
