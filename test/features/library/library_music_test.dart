@@ -11,6 +11,7 @@ import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/features/library/library_revision.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
+import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
@@ -392,7 +393,10 @@ void main() {
     await tester.tap(find.text('曲目 0'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.library_books_outlined));
+    // 专辑分区改用自绘唱片图标，按侧栏文字定位
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('专辑')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
