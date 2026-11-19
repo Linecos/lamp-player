@@ -182,10 +182,29 @@ abstract final class CoverPaletteCache {
     for (final int argb in Score.score(counts, desired: 8, filter: false)) {
       final Hct hct = Hct.fromInt(argb);
       if (_usableAsSeed(hct)) {
-        return Color(argb);
+        return _normalizeSeed(hct, argb);
       }
     }
     return null;
+  }
+
+  /// 种子色的亮度上限（HCT tone，0~100）。
+  ///
+  /// Material 的 `fidelity` 调色板是「尽量还原源色」：拿一个 tone 90 的亮黄当
+  /// seed，深色主题的 primary 直接生成纯白（实测 `#FFE500 → #FFFFFF`）——环图、
+  /// 播放键、主标题全白，看着就像「取色没跟上」。压到 78 之后同一张封面是暖黄
+  /// `#F5DE30`，色相 / 彩度都不动，只是不再亮到发白。
+  ///
+  /// 亮青那种 tone 83 但彩度高的颜色其实还能用（primary `#74FFFF` 一眼是青），
+  /// 不过统一压一下更稳：深色主题的 primary 本来就偏亮，再亮就要和背景糊了。
+  static const double _maxSeedTone = 78;
+
+  /// 过亮的种子压回 [_maxSeedTone]（只动亮度，不动色相与彩度）。
+  static Color _normalizeSeed(Hct hct, int argb) {
+    if (hct.tone <= _maxSeedTone) {
+      return Color(argb);
+    }
+    return Color(Hct.from(hct.hue, hct.chroma, _maxSeedTone).toInt());
   }
 
   /// 这个颜色当 seed 能不能用。

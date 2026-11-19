@@ -6,6 +6,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/player/cover_palette.dart';
+import 'package:lamp_player/src/theme/app_theme.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -94,6 +96,54 @@ void main() {
 
     test('没有像素时返回 null', () {
       expect(CoverPaletteCache.pickCoverSeed(<int, int>{}), isNull);
+    });
+
+    test('特别亮的黄色封面：压暗成能用的暖黄，不再生成白色主题', () {
+      // NIGHT DANCER 那种封面：大面积亮黄（tone 88）。
+      // Material 的 fidelity 对 tone 88 的黄色会生成 tone 98、彩度 20 的
+      // 「近白」primary（tone 90 更极端，直接纯白）—— 环图 / 播放键就全白，
+      // 看着像「取色没跟上」。种子必须压到 tone 78 以内。
+      final Color? seed = CoverPaletteCache.pickCoverSeed(<int, int>{
+        const Color(0xFFE5E500).toARGB32(): 2000,
+      });
+      expect(seed, isNotNull);
+      final Hct seedHct = Hct.fromInt(seed!.toARGB32());
+      expect(seedHct.tone, lessThanOrEqualTo(78.0));
+      // 色相留着：压的是亮度，不是把黄换成别的色
+      final Hct yellowHct = Hct.fromInt(const Color(0xFFE5E500).toARGB32());
+      expect((seedHct.hue - yellowHct.hue).abs(), lessThan(6));
+
+      // 深色主题的 primary 必须还是有彩度的颜色（不是白 / 近白）
+      final ColorScheme dark = AppTheme.schemeOf(
+        seed,
+        Brightness.dark,
+        AppTheme.coverVariant,
+      );
+      final Hct primaryHct = Hct.fromInt(dark.primary.toARGB32());
+      expect(
+        primaryHct.chroma,
+        greaterThanOrEqualTo(24),
+        reason: 'primary 彩度太低就是「白掉了」',
+      );
+    });
+
+    test('亮色 + 彩色混在一起时，挑出来的种子同样不会白掉', () {
+      // 真实封面的构图：亮黄主体 + 一块亮青。哪个被选中都行，
+      // 但生成的深色 primary 都不能是近白。
+      final Color? seed = CoverPaletteCache.pickCoverSeed(<int, int>{
+        const Color(0xFFE5E500).toARGB32(): 2000,
+        const Color(0xFF00E5E5).toARGB32(): 400,
+      });
+      expect(seed, isNotNull);
+      final ColorScheme dark = AppTheme.schemeOf(
+        seed!,
+        Brightness.dark,
+        AppTheme.coverVariant,
+      );
+      expect(
+        Hct.fromInt(dark.primary.toARGB32()).chroma,
+        greaterThanOrEqualTo(24),
+      );
     });
 
     test('同一色相被拆成多个分桶时仍能选中', () {

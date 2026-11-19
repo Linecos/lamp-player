@@ -7,6 +7,13 @@
 
 ### 修复
 
+- 修**跟着封面取色时界面偶尔被洗成白色**：Material 的 `fidelity` 调色板「尽量还原
+  源色」，连亮度也一起还原——拿一个 tone 88 的亮黄当种子，深色主题的 `primary`
+  直接生成 tone 98、彩度 20 的近白色（tone 90 更极端、纯白）。于是环图四阶、
+  播放键、进度条圆点、详情页的主色按钮全白，而走 `secondaryContainer` 的侧栏
+  选中项和 tonal 按钮还是绿的，看起来就像「取色没跟上」。现在种子在入主题前先
+  压到 **tone 78**（只动亮度，不动色相与彩度）：同一张封面从近白变成暖黄
+  `#F5DE30`，色相还是封面那个色
 - 修**Windows 播控浮层里的「播放模式」按钮是灰的、点不动**：SMTC 只有收到过
   `AutoRepeatMode` / `ShuffleEnabled` 这两个属性、并订阅对应的
   `AutoRepeatModeChangeRequested` / `ShuffleEnabledChangeRequested` 事件，系统才认为

@@ -14,6 +14,18 @@ abstract final class AppTheme {
   static const DynamicSchemeVariant defaultVariant =
       DynamicSchemeVariant.tonalSpot;
 
+  /// 「强调色跟随封面」时强制使用的调色板风格。
+  ///
+  /// Tonal spot 会把颜色洗淡（实测薄荷 `S86 → 48`、封面绿 `S60 → 45`），
+  /// 跟封面联动就会「颜色明明很艳、界面却灰扑扑」。Fidelity / Content 保留源色的
+  /// 色相与彩度，遇到灰封面又老实变中性，正是这里要的行为。
+  ///
+  /// 注意 fidelity 的另一面：**它连源色的亮度也一起保留**，所以特别亮的种子
+  /// （tone 90 的亮黄）会生成纯白的 primary。取色一侧把种子压到 tone 78 以内
+  /// （见 `CoverPaletteCache`），这里只负责定风格。
+  static const DynamicSchemeVariant coverVariant =
+      DynamicSchemeVariant.fidelity;
+
   /// 预设强调色板：设置页可一键选用，都是 MD3 seed 友好的饱和色。
   static const List<Color> presetSeeds = <Color>[
     Color(0xFFFFB300), // 台灯暖黄（默认）
