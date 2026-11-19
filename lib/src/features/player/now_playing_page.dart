@@ -1227,8 +1227,21 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             flightShuttleBuilder: (_, _, _, _, _) =>
                                 coverFlightShuttle(
                                   size: size,
-                                  cover: cover,
+                                  // 飞行这一份不自带圆角：形状由 shuttle 按进度裁
+                                  // （内层先裁 28 的话，缩到播放岛那端会被它抢先
+                                  // 裁成更方的角，见 coverFlightShuttle 注释）
+                                  cover: AlbumCover(
+                                    path: track.coverPath,
+                                    size: size,
+                                    radius: 0,
+                                    circular: true,
+                                    playing: playing,
+                                  ),
                                   circular: true,
+                                  // 另一端是播放岛的小封面：圆角按两端插值
+                                  fromSize: playerBarCoverSize,
+                                  fromRadius: playerBarCoverRadius,
+                                  toRadius: 28,
                                   // 飞行途中接着转：shuttle 是另一棵子树，
                                   // 不自己盯着相位就会退回正面
                                   turns: circularCovers.value

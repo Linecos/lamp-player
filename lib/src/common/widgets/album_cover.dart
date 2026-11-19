@@ -13,6 +13,15 @@ const ValueListenable<bool> _alwaysSquare = AlwaysStoppedAnimation<bool>(false);
 /// 封面「飞入正在播放页」的 Hero tag：播放条与正在播放页两处必须一致。
 const String coverHeroTag = 'now-playing-cover';
 
+/// 播放岛小封面的边长与圆角。
+///
+/// 放在共用层是因为飞行 shuttle 也要按它推算两端的圆角（见
+/// [coverFlightShuttle]）；两边各写一份数字，改一处就错一处。
+const double playerBarCoverSize = 56;
+
+/// 与同为 56 的歌单卡片缩略图统一 20：同尺寸的封面圆角不该有两种。
+const double playerBarCoverRadius = 20;
+
 /// 解码宽度的档位（设备像素）：相邻两档差约 12%，肉眼看不出差别。
 ///
 /// 为什么不直接用 `尺寸 × 像素比`：那等于「每个尺寸一份解码结果」。侧边栏
@@ -582,11 +591,23 @@ class CoverShadow extends StatelessWidget {
 /// 代价要控住：飞行框的边长每帧都在变，把阴影直接铺进去等于每帧按新尺寸重做
 /// 一次 28px 高斯模糊。所以按大图尺寸备一份「带阴影的封面」，外面套固定尺寸的
 /// `RepaintBoundary`，每帧只改一个缩放矩阵。
+///
+/// 圆角按两端插值：shuttle 是把大图缩放绘制，圆角若写死成大图的 28，缩到播放岛
+/// 那一端只剩 `28 × 56 / 340 ≈ 4.6`（看着比方块略圆），落地那一帧才「啪」一下
+/// 变成 20。这里按当前飞行框反推进度、把圆角按 px 插值，两端都与真实封面一致。
+/// 阴影**不跟着**插值：它自带 RepaintBoundary，每帧改半径就得重做一次高斯模糊，
+/// 而阴影本来就是模糊的，圆角差几像素看不出来。
+///
+/// [cover] 要传**不带自己圆角**的那份（`radius: 0`）：内层若先裁成 28，小图那端
+/// 需要的圆角（换算到 shuttle 坐标约 120）会被内层 28 抢先裁掉，等于白算。
 Widget coverFlightShuttle({
   required double size,
   required Widget cover,
   ValueListenable<double>? turns,
   bool circular = false,
+  double fromSize = 0,
+  double fromRadius = 0,
+  double toRadius = 0,
 }) {
   // 圆形封面飞行途中接着转：shuttle 是独立子树，不自己盯着相位的话，
   // 退场第一帧就会退回正面（「先回到最开始的样子再退出」就是这一帧）
@@ -606,6 +627,20 @@ Widget coverFlightShuttle({
     builder: (BuildContext context, BoxConstraints constraints) {
       final double side = constraints.biggest.shortestSide;
       final double scale = size <= 0 || side <= 0 ? 1 : side / size;
+      // 飞行框边长随进度线性变化（两端都是正方形），据此反推进度：两端行程
+      // 互逆，正飞反飞都成立，不用再往里传 Animation
+      final double t = fromSize > 0 && size > fromSize && side > 0
+          ? ((side - fromSize) / (size - fromSize)).clamp(0.0, 1.0)
+          : 1;
+      // 按逻辑像素插值，再换算回 shuttle 坐标（缩放前的边长）
+      final double localRadius =
+          (fromRadius + (toRadius - fromRadius) * t) * size / side;
+      final Widget shaded = toRadius > 0 && localRadius > 0
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(localRadius),
+              child: art,
+            )
+          : art;
       return OverflowBox(
         alignment: Alignment.center,
         maxWidth: double.infinity,
@@ -620,7 +655,11 @@ Widget coverFlightShuttle({
             child: RepaintBoundary(
               child: Padding(
                 padding: const EdgeInsets.all(CoverShadow.spread),
-                child: CoverShadow(radius: 28, circular: circular, child: art),
+                child: CoverShadow(
+                  radius: 28,
+                  circular: circular,
+                  child: shaded,
+                ),
               ),
             ),
           ),
