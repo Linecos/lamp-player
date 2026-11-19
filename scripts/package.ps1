@@ -4,7 +4,7 @@
 # 产物都在 dist\ 下（已 gitignore）：
 #   LampPlayer-<版本>\         便携目录（直接运行 lamp_player.exe）
 #   LampPlayer-<版本>.zip      便携包，解压即用
-#   LampPlayer-<版本>-setup.exe 安装包，需要本机装了 Inno Setup 6.3+
+#   LampPlayer-<版本>-setup.exe 安装包，需要本机装了 Inno Setup 6.5+（中文语言包随仓库带）
 #
 # 只跑 build + zip 不需要装任何额外工具；安装包那一步找不到 ISCC 会明确提示，
 # 不会静默跳过。
@@ -108,7 +108,7 @@ if (-not $NoInstaller) {
 
     if (-not $iscc) {
         Write-Warning '没找到 ISCC.exe，安装包这一步跳过。'
-        Write-Host '  装 Inno Setup 6.3+（https://jrsoftware.org/isdl.php），然后用 winget：' -ForegroundColor Yellow
+        Write-Host '  装 Inno Setup 6.5+（https://jrsoftware.org/isdl.php），然后用 winget：' -ForegroundColor Yellow
         Write-Host '    winget install --id JRSoftware.InnoSetup' -ForegroundColor Yellow
         Write-Host '  装完重跑本脚本即可；或手动执行：' -ForegroundColor Yellow
         Write-Host "    ISCC.exe installer\lamp_player.iss /DMyAppVersion=$Version" -ForegroundColor Yellow
