@@ -874,7 +874,7 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
             child: Row(
               children: <Widget>[
                 // 隐藏记录同样带着封面：只画一个音符图标，光看歌名认不出是哪首
-                AlbumCover(path: track.coverPath, size: 36, radius: 8),
+                AlbumCover(path: track.coverPath, size: 36, radius: 12),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(

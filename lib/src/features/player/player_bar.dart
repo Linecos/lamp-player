@@ -358,7 +358,7 @@ class _PlayerBarLeft extends StatelessWidget {
   final VoidCallback? onOpenNowPlaying;
 
   /// 封面边长
-  static const double _coverSize = 56;
+  static const double _coverSize = playerBarCoverSize;
 
   /// 频谱至少要有这么宽才画：再窄曲名会被挤成几个字，柱子也连成一条线
   static const double _spectrumMinWidth = 340;
@@ -439,7 +439,7 @@ class _PlayerBarLeft extends StatelessWidget {
                   key: const ValueKey<String>('player-bar-open-now-playing'),
                   // 圆形封面时高亮也得是圆的，否则四角会露出方形底色
                   borderRadius: BorderRadius.circular(
-                    circular ? _coverSize / 2 : 16,
+                    circular ? _coverSize / 2 : playerBarCoverRadius,
                   ),
                   hoverColor: scheme.onSurface.withValues(alpha: 0.08),
                   onTap: current == null ? null : onOpenNowPlaying,
@@ -477,7 +477,7 @@ class _PlayerBarLeft extends StatelessWidget {
                       key: const ValueKey<String>('player-bar-cover'),
                       path: current?.coverPath,
                       size: _coverSize,
-                      radius: 16,
+                      radius: playerBarCoverRadius,
                       // 只有播放岛与正在播放页跟着「圆形封面」设置走
                       circular: true,
                       playing: isPlaying,
