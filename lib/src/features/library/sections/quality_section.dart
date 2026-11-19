@@ -1,6 +1,6 @@
 part of '../library_page.dart';
 
-/// 音质筛选：音乐库页的环形图点扇区 → 音乐分区只看这一档。
+/// 音质分档与某一档的曲目子界面。
 ///
 /// 评级是派生量（不落库），分档结果与统计都按 `_tracks` 的对象身份缓存：
 /// 切主题、开关侧栏这类重建不该重算一遍全库。
@@ -32,89 +32,105 @@ extension _QualitySection on _LibraryPageState {
     return breakdown;
   }
 
-  /// 把音质筛选叠在（搜索或全量）列表上
-  List<Track> _applyQualityFilter(List<Track> tracks) {
-    final AudioQuality? quality = _qualityFilter;
-    if (quality == null) {
-      return tracks;
-    }
-    // 全库列表直接取缓存好的那一档，别又一次遍历全库
-    if (identical(tracks, _tracks)) {
-      return _tracksByQuality[quality]!;
-    }
-    return tracks
-        .where((Track track) => audioQualityOf(track) == quality)
-        .toList(growable: false);
+  /// 点扇形或图例：打开这一档的曲目子界面。
+  ///
+  /// 以前是「切到音乐分区 + 挂一枚筛选胶囊」，会把整个音乐页占住、只能点 ×
+  /// 恢复，跟「看某一档的东西」这个诉求不匹配。
+  void _openQualityDetail(AudioQuality quality) {
+    _update(() => _qualityDetail = quality);
   }
 
-  /// 点扇形 / 点图例：同一档再点一次等于取消
-  void _toggleQualityFilter(AudioQuality quality) {
-    final bool same = _qualityFilter == quality;
-    if (same) {
-      _update(() => _qualityFilter = null);
-      return;
-    }
-    // 搜索词还在的话，点扇区看到的是「关键词 ∩ 这一档」，会被误认为扇区没生效
-    if (_query.isNotEmpty) {
-      _clearSearch();
-    }
-    _update(() => _qualityFilter = quality);
-    if (_section != LibrarySection.music) {
-      // 切换帧会先拿目标分区的旧快照顶上（淡入结束后才补新数据），那份快照
-      // 是「未筛选」的列表，露出来就是闪一下。丢掉它，这一帧直接建筛完的。
-      _forgetSection(LibrarySection.music);
-      _selectSection(LibrarySection.music);
-    }
-  }
-
-  /// 筛出来的这一档是空的（全库都没有，或搜索 + 筛选的交集为空）
-  Widget _qualityEmptyState() {
-    final AudioQuality? quality = _qualityFilter;
-    final String message = quality == null
-        ? '没有符合条件的曲目。'
-        : _query.isEmpty
-        ? '整个曲库里没有 ${qualityLabel(quality)} 的曲目。'
-        : '「$_query」里没有 ${qualityLabel(quality)} 的曲目。';
-    return EmptyState(
-      icon: Icons.tune,
-      title: '这一档没有歌曲',
-      message: message,
-      action: TextButton(
-        onPressed: () => _update(() => _qualityFilter = null),
-        child: const Text('查看全部'),
-      ),
-    );
-  }
-
-  /// 音乐分区标题行上的「只看 HR · 48 首 ×」
-  Widget _buildQualityFilterChip(BuildContext context) {
-    final AudioQuality? quality = _qualityFilter;
-    if (quality == null) {
-      return const SizedBox.shrink();
-    }
+  /// 音质子界面：标题行 + 这一档的全部曲目。
+  ///
+  /// 与听歌统计同一套「分区内切换」：侧栏与播放岛都不动，返回只换内容。
+  Widget _buildQualityDetail(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(left: 8),
-      child: InputChip(
-        key: const ValueKey<String>('quality-filter-chip'),
-        avatar: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: sliceColor(scheme, quality),
-            shape: BoxShape.circle,
+    final AudioQuality quality = _qualityDetail!;
+    final List<Track> all = _tracksByQuality[quality]!;
+    // 常驻搜索框在这个子页里搜的就是曲目：与收藏 / 历史同一套就地过滤
+    final List<Track> tracks = _filterTracks(all);
+    final bool searching = _query.isNotEmpty;
+    final int total = _tracks.length;
+    final String percent = total == 0
+        ? '0%'
+        : '${(all.length * 100 / total).toStringAsFixed(1)}%';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            IconButton(
+              key: const ValueKey<String>('quality-detail-back'),
+              onPressed: () => _update(() => _qualityDetail = null),
+              tooltip: '返回音乐库',
+              icon: const Icon(Icons.arrow_back),
+              visualDensity: VisualDensity.compact,
+            ),
+            const SizedBox(width: 4),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: sliceColor(scheme, quality),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${qualityLabel(quality)} · ${qualityCaption(quality)}',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            FilledButton.tonalIcon(
+              style: _headerButtonStyle(),
+              onPressed: tracks.isEmpty
+                  ? null
+                  : () => unawaited(_playAll(tracks)),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('播放全部'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          searching
+              ? '找到 ${tracks.length} 首'
+              : '${all.length} 首 · 占全库 $percent',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: scheme.onSurfaceVariant,
           ),
         ),
-        label: Text(
-          '只看 ${qualityLabel(quality)} · ${_qualityBreakdown.countOf(quality)} 首',
-          style: theme.textTheme.labelMedium,
+        const SizedBox(height: 8),
+        Expanded(
+          child: tracks.isEmpty
+              ? EmptyState(
+                  icon: Icons.tune,
+                  title: '这一档没有歌曲',
+                  message:
+                      '整个曲库里没有 ${qualityLabel(quality)} '
+                      '（${qualityCaption(quality)}）的曲目。',
+                )
+              : TrackListView(
+                  key: ValueKey<String>('quality-detail-${quality.name}'),
+                  tracks: tracks,
+                  storageKey: PageStorageKey<String>(
+                    'tracks:quality-${quality.name}',
+                  ),
+                  playingPath: _currentTrack?.path,
+                  flashPath: _flashTrackPath,
+                  onPlay: (Track track) => unawaited(_playFrom(tracks, track)),
+                  favoritePaths: _favoritePaths,
+                  onToggleFavorite: (Track track) =>
+                      unawaited(_toggleFavorite(track)),
+                  onContextAction: (Track track, TrackContextAction action) =>
+                      _onTrackContext(tracks, track, action),
+                ),
         ),
-        onDeleted: () => _update(() => _qualityFilter = null),
-        deleteButtonTooltipMessage: '清除音质筛选',
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
+      ],
     );
   }
 }
