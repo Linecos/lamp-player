@@ -95,7 +95,9 @@ fn smtc_accepts_play_mode() {
     media_set_play_mode(MediaRepeatMode::All, true).expect("设置随机应成功");
     media_set_play_mode(MediaRepeatMode::Off, false).expect("复位应成功");
     // 三个事件（按钮 / 循环 / 随机）能在真机上注册成功：注册失败的话浮层里
-    // 点按钮不会有任何回调，这里直接把它变成红
+    // 点按钮不会有任何回调，这里直接把它变成红。
+    // `smtc` 模块只在 Windows 编译，非 Windows 上整块跳过
+    #[cfg(windows)]
     rust_lib_lamp_player::smtc::listen(|_| {}).expect("注册系统事件应成功");
     media_clear().ok();
 }
