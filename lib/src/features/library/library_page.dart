@@ -482,8 +482,11 @@ class _LibraryPageState extends State<LibraryPage>
 
   List<Track> _tracks = const <Track>[];
 
-  /// 音质筛选（音乐库页点扇区设置）：null 表示不筛，只在音乐分区生效
-  AudioQuality? _qualityFilter;
+  /// 音质子界面：非空表示音乐库分区里正开着某一档的曲目子页。
+  ///
+  /// 点环形图的扇区 / 图例进来，不再是「切到音乐分区 + 挂筛选胶囊」——
+  /// 那样会占掉整个音乐页，只能靠 × 恢复。
+  AudioQuality? _qualityDetail;
 
   /// 分档结果与统计，按 `_tracks` 的对象身份缓存
   Map<AudioQuality, List<Track>>? _qualityBuckets;
@@ -2080,9 +2083,8 @@ class _LibraryPageState extends State<LibraryPage>
   /// 艺术家 / 专辑的详情页也挂着同一份 [TrackListView]，所以进详情之后
   /// 定位要落到那位的曲目上，而不是判成「没有正在播放的曲目」。
   List<Track>? get _locatableTracks => switch (_displayedSection) {
-    LibrarySection.music => _applyQualityFilter(
+    LibrarySection.music =>
       _query.isEmpty ? _tracks : (_results ?? const <Track>[]),
-    ),
     LibrarySection.favorites => _filterTracks(_favoriteTracks),
     LibrarySection.history => _filterTracks(_historyTracks),
     LibrarySection.playlists =>
@@ -2248,6 +2250,10 @@ class _LibraryPageState extends State<LibraryPage>
   /// 顺序与「侧栏再点当前分区」一致；艺术家 / 专辑走 `_closeXxxDetail`，
   /// 顺带保留封面飞回卡片的动画。
   bool _leaveSubPage() {
+    if (_qualityDetail != null) {
+      _update(() => _qualityDetail = null);
+      return true;
+    }
     if (_libraryStatsOpen) {
       _update(() => _libraryStatsOpen = false);
       return true;
@@ -2617,6 +2623,7 @@ class _LibraryPageState extends State<LibraryPage>
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
           _libraryStatsOpen = false;
+          _qualityDetail = null;
           select();
         });
         _clearSelection();
@@ -2625,13 +2632,15 @@ class _LibraryPageState extends State<LibraryPage>
       if (_selectedPlaylistId != null ||
           _selectedArtist != null ||
           _selectedAlbumKey != null ||
-          _libraryStatsOpen) {
+          _libraryStatsOpen ||
+          _qualityDetail != null) {
         _update(() {
           _selectedArtist = null;
           _selectedAlbumKey = null;
           _selectedPlaylistId = null;
-          // 再点一次「音乐库」= 从统计退回列表
+          // 再点一次「音乐库」= 从子页退回列表
           _libraryStatsOpen = false;
+          _qualityDetail = null;
         });
       }
       _clearSelection();
@@ -2644,9 +2653,10 @@ class _LibraryPageState extends State<LibraryPage>
     final bool leavingDetail = _selectionSignature(previous).isNotEmpty;
     _section = section;
     _sectionNotifier.value = section;
-    // 离开音乐库就收起统计子页：下次进来是列表，统计的曲线与热力图也不
-    // 必留在 Offstage 里占着内存
+    // 离开音乐库就收起子页：下次进来是列表，统计的曲线与音质列表也不必
+    // 留在 Offstage 里占着内存
     _libraryStatsOpen = false;
+    _qualityDetail = null;
     _saveSessionNow();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 期间用户又点了别的分区：让最后一次点击自己走完切换
@@ -2947,8 +2957,11 @@ class _LibraryPageState extends State<LibraryPage>
       LibrarySection.playlists => _selectedPlaylistId?.toString() ?? '',
       LibrarySection.artists => _selectedArtist ?? '',
       LibrarySection.albums => _selectedAlbumKey ?? '',
-      // 音乐库分区里，统计是子界面
-      LibrarySection.library => _libraryStatsOpen ? 'stats' : '',
+      // 音乐库分区里，统计与某一档音质的列表都是子界面
+      LibrarySection.library =>
+        _libraryStatsOpen
+            ? 'stats'
+            : (_qualityDetail == null ? '' : 'quality-${_qualityDetail!.name}'),
       LibrarySection.music ||
       LibrarySection.favorites ||
       LibrarySection.history ||
