@@ -1,8 +1,20 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.20（2026-11-20）**
+> **当前版本：v0.21（2026-11-20）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.21 变更（**破坏性，Dart 侧已同步**）：
+>
+> - `player_analyze_replay_gain(path)` 返回值由 `Result<f64>`（-18 LUFS 参考下的
+>   建议增益）改为 `Result<LoudnessAnalysis>`：一次解码量出 EBU R128 积分响度与
+>   采样 / 真两种峰值（线性幅度），增益由 Dart 侧按用户设置现算，改参考响度
+>   （-23 / -18 / -14 LUFS）或峰值类型（采样 / 真峰值）立刻生效、不必重跑解码。
+> - 新增 `Track.loudness_lufs` / `sample_peak` / `true_peak`（缺失 / 没测过为 0），
+>   曲库结构升到 **v11**：`tracks` 追加这三列（`REAL NOT NULL DEFAULT 0`）。
+>   老行只有标签增益，三列留 0；标签增益按 −18 LUFS 口径 + 参考响度偏移使用。
+> - 现场分析不再写 `tracks.replay_gain`（那一列只留标签值），改由 `store_loudness`
+>   写三列测量值。
 >
 > v0.20 变更（纯新增）：
 >
@@ -178,9 +190,10 @@
 - `init_db` 幂等：**同一路径**重复调用复用已有连接；换成别的路径会返回错误，
   必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
 - 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
-  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v10**：`tracks` 增加
-  `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`，升级时老行的
-  `file_mtime` / `file_size` 清零，下次扫描重新解析（Dart 侧升级后首次启动会自动补扫一次）。
+  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v11**：`tracks` 增加
+  `loudness_lufs` / `sample_peak` / `true_peak`（ReplayGain 的测量值，0 = 未知），
+  v10 增加的 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth` 也在其中
+  （v10 升级时老行的 `file_mtime` / `file_size` 清零，下次扫描重新解析）。
 - 升级前会先 `wal_checkpoint(TRUNCATE)` 再把库复制成 `<path>.bak`，迁移失败可回退；
   这是新库（0 字节）或版本已是最新时不做备份。
 - `close_db` 不只是关连接：先 `PRAGMA optimize`，再 `wal_checkpoint(TRUNCATE)` 把 WAL
@@ -329,7 +342,7 @@
 |---|---|---|---|
 | `player_is_available() -> bool` | `bool playerIsAvailable()` | 是 | **已实现** |
 | `player_play(path: String, replay_gain_db: f64) -> Result<()>` | `Future<void> playerPlay({required String path, required double replayGainDb})` | 否 | **已实现** |
-| `player_analyze_replay_gain(path: String) -> Result<f64>` | `Future<double> playerAnalyzeReplayGain({required String path})` | 否 | **已实现** |
+| `player_analyze_replay_gain(path: String) -> Result<LoudnessAnalysis>` | `Future<LoudnessAnalysis> playerAnalyzeReplayGain({required String path})` | 否 | **已实现** |
 | `player_pause() -> Result<()>` | `Future<void> playerPause()` | 否 | **已实现** |
 | `player_resume() -> Result<()>` | `Future<void> playerResume()` | 否 | **已实现** |
 | `player_stop() -> Result<()>` | `Future<void> playerStop()` | 否 | **已实现** |
@@ -362,11 +375,15 @@
 - `player_play` 会先停止当前曲目再加载新文件；文件不存在或格式不支持时返回错误。
   `replay_gain_db` 由调用方按设置决定传标签值还是 `0`，引擎把它与用户音量相乘后下发
   （夹在 −24…+12 dB，避免离谱标签削波）。
-- `player_analyze_replay_gain` 整曲解码并按 ReplayGain 2.0 计算建议增益
-  （EBU R128 积分响度，目标 −18 LUFS，夹在 ±24 dB，全静音返回 0）。解码走独立
-  线程、不需要输出设备，也不占用引擎线程；全曲分析约 1~2 秒。**算出的值会写回
-  曲库**（`tracks.replay_gain`，重扫时文件仍无标签也不覆盖），所以 Dart 侧不必
-  长期缓存；标签已有增益的曲目不要调它。
+- `player_analyze_replay_gain` 整曲解码并量出 ReplayGain 2.0 需要的三个量：
+  EBU R128 积分响度（LUFS）与采样 / 真峰值（线性幅度，1.0 = 满量程）。解码走独立
+  线程、不需要输出设备，也不占用引擎线程；全曲分析约 1~2 秒。**测量值会写回曲库**
+  （`tracks.loudness_lufs` / `sample_peak` / `true_peak`，重扫不会覆盖），
+  所以 Dart 侧不必长期缓存。增益不在 Rust 侧算，Dart 侧公式：
+  `gain = clamp(min(reference − loudness, −20log10(peak)), −24, +24)`，
+  `peak` 取当前设置的峰值类型；标签增益（−18 口径）按
+  `tagGain + (reference + 18)` 偏移后同样夹 ±24，不做峰值限幅（标签里没有峰值）。
+  Dart 实现见 `lib/src/common/audio/replay_gain.dart`。
 - `player_set_replay_gain` 立即把增益作用到当前输出。自动补算**不再调用**它：
   起播时增益未知就先按不归一播（整首响度一致），算出的值从下一次起播开始生效，
   避免「先响 1~2 秒、随后突然变小」。接口保留给需要即时应用的场景。
@@ -509,8 +526,11 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 ## 12. ReplayGain 标签 `api::replaygain`
 
 多选「计算 ReplayGain」的落盘端。分析本身在 `api::player::player_analyze_replay_gain`
-（EBU R128，ReplayGain 2.0，目标 −18 LUFS），本模块只负责把结果写回文件标签，
+（EBU R128，ReplayGain 2.0），本模块只负责把结果写回文件标签，
 让增益跟着文件走——重新扫描、换播放器都还在。
+
+写入的增益**恒按 −18 LUFS 参考**（ReplayGain 的通用口径）：设置里的参考响度只影响
+本机播放，不跟着标签走；峰值限幅按设置的峰值类型（采样 / 真峰值）。
 
 | Rust 签名 | Dart 签名 | sync | 状态 |
 |---|---|---|---|

@@ -143,6 +143,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TrackPlayStat> dco_decode_list_track_play_stat(dynamic raw);
 
   @protected
+  LoudnessAnalysis dco_decode_loudness_analysis(dynamic raw);
+
+  @protected
   LyricLine dco_decode_lyric_line(dynamic raw);
 
   @protected
@@ -337,6 +340,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TrackPlayStat> sse_decode_list_track_play_stat(
     SseDeserializer deserializer,
   );
+
+  @protected
+  LoudnessAnalysis sse_decode_loudness_analysis(SseDeserializer deserializer);
 
   @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer);
@@ -568,6 +574,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_track_play_stat(
     List<TrackPlayStat> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_loudness_analysis(
+    LoudnessAnalysis self,
     SseSerializer serializer,
   );
 

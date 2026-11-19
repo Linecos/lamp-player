@@ -341,6 +341,12 @@ fn read_track(
             audio_bitrate,
             sample_rate,
             bit_depth,
+            // 标签里只有增益（隐含 -18 LUFS 参考）、没有响度 / 峰值：
+            // 留 0 = 未知，播放时按标签增益 + 参考响度偏移算；
+            // 现场分析过的曲目由 `store_loudness` 补上这三个值。
+            loudness_lufs: 0.0,
+            sample_peak: 0.0,
+            true_peak: 0.0,
         },
         mtime_ns,
         size,

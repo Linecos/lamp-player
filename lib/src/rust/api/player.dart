@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// BASS 是否可用；DLL 缺失或初始化失败时为 `false`
 bool playerIsAvailable() =>
@@ -35,15 +35,17 @@ Future<void> playerPlay({required String path, required double replayGainDb}) =>
 Future<void> playerSetReplayGain({required double gainDb}) =>
     RustLib.instance.api.crateApiPlayerPlayerSetReplayGain(gainDb: gainDb);
 
-/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+/// 分析整曲响度与峰值（ReplayGain 2.0）
 ///
-/// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算
-/// （EBU R128 积分响度，目标 -18 LUFS），结果夹取 ±24 dB，全静音返回 0。
-/// 全曲解码约需零点几秒到几秒，失败（文件损坏 / 格式不支持）直接报错。
+/// 曲目标签里没有 ReplayGain 时用这个现场补：一次解码量出 EBU R128
+/// 积分响度与采样 / 真两种峰值，全曲解码约需零点几秒到几秒，
+/// 失败（文件损坏 / 格式不支持）直接报错。
 ///
-/// 算出的值顺带写回曲库（`tracks.replay_gain`）：下次起播就能直接带上，
-/// 不必再「先按不归一响 1~2 秒、算完才压下去」。落库失败不影响返回值。
-Future<double> playerAnalyzeReplayGain({required String path}) =>
+/// 结果顺带写回曲库（`tracks.loudness_lufs` / 两个峰值列）：下次起播
+/// 就能按当前设置直接算出增益，不必再「先按不归一响 1~2 秒、算完才压下去」。
+/// 落库失败不影响返回值。增益不在 Rust 侧算：参考响度与峰值类型是用户设置，
+/// 播放时现算，改设置立刻生效。
+Future<LoudnessAnalysis> playerAnalyzeReplayGain({required String path}) =>
     RustLib.instance.api.crateApiPlayerPlayerAnalyzeReplayGain(path: path);
 
 /// 可用的输出设备；`-1`（系统默认）由界面自己补一条，不在这里返回
@@ -158,6 +160,40 @@ Future<void> playerShutdown() =>
 
 /// 当前播放状态
 PlaybackState playerState() => RustLib.instance.api.crateApiPlayerPlayerState();
+
+/// 整曲响度测量结果（ReplayGain 2.0）
+///
+/// 增益由调用方按设置现算（参考响度见 `docs/API_CONTRACT.md` 的增益公式），
+/// 所以改参考响度 / 峰值类型都不用重跑解码。
+class LoudnessAnalysis {
+  /// EBU R128 积分响度（LUFS）；全静音为 0
+  final double loudnessLufs;
+
+  /// 采样峰值（线性幅度，1.0 = 满量程）；0 = 静音 / 没测到
+  final double samplePeak;
+
+  /// 真峰值（线性幅度）；0 = 静音 / 没测到
+  final double truePeak;
+
+  const LoudnessAnalysis({
+    required this.loudnessLufs,
+    required this.samplePeak,
+    required this.truePeak,
+  });
+
+  @override
+  int get hashCode =>
+      loudnessLufs.hashCode ^ samplePeak.hashCode ^ truePeak.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LoudnessAnalysis &&
+          runtimeType == other.runtimeType &&
+          loudnessLufs == other.loudnessLufs &&
+          samplePeak == other.samplePeak &&
+          truePeak == other.truePeak;
+}
 
 /// 播放状态
 enum PlaybackState {

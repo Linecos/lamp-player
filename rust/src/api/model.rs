@@ -25,6 +25,12 @@ pub struct Track {
     pub sample_rate: i32,
     /// 位深（bit）；有损编码没有这个值，为 0
     pub bit_depth: i32,
+    /// EBU R128 积分响度（LUFS）；0 = 还没现场分析过（标签只有增益，没有响度）
+    pub loudness_lufs: f64,
+    /// 采样峰值（线性幅度，1.0 = 满量程）；0 = 未知（标签里没有峰值）
+    pub sample_peak: f64,
+    /// 真峰值（线性幅度）；0 = 未知
+    pub true_peak: f64,
 }
 
 /// 歌单摘要（列表用）；曲目通过 `collections::playlist_tracks` 单独取。

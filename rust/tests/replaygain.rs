@@ -155,8 +155,14 @@ fn rejects_bad_input() {
 #[ignore = "需要 LAMP_RG_SAMPLE 指向真实音频文件（含 BASS 环境）"]
 fn analyzes_real_file_without_engine() {
     let sample = std::env::var("LAMP_RG_SAMPLE").expect("需要 LAMP_RG_SAMPLE 环境变量");
-    let gain = player::player_analyze_replay_gain(sample.clone())
+    let meter = player::player_analyze_replay_gain(sample.clone())
         .unwrap_or_else(|error| panic!("{sample} 应能分析：{error}"));
-    assert!(gain.abs() <= 24.0, "增益应夹在 ±24 dB 内，实际 {gain}");
-    assert!(gain != 0.0, "非静音文件不应算出 0 dB");
+    assert!(
+        meter.loudness_lufs != 0.0,
+        "非静音文件应量出积分响度，实际 {meter:?}"
+    );
+    assert!(
+        meter.sample_peak > 0.0 && meter.true_peak > 0.0,
+        "非静音文件应量出峰值，实际 {meter:?}"
+    );
 }

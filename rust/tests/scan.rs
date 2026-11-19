@@ -285,6 +285,9 @@ fn scan_merges_legacy_separator_variants() {
         audio_bitrate: 0,
         sample_rate: 0,
         bit_depth: 0,
+        loudness_lufs: 0.0,
+        sample_peak: 0.0,
+        true_peak: 0.0,
     }])
     .expect("写入旧记录");
     assert_eq!(db::all_tracks().expect("读取曲库").len(), 1);

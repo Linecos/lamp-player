@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
@@ -220,5 +221,67 @@ void main() {
     await tester.tap(find.text('夜航'));
     await tester.pumpAndSettle();
     expect(playback.playedGains, <double>[-7.5]);
+  });
+
+  testWidgets('参考响度改了按新目标现算：不重新解码', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', loudnessLufs: -25.5),
+        sampleTrack(title: '潮汐', loudnessLufs: -25.5),
+      ],
+      playback: playback,
+      prefetchReplayGain: false,
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+          replayGainReference: -14,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('夜航').first);
+    await tester.pumpAndSettle();
+    // -14 − (-25.5) = +11.5，曲库里存的还是同一份测量值
+    expect(playback.playedGains, <double>[11.5]);
+    expect(playback.analyzedPaths, isEmpty, reason: '已经有测量值，不该再解码');
+  });
+
+  testWidgets('峰值类型：采样峰值与真实峰值分别限幅', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(
+          title: '夜航',
+          loudnessLufs: -30,
+          samplePeak: 0.9,
+          truePeak: 0.6,
+        ),
+      ],
+      playback: playback,
+      prefetchReplayGain: false,
+      sessionStore: FakeSessionStore(
+        snapshot: const SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+          replayGainReference: -14,
+          replayGainTruePeak: true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('夜航').first);
+    await tester.pumpAndSettle();
+    // 目标 +16 dB 被真峰值 0.6（≈ -4.44 dBFS）压到 +4.44
+    expect(playback.playedGains.single, closeTo(4.437, 0.01));
   });
 }

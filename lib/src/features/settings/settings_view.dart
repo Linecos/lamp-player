@@ -38,6 +38,10 @@ class SettingsView extends StatelessWidget {
     this.onOutputDeviceChanged,
     this.replayGain = false,
     this.onReplayGainChanged,
+    this.replayGainReference = replayGainDefaultReference,
+    this.onReplayGainReferenceChanged,
+    this.replayGainTruePeak = false,
+    this.onReplayGainTruePeakChanged,
     this.crossfadeEnabled = false,
     this.crossfadeSeconds = 2,
     this.onCrossfadeEnabledChanged,
@@ -105,6 +109,18 @@ class SettingsView extends StatelessWidget {
 
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
+
+  /// ReplayGain 的参考响度（LUFS）：-23 / -18 / -14
+  final double replayGainReference;
+
+  /// 改参考响度；为空表示当前不可操作
+  final ValueChanged<double>? onReplayGainReferenceChanged;
+
+  /// ReplayGain 的峰值类型：false = 采样峰值，true = 真峰值
+  final bool replayGainTruePeak;
+
+  /// 改峰值类型；为空表示当前不可操作
+  final ValueChanged<bool>? onReplayGainTruePeakChanged;
 
   /// 换曲淡入淡出是否开启（时长为 0 即关闭）
   final bool crossfadeEnabled;
@@ -218,6 +234,27 @@ class SettingsView extends StatelessWidget {
         subtitle: '统一各曲响度',
         value: replayGain,
         onChanged: onReplayGainChanged,
+      ),
+      _ChoiceRow<double>(
+        icon: Icons.equalizer_outlined,
+        title: '回放增益参考响度',
+        subtitle: replayGain ? '目标电平，越小越保守' : '打开上方开关后生效',
+        value: replayGainReference,
+        choices: <(double, String)>[
+          for (final double lufs in replayGainReferences)
+            (lufs, '${lufs.toInt()} LUFS'),
+        ],
+        onChanged: replayGain ? onReplayGainReferenceChanged : null,
+        choiceKey: const ValueKey<String>('settings-replay-gain-reference'),
+      ),
+      _ChoiceRow<bool>(
+        icon: Icons.waves,
+        title: '回放增益峰值类型',
+        subtitle: replayGain ? '峰值限幅用哪种峰值；标签只写增益' : '打开上方开关后生效',
+        value: replayGainTruePeak,
+        choices: const <(bool, String)>[(false, '采样峰值'), (true, '真实峰值')],
+        onChanged: replayGain ? onReplayGainTruePeakChanged : null,
+        choiceKey: const ValueKey<String>('settings-replay-gain-peak'),
       ),
       _SwitchRow(
         icon: Icons.volume_down_outlined,

@@ -39,6 +39,10 @@ extension _SettingsSection on _LibraryPageState {
                 : null,
             replayGain: _replayGain,
             onReplayGainChanged: _setReplayGain,
+            replayGainReference: _replayGainReference,
+            onReplayGainReferenceChanged: _setReplayGainReference,
+            replayGainTruePeak: _replayGainTruePeak,
+            onReplayGainTruePeakChanged: _setReplayGainTruePeak,
             crossfadeEnabled: _crossfadeSeconds > 0,
             crossfadeSeconds: _crossfadeSeconds > 0
                 ? _crossfadeSeconds

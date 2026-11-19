@@ -187,10 +187,11 @@ fn pause_without_track_fails() {
     assert_eq!(player_duration().expect("空载时长"), 0.0);
 }
 
-/// 响度分析：满幅正弦的增益应接近理论值 -14.3 dB（ReplayGain 2.0），
-/// 幅度差 20 dB 的两首曲子增益也应差 20 dB。分析不依赖引擎线程与声卡。
+/// 响度分析：满幅正弦按 -18 LUFS 参考的增益应接近理论值 -14.3 dB（ReplayGain 2.0），
+/// 幅度差 20 dB 的两首曲子响度也应差 20 dB；采样峰值应当就是正弦幅度。
+/// 分析不依赖引擎线程与声卡。
 #[test]
-fn analyze_gain_matches_sine_loudness() {
+fn analyze_loudness_matches_sine() {
     if !cfg!(windows) {
         return;
     }
@@ -205,18 +206,32 @@ fn analyze_gain_matches_sine_loudness() {
     write_sine_wav(&loud, 2, 0.99);
     write_sine_wav(&quiet, 2, 0.099);
 
-    let loud_gain =
+    let loud_meter =
         player_analyze_replay_gain(loud.to_string_lossy().to_string()).expect("分析满幅正弦");
-    let quiet_gain =
+    let quiet_meter =
         player_analyze_replay_gain(quiet.to_string_lossy().to_string()).expect("分析轻幅正弦");
+    let loud_gain = -18.0 - loud_meter.loudness_lufs;
 
     assert!(
         (-16.0..=-12.0).contains(&loud_gain),
-        "满幅正弦增益应约 -14.3 dB，实际 {loud_gain}"
+        "满幅正弦按 -18 LUFS 参考的增益应约 -14.3 dB，实际 {loud_gain}"
     );
     assert!(
-        (quiet_gain - loud_gain - 20.0).abs() < 1.0,
-        "幅度差 20 dB 增益也应差 20 dB，实际 {loud_gain} vs {quiet_gain}"
+        (quiet_meter.loudness_lufs - loud_meter.loudness_lufs + 20.0).abs() < 1.0,
+        "幅度差 20 dB 响度也应差 20 dB，实际 {} vs {}",
+        loud_meter.loudness_lufs,
+        quiet_meter.loudness_lufs
+    );
+    assert!(
+        (loud_meter.sample_peak - 0.99).abs() < 0.02,
+        "0.99 幅度的正弦采样峰值应约 0.99，实际 {}",
+        loud_meter.sample_peak
+    );
+    assert!(
+        loud_meter.true_peak >= loud_meter.sample_peak - 0.02,
+        "过采样真峰值不该低于采样峰值，实际 {} vs {}",
+        loud_meter.true_peak,
+        loud_meter.sample_peak
     );
 
     let _ = fs::remove_file(loud);

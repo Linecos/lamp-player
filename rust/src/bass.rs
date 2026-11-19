@@ -41,6 +41,20 @@ pub struct Device {
     pub is_default: bool,
 }
 
+/// 整曲响度测量结果（ReplayGain 2.0）
+///
+/// 峰值是**线性幅度**（1.0 = 满量程），0 表示静音或没测到：
+/// 换 dBFS 用 `20*log10(peak)`，峰值对增益的钳制就是 `-peak_db`。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Loudness {
+    /// EBU R128 积分响度（LUFS）；全静音时是 0（静音不需要归一）
+    pub loudness_lufs: f64,
+    /// 采样峰值（线性幅度）
+    pub sample_peak: f64,
+    /// 真峰值（4 倍过采样的线性幅度）
+    pub true_peak: f64,
+}
+
 /// BASS 是否可用（DLL 加载 + 初始化成功）
 ///
 /// 首次调用会触发初始化并等待引擎就绪（约几十毫秒），之后只读原子量。
@@ -65,12 +79,14 @@ pub fn devices() -> Result<Vec<Device>> {
     imp::devices()
 }
 
-/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+/// 分析整曲响度与峰值（ReplayGain 2.0）
 ///
-/// 按 ReplayGain 2.0 计算：EBU R128 积分响度，目标 -18 LUFS，结果夹取 ±24 dB；
-/// 全静音返回 0。解码不需要输出设备，也不经过引擎线程，不影响当前播放。
-pub fn analyze_gain(path: &str) -> Result<f64> {
-    imp::analyze_gain(path)
+/// 一次解码同时量出 EBU R128 积分响度、采样峰值与真峰值；参考响度
+/// （-23 / -18 / -14 LUFS）和峰值类型都是用户设置，增益留给调用方现算，
+/// 改设置立刻生效、不必重跑整曲解码。
+/// 解码不需要输出设备，也不经过引擎线程，不影响当前播放。
+pub fn analyze_loudness(path: &str) -> Result<Loudness> {
+    imp::analyze_loudness(path)
 }
 
 /// 切换共享输出设备；保留当前曲目、位置与播放状态

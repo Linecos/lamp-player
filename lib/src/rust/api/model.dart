@@ -192,6 +192,15 @@ class Track {
   /// 位深（bit）；有损编码没有这个值，为 0
   final int bitDepth;
 
+  /// EBU R128 积分响度（LUFS）；0 = 还没现场分析过（标签只有增益，没有响度）
+  final double loudnessLufs;
+
+  /// 采样峰值（线性幅度，1.0 = 满量程）；0 = 未知（标签里没有峰值）
+  final double samplePeak;
+
+  /// 真峰值（线性幅度）；0 = 未知
+  final double truePeak;
+
   const Track({
     required this.path,
     required this.title,
@@ -206,6 +215,9 @@ class Track {
     required this.audioBitrate,
     required this.sampleRate,
     required this.bitDepth,
+    required this.loudnessLufs,
+    required this.samplePeak,
+    required this.truePeak,
   });
 
   @override
@@ -222,7 +234,10 @@ class Track {
       fileSize.hashCode ^
       audioBitrate.hashCode ^
       sampleRate.hashCode ^
-      bitDepth.hashCode;
+      bitDepth.hashCode ^
+      loudnessLufs.hashCode ^
+      samplePeak.hashCode ^
+      truePeak.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -241,7 +256,10 @@ class Track {
           fileSize == other.fileSize &&
           audioBitrate == other.audioBitrate &&
           sampleRate == other.sampleRate &&
-          bitDepth == other.bitDepth;
+          bitDepth == other.bitDepth &&
+          loudnessLufs == other.loudnessLufs &&
+          samplePeak == other.samplePeak &&
+          truePeak == other.truePeak;
 }
 
 /// 单曲播放次数（排行榜用）。

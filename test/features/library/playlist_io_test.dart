@@ -21,6 +21,9 @@ Track _track(
   audioBitrate: 0,
   sampleRate: 0,
   bitDepth: 0,
+  loudnessLufs: 0,
+  samplePeak: 0,
+  truePeak: 0,
 );
 
 void main() {

@@ -709,15 +709,22 @@ class _LibraryPageState extends State<LibraryPage>
   /// 是否按标签里的 ReplayGain 统一响度
   bool _replayGain = false;
 
+  /// ReplayGain 的参考响度（LUFS）：-23 / -18（默认）/ -14
+  double _replayGainReference = replayGainDefaultReference;
+
+  /// ReplayGain 的峰值类型：false = 采样峰值（默认），true = 真峰值
+  bool _replayGainTruePeak = false;
+
   /// 当前生效的键位表；会话里有自定义配置时覆盖 [LibraryPage.shortcuts]
   late List<ShortcutBinding> _shortcuts = widget.shortcuts;
 
-  /// 标签缺增益时现场分析的结果缓存（路径 → dB），本次会话内复用
-  final Map<String, double> _autoGains = <String, double>{};
+  /// 现场分析出的响度与峰值缓存（路径 → 测量值），本次会话内复用
+  final Map<String, rust.LoudnessAnalysis> _autoLoudness =
+      <String, rust.LoudnessAnalysis>{};
 
   /// 正在分析的路径：后台补算与「起播后补算」撞上时共用一个任务
-  final Map<String, Future<double>> _autoGainPending =
-      <String, Future<double>>{};
+  final Map<String, Future<rust.LoudnessAnalysis?>> _autoLoudnessPending =
+      <String, Future<rust.LoudnessAnalysis?>>{};
 
   /// 页面已销毁：后台补算的循环看到它就收手
   bool _warmGainsCancelled = false;
@@ -1284,6 +1291,8 @@ class _LibraryPageState extends State<LibraryPage>
       _outputDevice = snapshot.outputDevice;
       _outputDeviceNotifier.value = snapshot.outputDevice;
       _replayGain = snapshot.replayGain;
+      _replayGainReference = snapshot.replayGainReference;
+      _replayGainTruePeak = snapshot.replayGainTruePeak;
       if (snapshot.shortcutsJson.isNotEmpty) {
         _shortcuts = decodeShortcuts(snapshot.shortcutsJson);
       }
@@ -1511,6 +1520,8 @@ class _LibraryPageState extends State<LibraryPage>
       eqCustomPresets: _eqCustomPresets,
       outputDevice: _outputDevice,
       replayGain: _replayGain,
+      replayGainReference: _replayGainReference,
+      replayGainTruePeak: _replayGainTruePeak,
       shortcutsJson: encodeShortcuts(_shortcuts),
       crossfadeSeconds: _crossfadeSeconds,
       volumeFade: _volumeFade,

@@ -117,6 +117,9 @@ void main() {
       audioBitrate: audioBitrate,
       sampleRate: sampleRate,
       bitDepth: bitDepth,
+      loudnessLufs: 0,
+      samplePeak: 0,
+      truePeak: 0,
     );
 
     test('按档统计曲目数与字节数', () {

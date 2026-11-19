@@ -3816,6 +3816,20 @@ impl SseDecode for Vec<crate::api::model::TrackPlayStat> {
     }
 }
 
+impl SseDecode for crate::api::player::LoudnessAnalysis {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_loudnessLufs = <f64>::sse_decode(deserializer);
+        let mut var_samplePeak = <f64>::sse_decode(deserializer);
+        let mut var_truePeak = <f64>::sse_decode(deserializer);
+        return crate::api::player::LoudnessAnalysis {
+            loudness_lufs: var_loudnessLufs,
+            sample_peak: var_samplePeak,
+            true_peak: var_truePeak,
+        };
+    }
+}
+
 impl SseDecode for crate::api::lyrics::LyricLine {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4065,6 +4079,9 @@ impl SseDecode for crate::api::model::Track {
         let mut var_audioBitrate = <i32>::sse_decode(deserializer);
         let mut var_sampleRate = <i32>::sse_decode(deserializer);
         let mut var_bitDepth = <i32>::sse_decode(deserializer);
+        let mut var_loudnessLufs = <f64>::sse_decode(deserializer);
+        let mut var_samplePeak = <f64>::sse_decode(deserializer);
+        let mut var_truePeak = <f64>::sse_decode(deserializer);
         return crate::api::model::Track {
             path: var_path,
             title: var_title,
@@ -4079,6 +4096,9 @@ impl SseDecode for crate::api::model::Track {
             audio_bitrate: var_audioBitrate,
             sample_rate: var_sampleRate,
             bit_depth: var_bitDepth,
+            loudness_lufs: var_loudnessLufs,
+            sample_peak: var_samplePeak,
+            true_peak: var_truePeak,
         };
     }
 }
@@ -4569,6 +4589,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::db::HiddenTrack>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::player::LoudnessAnalysis {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.loudness_lufs.into_into_dart().into_dart(),
+            self.sample_peak.into_into_dart().into_dart(),
+            self.true_peak.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::player::LoudnessAnalysis
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::player::LoudnessAnalysis>
+    for crate::api::player::LoudnessAnalysis
+{
+    fn into_into_dart(self) -> crate::api::player::LoudnessAnalysis {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::lyrics::LyricLine {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -4846,6 +4888,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::model::Track {
             self.audio_bitrate.into_into_dart().into_dart(),
             self.sample_rate.into_into_dart().into_dart(),
             self.bit_depth.into_into_dart().into_dart(),
+            self.loudness_lufs.into_into_dart().into_dart(),
+            self.sample_peak.into_into_dart().into_dart(),
+            self.true_peak.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5207,6 +5252,15 @@ impl SseEncode for Vec<crate::api::model::TrackPlayStat> {
     }
 }
 
+impl SseEncode for crate::api::player::LoudnessAnalysis {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f64>::sse_encode(self.loudness_lufs, serializer);
+        <f64>::sse_encode(self.sample_peak, serializer);
+        <f64>::sse_encode(self.true_peak, serializer);
+    }
+}
+
 impl SseEncode for crate::api::lyrics::LyricLine {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -5418,6 +5472,9 @@ impl SseEncode for crate::api::model::Track {
         <i32>::sse_encode(self.audio_bitrate, serializer);
         <i32>::sse_encode(self.sample_rate, serializer);
         <i32>::sse_encode(self.bit_depth, serializer);
+        <f64>::sse_encode(self.loudness_lufs, serializer);
+        <f64>::sse_encode(self.sample_peak, serializer);
+        <f64>::sse_encode(self.true_peak, serializer);
     }
 }
 
