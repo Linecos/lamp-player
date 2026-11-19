@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 10;
+const SCHEMA_VERSION: i32 = 11;
 
 struct Database {
     path: String,
@@ -495,6 +495,26 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         tx.pragma_update(None, "user_version", 10)?;
     }
 
+    if version < 11 {
+        // v11：ReplayGain 的参考响度与峰值类型变成用户设置，曲库不能只存
+        // 「某个 -18 LUFS 下的增益」。改存测量值：积分响度 + 采样峰值 + 真峰值，
+        // 播放时按当前设置现算增益，改设置立刻生效、不用重跑整曲解码。
+        //
+        // 老行只有增益（标签值或按 -18 算的），这两组值留 0 = 未知：
+        // 峰值未知就不做峰值限幅（与升级前一致），参考响度偏移仍然成立
+        // （标签增益本身就是 -18 LUFS 参考下的结果）。
+        for (column, decl) in [
+            ("loudness_lufs", "REAL NOT NULL DEFAULT 0"),
+            ("sample_peak", "REAL NOT NULL DEFAULT 0"),
+            ("true_peak", "REAL NOT NULL DEFAULT 0"),
+        ] {
+            if !column_exists(&tx, "tracks", column)? {
+                tx.execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {column} {decl};"))?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 11)?;
+    }
+
     tx.commit()?;
     Ok(())
 }
@@ -535,7 +555,8 @@ pub fn search_tracks(query: String, limit: i32) -> anyhow::Result<Vec<Track>> {
         let mut stmt = conn.prepare_cached(
             r#"
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain,
-                   t.file_size, t.audio_bitrate, t.sample_rate, t.bit_depth
+                   t.file_size, t.audio_bitrate, t.sample_rate, t.bit_depth,
+                   t.loudness_lufs, t.sample_peak, t.true_peak
             FROM tracks t
             JOIN tracks_fts f ON f.rowid = t.id
             WHERE t.hidden = 0 AND tracks_fts MATCH ?1
@@ -582,7 +603,7 @@ fn substring_search(query: &str, limit: i32) -> anyhow::Result<Vec<Track>> {
     let fields = "(title || ' ' || COALESCE(artist, '') || ' ' || COALESCE(album, ''))";
     let mut sql = String::from(
         "SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain, \
-         file_size, audio_bitrate, sample_rate, bit_depth \
+         file_size, audio_bitrate, sample_rate, bit_depth, loudness_lufs, sample_peak, true_peak \
          FROM tracks WHERE hidden = 0 AND ",
     );
     for index in 0..terms.len() {
@@ -642,7 +663,8 @@ pub fn all_tracks() -> anyhow::Result<Vec<Track>> {
         let mut stmt = conn.prepare_cached(
             r#"
             SELECT path, title, artist, album, duration_secs, track_num, added_at, cover_path, replay_gain,
-                   file_size, audio_bitrate, sample_rate, bit_depth
+                   file_size, audio_bitrate, sample_rate, bit_depth,
+                   loudness_lufs, sample_peak, true_peak
             FROM tracks
             WHERE hidden = 0
             ORDER BY artist, album, track_num, title
@@ -806,19 +828,25 @@ pub(crate) fn upsert_scanned(items: &[ScannedTrack]) -> anyhow::Result<i32> {
     })
 }
 
-/// 把现场分析出的 ReplayGain 写回曲库，下次起播直接带上，不必再等分析。
+/// 把现场分析出的响度与峰值写回曲库，下次起播直接按当前设置算增益。
 ///
-/// 与标签共用 `replay_gain` 一列：标签是文件的权威值，扫描时会覆盖；
-/// 文件没有标签时，这里算出的值就是该曲目的增益。写不进去（库没打开、
-/// 曲目还没入库）只影响「下次还要再算一遍」，调用方按尽力而为处理。
-pub(crate) fn store_replay_gain(path: &str, gain_db: f64) -> anyhow::Result<()> {
-    if !gain_db.is_finite() {
+/// 与标签的 `replay_gain` 分开存：标签只有增益（隐含 -18 LUFS 参考、没有峰值），
+/// 这三个测量值才是「换参考响度 / 换峰值类型立刻生效」的依据。
+/// 写不进去（库没打开、曲目还没入库）只影响「下次还要再算一遍」，
+/// 调用方按尽力而为处理。
+pub(crate) fn store_loudness(
+    path: &str,
+    loudness_lufs: f64,
+    sample_peak: f64,
+    true_peak: f64,
+) -> anyhow::Result<()> {
+    if !loudness_lufs.is_finite() || !sample_peak.is_finite() || !true_peak.is_finite() {
         return Ok(());
     }
     with_conn(|conn| {
         conn.execute(
-            "UPDATE tracks SET replay_gain = ?2 WHERE path = ?1",
-            params![path, gain_db],
+            "UPDATE tracks SET loudness_lufs = ?2, sample_peak = ?3, true_peak = ?4 WHERE path = ?1",
+            params![path, loudness_lufs, sample_peak, true_peak],
         )?;
         Ok(())
     })
@@ -1087,11 +1115,12 @@ fn merge_track_path(
         // 目标行可能尚未由本次 upsert 插入；先复制旧行，外键才允许挂引用。
         // 音质四列（大小 / 码率 / 采样率 / 位深）一起带走：漏掉的话换路径后
         // 评级会掉回「其他」，而下次扫描如果要按指纹命中，这三列不会补回来。
+        // ReplayGain 的测量值同理：换路径不该把分析结果丢掉、逼着重算一遍。
         let copied = tx.execute(
             r#"
             INSERT INTO tracks
-                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, hidden, hidden_at)
-            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, hidden, hidden_at
+                (path, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, loudness_lufs, sample_peak, true_peak, hidden, hidden_at)
+            SELECT ?1, title, artist, album, duration_secs, track_num, added_at, file_mtime, file_size, audio_bitrate, sample_rate, bit_depth, cover_path, replay_gain, loudness_lufs, sample_peak, true_peak, hidden, hidden_at
             FROM tracks
             WHERE path = ?2
             "#,
@@ -1403,6 +1432,9 @@ pub(crate) fn row_to_track(row: &Row) -> rusqlite::Result<Track> {
         audio_bitrate: row.get(10)?,
         sample_rate: row.get(11)?,
         bit_depth: row.get(12)?,
+        loudness_lufs: row.get(13)?,
+        sample_peak: row.get(14)?,
+        true_peak: row.get(15)?,
     })
 }
 
@@ -1466,6 +1498,9 @@ mod tests {
                 bit_depth     INTEGER NOT NULL DEFAULT 0,
                 cover_path    TEXT NOT NULL DEFAULT '',
                 replay_gain   REAL NOT NULL DEFAULT 0,
+                loudness_lufs REAL NOT NULL DEFAULT 0,
+                sample_peak   REAL NOT NULL DEFAULT 0,
+                true_peak     REAL NOT NULL DEFAULT 0,
                 hidden        INTEGER NOT NULL DEFAULT 0,
                 hidden_at     INTEGER NOT NULL DEFAULT 0
             );
@@ -1796,11 +1831,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
-    /// 现场算出的增益写进曲库后，重扫（文件仍没有标签）不能把它抹掉；
-    /// 文件带标签时以标签为准。
+    /// 现场算出的响度 / 峰值写进曲库后，重扫（文件仍没有标签）不能把它抹掉；
+    /// 文件带标签时标签增益仍然优先。
     #[test]
-    fn auto_gain_survives_rescan_without_tag() {
-        use super::{all_tracks, close_db, init_db, store_replay_gain, upsert_tracks};
+    fn measured_loudness_survives_rescan_without_tag() {
+        use super::{all_tracks, close_db, init_db, store_loudness, upsert_tracks};
         use crate::api::model::Track;
 
         let _guard = db_guard();
@@ -1821,23 +1856,32 @@ mod tests {
             audio_bitrate: 0,
             sample_rate: 0,
             bit_depth: 0,
+            loudness_lufs: 0.0,
+            sample_peak: 0.0,
+            true_peak: 0.0,
         };
 
         upsert_tracks(vec![track(0.0)]).expect("首次入库");
-        store_replay_gain("/music/a.mp3", -7.25).expect("写回增益");
-        assert_eq!(all_tracks().expect("读曲库")[0].replay_gain, -7.25);
+        store_loudness("/music/a.mp3", -21.5, 0.82, 0.91).expect("写回测量值");
+        let first = &all_tracks().expect("读曲库")[0];
+        assert_eq!(first.loudness_lufs, -21.5);
+        assert_eq!(first.sample_peak, 0.82);
+        assert_eq!(first.true_peak, 0.91);
 
-        // 重扫时文件仍然没有标签（增益 0）：库里算出来的值要留着
+        // 重扫时文件仍然没有标签（增益 0）：库里量出来的值要留着
         upsert_tracks(vec![track(0.0)]).expect("重扫");
+        let rescanned = &all_tracks().expect("读曲库")[0];
         assert_eq!(
-            all_tracks().expect("读曲库")[0].replay_gain,
-            -7.25,
-            "没有标签的重扫不该清掉已算出的增益"
+            rescanned.loudness_lufs, -21.5,
+            "没有标签的重扫不该清掉测量值"
         );
+        assert_eq!(rescanned.sample_peak, 0.82);
 
-        // 文件写了标签：标签是权威值
+        // 文件写了标签：标签增益是权威值，测量值也不受影响
         upsert_tracks(vec![track(-3.0)]).expect("重扫带标签");
-        assert_eq!(all_tracks().expect("读曲库")[0].replay_gain, -3.0);
+        let tagged = &all_tracks().expect("读曲库")[0];
+        assert_eq!(tagged.replay_gain, -3.0);
+        assert_eq!(tagged.loudness_lufs, -21.5);
 
         close_db().expect("关闭曲库");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

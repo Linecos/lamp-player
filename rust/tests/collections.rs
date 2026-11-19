@@ -65,6 +65,9 @@ fn track(path: &str, title: &str) -> Track {
         audio_bitrate: 0,
         sample_rate: 0,
         bit_depth: 0,
+        loudness_lufs: 0.0,
+        sample_peak: 0.0,
+        true_peak: 0.0,
     }
 }
 

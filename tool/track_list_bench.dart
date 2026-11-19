@@ -50,6 +50,9 @@ List<Track> _tracks() {
         audioBitrate: 900,
         sampleRate: 44100,
         bitDepth: 16,
+        loudnessLufs: 0,
+        samplePeak: 0,
+        truePeak: 0,
       ),
   ];
 }

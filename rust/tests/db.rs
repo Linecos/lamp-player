@@ -62,6 +62,9 @@ fn track(path: &str, title: &str, artist: Option<&str>, album: Option<&str>) -> 
         audio_bitrate: 0,
         sample_rate: 0,
         bit_depth: 0,
+        loudness_lufs: 0.0,
+        sample_peak: 0.0,
+        true_peak: 0.0,
     }
 }
 
@@ -336,7 +339,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         .expect("读取版本");
     // 版本号跟着 SCHEMA_VERSION 走：每加一次迁移都要改这里，
     // 忘了改就等于没验证「升级后写入的是当前版本」
-    assert_eq!(version, 10, "升级后应写入当前结构版本");
+    assert_eq!(version, 11, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -362,6 +365,12 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
             && columns.contains(&"sample_rate".to_string())
             && columns.contains(&"bit_depth".to_string()),
         "v10 应补上音质三列"
+    );
+    assert!(
+        columns.contains(&"loudness_lufs".to_string())
+            && columns.contains(&"sample_peak".to_string())
+            && columns.contains(&"true_peak".to_string()),
+        "v11 应补上 ReplayGain 的测量值三列"
     );
     // v10 同时清零老行的指纹，让下次扫描把这三列重新读出来
     let pending: i64 = conn

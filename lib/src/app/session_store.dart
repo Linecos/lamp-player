@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../common/audio/replay_gain.dart';
 import '../common/audio/volume_curve.dart';
 import '../features/library/library_sort.dart';
 import '../features/player/equalizer.dart';
@@ -39,6 +40,8 @@ class SessionSnapshot {
     this.eqCustomPresets = const <EqualizerPreset>[],
     this.outputDevice = -1,
     this.replayGain = false,
+    this.replayGainReference = replayGainDefaultReference,
+    this.replayGainTruePeak = false,
     this.crossfadeSeconds = 0,
     this.volumeFade = true,
     this.flowBackground = true,
@@ -125,6 +128,12 @@ class SessionSnapshot {
   /// 是否按标签里的 ReplayGain 统一响度
   final bool replayGain;
 
+  /// ReplayGain 的参考响度（LUFS）：-23 / -18 / -14，默认 -18
+  final double replayGainReference;
+
+  /// ReplayGain 的峰值类型：true = 真峰值，false = 采样峰值（默认）
+  final bool replayGainTruePeak;
+
   /// 换曲交叉淡变时长（秒）；0 表示关闭
   final double crossfadeSeconds;
 
@@ -190,6 +199,10 @@ class PrefsSessionStore implements SessionStore {
   static const String eqCustomPresetsKey = 'player_eq_custom_presets';
   static const String outputDeviceKey = 'player_output_device';
   static const String replayGainKey = 'player_replay_gain';
+  static const String replayGainReferenceKey = 'player_replay_gain_reference';
+
+  /// ReplayGain 峰值类型：true = 真峰值
+  static const String replayGainTruePeakKey = 'player_replay_gain_true_peak';
   static const String crossfadeKey = 'player_crossfade_seconds';
 
   /// 音量过渡：暂停 / 停止淡出，起播与定位后淡入
@@ -269,6 +282,10 @@ class PrefsSessionStore implements SessionStore {
                 .toList(growable: false),
         outputDevice: prefs.getInt(outputDeviceKey) ?? -1,
         replayGain: prefs.getBool(replayGainKey) ?? false,
+        replayGainReference: parseReplayGainReference(
+          prefs.getDouble(replayGainReferenceKey),
+        ),
+        replayGainTruePeak: prefs.getBool(replayGainTruePeakKey) ?? false,
         crossfadeSeconds: (prefs.getDouble(crossfadeKey) ?? 0).clamp(0.0, 12.0),
         volumeFade: prefs.getBool(volumeFadeKey) ?? true,
         desktopLyrics: prefs.getBool(desktopLyricsKey) ?? false,
@@ -358,6 +375,11 @@ class PrefsSessionStore implements SessionStore {
       );
       await prefs.setInt(outputDeviceKey, snapshot.outputDevice);
       await prefs.setBool(replayGainKey, snapshot.replayGain);
+      await prefs.setDouble(
+        replayGainReferenceKey,
+        snapshot.replayGainReference,
+      );
+      await prefs.setBool(replayGainTruePeakKey, snapshot.replayGainTruePeak);
       await prefs.setDouble(crossfadeKey, snapshot.crossfadeSeconds);
       await prefs.setBool(volumeFadeKey, snapshot.volumeFade);
       await prefs.setBool(desktopLyricsKey, snapshot.desktopLyrics);

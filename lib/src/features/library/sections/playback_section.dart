@@ -116,11 +116,12 @@ extension _PlaybackSection on _LibraryPageState {
     // 换歌那一下是内存台阶的所在（新封面解码 + 整页第一次画）。等它画完
     // 补查一次，别等常规周期
     MemoryGuard.checkSoon();
-    // 无标签增益且没算过：后台补算，算完写回曲库，从下一次起播开始生效。
+    // 没有标签增益、也没测量过：后台补算，算完写回曲库，从下一次起播开始生效。
     // 不在播放中途改音量——分析要 1~2 秒，那 1~2 秒会明显偏响再突然变小。
     if (_replayGain &&
         track.replayGain == 0 &&
-        !_autoGains.containsKey(track.path)) {
+        track.loudnessLufs == 0 &&
+        !_autoLoudness.containsKey(track.path)) {
       unawaited(_autoGain(track.path));
     }
     return true;
@@ -182,16 +183,36 @@ extension _PlaybackSection on _LibraryPageState {
 
   /// 起播时下发给引擎的 ReplayGain 增益（dB）。
   ///
-  /// 开关关掉就是 0；开着时优先用标签里的值，其次用后台补算后缓存的，
-  /// 都没有就按 0 起播、之后再补算——现场分析要全曲解码，等不起。
+  /// 开关关掉就是 0。开着时按当前设置（参考响度 + 峰值类型）现算：
+  /// 优先用现场测出的响度 / 峰值（曲库里的或本会话缓存的），
+  /// 没有测量值就退回标签增益并按参考响度偏移；两者都没有就按 0 起播、
+  /// 之后再补算——现场分析要全曲解码，等不起。
+  ///
+  /// 用测量值而不是存下来的 dB：改参考响度 / 换峰值类型立刻生效，
+  /// 不用把整个曲库重算一遍。
   double _gainFor(Track track) {
     if (!_replayGain) {
       return 0;
     }
-    if (track.replayGain != 0) {
-      return track.replayGain;
+    final rust.LoudnessAnalysis? measured = _autoLoudness[track.path];
+    final double loudness = measured?.loudnessLufs ?? track.loudnessLufs;
+    if (loudness != 0) {
+      final double peak = _replayGainTruePeak
+          ? (measured?.truePeak ?? track.truePeak)
+          : (measured?.samplePeak ?? track.samplePeak);
+      return replayGainForLoudness(
+        loudnessLufs: loudness,
+        peak: peak,
+        referenceLufs: _replayGainReference,
+      );
     }
-    return _autoGains[track.path] ?? 0;
+    if (track.replayGain != 0) {
+      return replayGainForTag(
+        track.replayGain,
+        referenceLufs: _replayGainReference,
+      );
+    }
+    return 0;
   }
 
   /* ------------------------------------------------------ 启动预加载 */
@@ -1264,6 +1285,10 @@ extension _PlaybackSection on _LibraryPageState {
           audioBitrate: track.audioBitrate,
           sampleRate: track.sampleRate,
           bitDepth: track.bitDepth,
+          // ReplayGain 的测量值也原样带回，别让这次重写把它清零
+          loudnessLufs: track.loudnessLufs,
+          samplePeak: track.samplePeak,
+          truePeak: track.truePeak,
         ),
       ],
     );
@@ -1566,31 +1591,34 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 标签里没有增益时现场分析整曲（ReplayGain 2.0）。
+  /// 标签里没有增益、也没测量过时现场分析整曲（ReplayGain 2.0）。
   ///
   /// 结果由引擎写回曲库（下次起播直接带上），这里另存一份会话缓存，
-  /// 让本次运行里再次播放同一首时不用重算。
+  /// 让本次运行里再次播放同一首时不用重算——也是「改参考响度不用重算」
+  /// 的依据：缓存的是响度 / 峰值，增益每次都按当前设置现算。
   /// 同一路径同时只跑一次：后台补算和「起播后补算」可能撞在一起。
-  /// 分析失败静默回落 0（不调整）：为了一个坏文件弹提示不值得，
+  /// 分析失败静默回落 null（按 0 不调整）：为了一个坏文件弹提示不值得，
   /// 播放本身马上还会给出真正的失败原因。
-  Future<double> _autoGain(String path) {
-    final double? cached = _autoGains[path];
+  Future<rust.LoudnessAnalysis?> _autoGain(String path) {
+    final rust.LoudnessAnalysis? cached = _autoLoudness[path];
     if (cached != null) {
-      return Future<double>.value(cached);
+      return Future<rust.LoudnessAnalysis?>.value(cached);
     }
-    return _autoGainPending[path] ??= _analyzeGain(path).whenComplete(() {
+    return _autoLoudnessPending[path] ??= _analyzeGain(path).whenComplete(() {
       // 用块体：`whenComplete` 会把回调返回的 Future 一起等，
-      // 写成 `=> _autoGainPending.remove(path)` 就等于等自己，永远不完成
-      _autoGainPending.remove(path);
+      // 写成 `=> _autoLoudnessPending.remove(path)` 就等于等自己，永远不完成
+      _autoLoudnessPending.remove(path);
     });
   }
 
-  Future<double> _analyzeGain(String path) async {
+  Future<rust.LoudnessAnalysis?> _analyzeGain(String path) async {
     try {
-      final double gain = await _playback.analyzeReplayGain(path);
-      return _autoGains[path] = gain;
+      final rust.LoudnessAnalysis measured = await _playback.analyzeReplayGain(
+        path,
+      );
+      return _autoLoudness[path] = measured;
     } catch (_) {
-      return 0;
+      return null;
     }
   }
 
@@ -1608,7 +1636,9 @@ extension _PlaybackSection on _LibraryPageState {
       if (_warmGainsCancelled || !_replayGain) {
         return;
       }
-      if (track.replayGain != 0 || _autoGains.containsKey(track.path)) {
+      if (track.replayGain != 0 ||
+          track.loudnessLufs != 0 ||
+          _autoLoudness.containsKey(track.path)) {
         continue;
       }
       await _autoGain(track.path);
@@ -1626,6 +1656,26 @@ extension _PlaybackSection on _LibraryPageState {
     if (value) {
       unawaited(_warmAutoGains());
     }
+  }
+
+  /// 参考响度（LUFS）：只影响下一首起播，不实时改音量。
+  ///
+  /// 曲库存的是测量值，换参考响度不需要重算，下一首起播直接按新目标算。
+  void _setReplayGainReference(double value) {
+    if (_replayGainReference == value) {
+      return;
+    }
+    _update(() => _replayGainReference = value);
+    _saveSessionNow();
+  }
+
+  /// 峰值类型（采样 / 真实峰值）：同样只影响下一首起播。
+  void _setReplayGainTruePeak(bool value) {
+    if (_replayGainTruePeak == value) {
+      return;
+    }
+    _update(() => _replayGainTruePeak = value);
+    _saveSessionNow();
   }
 
   /// 换曲淡变时长（秒）；0 关闭

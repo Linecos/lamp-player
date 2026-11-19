@@ -261,7 +261,9 @@ extension _SelectionSection on _LibraryPageState {
         content: const Text(
           '会逐首分析整曲响度（EBU R128），并把结果写进音频文件的 '
           'REPLAYGAIN_TRACK_GAIN 标签：文件会被修改（只加这一个标签，'
-          '已有的同名标签会被覆盖），每首约需 1 秒。',
+          '已有的同名标签会被覆盖），每首约需 1 秒。\n'
+          '标签固定按 -18 LUFS 参考写入（ReplayGain 的通用口径），'
+          '与设置里的「参考响度」无关；峰值限幅按设置的峰值类型。',
         ),
         actions: <Widget>[
           TextButton(
@@ -346,9 +348,17 @@ extension _SelectionSection on _LibraryPageState {
         track.title,
       );
       try {
-        final double gain = await _playback.analyzeReplayGain(track.path);
+        final rust.LoudnessAnalysis measured = await _playback
+            .analyzeReplayGain(track.path);
+        // 标签按 -18 LUFS 参考写入：别的播放器也按这个口径读，
+        // 不能被设置里的「参考响度」带偏；峰值限幅跟设置走。
+        final double gain = replayGainForLoudness(
+          loudnessLufs: measured.loudnessLufs,
+          peak: _replayGainTruePeak ? measured.truePeak : measured.samplePeak,
+          referenceLufs: replayGainDefaultReference,
+        );
         await _repository.writeReplayGain(track.path, gain);
-        _autoGains[track.path] = gain;
+        _autoLoudness[track.path] = measured;
         written += 1;
         sum += gain;
         folders.add(p.dirname(track.path));

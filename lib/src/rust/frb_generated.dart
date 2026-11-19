@@ -225,7 +225,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<PlayStats> crateApiCollectionsPlayStats();
 
-  Future<double> crateApiPlayerPlayerAnalyzeReplayGain({required String path});
+  Future<LoudnessAnalysis> crateApiPlayerPlayerAnalyzeReplayGain({
+    required String path,
+  });
 
   int crateApiPlayerPlayerCurrentDevice();
 
@@ -1703,7 +1705,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "play_stats", argNames: []);
 
   @override
-  Future<double> crateApiPlayerPlayerAnalyzeReplayGain({required String path}) {
+  Future<LoudnessAnalysis> crateApiPlayerPlayerAnalyzeReplayGain({
+    required String path,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1717,7 +1721,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_f_64,
+          decodeSuccessData: sse_decode_loudness_analysis,
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiPlayerPlayerAnalyzeReplayGainConstMeta,
@@ -3552,6 +3556,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  LoudnessAnalysis dco_decode_loudness_analysis(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return LoudnessAnalysis(
+      loudnessLufs: dco_decode_f_64(arr[0]),
+      samplePeak: dco_decode_f_64(arr[1]),
+      truePeak: dco_decode_f_64(arr[2]),
+    );
+  }
+
+  @protected
   LyricLine dco_decode_lyric_line(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -3719,8 +3736,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Track dco_decode_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return Track(
       path: dco_decode_String(arr[0]),
       title: dco_decode_String(arr[1]),
@@ -3735,6 +3752,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       audioBitrate: dco_decode_i_32(arr[10]),
       sampleRate: dco_decode_i_32(arr[11]),
       bitDepth: dco_decode_i_32(arr[12]),
+      loudnessLufs: dco_decode_f_64(arr[13]),
+      samplePeak: dco_decode_f_64(arr[14]),
+      truePeak: dco_decode_f_64(arr[15]),
     );
   }
 
@@ -4141,6 +4161,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  LoudnessAnalysis sse_decode_loudness_analysis(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_loudnessLufs = sse_decode_f_64(deserializer);
+    var var_samplePeak = sse_decode_f_64(deserializer);
+    var var_truePeak = sse_decode_f_64(deserializer);
+    return LoudnessAnalysis(
+      loudnessLufs: var_loudnessLufs,
+      samplePeak: var_samplePeak,
+      truePeak: var_truePeak,
+    );
+  }
+
+  @protected
   LyricLine sse_decode_lyric_line(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_timeMs = sse_decode_i_64(deserializer);
@@ -4344,6 +4377,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_audioBitrate = sse_decode_i_32(deserializer);
     var var_sampleRate = sse_decode_i_32(deserializer);
     var var_bitDepth = sse_decode_i_32(deserializer);
+    var var_loudnessLufs = sse_decode_f_64(deserializer);
+    var var_samplePeak = sse_decode_f_64(deserializer);
+    var var_truePeak = sse_decode_f_64(deserializer);
     return Track(
       path: var_path,
       title: var_title,
@@ -4358,6 +4394,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       audioBitrate: var_audioBitrate,
       sampleRate: var_sampleRate,
       bitDepth: var_bitDepth,
+      loudnessLufs: var_loudnessLufs,
+      samplePeak: var_samplePeak,
+      truePeak: var_truePeak,
     );
   }
 
@@ -4766,6 +4805,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_loudness_analysis(
+    LoudnessAnalysis self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self.loudnessLufs, serializer);
+    sse_encode_f_64(self.samplePeak, serializer);
+    sse_encode_f_64(self.truePeak, serializer);
+  }
+
+  @protected
   void sse_encode_lyric_line(LyricLine self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self.timeMs, serializer);
@@ -4929,6 +4979,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.audioBitrate, serializer);
     sse_encode_i_32(self.sampleRate, serializer);
     sse_encode_i_32(self.bitDepth, serializer);
+    sse_encode_f_64(self.loudnessLufs, serializer);
+    sse_encode_f_64(self.samplePeak, serializer);
+    sse_encode_f_64(self.truePeak, serializer);
   }
 
   @protected

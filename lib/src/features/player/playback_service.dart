@@ -29,11 +29,12 @@ abstract interface class PlaybackService {
     double positionSecs = 0,
   });
 
-  /// 分析 [path] 的整曲响度，返回 ReplayGain 建议增益（dB）。
+  /// 分析 [path] 的整曲响度与峰值（ReplayGain 2.0，全曲解码约需 1~2 秒）。
   ///
-  /// 标签里没有增益时现场补算（ReplayGain 2.0，全曲解码约需 1~2 秒）；
-  /// 结果会顺带写回曲库，下次起播直接带上，不必再算。
-  Future<double> analyzeReplayGain(String path);
+  /// 返回的是**测量值**（积分响度 + 采样 / 真峰值），增益由调用方按当前设置
+  /// 现算（见 `common/audio/replay_gain.dart`）：参考响度 / 峰值类型改了不用重算。
+  /// 结果会顺带写回曲库，下次起播直接带上。
+  Future<rust.LoudnessAnalysis> analyzeReplayGain(String path);
 
   /// 应用 ReplayGain 增益（dB），立即作用到当前输出。
   ///
@@ -140,7 +141,7 @@ class RustPlaybackService implements PlaybackService {
   }
 
   @override
-  Future<double> analyzeReplayGain(String path) =>
+  Future<rust.LoudnessAnalysis> analyzeReplayGain(String path) =>
       rust.playerAnalyzeReplayGain(path: path);
 
   @override

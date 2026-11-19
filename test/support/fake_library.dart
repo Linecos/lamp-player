@@ -7,6 +7,7 @@ import 'package:lamp_player/src/features/player/playback_service.dart';
 import 'package:lamp_player/src/features/settings/music_folder_store.dart';
 import 'package:lamp_player/src/rust/api/db.dart' as db;
 import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/common/audio/replay_gain.dart';
 import 'package:lamp_player/src/rust/api/player.dart' as rust;
 import 'package:lamp_player/src/rust/api/scan.dart';
 
@@ -21,6 +22,9 @@ Track sampleTrack({
   String? path,
   String? coverPath,
   double replayGain = 0,
+  double loudnessLufs = 0,
+  double samplePeak = 0,
+  double truePeak = 0,
   int fileSize = 1024,
   int audioBitrate = 0,
   int sampleRate = 0,
@@ -40,6 +44,9 @@ Track sampleTrack({
     audioBitrate: audioBitrate,
     sampleRate: sampleRate,
     bitDepth: bitDepth,
+    loudnessLufs: loudnessLufs,
+    samplePeak: samplePeak,
+    truePeak: truePeak,
   );
 }
 
@@ -578,8 +585,21 @@ class FakePlaybackService implements PlaybackService {
   /// 每次 play 传入的 ReplayGain（dB），与 [playedPaths] 一一对应
   final List<double> playedGains = <double>[];
 
-  /// `analyzeReplayGain()` 返回的固定值
-  double analyzedGain = -7.5;
+  /// `analyzeReplayGain()` 返回的固定响度（LUFS）
+  ///
+  /// 默认 -10.5：按 -18 LUFS 参考算出来正好是 -7.5 dB，
+  /// 老用例断言的增益值不用改。
+  double analyzedLoudness = -10.5;
+
+  /// 按「-18 LUFS 参考下的增益」读写分析结果，测试用例惯用这个口径
+  double get analyzedGain => replayGainDefaultReference - analyzedLoudness;
+
+  set analyzedGain(double gainDb) =>
+      analyzedLoudness = replayGainDefaultReference - gainDb;
+
+  /// `analyzeReplayGain()` 返回的采样 / 真峰值（线性幅度）
+  double analyzedSamplePeak = 0;
+  double analyzedTruePeak = 0;
 
   /// 非空时 `analyzeReplayGain()` 抛出该错误，用于测试无标签曲目回落 0
   Object? analyzeError;
@@ -648,7 +668,7 @@ class FakePlaybackService implements PlaybackService {
   }
 
   @override
-  Future<double> analyzeReplayGain(String path) async {
+  Future<rust.LoudnessAnalysis> analyzeReplayGain(String path) async {
     final Object? error = analyzeError;
     if (error != null) {
       throw error;
@@ -658,7 +678,11 @@ class FakePlaybackService implements PlaybackService {
       await gate.future;
     }
     analyzedPaths.add(path);
-    return analyzedGain;
+    return rust.LoudnessAnalysis(
+      loudnessLufs: analyzedLoudness,
+      samplePeak: analyzedSamplePeak,
+      truePeak: analyzedTruePeak,
+    );
   }
 
   /// `setReplayGain()` 收到的增益序列。

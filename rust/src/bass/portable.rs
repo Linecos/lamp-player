@@ -1,6 +1,6 @@
 //! 非 Windows 平台的空实现：保证 Linux CI 能编译、能跑测试。
 
-use super::{Device, Progress, State};
+use super::{Device, Loudness, Progress, State};
 use anyhow::{bail, Result};
 
 pub fn available() -> bool {
@@ -19,7 +19,7 @@ pub fn play(_path: &str, _replay_gain_db: f64) -> Result<()> {
     unsupported()
 }
 
-pub fn analyze_gain(_path: &str) -> Result<f64> {
+pub fn analyze_loudness(_path: &str) -> Result<Loudness> {
     unsupported()
 }
 

@@ -812,6 +812,85 @@ void main() {
     expect(fadeToggles, <bool>[false]);
   });
 
+  testWidgets('ReplayGain 参考响度与峰值类型可选，关掉开关时禁用', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<double> references = <double>[];
+    final List<bool> peaks = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            replayGain: true,
+            replayGainReference: -18,
+            onReplayGainReferenceChanged: references.add,
+            replayGainTruePeak: false,
+            onReplayGainTruePeakChanged: peaks.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 参考响度：三档都能选，默认 -18
+    final Finder referenceRow = find.byKey(
+      const ValueKey<String>('settings-replay-gain-reference'),
+    );
+    await tester.ensureVisible(referenceRow);
+    expect(tester.widget<DropdownButton<double>>(referenceRow).value, -18.0);
+    await tester.tap(referenceRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('-14 LUFS').last);
+    await tester.pumpAndSettle();
+    expect(references, <double>[-14]);
+
+    // 峰值类型：默认采样峰值，可切真实峰值
+    final Finder peakRow = find.byKey(
+      const ValueKey<String>('settings-replay-gain-peak'),
+    );
+    await tester.ensureVisible(peakRow);
+    expect(tester.widget<DropdownButton<bool>>(peakRow).value, isFalse);
+    await tester.tap(peakRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('真实峰值').last);
+    await tester.pumpAndSettle();
+    expect(peaks, <bool>[true]);
+  });
+
+  testWidgets('ReplayGain 关掉时参考响度与峰值类型不可改', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            replayGain: false,
+            onReplayGainReferenceChanged: (_) {},
+            onReplayGainTruePeakChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder referenceRow = find.byKey(
+      const ValueKey<String>('settings-replay-gain-reference'),
+    );
+    await tester.ensureVisible(referenceRow);
+    expect(
+      tester.widget<DropdownButton<double>>(referenceRow).onChanged,
+      isNull,
+    );
+  });
+
   testWidgets('自定义取色：弹窗按内容收紧，拖动中不重算主题', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;

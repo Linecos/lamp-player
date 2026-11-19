@@ -5,7 +5,7 @@
 
 use super::fft;
 use super::wasapi;
-use super::{Device, Progress, State};
+use super::{Device, Loudness, Progress, State};
 use anyhow::{anyhow, bail, Result};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -1919,8 +1919,8 @@ pub fn play(path: &str, replay_gain_db: f64) -> Result<()> {
     })
 }
 
-pub fn analyze_gain(path: &str) -> Result<f64> {
-    analyze::analyze_gain(path)
+pub fn analyze_loudness(path: &str) -> Result<Loudness> {
+    analyze::analyze_loudness(path)
 }
 
 pub fn devices() -> Result<Vec<Device>> {

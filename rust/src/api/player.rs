@@ -45,18 +45,43 @@ pub fn player_set_replay_gain(gain_db: f64) -> Result<()> {
     bass::set_replay_gain(gain_db)
 }
 
-/// 分析整曲响度，返回 ReplayGain 建议增益（dB）
+/// 整曲响度测量结果（ReplayGain 2.0）
 ///
-/// 曲目标签里没有 ReplayGain 时用这个现场补：按 ReplayGain 2.0 计算
-/// （EBU R128 积分响度，目标 -18 LUFS），结果夹取 ±24 dB，全静音返回 0。
-/// 全曲解码约需零点几秒到几秒，失败（文件损坏 / 格式不支持）直接报错。
+/// 增益由调用方按设置现算（参考响度见 `docs/API_CONTRACT.md` 的增益公式），
+/// 所以改参考响度 / 峰值类型都不用重跑解码。
+#[derive(Clone, Copy, Debug)]
+pub struct LoudnessAnalysis {
+    /// EBU R128 积分响度（LUFS）；全静音为 0
+    pub loudness_lufs: f64,
+    /// 采样峰值（线性幅度，1.0 = 满量程）；0 = 静音 / 没测到
+    pub sample_peak: f64,
+    /// 真峰值（线性幅度）；0 = 静音 / 没测到
+    pub true_peak: f64,
+}
+
+/// 分析整曲响度与峰值（ReplayGain 2.0）
 ///
-/// 算出的值顺带写回曲库（`tracks.replay_gain`）：下次起播就能直接带上，
-/// 不必再「先按不归一响 1~2 秒、算完才压下去」。落库失败不影响返回值。
-pub fn player_analyze_replay_gain(path: String) -> Result<f64> {
-    let gain = bass::analyze_gain(&path)?;
-    let _ = db::store_replay_gain(&path, gain);
-    Ok(gain)
+/// 曲目标签里没有 ReplayGain 时用这个现场补：一次解码量出 EBU R128
+/// 积分响度与采样 / 真两种峰值，全曲解码约需零点几秒到几秒，
+/// 失败（文件损坏 / 格式不支持）直接报错。
+///
+/// 结果顺带写回曲库（`tracks.loudness_lufs` / 两个峰值列）：下次起播
+/// 就能按当前设置直接算出增益，不必再「先按不归一响 1~2 秒、算完才压下去」。
+/// 落库失败不影响返回值。增益不在 Rust 侧算：参考响度与峰值类型是用户设置，
+/// 播放时现算，改设置立刻生效。
+pub fn player_analyze_replay_gain(path: String) -> Result<LoudnessAnalysis> {
+    let measured = bass::analyze_loudness(&path)?;
+    let _ = db::store_loudness(
+        &path,
+        measured.loudness_lufs,
+        measured.sample_peak,
+        measured.true_peak,
+    );
+    Ok(LoudnessAnalysis {
+        loudness_lufs: measured.loudness_lufs,
+        sample_peak: measured.sample_peak,
+        true_peak: measured.true_peak,
+    })
 }
 
 /// 可切换的输出设备

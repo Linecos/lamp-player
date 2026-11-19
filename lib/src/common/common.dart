@@ -2,6 +2,7 @@
 library;
 
 export 'audio/audio_quality.dart';
+export 'audio/replay_gain.dart';
 export 'audio/volume_curve.dart';
 export 'formatters/duration.dart';
 export 'formatters/file_size.dart';
