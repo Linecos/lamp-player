@@ -99,6 +99,69 @@ void main() {
     );
   });
 
+  testWidgets('视口高度变了立刻重算渐隐，不等下一句换行', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(52.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 20; i += 1)
+          _line(start: i * 5000, end: i * 5000 + 5000, text: '第$i行'),
+      ],
+      position: position,
+      playing: playing,
+      alignment: 0.3,
+    );
+
+    double? alphaOf(int index) {
+      final Finder text = find.descendant(
+        of: find.byKey(ValueKey<String>('lyric-$index')),
+        matching: find.byType(Text),
+      );
+      if (text.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<Text>(text.first).style?.color?.a;
+    }
+
+    void expectAnchored() {
+      final Rect viewport = tester.getRect(
+        find.byKey(const ValueKey<String>('lyrics-edge-fade')),
+      );
+      final Rect active = tester.getRect(
+        find.byKey(const ValueKey<String>('lyric-10')),
+      );
+      expect(
+        active.center.dy,
+        closeTo(viewport.top + viewport.height * 0.3, 8),
+        reason: '当前行要停在对齐线上',
+      );
+    }
+
+    expectAnchored();
+    // 视口越高，同几行离上沿的**相对**距离越小，渐隐曲线按高度归一化，
+    // 所以同一行的 alpha 必须跟着变
+    final double? before = alphaOf(7);
+    expect(before, isNotNull, reason: '这一行应该在视口里');
+
+    // 窗口化 → 全屏：只改视口高度，进度没动（不会触发换行 / 滚动监听）
+    tester.view.physicalSize = const Size(900, 1100);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expectAnchored();
+    final double? after = alphaOf(7);
+    expect(after, isNotNull);
+    expect(
+      after,
+      isNot(closeTo(before!, 0.02)),
+      reason: '渐隐要按新高度重算，不能停在旧窗口的 alpha 上等下一句',
+    );
+  });
+
   testWidgets('对齐方式把整行推到左 / 中 / 右', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(12.5);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);

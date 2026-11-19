@@ -927,6 +927,12 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
         },
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
+            // 高度变了就得重新对齐并重算渐隐（见 [_onViewportResized]）
+            if (_lastViewportHeight != null &&
+                (constraints.maxHeight - _lastViewportHeight!).abs() >= 0.5) {
+              _onViewportResized();
+            }
+            _lastViewportHeight = constraints.maxHeight;
             // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
             final double topPad = math.max(
               24,
@@ -1123,6 +1129,35 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   }
 
   bool _opacityRefreshPending = false;
+
+  /// 上一次看到的歌词视口高度（见 [_onViewportResized]）
+  double? _lastViewportHeight;
+  bool _resizeFixPending = false;
+
+  /// 视口高度变了（窗口化 ↔ 全屏、拖窗口边缘）。
+  ///
+  /// 尺寸变化不会触发滚动监听：`pixels` 没动，可渐隐带厚度与当前行的对齐位置
+  /// 全是按旧高度算的，界面上就是「整片歌词停在旧位置、边上淡出不对」，要等到
+  /// 下一句换行才纠正。这里等这一帧布局完重新对齐当前行、再全量重算一遍。
+  void _onViewportResized() {
+    if (_resizeFixPending || !mounted) {
+      return;
+    }
+    _resizeFixPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resizeFixPending = false;
+      if (!mounted || !_scroll.hasClients) {
+        return;
+      }
+      // 用户自己滚着的时候不抢位置，但渐隐仍要按新高度对上
+      if (!_userScrolling) {
+        // 重新定位是一次跳变，别让滚动监听把这次的位移当成用户滚动去补偿
+        _lastPixels = null;
+        _scrollToActive(animate: false);
+      }
+      _refreshRowOpacity();
+    });
+  }
 
   /// 顶部死区的下边界：被视口上沿裁掉的那行整行消失，从下一行的顶边才开始
   /// 渐显。没有行被裁（最上面那行完整）时返回 0，走正常的顶部渐隐。
