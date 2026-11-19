@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
 import '../../common/scroll/smooth_scroll.dart';
+import '../../common/widgets/album_cover.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'playback_queue.dart';
@@ -250,25 +251,42 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                               ),
                             ),
                             contentPadding: const EdgeInsets.only(
-                              left: 24,
-                              right: 8,
+                              left: 12,
+                              right: 12,
                             ),
+                            // 左内边距收紧后，标题与封面之间留 12 就够，再大就白空
+                            horizontalTitleGap: 12,
                             leading: SizedBox(
-                              width: 28,
-                              child: Center(
-                                child: current
-                                    ? Icon(
-                                        Icons.graphic_eq,
-                                        size: 18,
-                                        color: scheme.primary,
-                                      )
-                                    : Text(
-                                        '${index + 1}',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: scheme.onSurfaceVariant,
+                              // 序号 + 封面：与歌曲列表同一套（序号窄槽、封面 44）
+                              width: 24 + 44,
+                              child: Row(
+                                children: <Widget>[
+                                  SizedBox(
+                                    width: 24,
+                                    child: Center(
+                                      child: current
+                                          ? Icon(
+                                              Icons.graphic_eq,
+                                              size: 18,
+                                              color: scheme.primary,
+                                            )
+                                          : Text(
+                                              '${index + 1}',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color:
+                                                        scheme.onSurfaceVariant,
+                                                  ),
                                             ),
-                                      ),
+                                    ),
+                                  ),
+                                  AlbumCover(
+                                    path: track.coverPath,
+                                    size: 44,
+                                    radius: 12,
+                                    playing: current,
+                                  ),
+                                ],
                               ),
                             ),
                             title: Text(
@@ -299,13 +317,16 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                                     ],
                                   ),
                                 ),
+                                // 时长、拖拽柄、删除三者各自留出空隙：贴着看像一坨
+                                const SizedBox(width: 12),
                                 ReorderableDragStartListener(
                                   index: index,
                                   child: MouseRegion(
                                     cursor: SystemMouseCursors.grab,
                                     child: Padding(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
+                                        horizontal: 8,
+                                        vertical: 6,
                                       ),
                                       child: Icon(
                                         Icons.drag_indicator,
