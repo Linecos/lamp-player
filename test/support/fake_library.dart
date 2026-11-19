@@ -432,11 +432,25 @@ class FakeLibraryRepository implements LibraryRepository {
     return changed;
   }
 
+  /// [recordPlay] 的调用次数，按 `path` 记，供测试断言「计过几次播放」
+  final Map<String, int> playCounts = <String, int>{};
+
+  @override
+  Future<void> touchPlayHistory(String path) async {
+    if (_trackByPath(path) == null) {
+      throw StateError('曲目不在曲库: $path');
+    }
+    _history
+      ..remove(path)
+      ..insert(0, path);
+  }
+
   @override
   Future<void> recordPlay(String path) async {
     if (_trackByPath(path) == null) {
       throw StateError('曲目不在曲库: $path');
     }
+    playCounts[path] = (playCounts[path] ?? 0) + 1;
     _history
       ..remove(path)
       ..insert(0, path);

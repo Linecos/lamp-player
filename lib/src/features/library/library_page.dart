@@ -614,6 +614,21 @@ class _LibraryPageState extends State<LibraryPage>
   int _playSessionDay = 0;
   double _playSessionSeconds = 0;
 
+  /// 本轮播放（一次起播）真正听过的秒数。
+  ///
+  /// 只累加「自然推进」的增量：seek 跳变不算听过，暂停期间也不涨。
+  /// 次数与时长两个门槛都按它判，所以拖回、暂停、跳着听都不会骗到统计。
+  double _playedSinceStart = 0;
+
+  /// 本轮播放是否已经记过一次「播放次数」；起播时清零
+  bool _playCountedThisStart = false;
+
+  /// 听过全曲的多少比例才记一次播放次数
+  static const double _playCountRatio = 0.5;
+
+  /// 听过多少比例之后才开始累计听歌时长（前四分之一整段不计）
+  static const double _playTimeRatio = 0.25;
+
   /// 上一次轮询到的位置，用来算「这一拍真正听了多久」。
   double _lastPollPosition = 0;
 

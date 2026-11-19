@@ -92,7 +92,10 @@ abstract interface class LibraryRepository {
   /// 批量设置收藏状态；返回真正改变的条数
   Future<int> setFavorites(List<String> paths, bool favorite);
 
-  /// 记录一次播放；同曲目只保留一条历史
+  /// 起播时只更新「最近播放时间」，不进次数（历史跟点击走，次数听够一半才算）
+  Future<void> touchPlayHistory(String path);
+
+  /// 记录一次播放（次数 +1）；同曲目只保留一条历史
   Future<void> recordPlay(String path);
 
   /// 累加某首歌在 [day]（`yyyyMMdd` 整数）的播放秒数
@@ -197,6 +200,10 @@ class RustLibraryRepository implements LibraryRepository {
   @override
   Future<int> setFavorites(List<String> paths, bool favorite) =>
       collections.setFavorites(paths: paths, favorite: favorite);
+
+  @override
+  Future<void> touchPlayHistory(String path) =>
+      collections.touchPlayHistory(path: path);
 
   @override
   Future<void> recordPlay(String path) => collections.recordPlay(path: path);

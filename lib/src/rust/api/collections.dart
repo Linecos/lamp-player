@@ -141,6 +141,14 @@ Future<int> setFavorites({
   favorite: favorite,
 );
 
+/// 只更新「最近播放时间」，不增加播放次数（起播时用）。
+///
+/// 历史列表按这个时间排，所以「最近播放」跟点击走；次数另算一次——
+/// 听过一半才由 `record_play` 累加。新行以 `play_count = 0` 落地，
+/// 排行榜与总次数都按 `play_count > 0` 过滤，不会把它算进去。
+Future<void> touchPlayHistory({required String path}) =>
+    RustLib.instance.api.crateApiCollectionsTouchPlayHistory(path: path);
+
 /// 记录一次播放：同曲目只保留一行，更新时间并累加次数。
 Future<void> recordPlay({required String path}) =>
     RustLib.instance.api.crateApiCollectionsRecordPlay(path: path);
