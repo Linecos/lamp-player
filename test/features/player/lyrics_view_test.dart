@@ -748,6 +748,73 @@ void main() {
     expect(cjk, lessThan(body), reason: '译文仍需略小于正文');
   });
 
+  testWidgets('当前行的译文块放大后不再被裁平', (WidgetTester tester) async {
+    // 当前行整块放大 1.27 倍是**绘制**变换，布局高度不变；译文块外面那层
+    // ClipRect 如果照旧硬裁，底部会被切掉 (1.27-1)*h/2 ≈ 7px——截图里就是
+    // 「当前行下面的译文缺一条」。展开状态必须 Clip.none，收起中才裁。
+    final ValueNotifier<double> position = ValueNotifier<double>(12);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 10000, text: '第 0 行'),
+        _line(
+          start: 10000,
+          end: 20000,
+          text: '第 1 行',
+          translation: 'romaji\n中文译文',
+        ),
+        _line(start: 20000, end: 30000, text: '第 2 行'),
+      ],
+      position: position,
+      playing: playing,
+    );
+    // 等缩放动画走完（600ms）
+    await tester.pump(const Duration(milliseconds: 700));
+
+    final ClipRect clip = tester.widget<ClipRect>(
+      find
+          .ancestor(of: find.text('中文译文'), matching: find.byType(ClipRect))
+          .first,
+    );
+    expect(clip.clipBehavior, Clip.none, reason: '展开时硬裁会把当前行译文的最后一笔切平');
+  });
+
+  testWidgets('译文收起时仍然裁切，避免压到下一行', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(12);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 10000, text: '第 0 行'),
+        _line(
+          start: 10000,
+          end: 20000,
+          text: '第 1 行',
+          translation: 'romaji\n中文译文',
+        ),
+        _line(start: 20000, end: 30000, text: '第 2 行'),
+      ],
+      position: position,
+      playing: playing,
+      showTranslation: false,
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+
+    final ClipRect clip = tester.widget<ClipRect>(
+      find
+          .ancestor(of: find.text('中文译文'), matching: find.byType(ClipRect))
+          .first,
+    );
+    expect(clip.clipBehavior, Clip.hardEdge, reason: '收起中高度乘进度，必须裁');
+  });
+
   testWidgets('关掉译文时译文块不占高度', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0.5);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);

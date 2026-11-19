@@ -1782,11 +1782,18 @@ class _TranslationBody extends StatelessWidget {
       // 展开后 opacity 1 也不建图层，只有过渡那 300ms 会多一层。
       builder: (BuildContext context, double value, Widget? child) {
         final double factor = value.clamp(0.0, 1.0);
+        // 展开后整块跟着当前行放大 1.27 倍（见 `emphasise`），**绘制范围会比
+        // 布局高度多出上下各 (factor-1)*h/2**：两行译文时约 7px。这一档不能裁，
+        // 否则当前行的罗马音 / 译文最后一笔会被切平（截图里就是「下方缺一条」）。
+        // 多出来的 7px 落在行内那 9px 下内边距里，压不到下一行。
+        // 收起过程中还得裁：高度乘进度时文字会压到下一行字上。
+        final bool collapsed = factor < 0.999;
         return Opacity(
           // 按进度平方淡出：淡得比缩得快，等裁切边切到字中间时文字已经几乎
           // 透明，看不出这是一条硬边。不裁又不行——译文会压到下一行字上。
           opacity: factor * factor,
           child: ClipRect(
+            clipBehavior: collapsed ? Clip.hardEdge : Clip.none,
             child: Align(
               alignment: Alignment.topCenter,
               heightFactor: factor,
