@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../rust/api/media.dart' as media;
+import 'playback_queue.dart';
 
 /// 播放状态（只保留 SMTC 关心的三种，页面不必依赖生成的 `MediaPlayState`）
 enum MediaSessionState { playing, paused, stopped }
@@ -21,6 +22,8 @@ class SmtcBridge {
     required this.onNext,
     required this.onPrevious,
     required this.onStop,
+    required this.onRepeatChanged,
+    required this.onShuffleChanged,
   });
 
   final Future<void> Function() onPlay;
@@ -28,6 +31,12 @@ class SmtcBridge {
   final Future<void> Function() onNext;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onStop;
+
+  /// 系统浮层里改了循环（顺序 / 列表 / 单曲）
+  final void Function(LoopMode repeat) onRepeatChanged;
+
+  /// 系统浮层里改了随机开关
+  final void Function(bool shuffle) onShuffleChanged;
 
   StreamSubscription<media.MediaCommand>? _subscription;
   bool _available = false;
@@ -122,6 +131,29 @@ class SmtcBridge {
     }
   }
 
+  /// 把循环 / 随机同步给系统浮层。
+  ///
+  /// 不只是显示：Windows 的循环、随机按钮要在会话里报过这两个属性之后才可点，
+  /// 之前一直不报，浮层里那颗按钮就是灰的、按不动。
+  Future<void> setPlayMode({
+    required LoopMode repeat,
+    required bool shuffle,
+  }) async {
+    if (!_available) {
+      return;
+    }
+    final media.MediaRepeatMode mapped = switch (repeat) {
+      LoopMode.off => media.MediaRepeatMode.off,
+      LoopMode.all => media.MediaRepeatMode.all,
+      LoopMode.one => media.MediaRepeatMode.one,
+    };
+    try {
+      await media.mediaSetPlayMode(repeat: mapped, shuffle: shuffle);
+    } catch (error) {
+      debugPrint('同步系统播放模式失败：$error');
+    }
+  }
+
   void _handleCommand(media.MediaCommand command) {
     // 命令回调是同步的、动作是异步的：不接异常的话，播放服务里抛出的错误
     // 会以「未处理的异步异常」进 zone，日志里只剩一段没有上下文的堆栈。
@@ -144,6 +176,17 @@ class SmtcBridge {
         run(onPrevious);
       case media.MediaCommand.stop:
         run(onStop);
+      // 循环 / 随机是同步请求，不走异步动作链：回调里只改队列状态
+      case media.MediaCommand.repeatOff:
+        onRepeatChanged(LoopMode.off);
+      case media.MediaCommand.repeatAll:
+        onRepeatChanged(LoopMode.all);
+      case media.MediaCommand.repeatOne:
+        onRepeatChanged(LoopMode.one);
+      case media.MediaCommand.shuffleOn:
+        onShuffleChanged(true);
+      case media.MediaCommand.shuffleOff:
+        onShuffleChanged(false);
     }
   }
 

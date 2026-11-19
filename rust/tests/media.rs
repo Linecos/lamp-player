@@ -4,8 +4,8 @@
 //! 不把 CI 弄红。测试结束会清空系统浮层，不留残余。
 
 use rust_lib_lamp_player::api::media::{
-    media_clear, media_init, media_is_supported, media_set_state, media_set_track,
-    single_instance_acquire, MediaPlayState,
+    media_clear, media_init, media_is_supported, media_set_play_mode, media_set_state,
+    media_set_track, single_instance_acquire, MediaPlayState, MediaRepeatMode,
 };
 
 #[test]
@@ -74,6 +74,30 @@ fn smtc_accepts_cover_file() {
 
     media_clear().ok();
     let _ = std::fs::remove_file(cover);
+}
+
+#[test]
+fn smtc_accepts_play_mode() {
+    if !media_is_supported() {
+        return;
+    }
+    if media_init().is_err() {
+        return;
+    }
+    // 三档循环都要能上报：Windows 只有收到过 AutoRepeatMode 才会点亮浮层按钮
+    for repeat in [
+        MediaRepeatMode::Off,
+        MediaRepeatMode::All,
+        MediaRepeatMode::One,
+    ] {
+        media_set_play_mode(repeat, false).expect("设置循环模式应成功");
+    }
+    media_set_play_mode(MediaRepeatMode::All, true).expect("设置随机应成功");
+    media_set_play_mode(MediaRepeatMode::Off, false).expect("复位应成功");
+    // 三个事件（按钮 / 循环 / 随机）能在真机上注册成功：注册失败的话浮层里
+    // 点按钮不会有任何回调，这里直接把它变成红
+    rust_lib_lamp_player::smtc::listen(|_| {}).expect("注册系统事件应成功");
+    media_clear().ok();
 }
 
 #[test]

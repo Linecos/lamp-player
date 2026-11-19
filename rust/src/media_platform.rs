@@ -11,6 +11,18 @@ pub enum Command {
     Next,
     Previous,
     Stop,
+    /// 系统浮层里改了循环模式
+    Repeat(RepeatMode),
+    /// 系统浮层里改了随机开关
+    Shuffle(bool),
+}
+
+/// 循环模式（与 `api::media::MediaRepeatMode` 一一对应）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatMode {
+    Off,
+    List,
+    Track,
 }
 
 /// 播放状态（与 `api::media::MediaPlayState` 一一对应）
@@ -23,7 +35,7 @@ pub enum PlayState {
 
 #[cfg(windows)]
 mod imp {
-    use super::{Command, PlayState};
+    use super::{Command, PlayState, RepeatMode};
     use crate::smtc;
     use anyhow::Result;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,6 +67,15 @@ mod imp {
         smtc::set_state(state)
     }
 
+    pub fn set_play_mode(repeat: RepeatMode, shuffle: bool) -> Result<()> {
+        let repeat = match repeat {
+            RepeatMode::Off => smtc::RepeatMode::Off,
+            RepeatMode::List => smtc::RepeatMode::List,
+            RepeatMode::Track => smtc::RepeatMode::Track,
+        };
+        smtc::set_play_mode(repeat, shuffle)
+    }
+
     pub fn clear() -> Result<()> {
         smtc::clear()
     }
@@ -82,6 +103,12 @@ mod imp {
                 smtc::Command::Next => Command::Next,
                 smtc::Command::Previous => Command::Previous,
                 smtc::Command::Stop => Command::Stop,
+                smtc::Command::Repeat(mode) => Command::Repeat(match mode {
+                    smtc::RepeatMode::Off => RepeatMode::Off,
+                    smtc::RepeatMode::List => RepeatMode::List,
+                    smtc::RepeatMode::Track => RepeatMode::Track,
+                }),
+                smtc::Command::Shuffle(enabled) => Command::Shuffle(enabled),
             }
         }
     }
@@ -101,7 +128,7 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{Command, PlayState};
+    use super::{Command, PlayState, RepeatMode};
     use anyhow::{bail, Result};
 
     pub fn init() -> Result<()> {
@@ -118,6 +145,10 @@ mod imp {
     }
 
     pub fn set_state(_state: PlayState) -> Result<()> {
+        bail!("当前平台不支持系统媒体控制")
+    }
+
+    pub fn set_play_mode(_repeat: RepeatMode, _shuffle: bool) -> Result<()> {
         bail!("当前平台不支持系统媒体控制")
     }
 
@@ -145,5 +176,6 @@ mod imp {
 }
 
 pub use imp::{
-    acquire, clear, init, listen, set_state, set_track, signal_existing, take_activation,
+    acquire, clear, init, listen, set_play_mode, set_state, set_track, signal_existing,
+    take_activation,
 };

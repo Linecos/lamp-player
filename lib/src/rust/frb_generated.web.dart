@@ -157,6 +157,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MediaPlayState dco_decode_media_play_state(dynamic raw);
 
   @protected
+  MediaRepeatMode dco_decode_media_repeat_mode(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -348,6 +351,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MediaPlayState sse_decode_media_play_state(SseDeserializer deserializer);
+
+  @protected
+  MediaRepeatMode sse_decode_media_repeat_mode(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -579,6 +585,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_media_play_state(
     MediaPlayState self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_media_repeat_mode(
+    MediaRepeatMode self,
     SseSerializer serializer,
   );
 

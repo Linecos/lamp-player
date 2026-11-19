@@ -7,6 +7,14 @@
 
 ### 修复
 
+- 修**Windows 播控浮层里的「播放模式」按钮是灰的、点不动**：SMTC 只有收到过
+  `AutoRepeatMode` / `ShuffleEnabled` 这两个属性、并订阅对应的
+  `AutoRepeatModeChangeRequested` / `ShuffleEnabledChangeRequested` 事件，系统才认为
+  这个会话支持循环 / 随机；此前本应用从头到尾没报过，浮层里那颗按钮就一直灰着。
+  现在初始化时先报一次「不循环 / 不随机」，之后启动恢复、播放条按钮轮换、系统浮层
+  自己改，三条路径都会把实际状态回报给系统；浮层里点循环 / 随机也会写回本应用
+  （互斥关系照旧：开随机就清循环，反之亦然）
+
 - 修**增量扫描 / 启动补扫在万级曲库上白等几秒**：扫描前要挑出「封面文件已不在」的曲目强制重解析，原实现按曲目逐个 `fs::metadata`，同一张专辑封面被二十首共用、等于同一批路径查了二十遍（10k 曲库实测 2.44 s）。现在按封面路径去重再查盘，同一张封面只查一次，这段降到 7 ms，10k 增量扫描 **5.14 s → 0.36 s**
 
 - 修**音质分布第四档几乎看不见**：四档配色原来是「把强调色往背景里按固定比例混」（0 / 22% / 42% / 60%），浅色主题下最淡那档与卡片底的对比度只有 **1.49:1**、深色 2.11:1，都低于图形元素 3:1 的可辨识下限（WCAG 1.4.11）。现在反过来按对比度定档：从原色自己的对比度到 3.1:1 之间按对数等分取三档（浅色默认主题 4.88 / 4.19 / 3.61 / 3.10，深色 8.42 / 6.03 / 4.33 / 3.10），阶梯的「每级差多少」在两种主题下一致，任何 seed 都保证四档各是各的颜色
@@ -17,6 +25,9 @@
 
 ### 变更
 
+- 接口契约升到 **v0.19**（`docs/API_CONTRACT.md`）：新增 `media_set_play_mode` 与
+  `MediaRepeatMode`，`MediaCommand` 增加 `repeatOff` / `repeatAll` / `repeatOne` /
+  `shuffleOn` / `shuffleOff` 五个分支（系统浮层改了循环 / 随机时下发）
 - 接口契约升到 **v0.18**（`docs/API_CONTRACT.md`）：`Track` 增加 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`（曲库结构 v10）、`lyrics_save_raw` 增加 `target` 入参（`sidecar` / `embedded`）、新增 `write_track_cover`、`TrackTags` 增加作曲 / 作词 / 注释三项，都是 v0.17 之后已经落地的改动，这次补齐文档
 - 设置页的「关于」一行改成**可点开弹窗**
 - Windows 安装包向导支持**简体中文**：中文系统按系统 UI 语言自动进中文向导，其它语言仍走英文，都不匹配时才弹语言选择页。中文语言包（Inno 官方 6.5.0+ 翻译，作者 Zhenghan Yang）随仓库放在 `installer\ChineseSimplified.isl`，不依赖本机 Inno 是否自带；编译要求相应提到 **Inno Setup 6.5+**
