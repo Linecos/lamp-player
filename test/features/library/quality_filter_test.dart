@@ -6,7 +6,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/audio/audio_quality.dart';
+import 'package:lamp_player/src/common/scroll/smooth_scroll.dart';
 import 'package:lamp_player/src/features/library/widgets/quality_ring.dart';
+import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
@@ -324,6 +326,25 @@ void main() {
       expect(find.text('找到 1 首'), findsOneWidget);
       // 「甲」在搜索框里也有一份（EditableText），所以只断言另一首被筛掉
       expect(find.text('乙'), findsNothing);
+    });
+
+    testWidgets('子界面列表也是平滑滚动', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HR · '));
+      await tester.pumpAndSettle();
+
+      final ScrollPosition position = tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(TrackListView),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position;
+      expect(position, isA<SmoothScrollPosition>());
     });
 
     testWidgets('子界面里点播放全部只放这一档', (WidgetTester tester) async {

@@ -769,6 +769,23 @@ class _LibraryPageState extends State<LibraryPage>
   final SmoothScrollController _artistScroll = SmoothScrollController();
   final SmoothScrollController _albumScroll = SmoothScrollController();
 
+  /// 音乐库里的两个曲目子页（某一档音质 / 某个目录）：都挂同一份列表组件，
+  /// 不传控制器它就会退回框架的私有控制器，滚轮又是一格一顿，所以各备一个
+  final SmoothScrollController _qualityDetailScroll = SmoothScrollController();
+  final SmoothScrollController _folderDetailScroll = SmoothScrollController();
+
+  /// 子页换了内容：把共用的控制器拉回顶部。
+  ///
+  /// 共用控制器会记住上一个档位 / 目录的偏移，大列表再进来就会从中间开始；
+  /// 挂下一帧是因为新列表要等这一帧布局完才挂得上控制器。
+  void _resetDetailScroll(SmoothScrollController controller) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (controller.hasClients) {
+        controller.jumpTo(0);
+      }
+    });
+  }
+
   /// 刚被定位到的那一行：短暂强调一下，否则目标本来就在屏幕中间时毫无反馈
   String? _flashTrackPath;
   Timer? _flashTimer;
@@ -1134,6 +1151,8 @@ class _LibraryPageState extends State<LibraryPage>
     _playlistScroll.dispose();
     _artistScroll.dispose();
     _albumScroll.dispose();
+    _qualityDetailScroll.dispose();
+    _folderDetailScroll.dispose();
     _flashTimer?.cancel();
     _desktopLyricTimer?.cancel();
     _karaokeTimer?.cancel();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/scroll/smooth_scroll.dart';
 import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
@@ -118,6 +119,26 @@ void main() {
       findsNothing,
     );
     expect(find.text('音乐目录'), findsOneWidget);
+  });
+
+  testWidgets('子页列表也是平滑滚动', (WidgetTester tester) async {
+    await pumpLibrary(tester, tracks: _twoFolders(), folderStore: _store());
+    await openLibrarySettings(tester);
+    await tester.tap(_rowOf(r'D:\Music'));
+    await tester.pumpAndSettle();
+
+    // 不传控制器时会退回框架的私有控制器，滚轮又是一格一顿
+    final ScrollPosition position = tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(TrackListView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    expect(position, isA<SmoothScrollPosition>());
   });
 
   testWidgets('子页里搜索提示是「搜索音乐」，输入只筛这个目录', (WidgetTester tester) async {
