@@ -16,7 +16,9 @@ enum LibrarySection {
   history('历史', Icons.access_time, Icons.access_time_filled),
   favorites('收藏', Icons.favorite_outline, Icons.favorite),
   artists('艺术家', Icons.person_outline, Icons.person),
-  albums('专辑', Icons.library_books_outlined, Icons.library_books),
+  // 专辑用唱片字形（对齐 mdi:album）：内置图标集里没有这个形状，绘制见
+  // `_AlbumDiscIcon`，两个 IconData 仅作占位，实际渲染走自绘
+  albums('专辑', Icons.album_outlined, Icons.album),
 
   // 店铺门面（mdi:store 的 Material 同名字形）
   library('音乐库', Icons.storefront_outlined, Icons.storefront),
@@ -263,9 +265,9 @@ class _RailItem extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Icon(
-                          selected ? section.selectedIcon : section.icon,
-                          size: 24,
+                        _SectionIcon(
+                          section: section,
+                          selected: selected,
                           color: foreground,
                         ),
                         if (showLabel) ...<Widget>[
@@ -306,4 +308,80 @@ class _RailItem extends StatelessWidget {
       child: expanded ? item : Tooltip(message: section.label, child: item),
     );
   }
+}
+
+/// 侧栏一项的图标：专辑走自绘唱片，其余用内置字形。
+///
+/// 与四柱、笔刷那两个图标同一套做法：字形大小只认传入的 [size]，在可用空间
+/// 居中，不按 layout 尺寸缩放。
+class _SectionIcon extends StatelessWidget {
+  const _SectionIcon({
+    required this.section,
+    required this.selected,
+    required this.color,
+  });
+
+  final LibrarySection section;
+  final bool selected;
+  final Color color;
+
+  /// 与其它分区图标同尺寸
+  static const double _size = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    if (section == LibrarySection.albums) {
+      return SizedBox(
+        width: _size,
+        height: _size,
+        child: CustomPaint(
+          painter: _AlbumDiscPainter(color: color, filled: selected),
+        ),
+      );
+    }
+    return Icon(
+      selected ? section.selectedIcon : section.icon,
+      size: _size,
+      color: color,
+    );
+  }
+}
+
+/// 唱片（对齐 mdi:album）：实心是一张盘 + 一圈纹路，线性是两圈描边。
+class _AlbumDiscPainter extends CustomPainter {
+  const _AlbumDiscPainter({required this.color, required this.filled});
+
+  final Color color;
+  final bool filled;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double scale = size.width / 24;
+    canvas.scale(scale);
+    final Offset center = const Offset(12, 12);
+
+    if (filled) {
+      final Path disc = Path()
+        ..addOval(Rect.fromCircle(center: center, radius: 10));
+      final Path groove = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addOval(Rect.fromCircle(center: center, radius: 6.3))
+        ..addOval(Rect.fromCircle(center: center, radius: 4.3));
+      // 纹路真正从盘里挖掉，不是盖一层底色：底下是侧栏的强调色底
+      final Path body = Path.combine(PathOperation.difference, disc, groove);
+      canvas.drawPath(body, Paint()..color = color);
+      return;
+    }
+
+    final Paint stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+    canvas.drawCircle(center, 9.2, stroke);
+    canvas.drawCircle(center, 5.3, stroke..strokeWidth = 1.4);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AlbumDiscPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.filled != filled;
 }
