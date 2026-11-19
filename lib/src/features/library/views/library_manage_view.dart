@@ -163,7 +163,7 @@ class LibraryManageView extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        return ListView(
+        return SmoothListView(
           padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
           children: <Widget>[
             Row(
@@ -334,24 +334,27 @@ class LibraryManageView extends StatelessWidget {
         caption: '清空搜索框看看全部目录',
       );
     }
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: <Widget>[
-        for (final String folder in visible)
-          _FolderRow(
-            folder: folder,
-            count: tracks
-                .where((Track track) => _inFolder(track.path, folder))
-                .length,
-            scanning: scanning && folder == scanFolder,
-            onRescan: onRescanFolder == null || scanning
-                ? null
-                : () => onRescanFolder!(folder),
-            onRemove: onRemoveFolder == null || scanning
-                ? null
-                : () => onRemoveFolder!(folder),
-          ),
-      ],
+    return SmoothScroll(
+      builder: (BuildContext context, ScrollController controller) => ListView(
+        controller: controller,
+        padding: EdgeInsets.zero,
+        children: <Widget>[
+          for (final String folder in visible)
+            _FolderRow(
+              folder: folder,
+              count: tracks
+                  .where((Track track) => _inFolder(track.path, folder))
+                  .length,
+              scanning: scanning && folder == scanFolder,
+              onRescan: onRescanFolder == null || scanning
+                  ? null
+                  : () => onRescanFolder!(folder),
+              onRemove: onRemoveFolder == null || scanning
+                  ? null
+                  : () => onRemoveFolder!(folder),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -573,7 +576,7 @@ class _PanelEmpty extends StatelessWidget {
     // 块本身有固定高度，内容超了要能滚，不能溢出
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        return SingleChildScrollView(
+        return SmoothSingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: ConstrainedBox(
             constraints: BoxConstraints(
@@ -757,6 +760,9 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
   bool _loading = true;
   String? _error;
 
+  /// 隐藏歌曲列表滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -770,6 +776,7 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
   @override
   void dispose() {
     libraryRevision.removeListener(_reload);
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -865,6 +872,7 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
       );
     } else {
       body = ListView.builder(
+        controller: _scroll,
         padding: EdgeInsets.zero,
         itemCount: items.length,
         itemBuilder: (BuildContext context, int index) {

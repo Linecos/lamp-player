@@ -294,10 +294,13 @@ class SettingsView extends StatelessWidget {
       );
     }
 
-    return ListView(
-      // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
-      padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
-      children: children,
+    return SmoothScroll(
+      builder: (BuildContext context, ScrollController controller) => ListView(
+        controller: controller,
+        // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
+        padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
+        children: children,
+      ),
     );
   }
 
@@ -899,7 +902,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
             contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
             content: SizedBox(
               width: 480,
-              child: SingleChildScrollView(
+              child: SmoothSingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,

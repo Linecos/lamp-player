@@ -753,14 +753,14 @@ class _LibraryPageState extends State<LibraryPage>
   ///
   /// 一个控制器只能挂一个 `ScrollView`，所以每个分区各备一个，按正在显示的分区取
   /// （见 [_locatableScroll]）。
-  final ScrollController _musicScroll = ScrollController();
-  final ScrollController _favoritesScroll = ScrollController();
-  final ScrollController _historyScroll = ScrollController();
-  final ScrollController _playlistScroll = ScrollController();
+  final SmoothScrollController _musicScroll = SmoothScrollController();
+  final SmoothScrollController _favoritesScroll = SmoothScrollController();
+  final SmoothScrollController _historyScroll = SmoothScrollController();
+  final SmoothScrollController _playlistScroll = SmoothScrollController();
 
   /// 艺术家 / 专辑详情页的列表：详情页里也能「定位正在播放」
-  final ScrollController _artistScroll = ScrollController();
-  final ScrollController _albumScroll = ScrollController();
+  final SmoothScrollController _artistScroll = SmoothScrollController();
+  final SmoothScrollController _albumScroll = SmoothScrollController();
 
   /// 刚被定位到的那一行：短暂强调一下，否则目标本来就在屏幕中间时毫无反馈
   String? _flashTrackPath;

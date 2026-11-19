@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/widgets/artist_avatar.dart';
 
 /// 多艺术家选择弹窗。
@@ -51,7 +52,7 @@ class _ArtistPickerDialog extends StatelessWidget {
           // 列表自己的透明 Material：悬停与点击的水波纹只落在列表里
           child: Material(
             type: MaterialType.transparency,
-            child: ListView(
+            child: SmoothListView(
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
               children: <Widget>[

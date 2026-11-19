@@ -12,6 +12,7 @@ import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/memory_log.dart';
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/widgets/toast_pill.dart';
 import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
@@ -288,6 +289,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 旧位置一帧。回调里比对令牌，只有「最后一次交互」才有权清。
   int _seekToken = 0;
 
+  /// 无时间轴歌词（整段文本）的滚动位置：滚轮也要平滑
+  final SmoothScrollController _plainLyricsScroll = SmoothScrollController();
+
   /// 沉浸模式：长按播放键切换，只留封面 / 歌名 / 歌词与三个控制键。
   bool _immersive = false;
 
@@ -543,6 +547,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     _track.dispose();
     _playing.dispose();
     _dragPosition.dispose();
+    _plainLyricsScroll.dispose();
     _removeToast();
     super.dispose();
   }
@@ -1350,6 +1355,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (lyrics.lines.isEmpty) {
       // 无时间轴：整段展示，不跟随进度
       return SingleChildScrollView(
+        controller: _plainLyricsScroll,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         child: Text(
           lyrics.plain,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import '../../../common/scroll/smooth_scroll.dart';
 import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
@@ -32,30 +33,34 @@ class PlaylistGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      key: storageKey,
-      padding: const EdgeInsets.only(
-        top: 8,
-        // 同上：滚到底时最后一行停在播放岛上方
-        bottom: PlayerBar.occupiedHeight + 8,
-      ),
-      // 歌单不是封面墙：一条一条铺满整宽（以前 340 宽，1280 的窗口里只占 1/3，
-      // 右侧空出大片，读起来像散落的卡片）。单列 + 固定行高的长条更像列表
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 1,
-        mainAxisExtent: 92,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: playlists.length,
-      itemBuilder: (BuildContext context, int index) {
-        final Playlist playlist = playlists[index];
-        return _PlaylistCard(
-          playlist: playlist,
-          coverPath: coverPathOf?.call(playlist) ?? playlist.coverPath,
-          onOpen: () => onOpen(playlist),
-          onAction: (PlaylistAction action) => onAction(playlist, action),
-        );
-      },
+    return SmoothScroll(
+      builder: (BuildContext context, ScrollController controller) =>
+          GridView.builder(
+            key: storageKey,
+            controller: controller,
+            padding: const EdgeInsets.only(
+              top: 8,
+              // 同上：滚到底时最后一行停在播放岛上方
+              bottom: PlayerBar.occupiedHeight + 8,
+            ),
+            // 歌单不是封面墙：一条一条铺满整宽（以前 340 宽，1280 的窗口里只占 1/3，
+            // 右侧空出大片，读起来像散落的卡片）。单列 + 固定行高的长条更像列表
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 1,
+              mainAxisExtent: 92,
+              mainAxisSpacing: 12,
+            ),
+            itemCount: playlists.length,
+            itemBuilder: (BuildContext context, int index) {
+              final Playlist playlist = playlists[index];
+              return _PlaylistCard(
+                playlist: playlist,
+                coverPath: coverPathOf?.call(playlist) ?? playlist.coverPath,
+                onOpen: () => onOpen(playlist),
+                onAction: (PlaylistAction action) => onAction(playlist, action),
+              );
+            },
+          ),
     );
   }
 }

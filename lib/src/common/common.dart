@@ -5,6 +5,7 @@ export 'audio/audio_quality.dart';
 export 'audio/volume_curve.dart';
 export 'formatters/duration.dart';
 export 'formatters/file_size.dart';
+export 'scroll/smooth_scroll.dart';
 export 'widgets/album_cover.dart';
 export 'widgets/artist_avatar.dart';
 export 'widgets/cover_shape.dart';

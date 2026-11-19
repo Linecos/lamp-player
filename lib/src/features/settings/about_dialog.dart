@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/app_version.dart';
 import '../../common/external_link.dart';
+import '../../common/scroll/smooth_scroll.dart';
 
 /// 「关于」弹窗：大图标 → 名字 → 版本行 → 标语 → 技术栈 → 2×2 链接 → 署名。
 ///
@@ -107,10 +108,14 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
   late final TapGestureRecognizer _licenseTap = TapGestureRecognizer()
     ..onTap = () => _open(AppAboutDialog.licenseUrl);
 
+  /// 内容区滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
   @override
   void dispose() {
     _authorTap.dispose();
     _licenseTap.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -148,6 +153,7 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
                 ),
               ),
               child: SingleChildScrollView(
+                controller: _scroll,
                 padding: EdgeInsets.fromLTRB(28 * s, 32 * s, 28 * s, 24 * s),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

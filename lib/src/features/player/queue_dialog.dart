@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../common/formatters/duration.dart';
+import '../../common/scroll/smooth_scroll.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'playback_queue.dart';
@@ -43,7 +44,7 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
   /// 列表上下各留的 padding
   static const double _listPadding = 4;
 
-  final ScrollController _scroll = ScrollController();
+  final SmoothScrollController _scroll = SmoothScrollController();
 
   @override
   void initState() {

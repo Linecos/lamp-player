@@ -145,27 +145,34 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
                     ),
                   ),
                 )
-              : ListView.builder(
-                  itemCount: playlists.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final Playlist playlist = playlists[index];
-                    return ListTile(
-                      // 悬停 / 水波纹是画在最近 Material 上的墨迹，不给 shape 就是直角
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(16)),
-                      ),
-                      leading: const Icon(Icons.queue_music),
-                      title: Text(
-                        playlist.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text('${playlist.trackCount} 首'),
-                      onTap: () =>
-                          Navigator.of(context)
-                              .pop(PickExistingPlaylist(playlist)),
-                    );
-                  },
+              : SmoothScroll(
+                  builder:
+                      (BuildContext context, ScrollController controller) =>
+                          ListView.builder(
+                            controller: controller,
+                            itemCount: playlists.length,
+                            itemBuilder: (BuildContext context, int index) {
+                              final Playlist playlist = playlists[index];
+                              return ListTile(
+                                // 悬停 / 水波纹是画在最近 Material 上的墨迹，不给 shape 就是直角
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.all(
+                                    Radius.circular(16),
+                                  ),
+                                ),
+                                leading: const Icon(Icons.queue_music),
+                                title: Text(
+                                  playlist.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text('${playlist.trackCount} 首'),
+                                onTap: () =>
+                                    Navigator.of(context)
+                                        .pop(PickExistingPlaylist(playlist)),
+                              );
+                            },
+                          ),
                 ),
         ),
         actions: <Widget>[

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../common/scroll/smooth_scroll.dart';
+
 /// 封面编辑窗：封面在左，右边是说明与两个动作。
 ///
 /// 艺术家、专辑、歌单三个入口共用。它们的差别只有两处——预览是圆形还是
@@ -78,6 +80,15 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
   /// 不重绘，加进 key 里强制重建一次
   int _revision = 0;
 
+  /// 内容区滚轮平滑（见 [SmoothScrollController]）
+  final SmoothScrollController _scroll = SmoothScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   Future<void> _pick() async {
     if (_busy) {
       return;
@@ -144,6 +155,7 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: SingleChildScrollView(
+          controller: _scroll,
           padding: const EdgeInsets.fromLTRB(24, 16, 12, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
