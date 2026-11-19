@@ -1,8 +1,14 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.19（2026-11-19）**
+> **当前版本：v0.20（2026-11-20）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.20 变更（纯新增）：
+>
+> - 新增 `api::collections::touch_play_history(path: String) -> Result<()>`：
+>   只刷新 `play_history.last_played_at`，不增加 `play_count`（新行以 0 落地）。
+>   「最近播放」跟起播走，播放次数改由 Dart 侧听够一半之后再调 `record_play`。
 >
 > v0.19 变更（纯新增）：
 >
@@ -223,6 +229,7 @@
 | `is_favorite(path: String) -> Result<bool>` | `Future<bool> isFavorite({required String path})` | 已实现 |
 | `set_favorite(path: String, favorite: bool) -> Result<()>` | `Future<void> setFavorite({required String path, required bool favorite})` | 已实现 |
 | `set_favorites(paths: Vec<String>, favorite: bool) -> Result<i32>` | `Future<int> setFavorites({required List<String> paths, required bool favorite})` | 已实现 |
+| `touch_play_history(path: String) -> Result<()>` | `Future<void> touchPlayHistory({required String path})` | 已实现 |
 | `record_play(path: String) -> Result<()>` | `Future<void> recordPlay({required String path})` | 已实现 |
 | `recent_tracks(limit: i32) -> Result<Vec<Track>>` | `Future<List<Track>> recentTracks({required int limit})` | 已实现 |
 | `clear_history() -> Result<()>` | `Future<void> clearHistory()` | 已实现 |
@@ -247,10 +254,13 @@
   一次性拉取后做成员判断，避免逐曲调 `is_favorite`。
 - `set_favorites` 是批量版：收藏时逐条校验曲目存在、任一失败整体回滚；取消收藏不校验
   （删库后的残留路径也能清掉）。重复路径幂等，返回真正改变的条数。
-- **历史**：按曲目去重，每首歌一行；`record_play` 更新最近播放时间并累加 `play_count`
-  （当前不对外暴露计数），`recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=500`。
-- **记录时机**：由 Dart 侧在 `player_play` 成功后调用 `record_play`；播放层不反向依赖曲库，
-  避免两层耦合。
+- **历史**：按曲目去重，每首歌一行；`record_play` 更新最近播放时间并累加 `play_count`，
+  `recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=500`。
+- **记录时机（v0.20 起拆成两拍）**：`player_play` 成功后 Dart 侧先调
+  `touch_play_history`（只刷新时间，历史立刻出现）；之后这一轮真正听过的秒数到全曲
+  一半时才调 `record_play` 累加次数。`touch_play_history` 建的新行 `play_count = 0`，
+  排行榜、`play_stats.total_plays` 都按 `play_count > 0` 过滤，所以只听了一半以前的
+  曲目只会出现在历史里，不会进任何计数。播放层不反向依赖曲库，避免两层耦合。
 - 时间戳一律 Unix 秒。
 - 曲库从 v1 升级到 v2 时自动建表，无需手动迁移；v1 程序打开 v2 库会报版本过高。
 - v3 给 `tracks` 加 `cover_path`（封面缓存路径），并**清零全部文件指纹**：

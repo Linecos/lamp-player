@@ -104,9 +104,13 @@ extension _PlaybackSection on _LibraryPageState {
     // 这里只翻播放态：曲目已经在上面的 `_update` 里换过了，再推进版本
     // 只会把分区（列表 / 网格）整份重建一遍，内容还完全相同
     _updatePlayer(() => _isPlaying = true);
+    // 新的一轮起播：次数与时长都从零开始判（见 `_accumulatePlayTime`）
+    _playedSinceStart = 0;
+    _playCountedThisStart = false;
     _publishProgress();
     _startPositionPolling();
-    unawaited(_recordPlay(track.path));
+    // 起播就进「最近播放」（历史跟点击走）；次数要听够一半才加
+    unawaited(_touchPlayHistory(track.path));
     _saveSessionNow();
     _syncMediaSession();
     // 换歌那一下是内存台阶的所在（新封面解码 + 整页第一次画）。等它画完
@@ -514,6 +518,15 @@ extension _PlaybackSection on _LibraryPageState {
   }
 
   /// 历史记录失败不影响播放，只记录日志。
+  Future<void> _touchPlayHistory(String path) async {
+    try {
+      await _repository.touchPlayHistory(path);
+    } catch (error) {
+      debugPrint('更新最近播放失败：$error');
+    }
+  }
+
+  /// 历史记录失败不影响播放，只记录日志。
   Future<void> _recordPlay(String path) async {
     try {
       await _repository.recordPlay(path);
@@ -522,9 +535,10 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 采样一次进度，把「距上次采样的增量」计入当天。
+  /// 采样一次进度：判断要不要记一次播放、并把增量计入当天。
   ///
-  /// 只认 0 < delta < 3 秒：seek 跳变、切歌跨度都不是真正听过的时长。
+  /// 只认 0 < delta < 3 秒：seek 跳变、切歌跨度都不是真正听过的时长，
+  /// 也不会因为一次跳变就凑够「听过一半」。
   void _accumulatePlayTime(double position) {
     final Track? track = _currentTrack;
     final double delta = position - _lastPollPosition;
@@ -532,7 +546,40 @@ extension _PlaybackSection on _LibraryPageState {
     if (track == null || !_isPlaying || delta <= 0 || delta > 3) {
       return;
     }
+    _playedSinceStart += delta;
+    _countPlayIfEnough(track);
+    _accumulateSessionTime(track, delta);
+  }
 
+  /// 这一轮播放真正听过的秒数对应的门槛；时长未知（0）时不设门槛
+  double _requiredBefore(Track track, double ratio) {
+    final double duration = _duration > 0 ? _duration : track.durationSecs;
+    return duration > 0 ? duration * ratio : 0;
+  }
+
+  /// 听过一半才算一次播放：按「本轮真正听过的秒数」判，不按播放位置。
+  ///
+  /// 位置到了 50% 也可能是拖过去的，那样一次跳变就白得一次计数；按听过的
+  /// 秒数算，拖回、暂停、跳着听都骗不到。一次起播只计一次——暂停再继续、
+  /// 拖回重听都不会重复加，只有真的重新起播（下一首 / 从头再播）才归零。
+  void _countPlayIfEnough(Track track) {
+    if (_playCountedThisStart) {
+      return;
+    }
+    if (_playedSinceStart <
+        _requiredBefore(track, _LibraryPageState._playCountRatio)) {
+      return;
+    }
+    _playCountedThisStart = true;
+    unawaited(_recordPlay(track.path));
+  }
+
+  /// 听过四分之一之后才开始累计听歌时长：点开就切走的那种不该算「听过」。
+  void _accumulateSessionTime(Track track, double delta) {
+    if (_playedSinceStart <
+        _requiredBefore(track, _LibraryPageState._playTimeRatio)) {
+      return;
+    }
     final DateTime now = DateTime.now();
     final int day = now.year * 10000 + now.month * 100 + now.day;
     if (_playSessionPath != track.path || _playSessionDay != day) {

@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1892350817;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1641008739;
 
 // Section: executor
 
@@ -3231,6 +3231,41 @@ fn wire__crate__api__collections__top_tracks_impl(
         },
     )
 }
+fn wire__crate__api__collections__touch_play_history_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "touch_play_history",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::collections::touch_play_history(api_path)?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__metadata__track_tags_default_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4320,16 +4355,22 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         91 => wire__crate__api__collections__top_artists_impl(port, ptr, rust_vec_len, data_len),
         92 => wire__crate__api__collections__top_tracks_impl(port, ptr, rust_vec_len, data_len),
-        93 => {
+        93 => wire__crate__api__collections__touch_play_history_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        94 => {
             wire__crate__api__metadata__track_tags_default_impl(port, ptr, rust_vec_len, data_len)
         }
-        94 => wire__crate__api__db__unhide_tracks_impl(port, ptr, rust_vec_len, data_len),
-        95 => wire__crate__api__db__upsert_tracks_impl(port, ptr, rust_vec_len, data_len),
-        96 => {
+        95 => wire__crate__api__db__unhide_tracks_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__api__db__upsert_tracks_impl(port, ptr, rust_vec_len, data_len),
+        97 => {
             wire__crate__api__replaygain__write_replay_gain_impl(port, ptr, rust_vec_len, data_len)
         }
-        97 => wire__crate__api__metadata__write_track_cover_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__metadata__write_track_cover_impl(port, ptr, rust_vec_len, data_len),
+        99 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

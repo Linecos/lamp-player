@@ -535,6 +535,27 @@ pub fn set_favorites(paths: Vec<String>, favorite: bool) -> anyhow::Result<i32> 
 // 播放历史
 // ---------------------------------------------------------------------------
 
+/// 只更新「最近播放时间」，不增加播放次数（起播时用）。
+///
+/// 历史列表按这个时间排，所以「最近播放」跟点击走；次数另算一次——
+/// 听过一半才由 `record_play` 累加。新行以 `play_count = 0` 落地，
+/// 排行榜与总次数都按 `play_count > 0` 过滤，不会把它算进去。
+pub fn touch_play_history(path: String) -> anyhow::Result<()> {
+    with_conn(|conn| {
+        track_exists(conn, &path)?;
+        conn.execute(
+            r#"
+            INSERT INTO play_history (track_path, last_played_at, play_count)
+            VALUES (?1, ?2, 0)
+            ON CONFLICT(track_path) DO UPDATE SET
+                last_played_at = excluded.last_played_at
+            "#,
+            params![path, now_secs()],
+        )?;
+        Ok(())
+    })
+}
+
 /// 记录一次播放：同曲目只保留一行，更新时间并累加次数。
 pub fn record_play(path: String) -> anyhow::Result<()> {
     with_conn(|conn| {
@@ -621,8 +642,12 @@ pub fn play_stats() -> anyhow::Result<PlayStats> {
             [],
             |row| row.get(0),
         )?;
-        let track_count: i64 =
-            conn.query_row("SELECT COUNT(*) FROM play_history", [], |row| row.get(0))?;
+        // 「听过曲目」只数真正计过次的：起播时 touch 出来的行 play_count 还是 0
+        let track_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM play_history WHERE play_count > 0",
+            [],
+            |row| row.get(0),
+        )?;
         let active_days: i64 = conn.query_row(
             "SELECT COUNT(DISTINCT day) FROM play_sessions WHERE seconds > 0",
             [],

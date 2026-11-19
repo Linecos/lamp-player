@@ -320,10 +320,61 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('播放成功会写入播放历史', (WidgetTester tester) async {
+  testWidgets('听过一半才计一次播放，暂停与拖回都不重复计', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
-      durationSecs: 180,
+      durationSecs: 20,
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      playback: playback,
+    );
+
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(repository.playCounts, isEmpty, reason: '刚起播不该计次');
+
+    // 历史跟点击走：起播就进「最近播放」
+    final List<Track> history = await repository.loadRecentTracks();
+    expect(history.map((Track track) => track.path), <String>['/music/夜航.mp3']);
+
+    // 每拍推进 2.5 秒（低于 seek 过滤阈值）；20 秒的曲子要听过 10 秒才算一次
+    for (int step = 1; step <= 3; step += 1) {
+      playback.positionSecs = step * 2.5;
+      await tester.pump(const Duration(milliseconds: 550));
+    }
+    expect(repository.playCounts, isEmpty, reason: '还没听到一半');
+
+    playback.positionSecs = 10;
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(repository.playCounts['/music/夜航.mp3'], 1);
+
+    // 暂停再继续：同一轮播放只算一次
+    playback.current = rust.PlaybackState.paused;
+    await tester.pump(const Duration(milliseconds: 550));
+    playback.current = rust.PlaybackState.playing;
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(repository.playCounts['/music/夜航.mp3'], 1, reason: '暂停后继续不该重复计');
+
+    // 拖回开头重听：跳变不算听过，再听满一半也不该再计
+    playback.positionSecs = 0;
+    await tester.pump(const Duration(milliseconds: 550));
+    for (int step = 1; step <= 4; step += 1) {
+      playback.positionSecs = step * 2.5;
+      await tester.pump(const Duration(milliseconds: 550));
+    }
+    expect(repository.playCounts['/music/夜航.mp3'], 1, reason: '拖回重听不该重复计');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('拖进度条跳到一半之后也不计次', (WidgetTester tester) async {
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 20,
     );
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
@@ -335,8 +386,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final List<Track> history = await repository.loadRecentTracks();
-    expect(history.map((Track track) => track.path), <String>['/music/夜航.mp3']);
+    // 一次跳到 18 秒（超过 seek 过滤阈值，不算听过）
+    playback.positionSecs = 18;
+    await tester.pump(const Duration(milliseconds: 550));
+    playback.positionSecs = 19;
+    await tester.pump(const Duration(milliseconds: 550));
+
+    expect(repository.playCounts, isEmpty, reason: '拖过去的秒数不是听过的');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
@@ -1247,10 +1303,10 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('播放中按增量累计听歌时长，暂停时写库', (WidgetTester tester) async {
+  testWidgets('听过四分之一之后才开始累计听歌时长，暂停时写库', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
-      durationSecs: 300,
+      durationSecs: 20,
     );
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,
@@ -1262,18 +1318,49 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    // 每拍推进 2.5 秒（小于 seek 过滤阈值 3 秒），累计到 15 秒后应自动写库
-    for (int step = 1; step <= 7; step += 1) {
-      playback.positionSecs = step * 2.5;
+    // 20 秒的曲子，前 5 秒（四分之一）整段不计：听 4 秒就暂停不该留下时长
+    for (int step = 1; step <= 2; step += 1) {
+      playback.positionSecs = step * 2;
       await tester.pump(const Duration(milliseconds: 550));
     }
-
-    final String key = repository.playedSeconds.keys.firstWhere(
-      (String item) => item.endsWith('/music/夜航.mp3'),
-      orElse: () => '',
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
+      ),
     );
-    expect(key, isNotEmpty, reason: '播放 15 秒后应写一次库');
-    expect(repository.playedSeconds[key], greaterThanOrEqualTo(15));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(repository.playedSeconds, isEmpty, reason: '前四分之一不计时长');
+
+    // 继续听：先恢复播放，再逐拍推进；过 5 秒之后的部分才开始累计
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    for (int step = 5; step <= 10; step += 1) {
+      playback.positionSecs = step.toDouble();
+      await tester.pump(const Duration(milliseconds: 550));
+    }
+    await tester.tap(
+      find.descendant(
+        of: find.byType(PlayerBar),
+        matching: find.byKey(const ValueKey<String>('player-play-pause')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final int total = repository.playedSeconds.values.fold<int>(
+      0,
+      (int a, int b) => a + b,
+    );
+    // 自然听过 10 秒，去掉前 5 秒门槛，应写 5 秒上下
+    expect(total, inInclusiveRange(4, 6), reason: '只累计门槛之后的部分');
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

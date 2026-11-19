@@ -381,6 +381,43 @@ fn history_dedupes_plays_and_sorts_by_recent() {
 }
 
 #[test]
+fn touch_play_history_marks_recent_without_counting() {
+    let (_lock, dir) = begin("touch-history");
+    seed(&dir, &[("/music/a.mp3", "A"), ("/music/b.mp3", "B")]);
+
+    collections::touch_play_history("/music/a.mp3".to_string()).expect("起播记历史");
+    // last_played_at 精度是秒，睡一下才能验证排序
+    std::thread::sleep(Duration::from_millis(1_100));
+    collections::touch_play_history("/music/b.mp3".to_string()).expect("起播记历史");
+
+    let recent = collections::recent_tracks(10).expect("最近播放");
+    assert_eq!(
+        recent.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
+        vec!["B", "A"],
+        "起播就进历史"
+    );
+
+    // 只是起播：次数还没加，排行榜、总次数与「听过曲目」都不该算它
+    assert!(
+        collections::top_tracks(10).expect("排行榜").is_empty(),
+        "没听过一半不算一次播放"
+    );
+    let stats = collections::play_stats().expect("总览");
+    assert_eq!(stats.total_plays, 0, "play_count = 0 不该进总次数");
+    assert_eq!(stats.track_count, 0, "「听过曲目」也只数计过次的");
+
+    // 听过一半之后才累加次数
+    collections::record_play("/music/b.mp3".to_string()).expect("计次");
+    let ranked = collections::top_tracks(10).expect("排行榜");
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(ranked[0].track.title, "B");
+    assert_eq!(ranked[0].plays, 1);
+    let stats = collections::play_stats().expect("总览");
+    assert_eq!(stats.total_plays, 1);
+    assert_eq!(stats.track_count, 1);
+}
+
+#[test]
 fn play_time_accumulates_per_day_and_ranks_tracks() {
     let (_lock, dir) = begin("playtime");
     seed(&dir, &[("/music/a.mp3", "A"), ("/music/b.mp3", "B")]);
