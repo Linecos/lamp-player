@@ -89,8 +89,7 @@ extension _LibrarySection on _LibraryPageState {
             scanning: _scanning,
             folders: _folders,
             onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
-            onOpenFolder: (String folder) =>
-                _update(() => _folderDetail = folder),
+            onOpenFolder: (String folder) => _openFolderDetail(folder),
             onRescanFolder: _scanning
                 ? null
                 : (String folder) => unawaited(_rescanFolder(folder)),

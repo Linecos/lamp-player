@@ -38,6 +38,8 @@ extension _QualitySection on _LibraryPageState {
   /// 恢复，跟「看某一档的东西」这个诉求不匹配。
   void _openQualityDetail(AudioQuality quality) {
     _update(() => _qualityDetail = quality);
+    // 控制器是共用的：上一个档位滚到哪，这一个不该从那儿接着看
+    _resetDetailScroll(_qualityDetailScroll);
   }
 
   /// 音质子界面：标题行 + 这一档的全部曲目。
@@ -116,6 +118,7 @@ extension _QualitySection on _LibraryPageState {
                 )
               : TrackListView(
                   key: ValueKey<String>('quality-detail-${quality.name}'),
+                  controller: _qualityDetailScroll,
                   tracks: tracks,
                   storageKey: PageStorageKey<String>(
                     'tracks:quality-${quality.name}',

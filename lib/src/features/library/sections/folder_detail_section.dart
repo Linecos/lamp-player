@@ -5,6 +5,13 @@ part of '../library_page.dart';
 /// 与音质、听歌统计同一套「分区内切换」：点音乐库首页的目录行进来，
 /// 侧栏与播放岛都不动；返回只换内容，不切分区。
 extension _FolderDetailSection on _LibraryPageState {
+  /// 打开某个目录的曲目子页
+  void _openFolderDetail(String folder) {
+    _update(() => _folderDetail = folder);
+    // 控制器是共用的：上一个目录滚到哪，这一个不该从那儿接着看
+    _resetDetailScroll(_folderDetailScroll);
+  }
+
   /// 这个目录里的全部曲目（不含搜索过滤）
   List<Track> get _folderDetailTracks {
     final String? folder = _folderDetail;
@@ -87,6 +94,7 @@ extension _FolderDetailSection on _LibraryPageState {
                 )
               : TrackListView(
                   key: ValueKey<String>('folder-detail-$folder'),
+                  controller: _folderDetailScroll,
                   tracks: list,
                   storageKey: PageStorageKey<String>('tracks:folder-$folder'),
                   playingPath: _currentTrack?.path,
