@@ -1,8 +1,17 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.18（2026-11-18）**
+> **当前版本：v0.19（2026-11-19）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.19 变更（纯新增）：
+>
+> - 新增 `api::media::media_set_play_mode(repeat: MediaRepeatMode, shuffle: bool)`
+>   与 `MediaRepeatMode`（`off` / `all` / `one`）。循环 / 随机不再只是界面状态：
+>   只有上报过这两个属性，Windows 播控浮层里的循环、随机按钮才会点亮并可点。
+> - `MediaCommand` 新增 `repeatOff` / `repeatAll` / `repeatOne` / `shuffleOn` /
+>   `shuffleOff`（系统浮层点了这两个按钮时下发）。不带载荷，仍是不需要 freezed 的
+>   普通枚举。
 >
 > v0.18 变更（**破坏性，Dart 侧已同步**）：
 >
@@ -438,6 +447,7 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 | `media_init() -> Result<()>` | `Future<void> mediaInit()` | 否 | **已实现** |
 | `media_set_track(title, artist, album, cover_path: Option<String>) -> Result<()>` | `Future<void> mediaSetTrack({required String title, required String artist, required String album, String? coverPath})` | 否 | **已实现** |
 | `media_set_state(state: MediaPlayState) -> Result<()>` | `Future<void> mediaSetState({required MediaPlayState state})` | 否 | **已实现** |
+| `media_set_play_mode(repeat: MediaRepeatMode, shuffle: bool) -> Result<()>` | `Future<void> mediaSetPlayMode({required MediaRepeatMode repeat, required bool shuffle})` | 否 | **已实现** |
 | `media_clear() -> Result<()>` | `Future<void> mediaClear()` | 否 | **已实现** |
 | `media_commands() -> Stream<MediaCommand>` | `Stream<MediaCommand> mediaCommands()` | — | **已实现** |
 | `single_instance_acquire() -> Result<bool>` | `Future<bool> singleInstanceAcquire()` | 否 | **已实现** |
@@ -450,7 +460,15 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   `CommandManager` 已关闭，不会和 BASS 抢输出。
 - `media_set_track` 的 `cover_path` 指向本地图片，读不到时只用文字（不报错）。
 - `media_commands` **只能订阅一次**：重复注册会让每个媒体键触发多次。
-  命令含义：`play` / `pause` / `next` / `previous` / `stop`（`stop` 只停音频、保留曲目）。
+  命令含义：`play` / `pause` / `next` / `previous` / `stop`（`stop` 只停音频、保留曲目），
+  `repeatOff` / `repeatAll` / `repeatOne`（系统浮层改了循环），
+  `shuffleOn` / `shuffleOff`（系统浮层改了随机）。
+- **循环 / 随机必须上报过才算数**：Windows 没有 `IsRepeatEnabled` 这类开关，浮层里的
+  循环、随机按钮亮不亮取决于会话有没有报过 `AutoRepeatMode` / `ShuffleEnabled`。
+  `media_init` 先报一次「不循环 / 不随机」的初值，真实状态由 `media_set_play_mode`
+  覆盖；播放模式一变（启动恢复、按钮轮换、系统请求回写）都要再同步一次。
+  两个属性变更走 `AutoRepeatModeChangeRequested` / `ShuffleEnabledChangeRequested`
+  事件，不是 `ButtonPressed`。
 - **媒体键只走 SMTC 一条路，没有全局注册**：`RegisterHotKey` 会让应用空闲时全局
   独占、吃掉别的播放器的媒体键；改成「只在出声时占用」又在暂停后把键交还系统，
   再按播放常常落不到本应用。交给系统按「谁在播放」路由后，暂停时 SMTC 会话仍在，

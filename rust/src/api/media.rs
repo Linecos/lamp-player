@@ -16,6 +16,9 @@ use crate::media_platform;
 use anyhow::Result;
 
 /// 系统媒体键 / 任务栏按钮发来的命令
+///
+/// 循环 / 随机拆成三个 / 两个不带载荷的分支：frb 的枚举一旦带字段，Dart 侧
+/// 就要引入 freezed 生成 sealed class；这里值域本来就小，直接展开更省事。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaCommand {
     Play,
@@ -23,6 +26,16 @@ pub enum MediaCommand {
     Next,
     Previous,
     Stop,
+    /// 系统浮层把循环切到「不循环」
+    RepeatOff,
+    /// 系统浮层把循环切到「列表循环」
+    RepeatAll,
+    /// 系统浮层把循环切到「单曲循环」
+    RepeatOne,
+    /// 系统浮层打开随机
+    ShuffleOn,
+    /// 系统浮层关闭随机
+    ShuffleOff,
 }
 
 /// SMTC 认识的三种播放状态
@@ -31,6 +44,14 @@ pub enum MediaPlayState {
     Playing,
     Paused,
     Stopped,
+}
+
+/// 循环模式（与界面的「顺序 / 列表循环 / 单曲循环」一一对应）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaRepeatMode {
+    Off,
+    All,
+    One,
 }
 
 /// 当前平台是否支持 SMTC（Dart 侧据此决定是否订阅事件）
@@ -69,6 +90,19 @@ pub fn media_clear() -> Result<()> {
     media_platform::clear()
 }
 
+/// 同步循环 / 随机状态到系统浮层。
+///
+/// Windows 的循环、随机按钮只有在会话里报过这两个属性之后才会点亮并可点，
+/// 所以播放模式一变（含启动恢复）就要同步一次。
+pub fn media_set_play_mode(repeat: MediaRepeatMode, shuffle: bool) -> Result<()> {
+    let repeat = match repeat {
+        MediaRepeatMode::Off => media_platform::RepeatMode::Off,
+        MediaRepeatMode::All => media_platform::RepeatMode::List,
+        MediaRepeatMode::One => media_platform::RepeatMode::Track,
+    };
+    media_platform::set_play_mode(repeat, shuffle)
+}
+
 /// 订阅系统按钮事件流。重复调用会重复注册，Dart 侧只订阅一次。
 pub fn media_commands(sink: StreamSink<MediaCommand>) {
     media_platform::listen(move |command| {
@@ -78,6 +112,13 @@ pub fn media_commands(sink: StreamSink<MediaCommand>) {
             media_platform::Command::Next => MediaCommand::Next,
             media_platform::Command::Previous => MediaCommand::Previous,
             media_platform::Command::Stop => MediaCommand::Stop,
+            media_platform::Command::Repeat(mode) => match mode {
+                media_platform::RepeatMode::Off => MediaCommand::RepeatOff,
+                media_platform::RepeatMode::List => MediaCommand::RepeatAll,
+                media_platform::RepeatMode::Track => MediaCommand::RepeatOne,
+            },
+            media_platform::Command::Shuffle(true) => MediaCommand::ShuffleOn,
+            media_platform::Command::Shuffle(false) => MediaCommand::ShuffleOff,
         };
         if let Err(error) = sink.add(command) {
             // 流已关闭（应用退出中）不是错误，静默即可

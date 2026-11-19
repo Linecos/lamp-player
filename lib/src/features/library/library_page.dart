@@ -229,6 +229,8 @@ class _LibraryPageState extends State<LibraryPage>
     onNext: _next,
     onPrevious: _previous,
     onStop: _mediaStop,
+    onRepeatChanged: _mediaRepeatChanged,
+    onShuffleChanged: _mediaShuffleChanged,
   );
 
   final TextEditingController _searchController = TextEditingController();
@@ -1018,7 +1020,9 @@ class _LibraryPageState extends State<LibraryPage>
     // 别的页面改了曲库（设置页恢复隐藏歌曲）时重载列表，恢复的曲子才看得见
     libraryRevision.addListener(_onLibraryChanged);
     // 系统媒体控制：失败只影响系统浮层，不影响播放
-    unawaited(_media.start());
+    // start 完再把播放模式推过去：此时 SMTC 会话才存在，Windows 也才会
+    // 点亮浮层里的循环 / 随机按钮（启动恢复的模式不能等到切歌才同步）
+    unawaited(_media.start().then((_) => _publishPlayMode()));
     _listenDesktopLyricCommands();
     widget.appLifecycle
       ?..addListener(_onLifecycleChanged)

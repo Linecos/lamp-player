@@ -258,6 +258,39 @@ extension _PlaybackSection on _LibraryPageState {
 
   /* --------------------------------------------------- 系统媒体控制 */
 
+  /// 把播放模式同步给系统浮层。
+  ///
+  /// Windows 的循环 / 随机按钮靠 `AutoRepeatMode` 与 `ShuffleEnabled` 两个属性
+  /// 决定「显不显示、亮不亮、点了算不算」：一直不报就是灰的。
+  void _publishPlayMode() {
+    unawaited(
+      _media.setPlayMode(repeat: _queue.repeat, shuffle: _queue.shuffle),
+    );
+  }
+
+  void _mediaRepeatChanged(LoopMode mode) {
+    _update(() {
+      _queue.setRepeat(mode);
+      if (mode != LoopMode.off) {
+        _queue.setShuffle(false);
+      }
+    });
+    _publishPlayMode();
+    _saveSessionNow();
+  }
+
+  /// 系统浮层打开了随机：同理，随机与循环只能二选一。
+  void _mediaShuffleChanged(bool enabled) {
+    _update(() {
+      _queue.setShuffle(enabled);
+      if (enabled) {
+        _queue.setRepeat(LoopMode.off);
+      }
+    });
+    _publishPlayMode();
+    _saveSessionNow();
+  }
+
   /// 把「当前曲目 + 播放状态」同步给 Windows 系统媒体控制。
   ///
   /// 只在状态真的变化时调用（起播 / 暂停 / 停止），**不要放进 500ms 轮询**：
@@ -683,6 +716,7 @@ extension _PlaybackSection on _LibraryPageState {
   void _cyclePlayMode() {
     _update(() => cyclePlayMode(_queue));
     _publishProgress();
+    _publishPlayMode();
     _saveSessionNow();
   }
 

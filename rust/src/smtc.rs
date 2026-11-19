@@ -16,7 +16,8 @@ use windows::core::HSTRING;
 use windows::Foundation::TypedEventHandler;
 use windows::Media::Playback::MediaPlayer;
 use windows::Media::{
-    MediaPlaybackStatus, MediaPlaybackType, SystemMediaTransportControls,
+    AutoRepeatModeChangeRequestedEventArgs, MediaPlaybackAutoRepeatMode, MediaPlaybackStatus,
+    MediaPlaybackType, ShuffleEnabledChangeRequestedEventArgs, SystemMediaTransportControls,
     SystemMediaTransportControlsButton, SystemMediaTransportControlsButtonPressedEventArgs,
 };
 use windows::Storage::Streams::{
@@ -32,6 +33,38 @@ pub enum Command {
     Next,
     Previous,
     Stop,
+    /// 系统浮层里点了「循环」（None / 列表 / 单曲，三档）
+    Repeat(RepeatMode),
+    /// 系统浮层里点了「随机」
+    Shuffle(bool),
+}
+
+/// 循环模式，与 SMTC 的 `MediaPlaybackAutoRepeatMode` 一一对应
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatMode {
+    Off,
+    List,
+    Track,
+}
+
+impl RepeatMode {
+    fn to_auto(self) -> MediaPlaybackAutoRepeatMode {
+        match self {
+            RepeatMode::Off => MediaPlaybackAutoRepeatMode::None,
+            RepeatMode::List => MediaPlaybackAutoRepeatMode::List,
+            RepeatMode::Track => MediaPlaybackAutoRepeatMode::Track,
+        }
+    }
+
+    fn from_auto(mode: MediaPlaybackAutoRepeatMode) -> Self {
+        if mode == MediaPlaybackAutoRepeatMode::Track {
+            RepeatMode::Track
+        } else if mode == MediaPlaybackAutoRepeatMode::List {
+            RepeatMode::List
+        } else {
+            RepeatMode::Off
+        }
+    }
 }
 
 /// 播放状态（只区分 SMTC 关心的三种）
@@ -105,6 +138,15 @@ pub fn init() -> Result<()> {
             // 个别按钮不可用不影响其余功能
             eprintln!("SMTC: 启用{name}按钮失败: {error}");
         }
+    }
+    // 循环 / 随机没有「IsXxxEnabled」开关：Windows 认的是这两个属性——
+    // 会话里报过一次之后，浮层才会把循环、随机按钮点亮（不设永远是灰的）。
+    // 这里先报「不支持循环、不随机」的初值，真实状态由 `set_play_mode` 覆盖。
+    if let Err(error) = smtc.SetAutoRepeatMode(MediaPlaybackAutoRepeatMode::None) {
+        eprintln!("SMTC: 初始化循环模式失败: {error}");
+    }
+    if let Err(error) = smtc.SetShuffleEnabled(false) {
+        eprintln!("SMTC: 初始化随机状态失败: {error}");
     }
 
     *lock() = Some(Session {
@@ -201,6 +243,24 @@ pub fn clear() -> Result<()> {
     Ok(())
 }
 
+/// 同步循环 / 随机状态到系统浮层。
+///
+/// 不只影响显示：Windows 的循环、随机按钮在会话上报过这两个属性之后才是可点的，
+/// 点了之后走 `AutoRepeatModeChangeRequested` / `ShuffleEnabledChangeRequested`。
+pub fn set_play_mode(repeat: RepeatMode, shuffle: bool) -> Result<()> {
+    let guard = lock();
+    let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
+    session
+        .smtc
+        .SetAutoRepeatMode(repeat.to_auto())
+        .map_err(|error| anyhow!("设置循环模式失败: {error}"))?;
+    session
+        .smtc
+        .SetShuffleEnabled(shuffle)
+        .map_err(|error| anyhow!("设置随机状态失败: {error}"))?;
+    Ok(())
+}
+
 /// 订阅系统按钮事件。
 ///
 /// 只注册一次：重复订阅会让每个媒体键触发多次。回调在 WinRT 线程上执行，
@@ -211,7 +271,10 @@ where
 {
     let guard = lock();
     let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
+    // 三个事件处理器共用同一个回调：`Fn` 不是 `Copy`，各闭包要各持一份 Arc
+    let on_command = std::sync::Arc::new(on_command);
 
+    let on_button = std::sync::Arc::clone(&on_command);
     session
         .smtc
         .ButtonPressed(&TypedEventHandler::<
@@ -230,9 +293,45 @@ where
                 // 快进/快退/录音等按钮本应用不处理
                 _ => return Ok(()),
             };
-            on_command(command);
+            on_button(command);
             Ok(())
         }))
         .map_err(|error| anyhow!("注册按钮事件失败: {error}"))?;
+
+    // 循环 / 随机是「属性变更请求」，不走 ButtonPressed：用户点浮层里的循环、
+    // 随机按钮时，Windows 只发这两个事件，由应用自己改状态再回报给 SMTC。
+    let on_repeat = std::sync::Arc::clone(&on_command);
+    session
+        .smtc
+        .AutoRepeatModeChangeRequested(&TypedEventHandler::<
+            SystemMediaTransportControls,
+            AutoRepeatModeChangeRequestedEventArgs,
+        >::new(move |_, args| {
+            let Some(args) = args.as_ref() else {
+                return Ok(());
+            };
+            if let Ok(mode) = args.RequestedAutoRepeatMode() {
+                on_repeat(Command::Repeat(RepeatMode::from_auto(mode)));
+            }
+            Ok(())
+        }))
+        .map_err(|error| anyhow!("注册循环模式事件失败: {error}"))?;
+
+    let on_shuffle = std::sync::Arc::clone(&on_command);
+    session
+        .smtc
+        .ShuffleEnabledChangeRequested(&TypedEventHandler::<
+            SystemMediaTransportControls,
+            ShuffleEnabledChangeRequestedEventArgs,
+        >::new(move |_, args| {
+            let Some(args) = args.as_ref() else {
+                return Ok(());
+            };
+            if let Ok(enabled) = args.RequestedShuffleEnabled() {
+                on_shuffle(Command::Shuffle(enabled));
+            }
+            Ok(())
+        }))
+        .map_err(|error| anyhow!("注册随机事件失败: {error}"))?;
     Ok(())
 }

@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -314275620;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1892350817;
 
 // Section: executor
 
@@ -1411,6 +1411,43 @@ fn wire__crate__api__media__media_is_supported_impl(
                 let output_ok = Ok::<_, ()>(crate::api::media::media_is_supported())?;
                 std::result::Result::Ok(output_ok)
             })())
+        },
+    )
+}
+fn wire__crate__api__media__media_set_play_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "media_set_play_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_repeat = <crate::api::media::MediaRepeatMode>::sse_decode(&mut deserializer);
+            let api_shuffle = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::media::media_set_play_mode(api_repeat, api_shuffle)?;
+                        std::result::Result::Ok(output_ok)
+                    })(),
+                )
+            }
         },
     )
 }
@@ -3784,6 +3821,11 @@ impl SseDecode for crate::api::media::MediaCommand {
             2 => crate::api::media::MediaCommand::Next,
             3 => crate::api::media::MediaCommand::Previous,
             4 => crate::api::media::MediaCommand::Stop,
+            5 => crate::api::media::MediaCommand::RepeatOff,
+            6 => crate::api::media::MediaCommand::RepeatAll,
+            7 => crate::api::media::MediaCommand::RepeatOne,
+            8 => crate::api::media::MediaCommand::ShuffleOn,
+            9 => crate::api::media::MediaCommand::ShuffleOff,
             _ => unreachable!("Invalid variant for MediaCommand: {}", inner),
         };
     }
@@ -3798,6 +3840,19 @@ impl SseDecode for crate::api::media::MediaPlayState {
             1 => crate::api::media::MediaPlayState::Paused,
             2 => crate::api::media::MediaPlayState::Stopped,
             _ => unreachable!("Invalid variant for MediaPlayState: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::media::MediaRepeatMode {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::media::MediaRepeatMode::Off,
+            1 => crate::api::media::MediaRepeatMode::All,
+            2 => crate::api::media::MediaRepeatMode::One,
+            _ => unreachable!("Invalid variant for MediaRepeatMode: {}", inner),
         };
     }
 }
@@ -4164,116 +4219,117 @@ fn pde_ffi_dispatcher_primary_impl(
         37 => wire__crate__api__media__media_clear_impl(port, ptr, rust_vec_len, data_len),
         38 => wire__crate__api__media__media_commands_impl(port, ptr, rust_vec_len, data_len),
         39 => wire__crate__api__media__media_init_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__media__media_set_state_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__media__media_set_track_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__collections__move_playlist_track_impl(
+        41 => wire__crate__api__media__media_set_play_mode_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__media__media_set_state_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__media__media_set_track_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__collections__move_playlist_track_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__collections__play_stats_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__player__player_analyze_replay_gain_impl(
+        45 => wire__crate__api__collections__play_stats_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__player__player_analyze_replay_gain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__player__player_devices_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__player__player_duration_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__player__player_now_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__player__player_output_info_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__player__player_pause_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__player__player_play_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__player__player_position_impl(port, ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__player__player_resume_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__player__player_seek_impl(port, ptr, rust_vec_len, data_len),
-        58 => {
+        48 => wire__crate__api__player__player_devices_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__player__player_duration_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__player__player_now_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__player__player_output_info_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__player__player_pause_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__player__player_play_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__player__player_position_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__player__player_resume_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__player__player_seek_impl(port, ptr, rust_vec_len, data_len),
+        59 => {
             wire__crate__api__player__player_set_crossfade_impl(port, ptr, rust_vec_len, data_len)
         }
-        59 => wire__crate__api__player__player_set_device_impl(port, ptr, rust_vec_len, data_len),
-        60 => {
+        60 => wire__crate__api__player__player_set_device_impl(port, ptr, rust_vec_len, data_len),
+        61 => {
             wire__crate__api__player__player_set_equalizer_impl(port, ptr, rust_vec_len, data_len)
         }
-        61 => {
+        62 => {
             wire__crate__api__player__player_set_exclusive_impl(port, ptr, rust_vec_len, data_len)
         }
-        62 => {
+        63 => {
             wire__crate__api__player__player_set_replay_gain_impl(port, ptr, rust_vec_len, data_len)
         }
-        63 => wire__crate__api__player__player_set_volume_impl(port, ptr, rust_vec_len, data_len),
-        64 => {
+        64 => wire__crate__api__player__player_set_volume_impl(port, ptr, rust_vec_len, data_len),
+        65 => {
             wire__crate__api__player__player_set_volume_fade_impl(port, ptr, rust_vec_len, data_len)
         }
-        65 => wire__crate__api__player__player_shutdown_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__api__player__player_spectrum_impl(port, ptr, rust_vec_len, data_len),
-        67 => {
+        66 => wire__crate__api__player__player_shutdown_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__api__player__player_spectrum_impl(port, ptr, rust_vec_len, data_len),
+        68 => {
             wire__crate__api__player__player_spectrum_stream_impl(port, ptr, rust_vec_len, data_len)
         }
-        69 => wire__crate__api__player__player_stop_impl(port, ptr, rust_vec_len, data_len),
-        70 => {
+        70 => wire__crate__api__player__player_stop_impl(port, ptr, rust_vec_len, data_len),
+        71 => {
             wire__crate__api__collections__playlist_tracks_impl(port, ptr, rust_vec_len, data_len)
         }
-        71 => wire__crate__api__db__prune_missing_tracks_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__api__metadata__read_track_tags_impl(port, ptr, rust_vec_len, data_len),
-        73 => wire__crate__api__collections__recent_tracks_impl(port, ptr, rust_vec_len, data_len),
-        74 => wire__crate__api__collections__record_play_impl(port, ptr, rust_vec_len, data_len),
-        75 => {
+        72 => wire__crate__api__db__prune_missing_tracks_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__metadata__read_track_tags_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__collections__recent_tracks_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__collections__record_play_impl(port, ptr, rust_vec_len, data_len),
+        76 => {
             wire__crate__api__collections__record_play_time_impl(port, ptr, rust_vec_len, data_len)
         }
-        76 => wire__crate__api__collections__remove_track_from_playlist_impl(
+        77 => wire__crate__api__collections__remove_track_from_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__api__db__remove_tracks_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__api__collections__remove_tracks_from_playlist_impl(
+        78 => wire__crate__api__db__remove_tracks_impl(port, ptr, rust_vec_len, data_len),
+        79 => wire__crate__api__collections__remove_tracks_from_playlist_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => {
+        80 => {
             wire__crate__api__collections__rename_playlist_impl(port, ptr, rust_vec_len, data_len)
         }
-        80 => wire__crate__api__scan__scan_folder_impl(port, ptr, rust_vec_len, data_len),
-        81 => wire__crate__api__db__search_tracks_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__api__cover_override__set_cover_override_impl(
+        81 => wire__crate__api__scan__scan_folder_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__api__db__search_tracks_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__cover_override__set_cover_override_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        83 => wire__crate__api__collections__set_favorite_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__collections__set_favorites_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__api__collections__set_playlist_order_impl(
+        84 => wire__crate__api__collections__set_favorite_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__collections__set_favorites_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__api__collections__set_playlist_order_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => {
+        87 => {
             wire__crate__api__media__single_instance_acquire_impl(port, ptr, rust_vec_len, data_len)
         }
-        87 => wire__crate__api__media__single_instance_signal_existing_impl(
+        88 => wire__crate__api__media__single_instance_signal_existing_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        90 => wire__crate__api__collections__top_artists_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__api__collections__top_tracks_impl(port, ptr, rust_vec_len, data_len),
-        92 => {
+        91 => wire__crate__api__collections__top_artists_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__api__collections__top_tracks_impl(port, ptr, rust_vec_len, data_len),
+        93 => {
             wire__crate__api__metadata__track_tags_default_impl(port, ptr, rust_vec_len, data_len)
         }
-        93 => wire__crate__api__db__unhide_tracks_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__crate__api__db__upsert_tracks_impl(port, ptr, rust_vec_len, data_len),
-        95 => {
+        94 => wire__crate__api__db__unhide_tracks_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__api__db__upsert_tracks_impl(port, ptr, rust_vec_len, data_len),
+        96 => {
             wire__crate__api__replaygain__write_replay_gain_impl(port, ptr, rust_vec_len, data_len)
         }
-        96 => wire__crate__api__metadata__write_track_cover_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__api__metadata__write_track_cover_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__metadata__write_track_tags_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -4318,16 +4374,16 @@ fn pde_ffi_dispatcher_sync_impl(
         ),
         24 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
         40 => wire__crate__api__media__media_is_supported_impl(ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__player__player_current_device_impl(ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__player__player_is_available_impl(ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__player__player_is_exclusive_impl(ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__player__player_state_impl(ptr, rust_vec_len, data_len),
-        88 => wire__crate__api__media__single_instance_take_activation_impl(
+        47 => wire__crate__api__player__player_current_device_impl(ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__player__player_is_available_impl(ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__player__player_is_exclusive_impl(ptr, rust_vec_len, data_len),
+        69 => wire__crate__api__player__player_state_impl(ptr, rust_vec_len, data_len),
+        89 => wire__crate__api__media__single_instance_take_activation_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        89 => wire__crate__api__appearance__system_accent_color_impl(ptr, rust_vec_len, data_len),
+        90 => wire__crate__api__appearance__system_accent_color_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -4519,6 +4575,11 @@ impl flutter_rust_bridge::IntoDart for crate::api::media::MediaCommand {
             Self::Next => 2.into_dart(),
             Self::Previous => 3.into_dart(),
             Self::Stop => 4.into_dart(),
+            Self::RepeatOff => 5.into_dart(),
+            Self::RepeatAll => 6.into_dart(),
+            Self::RepeatOne => 7.into_dart(),
+            Self::ShuffleOn => 8.into_dart(),
+            Self::ShuffleOff => 9.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -4553,6 +4614,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::media::MediaPlayState>
     for crate::api::media::MediaPlayState
 {
     fn into_into_dart(self) -> crate::api::media::MediaPlayState {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::media::MediaRepeatMode {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Off => 0.into_dart(),
+            Self::All => 1.into_dart(),
+            Self::One => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::media::MediaRepeatMode
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::media::MediaRepeatMode>
+    for crate::api::media::MediaRepeatMode
+{
+    fn into_into_dart(self) -> crate::api::media::MediaRepeatMode {
         self
     }
 }
@@ -5112,6 +5195,11 @@ impl SseEncode for crate::api::media::MediaCommand {
                 crate::api::media::MediaCommand::Next => 2,
                 crate::api::media::MediaCommand::Previous => 3,
                 crate::api::media::MediaCommand::Stop => 4,
+                crate::api::media::MediaCommand::RepeatOff => 5,
+                crate::api::media::MediaCommand::RepeatAll => 6,
+                crate::api::media::MediaCommand::RepeatOne => 7,
+                crate::api::media::MediaCommand::ShuffleOn => 8,
+                crate::api::media::MediaCommand::ShuffleOff => 9,
                 _ => {
                     unimplemented!("");
                 }
@@ -5129,6 +5217,23 @@ impl SseEncode for crate::api::media::MediaPlayState {
                 crate::api::media::MediaPlayState::Playing => 0,
                 crate::api::media::MediaPlayState::Paused => 1,
                 crate::api::media::MediaPlayState::Stopped => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::media::MediaRepeatMode {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::media::MediaRepeatMode::Off => 0,
+                crate::api::media::MediaRepeatMode::All => 1,
+                crate::api::media::MediaRepeatMode::One => 2,
                 _ => {
                     unimplemented!("");
                 }
