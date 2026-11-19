@@ -432,6 +432,8 @@ extension _PlaybackSection on _LibraryPageState {
               // 点歌手 / 专辑：退出播放页，进曲库对应的详情
               onOpenArtist: _openArtistFromNowPlaying,
               onOpenAlbum: _openAlbumFromNowPlaying,
+              // 选择艺术家弹窗里要给每位候选画自己的头像
+              artistCoverOf: _artistCoverOf,
               animateBackground: _flowBackground,
               // 歌词对齐 / 译文开关都走通知器：改完只重画歌词，不必重建整页
               lyricAlignment: _lyricAlignment,
