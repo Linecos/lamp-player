@@ -94,6 +94,25 @@ void main() {
       expect(spanOf(g, width), lessThan(width / 2));
     });
 
+    testWidgets('裁剪线收在渐变已经全透明的那一格以内', (WidgetTester tester) async {
+      // 遮罩层按整宽铺，裁剪只影响绘制、少切 1px：最后那一格既在遮罩范围内、
+      // 又已经是全透明，设备像素对不齐时漏出来的笔画落在这里也不会显形
+      await _pump(tester, _longText);
+
+      final ClipRect clip = tester.widget<ClipRect>(
+        find
+            .ancestor(
+              of: find.text(_longText).first,
+              matching: find.byType(ClipRect),
+            )
+            .first,
+      );
+      final Rect rect = clip.clipper!.getClip(const Size(_viewport, 30));
+      expect(rect.width, _viewport - 1, reason: '右缘要内缩 1px');
+      expect(rect.left, 0);
+      expect(rect.height, 30);
+    });
+
     test('左淡为 0 时最左边是纯白，不留 1px 硬边', () {
       final LinearGradient g = MarqueeTitle.fadeGradient(
         width: 200,

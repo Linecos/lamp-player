@@ -333,6 +333,13 @@ class _MarqueeTitleState extends State<MarqueeTitle>
                 // 光栅化一遍
                 : RepaintBoundary(
                     child: ClipRect(
+                      // 右缘内缩 1px：渐变在最后 1px 已经是全透明，但遮罩层与
+                      // 裁剪边界在实际设备像素上对不齐时（150% 缩放下常见），
+                      // 最右一列会漏出一条**没有经过遮罩**的笔画——照片里就是
+                      // 「渐隐收尾之后还有一道细亮的竖线」。把裁剪线挪进那格
+                      // 已经全透明的区域里，这一列就没有内容可漏了。
+                      // 只裁绘制、不改布局，宽度还是原样。
+                      clipper: const _InsetRightClipper(1),
                       child: AnimatedBuilder(
                         animation: _controller,
                         // 内容比视口宽得多，得让它不受约束地铺开：
@@ -389,4 +396,23 @@ class _MarqueeTitleState extends State<MarqueeTitle>
       },
     );
   }
+}
+
+/// 只把右缘切掉 [inset] 像素的裁剪器。
+///
+/// 用 `Padding` 缩窄会连遮罩一起缩（`shaderCallback` 拿到的宽度就是它的大小），
+/// 渐变窗口跟着变、右端又回到边界上；裁剪器只影响绘制，遮罩仍然按整宽算，
+/// 最后那一格才是「已经全透明但还在遮罩范围内」的安全边。
+class _InsetRightClipper extends CustomClipper<Rect> {
+  const _InsetRightClipper(this.inset);
+
+  final double inset;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, 0, math.max(0, size.width - inset), size.height);
+
+  @override
+  bool shouldReclip(covariant _InsetRightClipper oldClipper) =>
+      oldClipper.inset != inset;
 }
