@@ -97,6 +97,27 @@ fn session() -> &'static Mutex<Option<Session>> {
     SESSION.get_or_init(|| Mutex::new(None))
 }
 
+thread_local! {
+    /// 当前线程是否已经进过 MTA。FRB 把 Future 派到线程池，初始化和后续
+    /// `media_set_track` / `media_set_state` 往往落在不同线程上，只在 init
+    /// 那一次 CoInitializeEx，后续 WinRT 调用会随机失败。
+    static COM_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// 每条入口先保证本线程已进 MTA；S_FALSE（已初始化过）也算成功
+fn ensure_com() -> Result<()> {
+    COM_READY.with(|ready| {
+        if ready.get() {
+            return Ok(());
+        }
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+            .ok()
+            .map_err(|error| anyhow!("COM 初始化失败: {error}"))?;
+        ready.set(true);
+        Ok(())
+    })
+}
+
 fn lock() -> std::sync::MutexGuard<'static, Option<Session>> {
     session()
         .lock()
@@ -108,13 +129,10 @@ fn lock() -> std::sync::MutexGuard<'static, Option<Session>> {
 /// 系统不支持（精简版 Windows、被策略禁用）时返回错误，调用方忽略即可，
 /// 不影响播放本身。
 pub fn init() -> Result<()> {
+    ensure_com()?;
     if lock().is_some() {
         return Ok(());
     }
-    // S_FALSE（已初始化过）也是成功
-    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
-        .ok()
-        .map_err(|error| anyhow!("COM 初始化失败: {error}"))?;
 
     let player = MediaPlayer::new().map_err(|error| anyhow!("创建 MediaPlayer 失败: {error}"))?;
     player
@@ -158,6 +176,19 @@ pub fn init() -> Result<()> {
 
 /// 更新曲目信息；`cover` 为内嵌封面（原始图片字节），没有就沿用系统占位图
 pub fn set_track(title: &str, artist: &str, album: &str, cover: Option<&[u8]>) -> Result<()> {
+    ensure_com()?;
+    // 没有封面时也要把缩略图顶掉：只更新标题 / 艺术家而不动图，
+    // Windows 浮层会继续显示上一首的封面，配着新标题看就像放错了歌。
+    // 用 1×1 透明 PNG 占位，比留着旧图或干脆不设都干净。
+    //
+    // 这步要 WriteAsync / FlushAsync 的 .get()，是阻塞 IO，必须在拿全局锁之前做：
+    // 拿锁做的话，media_set_state / media_clear 会被一起堵住。
+    let reference = match cover {
+        Some(bytes) => stream_reference(bytes).ok(),
+        None => None,
+    }
+    .or_else(|| stream_reference(BLANK_PNG).ok());
+
     let guard = lock();
     let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
 
@@ -182,14 +213,7 @@ pub fn set_track(title: &str, artist: &str, album: &str, cover: Option<&[u8]>) -
         .SetAlbumTitle(&HSTRING::from(album))
         .map_err(|error| anyhow!("设置专辑失败: {error}"))?;
 
-    // 没有封面时也要把缩略图顶掉：只更新标题 / 艺术家而不动图，
-    // Windows 浮层会继续显示上一首的封面，配着新标题看就像放错了歌。
-    // 用 1×1 透明 PNG 占位，比留着旧图或干脆不设都干净。
-    let reference = match cover {
-        Some(bytes) => stream_reference(bytes).ok(),
-        None => None,
-    }
-    .or_else(|| stream_reference(BLANK_PNG).ok());
+    // 没有封面时也要把缩略图顶掉（见函数开头的说明）：占位流已在锁外备好
     if let Some(reference) = reference {
         // 缩略图是装饰性的，失败不该让整次元数据提交失败
         let _ = updater.SetThumbnail(&reference);
@@ -215,6 +239,7 @@ fn stream_reference(bytes: &[u8]) -> Result<RandomAccessStreamReference> {
 
 /// 同步播放状态；播完/停止后 Windows 会把浮层收起来
 pub fn set_state(state: PlayState) -> Result<()> {
+    ensure_com()?;
     let guard = lock();
     let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
     let status = match state {
@@ -231,6 +256,7 @@ pub fn set_state(state: PlayState) -> Result<()> {
 
 /// 清空曲目信息并停用 SMTC（退出前调用）
 pub fn clear() -> Result<()> {
+    ensure_com()?;
     let guard = lock();
     let Some(session) = guard.as_ref() else {
         return Ok(());
@@ -248,6 +274,7 @@ pub fn clear() -> Result<()> {
 /// 不只影响显示：Windows 的循环、随机按钮在会话上报过这两个属性之后才是可点的，
 /// 点了之后走 `AutoRepeatModeChangeRequested` / `ShuffleEnabledChangeRequested`。
 pub fn set_play_mode(repeat: RepeatMode, shuffle: bool) -> Result<()> {
+    ensure_com()?;
     let guard = lock();
     let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
     session
@@ -269,6 +296,7 @@ pub fn listen<F>(on_command: F) -> Result<()>
 where
     F: Fn(Command) + Send + Sync + 'static,
 {
+    ensure_com()?;
     let guard = lock();
     let session = guard.as_ref().ok_or_else(|| anyhow!("SMTC 未初始化"))?;
     // 三个事件处理器共用同一个回调：`Fn` 不是 `Copy`，各闭包要各持一份 Arc
