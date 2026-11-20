@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_version.dart';
+import '../../app/update_check.dart';
 import '../../common/common.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../theme/app_theme.dart';
@@ -54,6 +55,13 @@ class SettingsView extends StatelessWidget {
     this.onFlowBackgroundChanged,
     this.circularCovers = false,
     this.onCircularCoversChanged,
+    this.autoUpdateCheck = false,
+    this.onAutoUpdateCheckChanged,
+    this.updateCheckPeriod = UpdateCheckPeriod.daily,
+    this.onUpdateCheckPeriodChanged,
+    this.checkingUpdate = false,
+    this.updateStatus,
+    this.onCheckUpdate,
     this.bottomPadding = 16,
     this.query = '',
     this.matcher,
@@ -153,6 +161,23 @@ class SettingsView extends StatelessWidget {
   /// 封面是否显示成圆形
   final bool circularCovers;
   final ValueChanged<bool>? onCircularCoversChanged;
+
+  /// 启动时是否自动检查新版本
+  final bool autoUpdateCheck;
+  final ValueChanged<bool>? onAutoUpdateCheckChanged;
+
+  /// 自动检查的频率（每次启动 / 每天 / 每周 / 每月）
+  final UpdateCheckPeriod updateCheckPeriod;
+  final ValueChanged<UpdateCheckPeriod>? onUpdateCheckPeriodChanged;
+
+  /// 正在检查更新（按钮转圈并禁用）
+  final bool checkingUpdate;
+
+  /// 上一次手动检查的结果短句；为空时显示当前版本
+  final String? updateStatus;
+
+  /// 手动检查更新；为空表示不可操作（测试或未注入）
+  final VoidCallback? onCheckUpdate;
 
   /// 列表底部留白。设置页被底部播放岛压住时由外部传入岛占用的高度，
   /// 否则最后一栏（关于）会滚不进可视区。
@@ -311,6 +336,41 @@ class SettingsView extends StatelessWidget {
       ),
     ]);
     section('关于', <Widget>[
+      SettingsActionRow(
+        icon: Icons.system_update_alt,
+        title: '检查更新',
+        subtitle: checkingUpdate
+            ? '正在检查…'
+            : (updateStatus ?? '当前 v$appVersion'),
+        trailing: checkingUpdate
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : null,
+        onTap: checkingUpdate ? null : onCheckUpdate,
+      ),
+      _SwitchRow(
+        icon: Icons.update,
+        title: '自动检查更新',
+        switchKey: const ValueKey<String>('settings-auto-update-switch'),
+        subtitle: '启动时按下面的频率检查，发现新版本才提示',
+        value: autoUpdateCheck,
+        onChanged: onAutoUpdateCheckChanged,
+      ),
+      _ChoiceRow<UpdateCheckPeriod>(
+        icon: Icons.schedule,
+        title: '自动检查频率',
+        subtitle: autoUpdateCheck ? null : '打开上方开关后生效',
+        value: updateCheckPeriod,
+        choices: <(UpdateCheckPeriod, String)>[
+          for (final UpdateCheckPeriod period in UpdateCheckPeriod.values)
+            (period, period.label),
+        ],
+        onChanged: autoUpdateCheck ? onUpdateCheckPeriodChanged : null,
+        choiceKey: const ValueKey<String>('settings-update-period'),
+      ),
       SettingsInfoRow(
         icon: Icons.info_outline,
         title: 'Lamp Player',
