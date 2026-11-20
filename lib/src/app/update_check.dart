@@ -186,7 +186,12 @@ UpdateRelease? parseLatestRelease(String body) {
 /// 真正发请求：GitHub 要求带 User-Agent，且超时要短（启动时不值得卡住界面）。
 Future<String> _httpGetJson(Uri uri) async {
   final HttpClient client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 6);
+    ..connectionTimeout = const Duration(seconds: 6)
+    // dart:io 不认 Windows 的系统代理：挂着 Clash / v2ray 这类本机代理的
+    // 用户直连 api.github.com 往往不通，检查更新会永远静默失败。
+    // findProxyFromEnvironment 认 http_proxy / https_proxy / no_proxy
+    // （大小写都行），没设环境变量就是直连，行为不变。
+    ..findProxy = HttpClient.findProxyFromEnvironment;
   try {
     final HttpClientRequest request = await client.getUrl(uri);
     request.headers
@@ -196,7 +201,15 @@ Future<String> _httpGetJson(Uri uri) async {
       const Duration(seconds: 8),
       onTimeout: () => throw const UpdateCheckException('连接超时'),
     );
-    final String body = await response.transform(utf8.decoder).join();
+    // 上面的超时只管到响应头为止；服务器收到请求后把连接吊着不发数据的话，
+    // join() 会一直悬着——这一次检查永不结束，虽然不卡界面，但也收不了场。
+    final String body = await response
+        .transform(utf8.decoder)
+        .join()
+        .timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => throw const UpdateCheckException('响应超时'),
+        );
     if (response.statusCode == 404) {
       throw const UpdateCheckException('仓库还没有发布任何版本');
     }
