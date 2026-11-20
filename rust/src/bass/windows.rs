@@ -1757,25 +1757,60 @@ fn lock_engine() -> std::sync::MutexGuard<'static, Option<Result<Shared, String>
 
 /// 取引擎命令发送端；首次调用会拉起引擎线程。
 fn sender() -> Result<Sender<Queued>> {
-    let mut guard = lock_engine();
-    match guard.as_ref() {
-        Some(Ok(shared)) => return Ok(shared.tx.clone()),
-        // 上次失败：丢掉失败结果，重新试一次
-        Some(Err(_)) => *guard = None,
-        None => {}
+    {
+        let guard = lock_engine();
+        if let Some(Ok(shared)) = guard.as_ref() {
+            return Ok(shared.tx.clone());
+        }
+    }
+    // 拉起引擎要等初始化（最长 5 秒）。不能在 ENGINE 锁里等：所有播放命令、
+    // 每秒 30 次的频谱查询都要先过 sender()，会一起堵在这把锁上。
+    let _spawn = spawn_guard();
+    {
+        let mut guard = lock_engine();
+        // 拿到创建令牌后重查：可能别的线程刚刚拉起
+        if let Some(Ok(shared)) = guard.as_ref() {
+            return Ok(shared.tx.clone());
+        }
+        // 上次初始化失败的结果作废，重新试一次
+        *guard = None;
     }
     match spawn() {
         Ok(shared) => {
             let tx = shared.tx.clone();
-            *guard = Some(Ok(shared));
+            {
+                let mut guard = lock_engine();
+                *guard = Some(Ok(shared));
+            }
             Ok(tx)
         }
         Err(err) => {
             let message = err.to_string();
-            *guard = Some(Err(message.clone()));
+            {
+                let mut guard = lock_engine();
+                *guard = Some(Err(message.clone()));
+            }
             Err(anyhow!("播放引擎不可用: {message}"))
         }
     }
+}
+
+/// 只允许一个线程拉起引擎：spawn 期间不占 ENGINE 锁，靠这把锁去重
+fn spawn_guard() -> std::sync::MutexGuard<'static, ()> {
+    static SPAWN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SPAWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 引擎线程已经没了（正常退出或 panic）：清掉单例，下一次调用重新拉起。
+///
+/// 之前命令发不出去就直接返回错误，单例里那个死 sender 一直留着，
+/// 之后所有播放命令和 `shutdown()` 都失败，只能重启进程。
+fn drop_engine() {
+    AVAILABLE.store(false, Ordering::SeqCst);
+    let mut guard = lock_engine();
+    *guard = None;
 }
 
 fn spawn() -> Result<Shared> {
@@ -1915,14 +1950,19 @@ fn call<T>(class: Class, make: impl FnOnce(Reply<T>) -> Cmd) -> Result<T> {
         LATEST[index].store(seq, Ordering::SeqCst);
     }
     let (tx, rx) = channel();
-    sender
+    if sender
         .send(Queued {
             seq,
             class,
             queued_at: std::time::Instant::now(),
             cmd: make(tx),
         })
-        .map_err(|_| anyhow!("播放引擎已退出"))?;
+        .is_err()
+    {
+        // 线程已经没了：清掉单例，下一次调用重新拉起；这一次先把错误报给调用方
+        drop_engine();
+        bail!("播放引擎已退出，已重置，请重试");
+    }
     match rx.recv_timeout(call_timeout()) {
         Ok(result) => result,
         Err(RecvTimeoutError::Timeout) => Err(anyhow!(
@@ -2074,26 +2114,28 @@ pub fn shutdown() -> Result<()> {
         let guard = lock_engine();
         match guard.as_ref() {
             Some(Ok(shared)) => shared.tx.clone(),
-            _ => return Ok(()),
+            _ => {
+                AVAILABLE.store(false, Ordering::SeqCst);
+                return Ok(());
+            }
         }
     };
     let (tx, rx) = channel();
-    sender
+    let delivered = sender
         .send(Queued {
             seq: NEXT_SEQ.fetch_add(1, Ordering::SeqCst),
             class: Class::Passive,
             queued_at: std::time::Instant::now(),
             cmd: Cmd::Shutdown(tx),
         })
-        .map_err(|_| anyhow!("播放引擎已退出"))?;
-    // 设备释放不该把退出流程拖住
-    let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
-    // 线程已退出：清空单例，让同一进程内还能重新拉起（测试与再次 init 都会用到）
-    {
-        let mut guard = lock_engine();
-        *guard = None;
+        .is_ok();
+    if delivered {
+        // 设备释放不该把退出流程拖住
+        let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
     }
-    AVAILABLE.store(false, Ordering::SeqCst);
+    // 线程已退出（正常关机或 panic 后再发不出去）：两种都要清空单例，
+    // 否则死 sender 一直挂在 ENGINE 上，之后所有播放调用都失败
+    drop_engine();
     Ok(())
 }
 
@@ -2224,5 +2266,20 @@ mod tests {
         ] {
             assert!(result.is_ok(), "丢弃不该变成错误：{result:?}");
         }
+    }
+
+    /// 引擎线程没了要能把单例清掉：否则死 sender 一直挂在那里，
+    /// 之后所有播放命令（连 shutdown）都失败，只能重启进程
+    #[test]
+    fn drop_engine_clears_dead_singleton() {
+        let _guard = seq_guard();
+        {
+            let mut guard = lock_engine();
+            *guard = Some(Err("引擎线程已退出".to_string()));
+        }
+        AVAILABLE.store(true, Ordering::SeqCst);
+        drop_engine();
+        assert!(lock_engine().is_none());
+        assert!(!AVAILABLE.load(Ordering::SeqCst));
     }
 }
