@@ -162,6 +162,55 @@ void main() {
     );
   });
 
+  testWidgets('窗口慢慢拖动时，累计的高度变化也要触发重算', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(52.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 20; i += 1)
+          _line(start: i * 5000, end: i * 5000 + 5000, text: '第$i行'),
+      ],
+      position: position,
+      playing: playing,
+      alignment: 0.3,
+    );
+
+    double? alphaOf(int index) {
+      final Finder text = find.descendant(
+        of: find.byKey(ValueKey<String>('lyric-$index')),
+        matching: find.byType(Text),
+      );
+      if (text.evaluate().isEmpty) {
+        return null;
+      }
+      return tester.widget<Text>(text.first).style?.color?.a;
+    }
+
+    final double? before = alphaOf(7);
+    expect(before, isNotNull, reason: '这一行应该在视口里');
+
+    // 拖窗口下沿：每帧只变 0.45，单帧都跨不过 0.5 的阈值，累计 135
+    const double step = 0.45;
+    const int frames = 300;
+    for (int i = 1; i <= frames; i += 1) {
+      tester.view.physicalSize = Size(900, 700 + step * i);
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final double? after = alphaOf(7);
+    expect(after, isNotNull);
+    expect(
+      after,
+      isNot(closeTo(before!, 0.02)),
+      reason: '阈值基线要按上次修正的高度算，累计变化不能一直被每帧刷新掉',
+    );
+  });
+
   testWidgets('对齐方式把整行推到左 / 中 / 右', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(12.5);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
