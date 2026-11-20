@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:charset/charset.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/library/playlist_io.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -178,6 +181,38 @@ E:\\Music\\b.mp3
       final ({int matched, int total}) stats = importStats(entries, matched);
       expect(stats.matched, 1);
       expect(stats.total, 2);
+    });
+
+    test('相对路径按歌单所在目录解析（同名文件也不歧义）', () {
+      // 故意再加一首同名 b.flac：只靠文件名兜底会歧义，必须真按目录解析
+      final List<Track> withTwin = <Track>[
+        ...library,
+        _track(r'E:\Other\b.flac', title: 'B-twin'),
+      ];
+      final List<Track> matched = matchImportedEntries(
+        <M3UEntry>[
+          // 外部歌单常见写法：相对歌单文件所在目录
+          const M3UEntry(path: r'..\Music\a.flac'),
+          const M3UEntry(path: r'..\Music\Sub\b.flac'),
+        ],
+        withTwin,
+        playlistDir: r'E:\Lists',
+      );
+
+      expect(matched.map((Track t) => t.title).toList(), <String>['A', 'B']);
+    });
+  });
+
+  group('decodePlaylistBytes', () {
+    test('UTF-8 歌单照常解码', () {
+      final List<int> bytes = utf8.encode('#EXTM3U\n夜航.flac\n');
+      expect(decodePlaylistBytes(bytes), '#EXTM3U\n夜航.flac\n');
+    });
+
+    test('GBK / ANSI 歌单不再抛 FormatException', () {
+      // 国内播放器导出的 .m3u 大量是 GBK：按 UTF-8 硬读会直接失败
+      final List<int> bytes = gbk.encode('#EXTM3U\n夜航 - 潮汐.flac\n');
+      expect(decodePlaylistBytes(bytes), '#EXTM3U\n夜航 - 潮汐.flac\n');
     });
   });
 }

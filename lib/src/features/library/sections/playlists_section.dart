@@ -332,7 +332,8 @@ extension _PlaylistsSection on _LibraryPageState {
     }
     final String content;
     try {
-      content = await File(file.path).readAsString();
+      // 不按 UTF-8 硬读：外部歌单大量是 GBK / ANSI
+      content = decodePlaylistBytes(await File(file.path).readAsBytes());
     } catch (error) {
       if (!mounted) {
         return;
@@ -348,7 +349,12 @@ extension _PlaylistsSection on _LibraryPageState {
       _showMessage('文件里没有找到曲目');
       return;
     }
-    final List<Track> matched = matchImportedEntries(parsed.entries, _tracks);
+    final List<Track> matched = matchImportedEntries(
+      parsed.entries,
+      _tracks,
+      // 相对路径按歌单所在目录解析（外部歌单常见写法）
+      playlistDir: File(file.path).parent.path,
+    );
     if (matched.isEmpty) {
       _showMessage('导入的 ${parsed.entries.length} 首都不在曲库里，未创建歌单');
       return;

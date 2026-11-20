@@ -11,7 +11,26 @@
 /// 有同名歧义的文件名不兜底（宁可少导入也不导错歌）。
 library;
 
+import 'dart:convert';
+
+import 'package:charset/charset.dart';
+import 'package:path/path.dart' as p;
+
 import '../../rust/api/model.dart';
+
+/// 解码歌单文本：UTF-8 优先，失败退回 GBK。
+///
+/// 国内播放器导出的 `.m3u` 很多还是 ANSI（GBK）编码，直接 `readAsString()`
+/// 会抛 FormatException，上层只能报「读取文件失败」。GBK 也解不开时退回
+/// latin1：至少路径原样保留，还能靠文件名兜底匹配。
+String decodePlaylistBytes(List<int> bytes) {
+  try {
+    return utf8.decode(bytes);
+  } on FormatException {
+    // 落到 GBK
+  }
+  return gbk.decode(bytes, allowMalformed: true);
+}
 
 /// 导出歌单为 M3U8 文本（写入文件由调用方负责）。
 String buildM3U8({required String playlistName, required List<Track> tracks}) {
@@ -113,12 +132,14 @@ M3UEntry _parseExtInf(String body) {
 
 /// 用导入条目匹配曲库曲目；返回按导入顺序排列、已去重的匹配结果。
 ///
-/// 匹配策略：先按规范化路径（统一 `/` 与小写）精确匹配；
-/// 路径对不上时按文件名兜底，但**同名多个候选的文件名不参与兜底**。
+/// 匹配策略：先按规范化路径（统一 `/` 与小写）精确匹配；相对路径先按
+/// 歌单所在目录 [playlistDir] 解析成绝对路径。路径仍对不上时按文件名兜底，
+/// 但**同名多个候选的文件名不参与兜底**。
 List<Track> matchImportedEntries(
   List<M3UEntry> entries,
-  List<Track> libraryTracks,
-) {
+  List<Track> libraryTracks, {
+  String? playlistDir,
+}) {
   final Map<String, Track> byPath = <String, Track>{
     for (final Track track in libraryTracks) _normalizePath(track.path): track,
   };
@@ -132,14 +153,27 @@ List<Track> matchImportedEntries(
   final List<Track> matched = <Track>[];
   final Set<String> seen = <String>{};
   for (final M3UEntry entry in entries) {
+    final String path = _resolveEntryPath(entry.path, playlistDir);
     final Track? track =
-        byPath[_normalizePath(entry.path)] ??
-        byFileName[_normalizePath(_fileName(entry.path))];
+        byPath[_normalizePath(path)] ??
+        byFileName[_normalizePath(_fileName(path))];
     if (track != null && seen.add(track.path)) {
       matched.add(track);
     }
   }
   return matched;
+}
+
+/// 相对条目按歌单目录解析；已经是绝对路径（`C:\`、`\\server\`、`/x`）就原样返回。
+String _resolveEntryPath(String entryPath, String? playlistDir) {
+  final String path = entryPath.trim();
+  if (path.isEmpty || playlistDir == null || playlistDir.isEmpty) {
+    return path;
+  }
+  if (p.windows.isAbsolute(path)) {
+    return path;
+  }
+  return p.windows.normalize(p.windows.join(playlistDir, path));
 }
 
 /// 导入报告：匹配上多少首、文件里一共多少条
