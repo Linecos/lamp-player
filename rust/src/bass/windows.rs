@@ -1582,8 +1582,9 @@ impl Engine {
             return;
         }
         let stream = self.stream;
-        // 先让回调松手，再拆链路
-        self.eq_fx.clear();
+        // FX 挂在混音流上，独占换曲时混音流不重建：必须先真摘掉，
+        // 只倒句柄记录会让下一首的 apply_eq 找不到旧 FX，逐首叠加
+        self.clear_eq();
         self.set_slot(0, 0, true);
         self.stream = 0;
         self.path = None;
