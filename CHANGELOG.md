@@ -13,6 +13,10 @@
 
 - **检查更新认代理环境变量**：`dart:io` 不会自己用系统代理，挂着 Clash / v2ray 这类本机代理的用户直连 GitHub API 往往不通，自动检查永远静默失败。现在请求挂上 `findProxyFromEnvironment`（认 `http_proxy` / `https_proxy` / `no_proxy`，大小写都行），设了环境变量就代理、没设就直连，行为不变；同时响应体的读取补了 10 秒超时——之前超时只管到响应头，服务器把连接吊着不发数据时这一次检查会永远悬着
 
+### 变更
+
+- **自绘图标换成品字形**：放大镜与排序箭头改用内置 `Icons.search` / `arrow_upward` / `arrow_downward`；内置集里没有合适形状的四个——侧栏「专辑」的唱片（选中实心 / 未选中空心）、音乐库「听歌统计」的四柱、设置页「动态主题色」的画笔、侧栏「音乐库」的店铺（两态同上）——从 Material Symbols 与 Material Design Icons 各取一张 SVG，打成项目自带的小字体 `LampIcons`（6 个字形、3 KB，源 SVG 在 `assets/icons`，生成命令写在 `lib/src/common/lamp_icons.dart` 顶部）。侧栏「音乐库」图标同时从 Material 的 `storefront` 换成 **mdi:store**。窗口四键（最小化 / 最大化 / 还原 / 关闭）仍是自绘：15px 下要更细的笔画，还要一层描影压住封面渐变背景。新增 `test/common/lamp_icons_test.dart` 解析字体的 `cmap` 表，逐个校验字形码位真的在字体里——改 SVG 忘了重跑生成命令，或手改码位，都会红
+
 ## [0.2.0] - 2026-11-20
 
 ### 新增

@@ -270,8 +270,10 @@ class LibraryManageView extends StatelessWidget {
             // 16 + 18 两段，没有 banner 时看着凭空多出一截空当）
             _ActionTile(
               key: const ValueKey<String>('library-open-stats'),
-              // material-symbols:bar-chart-4-bars 没有内置字形：四柱 + 基线，自绘
-              icon: _BarChart4Icon(
+              // material-symbols:bar-chart-4-bars：内置集只有三柱的 bar_chart，
+              // 四柱字形放在项目自带字体里
+              icon: Icon(
+                LampIcons.barChart4Bars,
                 size: 20,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -1190,57 +1192,6 @@ class _ScanSummary extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 四柱柱状图（对齐 material-symbols:bar-chart-4-bars）。
-///
-/// 内置的 `bar_chart` 只有三根柱子、也没有基线，这里按同一比例自绘。
-/// 注意：外层圆形底给的是 40×40 紧约束，**不能按 layout 尺寸缩放**——
-/// 字形大小只认传入的 [size]，剩余空间居中留白，否则会比别的图标大一圈。
-class _BarChart4Icon extends StatelessWidget {
-  const _BarChart4Icon({required this.size, required this.color});
-
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _BarChart4Painter(color, size));
-  }
-}
-
-class _BarChart4Painter extends CustomPainter {
-  const _BarChart4Painter(this.color, this.iconSize);
-
-  final Color color;
-  final double iconSize;
-
-  /// 柱宽 4、间距 2，四根刚好铺满 1~23；基线略微超出柱组
-  static const double _barWidth = 4;
-  static const double _gap = 2;
-  static const double _bottom = 19;
-  static const List<double> _tops = <double>[11, 6, 9, 3];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final double scale = iconSize / 24;
-    canvas.translate((size.width - iconSize) / 2, (size.height - iconSize) / 2);
-    canvas.scale(scale);
-    final Paint paint = Paint()..color = color;
-
-    for (int i = 0; i < _tops.length; i += 1) {
-      final double left = 1 + i * (_barWidth + _gap);
-      canvas.drawRect(
-        Rect.fromLTRB(left, _tops[i], left + _barWidth, _bottom),
-        paint,
-      );
-    }
-    canvas.drawRect(const Rect.fromLTRB(1, 20.5, 23, 22), paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _BarChart4Painter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.iconSize != iconSize;
 }
 
 /// 音质分布：左边环形图，右边四档图例（可点，与扇形同一效果）。

@@ -172,19 +172,18 @@ void main() {
       reason: '文字到胶囊左端应当只有内边距的距离，不留给空占位',
     );
 
-    // 方向箭头是自绘的 CustomPaint：图标字体的 Release 子集一旦过期，
-    // Icon 就渲染成空白（实测过），箭头不能赌它
-    // （胶囊的 clipBehavior 内部也会生成一个 CustomPaint，所以按 painter 类型挑）
+    // 方向箭头走内置字形（升序 arrow_upward / 降序 arrow_downward），
+    // 且只出现一个：两段式控件里不能同时挂两个箭头
     final Finder arrow = find.descendant(
       of: find.byKey(const ValueKey<String>('library-sort')),
       matching: find.byWidgetPredicate(
         (Widget w) =>
-            w is CustomPaint &&
-            w.painter != null &&
-            w.painter.runtimeType.toString() == '_SortArrowPainter',
+            w is Icon &&
+            (w.icon == Icons.arrow_upward || w.icon == Icons.arrow_downward),
       ),
     );
     expect(arrow, findsOneWidget);
+    expect(tester.widget<Icon>(arrow).icon, Icons.arrow_upward);
 
     // 墨迹画在胶囊自己的透明 Material 上，才会被胶囊圆角裁住；
     // 不垫这层的话高亮一路画到 Scaffold 的 Material 上，跨出胶囊
