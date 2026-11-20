@@ -19,6 +19,7 @@ class SessionSnapshot {
     this.lastVolume = 1,
     this.lastTrackPath,
     this.lastPositionSecs = 0,
+    this.writeLastTrack = true,
     this.repeat = LoopMode.off,
     this.shuffle = false,
     this.queuePaths,
@@ -63,6 +64,12 @@ class SessionSnapshot {
 
   final String? lastTrackPath;
   final double lastPositionSecs;
+
+  /// 这次保存要不要写「上次曲目 / 进度」。
+  ///
+  /// 启动时曲库还没读完，`_currentTrack` 还是 null；这时候保存（退出、点排序）
+  /// 会把上一次的曲目与进度冲成空。这类保存只写设置，不碰这两项。
+  final bool writeLastTrack;
   final LoopMode repeat;
   final bool shuffle;
 
@@ -326,13 +333,15 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setDouble(lastVolumeKey, snapshot.lastVolume);
       // 记下曲线版本：以后换算法时才知道要不要迁移这一份存档
       await prefs.setInt(volumeCurveVersionKey, volumeCurveVersion);
-      final String? path = snapshot.lastTrackPath;
-      if (path == null || path.isEmpty) {
-        await prefs.remove(lastTrackKey);
-      } else {
-        await prefs.setString(lastTrackKey, path);
+      if (snapshot.writeLastTrack) {
+        final String? path = snapshot.lastTrackPath;
+        if (path == null || path.isEmpty) {
+          await prefs.remove(lastTrackKey);
+        } else {
+          await prefs.setString(lastTrackKey, path);
+        }
+        await prefs.setDouble(lastPositionKey, snapshot.lastPositionSecs);
       }
-      await prefs.setDouble(lastPositionKey, snapshot.lastPositionSecs);
       await prefs.setBool(flowBackgroundKey, snapshot.flowBackground);
       await prefs.setBool(circularCoversKey, snapshot.circularCovers);
       await prefs.setString(repeatKey, snapshot.repeat.name);

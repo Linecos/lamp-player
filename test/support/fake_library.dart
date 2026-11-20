@@ -531,8 +531,16 @@ class FakeSessionStore implements SessionStore {
   SessionSnapshot snapshot;
   int saveCalls = 0;
 
+  /// 挂上就让 [load] 一直等：用来模拟「启动期会话还没读完」
+  Completer<void>? loadGate;
+
   @override
-  Future<SessionSnapshot> load() async => snapshot;
+  Future<SessionSnapshot> load() async {
+    if (loadGate != null) {
+      await loadGate!.future;
+    }
+    return snapshot;
+  }
 
   @override
   Future<void> save(SessionSnapshot snapshot) async {

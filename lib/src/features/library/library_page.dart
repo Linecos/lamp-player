@@ -1499,6 +1499,8 @@ class _LibraryPageState extends State<LibraryPage>
       lastVolume: _lastVolume,
       lastTrackPath: _currentTrack?.path,
       lastPositionSecs: _currentTrack == null ? 0 : _position,
+      // 会话没读完之前曲目/进度都是「还不知道」，写下去等于清空上次的存档
+      writeLastTrack: _sessionLoaded,
       repeat: _queue.repeat,
       shuffle: _queue.shuffle,
       queuePaths: queuePaths,

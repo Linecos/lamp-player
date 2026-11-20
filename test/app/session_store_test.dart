@@ -83,6 +83,36 @@ void main() {
     expect(snapshot.section, isNull);
   });
 
+  test('启动期保存只写设置，不碰上次曲目与进度', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PrefsSessionStore.lastTrackKey: '/music/夜航.mp3',
+      PrefsSessionStore.lastPositionKey: 128.5,
+    });
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    // 会话还没读完：曲目未知、音量已经恢复成存档值
+    await store.save(
+      const SessionSnapshot(
+        volume: 0.6,
+        lastVolume: 0.6,
+        writeLastTrack: false,
+      ),
+    );
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(PrefsSessionStore.lastTrackKey),
+      '/music/夜航.mp3',
+      reason: '启动期保存不能把上次曲目冲掉',
+    );
+    expect(
+      prefs.getDouble(PrefsSessionStore.lastPositionKey),
+      128.5,
+      reason: '启动期保存不能把进度冲成 0',
+    );
+    expect(prefs.getDouble(PrefsSessionStore.volumeKey), closeTo(0.6, 0.001));
+  });
+
   test('异常音量读回时被夹到 0~1', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'flutter.${PrefsSessionStore.volumeKey}': 1.8,
