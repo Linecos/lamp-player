@@ -219,8 +219,14 @@ enum Class {
     Transport,
     Seek,
     Volume,
-    /// 均衡器 / 独占切换：都是整份状态覆盖，新的顶掉旧的
-    Config,
+    /// 起播后补算的 ReplayGain；和音量分开，否则会互相作废
+    Gain,
+    /// 以下设置项各占一类：都只覆盖自己那一项，谁也不能顶掉别人
+    Device,
+    Crossfade,
+    VolumeFade,
+    Eq,
+    Exclusive,
     /// 查询与关闭：永不丢弃
     Passive,
 }
@@ -231,15 +237,20 @@ impl Class {
             Class::Transport => Some(0),
             Class::Seek => Some(1),
             Class::Volume => Some(2),
-            Class::Config => Some(3),
+            Class::Gain => Some(3),
+            Class::Device => Some(4),
+            Class::Crossfade => Some(5),
+            Class::VolumeFade => Some(6),
+            Class::Eq => Some(7),
+            Class::Exclusive => Some(8),
             Class::Passive => None,
         }
     }
 }
 
 /// 每类命令最近一次入队的序号
-static LATEST: [std::sync::atomic::AtomicU64; 4] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static LATEST: [std::sync::atomic::AtomicU64; 9] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 9];
 static NEXT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// 排队中的命令
@@ -268,7 +279,10 @@ impl Queued {
 }
 
 impl Cmd {
-    /// 丢掉的命令都回一个成功：调用方要的是「这条不再影响状态」，不是错误
+    /// 丢掉的命令都回一个成功：调用方要的是「这条不再影响状态」，不是错误。
+    ///
+    /// 漏掉任何一个带 reply 的变体都会让 sender 随着 self 一起 drop，
+    /// 调用方拿到 Disconnected，变成误报的「播放引擎无响应」。
     fn reply_discarded(self) {
         let reply = match self {
             Cmd::Play(_, _, reply)
@@ -277,9 +291,14 @@ impl Cmd {
             | Cmd::Stop(reply)
             | Cmd::Seek(_, reply)
             | Cmd::Volume(_, reply)
+            | Cmd::SetGain(_, reply)
+            | Cmd::SetDevice(_, reply)
+            | Cmd::SetCrossfade(_, reply)
+            | Cmd::SetVolumeFade(_, reply)
             | Cmd::SetEq(_, _, reply)
             | Cmd::SetExclusive(_, reply)
-            | Cmd::SetVolumeFade(_, reply) => reply,
+            | Cmd::Shutdown(reply) => reply,
+            // 其余都是不带的 reply 的查询命令，且都属于 Passive，永远不会被丢弃
             _ => return,
         };
         let _ = reply.send(Ok(()));
@@ -1928,7 +1947,7 @@ pub fn devices() -> Result<Vec<Device>> {
 }
 
 pub fn set_device(index: i32) -> Result<()> {
-    call(Class::Config, |reply| Cmd::SetDevice(index, reply))
+    call(Class::Device, |reply| Cmd::SetDevice(index, reply))
 }
 
 pub fn current_device() -> i32 {
@@ -1936,12 +1955,14 @@ pub fn current_device() -> i32 {
 }
 
 pub fn set_crossfade(millis: u32) -> Result<()> {
-    call(Class::Config, |reply| Cmd::SetCrossfade(millis, reply))
+    call(Class::Crossfade, |reply| Cmd::SetCrossfade(millis, reply))
 }
 
 /// 开 / 关音量过渡（暂停淡出、起播淡入、定位前后淡变）。
 pub fn set_volume_fade(enabled: bool) -> Result<()> {
-    call(Class::Config, |reply| Cmd::SetVolumeFade(enabled, reply))
+    call(Class::VolumeFade, |reply| {
+        Cmd::SetVolumeFade(enabled, reply)
+    })
 }
 
 pub fn pause() -> Result<()> {
@@ -1966,9 +1987,10 @@ pub fn set_volume(volume: f64) -> Result<()> {
 
 /// 应用起播后补算出的 ReplayGain 增益（dB），立即作用到当前输出。
 ///
-/// 走 Volume 类：连发几条时只认最新，与音量滑条同一套作废逻辑。
+/// 单独一类：和音量滑条混在一起时，后到的音量命令会把这条增益丢掉，
+/// 当前曲目的增益就再也不生效了。
 pub fn set_replay_gain(gain_db: f64) -> Result<()> {
-    call(Class::Volume, |reply| Cmd::SetGain(gain_db, reply))
+    call(Class::Gain, |reply| Cmd::SetGain(gain_db, reply))
 }
 
 /// 第 [index] 条分频边界落在哪个 bin 上（对数分布：低频密、高频疏）
@@ -2025,11 +2047,13 @@ pub fn is_exclusive() -> bool {
 }
 
 pub fn set_exclusive(exclusive: bool) -> Result<()> {
-    call(Class::Config, |reply| Cmd::SetExclusive(exclusive, reply))
+    call(Class::Exclusive, |reply| {
+        Cmd::SetExclusive(exclusive, reply)
+    })
 }
 
 pub fn set_eq(enabled: bool, gains: Vec<f32>) -> Result<()> {
-    call(Class::Config, |reply| Cmd::SetEq(enabled, gains, reply))
+    call(Class::Eq, |reply| Cmd::SetEq(enabled, gains, reply))
 }
 
 pub fn output_info() -> Result<String> {
@@ -2148,5 +2172,49 @@ mod tests {
             queued(Class::Seek, seq, expired).discarded(),
             "调用方早已放弃等待，这条不该再生效"
         );
+    }
+
+    /// 设置项各占一类：改音量过渡不该顺手把排在前面的 EQ、设备顶掉
+    #[test]
+    fn different_settings_do_not_supersede_each_other() {
+        let _guard = seq_guard();
+        let seq = NEXT_SEQ.fetch_add(10, Ordering::SeqCst);
+        LATEST[Class::Eq.index().expect("Eq 有独立槽位")].store(seq, Ordering::SeqCst);
+        assert!(
+            !queued(Class::Device, seq - 1, std::time::Duration::ZERO).discarded(),
+            "输出设备与均衡器是两件事，不能互相作废"
+        );
+        assert!(
+            !queued(Class::VolumeFade, seq - 1, std::time::Duration::ZERO).discarded(),
+            "音量过渡也不该被 EQ 作废"
+        );
+        assert!(
+            queued(Class::Eq, seq - 1, std::time::Duration::ZERO).discarded(),
+            "同一项里的旧命令仍应作废"
+        );
+    }
+
+    /// 被丢弃的命令必须回成功：漏一个变体，调用方就收到 Disconnected，
+    /// 变成误报的「播放引擎无响应」（启动时那条 EQ / 设备命令正是这么炸的）
+    #[test]
+    fn discarded_settings_reply_ok_instead_of_hanging_up() {
+        fn discarded(cmd: impl FnOnce(Reply<()>) -> Cmd) -> Result<()> {
+            let (tx, rx) = channel();
+            cmd(tx).reply_discarded();
+            rx.recv_timeout(std::time::Duration::from_secs(1))
+                .expect("被丢弃的命令必须回一个结果，不能直接丢 sender")
+        }
+
+        for result in [
+            discarded(|reply| Cmd::SetGain(3.0, reply)),
+            discarded(|reply| Cmd::SetDevice(2, reply)),
+            discarded(|reply| Cmd::SetCrossfade(500, reply)),
+            discarded(|reply| Cmd::SetVolumeFade(false, reply)),
+            discarded(|reply| Cmd::SetEq(true, vec![0.0; 10], reply)),
+            discarded(|reply| Cmd::SetExclusive(true, reply)),
+            discarded(Cmd::Pause),
+        ] {
+            assert!(result.is_ok(), "丢弃不该变成错误：{result:?}");
+        }
     }
 }
