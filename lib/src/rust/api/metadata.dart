@@ -20,6 +20,17 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<TrackTags> readTrackTags({required String path}) =>
     RustLib.instance.api.crateApiMetadataReadTrackTags(path: path);
 
+/// 读文件头里的声道数。
+///
+/// 曲库里不存这一列：它是派生量，只在这一处随用随读，免得为了一个展示字段
+/// 升 schema、再让整库重扫一遍。读不到（格式不支持 / 文件损坏）返回 0，
+/// 界面据此显示「未知」。
+///
+/// # Errors
+/// 路径为空、文件无法解析时返回错误。
+Future<int> audioChannels({required String path}) =>
+    RustLib.instance.api.crateApiMetadataAudioChannels(path: path);
+
 /// 把字段写回文件标签，返回**写入后重新读出来**的值。
 ///
 /// 重新读一遍是有意的：不同格式的标签对值会做归一化（数字补零、多值合并、

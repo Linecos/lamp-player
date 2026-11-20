@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rust_lib_lamp_player::api::db::{close_db, init_db};
 use rust_lib_lamp_player::api::metadata::{
-    read_track_tags, write_track_cover, write_track_tags, TrackTags,
+    audio_channels, read_track_tags, write_track_cover, write_track_tags, TrackTags,
 };
 
 struct TempDir(PathBuf);
@@ -151,6 +151,23 @@ fn new_fields_round_trip() {
     assert_eq!(read.lyricist, "佚名");
     assert_eq!(read.comment, "第一行\n第二行");
     assert_eq!(read.album_artist, "群星");
+}
+
+#[test]
+fn channels_come_from_file_header() {
+    let dir = TempDir::new("channels");
+    let song = dir.0.join("声道.wav");
+    write_wav(&song);
+
+    // 测试用的 WAV 是单声道：能读出 1，说明走的是文件头而不是别的缓存
+    assert_eq!(
+        audio_channels(song.to_string_lossy().into_owned()).expect("读声道数"),
+        1
+    );
+    // 空路径 / 不存在的文件都不能 panic
+    assert!(audio_channels(String::new()).is_err());
+    let missing = dir.0.join("不存在.wav");
+    assert!(audio_channels(missing.to_string_lossy().into_owned()).is_err());
 }
 
 #[test]

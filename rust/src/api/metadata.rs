@@ -78,6 +78,22 @@ pub fn read_track_tags(path: String) -> Result<TrackTags> {
     })
 }
 
+/// 读文件头里的声道数。
+///
+/// 曲库里不存这一列：它是派生量，只在这一处随用随读，免得为了一个展示字段
+/// 升 schema、再让整库重扫一遍。读不到（格式不支持 / 文件损坏）返回 0，
+/// 界面据此显示「未知」。
+///
+/// # Errors
+/// 路径为空、文件无法解析时返回错误。
+pub fn audio_channels(path: String) -> Result<i32> {
+    if path.trim().is_empty() {
+        bail!("音频路径为空");
+    }
+    let tagged = lofty::read_from_path(&path).with_context(|| format!("解析元数据失败: {path}"))?;
+    Ok(tagged.properties().channels().map_or(0, i32::from))
+}
+
 /// 把字段写回文件标签，返回**写入后重新读出来**的值。
 ///
 /// 重新读一遍是有意的：不同格式的标签对值会做归一化（数字补零、多值合并、
