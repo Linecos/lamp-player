@@ -2657,13 +2657,8 @@ class _LibraryPageState extends State<LibraryPage>
         width: _searchButtonDiameter,
         height: _searchButtonDiameter,
       ),
-      // 放大镜自绘：图标字体的 Release 子集按「构建那一刻用到的图标」裁剪，
-      // 增量构建不会重裁（实测过），新加的图标会渲染成空白。搜索是唯一入口，
-      // 空白等于入口消失，不能赌这个环节
-      icon: CustomPaint(
-        size: const Size.square(19),
-        painter: _SearchGlyphPainter(color: scheme.onSurfaceVariant),
-      ),
+      // 放大镜走内置字形即可（`Icons.search` 在 Material 图标集里是稳定的老字形）
+      icon: Icon(Icons.search, size: 19, color: scheme.onSurfaceVariant),
     );
   }
 
@@ -2706,10 +2701,7 @@ class _LibraryPageState extends State<LibraryPage>
           child: Center(
             widthFactor: 1,
             heightFactor: 1,
-            child: CustomPaint(
-              size: const Size.square(17),
-              painter: _SearchGlyphPainter(color: scheme.onSurfaceVariant),
-            ),
+            child: Icon(Icons.search, size: 17, color: scheme.onSurfaceVariant),
           ),
         ),
         prefixIconConstraints: const BoxConstraints(
@@ -3165,42 +3157,6 @@ IconData _sortIconOf(LibrarySort sort) => switch (sort) {
   LibrarySort.added => Icons.fiber_new_outlined,
 };
 
-/// 方向箭头：自绘而不是图标字体。
-///
-/// 图标字体的 Release 子集是按「构建那一刻用到的图标」裁出来的，代码后加的
-/// 图标如果子集没重新生成，就渲染成一片空白（实测发生过）。箭头是核心交互，
-/// 不能依赖这个环节，几条线自己画。
-class _SortArrowPainter extends CustomPainter {
-  const _SortArrowPainter({required this.ascending, required this.color});
-
-  final bool ascending;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    final double cx = size.width / 2;
-    final Offset head = ascending ? Offset(cx, 3) : Offset(cx, size.height - 3);
-    final Offset tail = ascending ? Offset(cx, size.height - 3) : Offset(cx, 3);
-    canvas.drawLine(tail, head, paint);
-    final double wing = 4;
-    final double dy = ascending ? 4.2 : -4.2;
-    final Path path = Path()
-      ..moveTo(cx - wing, head.dy + dy)
-      ..lineTo(head.dx, head.dy)
-      ..lineTo(cx + wing, head.dy + dy);
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(_SortArrowPainter old) =>
-      old.ascending != ascending || old.color != color;
-}
-
 /// 排序菜单里的一项。
 ///
 /// `PopupMenuButton` 把选中的 `null` 当成「用户点了菜单外面取消」，所以
@@ -3211,32 +3167,6 @@ class _SortChoice {
   final LibrarySort? sort;
 
   static const _SortChoice manual = _SortChoice(null);
-}
-
-/// 放大镜：自绘而不是图标字体（理由见 [_buildSearchToggle]）。
-class _SearchGlyphPainter extends CustomPainter {
-  const _SearchGlyphPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round;
-    final double radius = size.width * 0.30;
-    final Offset center = Offset(size.width * 0.42, size.height * 0.42);
-    canvas.drawCircle(center, radius, paint);
-    // 手柄从圆的 45° 处往外，末端留一点余量，整体不至于顶到方框边
-    final Offset start = center + Offset(radius * 0.707, radius * 0.707);
-    final Offset end = Offset(size.width * 0.88, size.height * 0.88);
-    canvas.drawLine(start, end, paint);
-  }
-
-  @override
-  bool shouldRepaint(_SearchGlyphPainter old) => old.color != color;
 }
 
 /// 两段式排序控件：
@@ -3384,14 +3314,12 @@ class _SortButton extends StatelessWidget {
                   width: 40,
                   height: _headerControlHeight,
                   child: Center(
-                    child: CustomPaint(
-                      size: const Size.square(18),
-                      painter: _SortArrowPainter(
-                        ascending: ascending,
-                        color: mode == null
-                            ? scheme.onSurfaceVariant.withValues(alpha: 0.32)
-                            : scheme.onSurfaceVariant,
-                      ),
+                    child: Icon(
+                      ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 18,
+                      color: mode == null
+                          ? scheme.onSurfaceVariant.withValues(alpha: 0.32)
+                          : scheme.onSurfaceVariant,
                     ),
                   ),
                 ),

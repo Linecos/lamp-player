@@ -94,6 +94,13 @@ flutter:
     - assets/tray_icon.ico
     - assets/app_icon.png
 
+  # 项目自带的图标字体（唱片 / 四柱 / 笔刷这几个内置集没有的字形）。
+  # 源 SVG 在 assets/icons，生成方式见 lib/src/common/lamp_icons.dart 顶部注释
+  fonts:
+    - family: LampIcons
+      fonts:
+        - asset: assets/fonts/lamp_icons.ttf
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

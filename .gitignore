@@ -46,6 +46,9 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
+# 黄金图测试失败时生成的对比产物（只是排查用，不是基线）
+/test/golden/failures/
+
 # Rust / flutter_rust_bridge
 /rust/target/
 

@@ -888,8 +888,9 @@ class _DynamicThemeRow extends StatelessWidget implements SettingsSearchable {
     final ThemeController? controller = ThemeScope.maybeOf(context);
     final bool on = controller?.followsCover ?? false;
     return _SwitchRow(
-      // mdi:brush-variant 内置集没有：自绘笔刷（宽扁刷头 + 手柄）
-      iconBuilder: (Color color) => _BrushVariantIcon(size: 20, color: color),
+      // mdi:brush-variant：内置集没有这个形状，字形来自项目自带字体
+      iconBuilder: (Color color) =>
+          Icon(LampIcons.brushVariant, size: 20, color: color),
       title: '动态主题色',
       switchKey: const ValueKey<String>('settings-dynamic-theme-switch'),
       subtitle: on ? '已开启 · 优先于手动强调色' : '跟随当前播放封面的主色',
@@ -1737,60 +1738,4 @@ class _FieldPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FieldPainter oldDelegate) => oldDelegate.hsv != hsv;
-}
-
-/// 画笔图标（对齐 mdi:brush-variant）：圆角宽刷头 + 中间横槽 + 顶部缺口 + 手炳。
-///
-/// 与音乐库的四柱图标同一套做法：字形大小只认传入的 [size]，在可用空间居中，
-/// 不按 layout 尺寸缩放（行首圆形底给的是 40×40 紧约束）。
-///
-/// 横槽与缺口用 [Path.combine] 从刷头里真正挖掉，不是盖一层底色——底下是
-/// 主题色圆形底，盖色在不同主题下会露馅。
-class _BrushVariantIcon extends StatelessWidget {
-  const _BrushVariantIcon({required this.size, required this.color});
-
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _BrushVariantPainter(color, size));
-  }
-}
-
-class _BrushVariantPainter extends CustomPainter {
-  const _BrushVariantPainter(this.color, this.iconSize);
-
-  final Color color;
-  final double iconSize;
-
-  static final Path _body = () {
-    final Path head = Path()
-      ..addRRect(RRect.fromLTRBR(4, 4, 20.5, 13, const Radius.circular(2.5)));
-    final Path cuts = Path()
-      ..addRect(const Rect.fromLTRB(4, 9.2, 20.5, 10.6))
-      ..addRect(const Rect.fromLTRB(12.6, 4, 14.2, 7.2))
-      ..addRect(const Rect.fromLTRB(16.8, 4, 18.2, 7.2));
-    return Path.combine(PathOperation.difference, head, cuts);
-  }();
-
-  static final RRect _handle = RRect.fromRectAndCorners(
-    const Rect.fromLTRB(9.5, 11.5, 15.5, 20.5),
-    bottomLeft: const Radius.circular(2.5),
-    bottomRight: const Radius.circular(2.5),
-  );
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final double scale = iconSize / 24;
-    canvas.translate((size.width - iconSize) / 2, (size.height - iconSize) / 2);
-    canvas.scale(scale);
-    final Paint paint = Paint()..color = color;
-    canvas.drawRRect(_handle, paint);
-    canvas.drawPath(_body, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _BrushVariantPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.iconSize != iconSize;
 }
