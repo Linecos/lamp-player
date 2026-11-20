@@ -184,8 +184,19 @@ fn request_repaint() {
     }
 }
 
+/// 串行化窗口创建；窗口已存在时也走一下，保证并发调用的判断是原子的
+fn create_guard() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// 打开桌面歌词窗口；已创建过就只显示
 pub fn show() -> anyhow::Result<()> {
+    // 检查与写入必须串起来：并发 show() 都看到「还没有窗口」时，会各建一个，
+    // 后写的把 HWND 覆盖掉，前一个窗口就再也关不掉了
+    let _creating = create_guard();
     let existing = *slot();
     let hwnd = match existing {
         Some(hwnd) => hwnd,
@@ -442,10 +453,14 @@ mod imp {
             .name("desktop-lyric".to_string())
             .spawn(move || run(tx))
             .map_err(|error| anyhow!("创建桌面歌词线程失败: {error}"))?;
-        match rx.recv() {
+        // 窗口线程卡死时别把调用方（FRB 线程池）一起挂住
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(Ok(hwnd)) => Ok(hwnd),
             Ok(Err(message)) => Err(anyhow!("{message}")),
-            Err(_) => Err(anyhow!("桌面歌词线程提前退出")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow!("创建桌面歌词窗口超时")),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(anyhow!("桌面歌词线程提前退出"))
+            }
         }
     }
 
