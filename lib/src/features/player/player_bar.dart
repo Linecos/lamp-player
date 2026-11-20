@@ -53,6 +53,13 @@ class PlayerBar extends StatelessWidget {
   static const double occupiedHeight =
       cardTopPadding + cardHeight + cardBottomMargin;
 
+  /// 岛卡片本身从窗口底往上占的高度（不含上方那 8px 留白）。
+  ///
+  /// [occupiedHeight] 里的 `cardTopPadding` 是透明的：列表内容从那条缝里
+  /// 能透出来。判断「被岛挡住」只能按卡片顶边算，多算 8px 会把透出来的
+  /// 那一段也当成被挡住。
+  static const double occludingHeight = cardHeight + cardBottomMargin;
+
   const PlayerBar({
     super.key,
     required this.isPlaying,

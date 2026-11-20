@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
+import 'package:lamp_player/src/features/library/widgets/collection_grids.dart';
 import 'package:lamp_player/src/features/library/widgets/cover_flight.dart';
 import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
@@ -546,6 +547,93 @@ void main() {
     expect(cover, findsOneWidget, reason: '半遮的卡片照飞');
     expect(mask(), findsOneWidget, reason: '被切掉的那一截要快速渐显');
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('被播放岛压住一截的卡片，飞行层把岛挖掉而不是渐隐', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        for (int i = 0; i < 24; i += 1)
+          sampleTrack(
+            title: '夜航 $i',
+            album: '夜之专辑 $i',
+            path: '/music/夜航$i.mp3',
+          ),
+      ],
+    );
+    await _openSection(tester, '专辑');
+
+    final Finder covers = find.descendant(
+      of: find.byType(AlbumGridView),
+      matching: find.byType(AlbumCover),
+    );
+    // 播放岛浮在列表上方：被卡片挡住的那段在 Scrollable 的矩形里仍然「可见」。
+    // 只算岛卡片本身——它上方那 8px 留白是透的，内容从缝里能看见
+    final Rect bar = tester.getRect(find.byType(PlayerBar));
+    final double islandTop = bar.top + PlayerBar.cardTopPadding;
+
+    Rect? target;
+
+    /// 在已构建的封面里找一张「上半截露在岛上面、下沿伸到岛下面」的
+    Rect? straddling() {
+      for (int i = 0; i < covers.evaluate().length; i += 1) {
+        final Rect rect = tester.getRect(covers.at(i));
+        if (rect.top < islandTop - 8 &&
+            rect.center.dy < islandTop - 4 &&
+            rect.bottom > islandTop + 4) {
+          return rect;
+        }
+      }
+      return null;
+    }
+
+    // 首屏封面通常整张在岛上方，往下滚一点让某张卡压到岛边缘
+    final Finder scrollable = find.byType(CustomScrollView).first;
+    for (int attempt = 0; attempt < 10 && target == null; attempt += 1) {
+      target = straddling();
+      if (target != null) {
+        break;
+      }
+      await tester.drag(scrollable, const Offset(0, -48));
+      await tester.pumpAndSettle();
+    }
+    expect(target, isNotNull, reason: '滚几格之后应该有一张被岛压住一截的封面，否则前提不成立');
+
+    final Finder cover = find.byKey(const ValueKey<String>('cover-flight'));
+    Finder mask() =>
+        find.ancestor(of: cover, matching: find.byType(ShaderMask));
+
+    /// 飞行层上的挖洞裁剪；没套就返回 null
+    FlightOccluderClipper? occluderClip() {
+      for (final ClipPath path in tester.widgetList<ClipPath>(
+        find.ancestor(of: cover, matching: find.byType(ClipPath)),
+      )) {
+        final CustomClipper<Path>? clipper = path.clipper;
+        if (clipper is FlightOccluderClipper) {
+          return clipper;
+        }
+      }
+      return null;
+    }
+
+    await tester.tapAt(Offset(target!.center.dx, target.top + 10));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(cover, findsOneWidget, reason: '被岛压住的卡片照飞');
+    // 不能渐隐：羽化带会伸出岛顶边 14px 落在可见区，动画一撤那 14px 整条补
+    // 回来——录屏里看到的「末尾边缘柔和、结束瞬间归位」就是它
+    expect(mask(), findsNothing, reason: '岛是不透明的，被它盖住的那块直接挖掉');
+    final FlightOccluderClipper? clip = occluderClip();
+    expect(clip, isNotNull, reason: '飞行层必须把岛卡片整块挖掉');
+    expect(clip!.occluder.top, closeTo(islandTop, 0.5));
+    // 挖掉的是岛卡片本身，不是它上下的留白（那两条缝是透的，封面从缝里能看见）
+    expect(clip.occluder.height, closeTo(PlayerBar.cardHeight, 0.5));
+    expect(cover, findsOneWidget);
+
+    // 落地后飞行层撤掉、真实封面接手，整段不该残留遮罩
+    await tester.pumpAndSettle();
+    expect(cover, findsNothing, reason: '动画结束飞行层要撤干净');
   });
 
   testWidgets('音乐分区的多选按钮与播放全部同行同高', (WidgetTester tester) async {
