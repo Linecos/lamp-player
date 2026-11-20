@@ -1,9 +1,21 @@
 import 'package:pinyin/pinyin.dart';
 
+/// 是否是汉字码位。
+///
+/// 只认基本区（U+4E00–U+9FFF）会漏掉两类实打实在用的汉字：扩展 A 区
+/// （U+3400–U+4DBF，生僻字较多）和兼容区（U+F900–U+FAFF，多为异体字），
+/// 更漏掉整个扩展 B 及以后（U+20000 起，人名 / 古籍里常见）。这类字若按
+/// 「非汉字」处理，搜索键里会被当成普通字符原样保留，拼音匹配就失效了。
+bool isCjkRune(int rune) =>
+    (rune >= 0x3400 && rune <= 0x4DBF) ||
+    (rune >= 0x4E00 && rune <= 0x9FFF) ||
+    (rune >= 0xF900 && rune <= 0xFAFF) ||
+    (rune >= 0x20000 && rune <= 0x2FA1F);
+
 /// 判断字符串里是否有汉字（有汉字时拼音匹配没有意义，FTS 已经能命中）。
 bool hasCjk(String text) {
   for (final int rune in text.runes) {
-    if (rune >= 0x4E00 && rune <= 0x9FFF) {
+    if (isCjkRune(rune)) {
       return true;
     }
   }
@@ -41,7 +53,7 @@ String buildPinyinKey(String text) {
 
   for (final int rune in text.runes) {
     final String char = String.fromCharCode(rune);
-    if (rune >= 0x4E00 && rune <= 0x9FFF) {
+    if (isCjkRune(rune)) {
       pending.write(char);
       continue;
     }
@@ -92,7 +104,7 @@ String _pinyinOfRune(int rune) => _charPinyinCache.putIfAbsent(rune, () {
 String pinyinSortKey(String text) {
   final StringBuffer buffer = StringBuffer();
   for (final int rune in text.runes) {
-    if (rune >= 0x4E00 && rune <= 0x9FFF) {
+    if (isCjkRune(rune)) {
       buffer.write(_pinyinOfRune(rune));
     } else {
       buffer.write(String.fromCharCode(rune).toLowerCase());
