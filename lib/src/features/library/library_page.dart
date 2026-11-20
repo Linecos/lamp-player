@@ -2198,7 +2198,17 @@ class _LibraryPageState extends State<LibraryPage>
       _selectedPlaylist == null ? null : _playlistTracks,
     LibrarySection.artists => _selectedArtistGroup?.tracks,
     LibrarySection.albums => _selectedAlbumGroup?.tracks,
-    LibrarySection.settings || LibrarySection.library => null,
+    // 音乐库分区的子界面跟主体一样有曲目列表，定位要落到子界面那一份上：
+    // 音质档位 / 目录子页各是一份筛过的曲目，听歌统计没有列表
+    LibrarySection.library =>
+      _libraryStatsOpen
+          ? null
+          : _qualityDetail != null
+          ? _filterTracks(_tracksByQuality[_qualityDetail!]!)
+          : _folderDetail != null
+          ? _filterTracks(_folderDetailTracks)
+          : null,
+    LibrarySection.settings => null,
   };
 
   /// 与 [_locatableTracks] 对应的滚动控制器
@@ -2211,7 +2221,15 @@ class _LibraryPageState extends State<LibraryPage>
     LibrarySection.artists =>
       _selectedArtistGroup == null ? null : _artistScroll,
     LibrarySection.albums => _selectedAlbumGroup == null ? null : _albumScroll,
-    LibrarySection.settings || LibrarySection.library => null,
+    LibrarySection.library =>
+      _libraryStatsOpen
+          ? null
+          : _qualityDetail != null
+          ? _qualityDetailScroll
+          : _folderDetail != null
+          ? _folderDetailScroll
+          : null,
+    LibrarySection.settings => null,
   };
 
   /// 把正在播放的曲目滚到列表中间，并短暂强调那一行。

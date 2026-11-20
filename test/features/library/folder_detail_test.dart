@@ -153,4 +153,48 @@ void main() {
     expect(find.text('找到 1 首'), findsOneWidget);
     expect(find.text('夜航'), findsNothing);
   });
+
+  testWidgets('目录子页也能定位正在播放的曲目', (WidgetTester tester) async {
+    // 一个目录塞 30 首，滚得动
+    final List<Track> tracks = List<Track>.generate(
+      30,
+      (int index) =>
+          sampleTrack(title: '曲目 $index', path: 'D:\\Music\\t$index.mp3'),
+    );
+    await pumpLibrary(
+      tester,
+      tracks: tracks,
+      folderStore: FakeMusicFolderStore(folders: <String>[r'D:\Music']),
+    );
+
+    await tester.tap(find.text('曲目 0'));
+    await tester.pumpAndSettle();
+    await openLibrarySettings(tester);
+    await tester.tap(_rowOf(r'D:\Music'));
+    await tester.pumpAndSettle();
+
+    final Finder list = find.byKey(
+      const PageStorageKey<String>(r'tracks:folder-D:\Music'),
+    );
+    double listOffset() => tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)).first,
+        )
+        .position
+        .pixels;
+
+    await tester.drag(list, const Offset(0, -2400));
+    await tester.pumpAndSettle();
+    final double before = listOffset();
+    expect(before, greaterThan(200), reason: '先滚到下面才有意义');
+
+    // PR #67 的子页此前不在「可定位列表」里，长按只会提示「这个页面没有可定位的列表」
+    await tester.longPress(
+      find.byKey(const ValueKey<String>('player-play-pause')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(listOffset(), lessThan(before), reason: '目录子页要滚回当前曲目');
+    expect(listOffset(), lessThan(80), reason: '第一首在列表顶部');
+  });
 }
