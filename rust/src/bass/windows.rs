@@ -725,6 +725,10 @@ impl Engine {
                 mix.remove_channel(self.stream);
             }
         }
+        // 句柄会随 BASS_Free / stream_free 一起失效，字段必须同时清掉：
+        // 留着旧值，回落共享后会拿它判交叉淡变、或对可能已被复用的句柄二次释放
+        self.stream = 0;
+        self.path = None;
         if self.mixer != 0 {
             unsafe { (self.api.stream_free)(self.mixer) };
             self.mixer = 0;
