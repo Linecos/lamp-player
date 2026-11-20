@@ -1,6 +1,6 @@
 ; Lamp Player 的 Windows 安装包（Inno Setup 6.5+；中文语言包随仓库带在 installer\ChineseSimplified.isl）
 ;
-; 手动编译：ISCC.exe installer\lamp_player.iss /DMyAppVersion=0.1.0
+; 手动编译：ISCC.exe installer\lamp_player.iss /DMyAppVersion=0.2.0
 ; 常规做法：.\scripts\package.ps1 —— 它会先 flutter build，再带版本号调这里
 ;
 ; 产物落在 dist\LampPlayer-<版本>-setup.exe。装的是 build\windows\x64\runner\Release

@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
 ### 新增
 
 - **检查更新**：设置页「关于」区多了「检查更新」行，点一下就去 GitHub 拉最新发布，
@@ -207,7 +209,7 @@
   `MediaRepeatMode`，`MediaCommand` 增加 `repeatOff` / `repeatAll` / `repeatOne` /
   `shuffleOn` / `shuffleOff` 五个分支（系统浮层改了循环 / 随机时下发）
 - 接口契约升到 **v0.18**（`docs/API_CONTRACT.md`）：`Track` 增加 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth`（曲库结构 v10）、`lyrics_save_raw` 增加 `target` 入参（`sidecar` / `embedded`）、新增 `write_track_cover`、`TrackTags` 增加作曲 / 作词 / 注释三项，都是 v0.17 之后已经落地的改动，这次补齐文档
-- 设置页的「关于」一行改成**可点开弹窗**
+- 设置页的「关于」一行改成**可点开弹窗**（版本号可一键复制，附仓库 / 问题反馈 / 更新日志几个常用链接）
 - Windows 安装包向导支持**简体中文**：中文系统按系统 UI 语言自动进中文向导，其它语言仍走英文，都不匹配时才弹语言选择页。中文语言包（Inno 官方 6.5.0+ 翻译，作者 Zhenghan Yang）随仓库放在 `installer\ChineseSimplified.isl`，不依赖本机 Inno 是否自带；编译要求相应提到 **Inno Setup 6.5+**
 - 侧栏**展开 / 收起按钮下沉到卡片最下方**：七项入口从卡片顶部起排（原先给按钮让出的 64dp 空白没了），按钮不再随条目增减挪位置，也不会被列表滚动带走
 - 「关于」弹窗**跟着窗口缩放**：窗口不小于 1200×820 时按原尺寸（440 宽），再小就按宽高比例里小的那条整体缩，文字、图标、按钮、间距一起等比缩，最小 0.75 兜底（再小交给滚动）。此前固定 440×约 620，窗口化后几乎顶满窗口
