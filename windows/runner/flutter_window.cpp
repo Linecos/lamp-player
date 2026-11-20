@@ -12,7 +12,10 @@ namespace {
 bool A11yEnabled() {
   static const bool enabled = [] {
     wchar_t buf[8] = {};
-    return GetEnvironmentVariableW(L"LAMP_A11Y", buf, 8) > 0;
+    // Only an exact "1" opts in: GetEnvironmentVariableW returns the character
+    // count, so LAMP_A11Y=0 would also read as enabled and switch this
+    // deadlock-prone path on when it was explicitly meant to be off.
+    return GetEnvironmentVariableW(L"LAMP_A11Y", buf, 8) == 1 && buf[0] == L'1';
   }();
   return enabled;
 }
