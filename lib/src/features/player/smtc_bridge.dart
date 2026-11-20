@@ -40,6 +40,7 @@ class SmtcBridge {
 
   StreamSubscription<media.MediaCommand>? _subscription;
   bool _available = false;
+  bool _starting = false;
 
   /// 上一次**成功**上报的曲目路径：同一首不重复上传封面（WinRT 那边要拷一份图片）
   String? _lastPath;
@@ -67,6 +68,21 @@ class SmtcBridge {
     }
   }
 
+  /// 初始化失败后重试一次：`start()` 只在页面创建时调过一次，失败就
+  /// `_available` 一直 false，媒体键到重启前都无效。Rust 侧 `media_init` 幂等，
+  /// 反复调用没有副作用；用 `_starting` 挡住并发重入。
+  Future<void> _ensureStarted() async {
+    if (_available || _starting) {
+      return;
+    }
+    _starting = true;
+    try {
+      await start();
+    } finally {
+      _starting = false;
+    }
+  }
+
   Future<void> updateTrack({
     required String path,
     required String title,
@@ -74,6 +90,9 @@ class SmtcBridge {
     String? album,
     String? coverPath,
   }) async {
+    if (!_available) {
+      await _ensureStarted();
+    }
     if (!_available || path == _lastPath) {
       return;
     }
@@ -102,6 +121,9 @@ class SmtcBridge {
   static const int _maxTrackFailures = 3;
 
   Future<void> setState(MediaSessionState state) async {
+    if (!_available) {
+      await _ensureStarted();
+    }
     if (!_available) {
       return;
     }
@@ -139,6 +161,9 @@ class SmtcBridge {
     required LoopMode repeat,
     required bool shuffle,
   }) async {
+    if (!_available) {
+      await _ensureStarted();
+    }
     if (!_available) {
       return;
     }
