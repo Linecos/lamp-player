@@ -4,6 +4,9 @@ import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/widgets/lyrics_editor_dialog.dart';
 import 'package:lamp_player/src/features/library/widgets/track_metadata_pane.dart';
 import 'package:lamp_player/src/rust/api/metadata.dart';
+import 'package:lamp_player/src/rust/api/model.dart';
+
+import '../../support/fake_library.dart';
 
 TrackTags _tags({
   String title = '夜航',
@@ -36,6 +39,21 @@ TrackTags _tags({
 const String _lrc = '[ti:夜航]\n[00:10.00]第一行\n[00:20.00]第二行\n';
 const String _filePath = r'E:\Music\夜航\Afterglow_(2020)-littlealone100.flac';
 
+/// 曲库里那一条：信息卡片的数值都从它来
+Track _track() => sampleTrack(
+  title: '夜航',
+  album: '深夜频道',
+  path: _filePath,
+  durationSecs: 250,
+  trackNum: 1,
+  fileSize: 58342752, // 55.64 MB
+  audioBitrate: 1819,
+  sampleRate: 48000,
+  bitDepth: 24,
+  truePeak: 0.98,
+  replayGain: -7.62,
+);
+
 /// 区块在内容区里是「一屏」大小：给个固定盒子，免得跟着默认 800×600 挤
 Future<void> _open(
   WidgetTester tester, {
@@ -47,6 +65,9 @@ Future<void> _open(
   Future<String?> Function()? onPickCover,
   Future<void> Function(MetadataDraft draft)? onSave,
   VoidCallback? onClose,
+  Track? track,
+  Future<int?> Function()? onProbeChannels,
+  double height = 1000,
 }) async {
   tester.view.physicalSize = const Size(1400, 1200);
   tester.view.devicePixelRatio = 1;
@@ -58,12 +79,14 @@ Future<void> _open(
         body: Center(
           child: SizedBox(
             width: 1000,
-            height: 1000,
+            height: height,
             child: TrackMetadataPane(
               // 同一测试里换参数再 pump 时，要整块重建（controller 与
               // 「歌词写到哪儿」都在 State 里）
               key: ValueKey<String>('pane-$source-$lyrics'),
               filePath: _filePath,
+              track: track ?? _track(),
+              onProbeChannels: onProbeChannels,
               coverPath: coverPath,
               tags: tags ?? _tags(),
               lyricsText: lyrics,
@@ -79,6 +102,10 @@ Future<void> _open(
       ),
     ),
   );
+  await tester.pump();
+  // 声道数与文件时间是真实 IO（这里路径不存在，stat 会抛）：放出去跑一下，
+  // 免得断言时它们还没回来
+  await tester.runAsync(() => Future<void>.delayed(Duration.zero));
   await tester.pump();
 }
 
@@ -97,8 +124,28 @@ void main() {
     expect(name, findsOneWidget, reason: '副标题显示文件名而不是整条路径');
     // CI 跑在 ubuntu 上：若哪天真用了按平台风格切分的 `p.basename`，
     // Windows 路径在那边切不开，这里会整条路径显示出来 —— 这条断言就是
-    // 为它守的（本地 Windows 看不出差别）
-    expect(find.text(_filePath), findsNothing, reason: '整条路径不能出现在标题里');
+    // 为它守的（本地 Windows 看不出差别）。
+    // 整条路径只在下面「存储信息」那张卡片里出现，标题区不能有
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('metadata-info-存储信息')),
+        matching: find.text(_filePath),
+      ),
+      findsOneWidget,
+      reason: '整条路径只出现在存储信息卡片里',
+    );
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is Padding &&
+              widget.padding == const EdgeInsets.only(top: 2, bottom: 16),
+        ),
+        matching: find.text(_filePath),
+      ),
+      findsNothing,
+      reason: '标题区不能出现整条路径',
+    );
 
     final double titleBottom = tester.getRect(find.text('编辑音频信息')).bottom;
     final double nameTop = tester.getRect(name).top;
@@ -226,6 +273,11 @@ void main() {
 
     expect(saves, 0);
     expect(find.textContaining('标题不能为空'), findsOneWidget);
+    // 提示紧挨着按钮（标题行），不跟着只读内容一起压到底部
+    expect(
+      tester.getRect(find.textContaining('标题不能为空')).top,
+      lessThan(tester.getRect(_field('标题')).top),
+    );
   });
 
   testWidgets('保存失败时留在区块里并说明原因', (WidgetTester tester) async {
@@ -303,7 +355,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(draft?.embedLyrics, isTrue);
-    expect(find.textContaining('写进音频文件'), findsOneWidget);
+    expect(find.textContaining('写进音频文件'), findsNothing);
   });
 
   testWidgets('点「编辑歌词…」打开子窗，回来保存的是改过的歌词', (WidgetTester tester) async {
@@ -360,5 +412,123 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(draft?.lyrics, _lrc, reason: '取消等于没改');
+  });
+
+  testWidgets('表单下面是三张信息卡：音频参数 / 电平与增益 / 存储信息', (WidgetTester tester) async {
+    int probes = 0;
+    await _open(
+      tester,
+      onProbeChannels: () async {
+        probes += 1;
+        return 2;
+      },
+    );
+    // 声道数是异步探测的：再走一帧才落到界面上
+    await tester.pump();
+
+    for (final String title in <String>['音频参数', '电平与增益', '存储信息']) {
+      expect(
+        find.byKey(ValueKey<String>('metadata-info-$title')),
+        findsOneWidget,
+        reason: '缺少卡片：$title',
+      );
+    }
+    expect(probes, 1, reason: '声道数只在打开时探一次');
+
+    // 位置：三张卡片在表单卡片下面（不是挤在表单里）
+    final Rect firstCard = tester.getRect(
+      find.byKey(const ValueKey<String>('metadata-info-音频参数')),
+    );
+    expect(
+      firstCard.top,
+      greaterThan(tester.getRect(_field('注释')).bottom),
+      reason: '信息卡在表单下面',
+    );
+
+    // 数值
+    expect(find.text('04:10'), findsOneWidget, reason: '250 秒');
+    expect(find.text('1819 kbps'), findsOneWidget);
+    expect(find.text('48000 Hz'), findsOneWidget);
+    expect(find.text('24 bit'), findsOneWidget);
+    expect(find.text('2 声道'), findsOneWidget);
+    expect(find.text('1'), findsWidgets, reason: '音轨编号');
+    expect(find.text('0.98'), findsOneWidget, reason: '真峰值优先');
+    expect(find.text('-7.62 dB'), findsOneWidget);
+    expect(find.text('FLAC'), findsOneWidget);
+    expect(find.text('55.64 MB'), findsOneWidget);
+    // 测试里的路径不存在：文件时间读不到、增益没分析过，都显示「—」
+    expect(find.text('—'), findsWidgets);
+  });
+
+  testWidgets('探测不到声道数时不崩，显示未知', (WidgetTester tester) async {
+    await _open(tester, onProbeChannels: () async => throw Exception('文件读不了'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('metadata-info-音频参数')),
+      findsOneWidget,
+    );
+    expect(find.text('2 声道'), findsNothing);
+  });
+
+  testWidgets('保存 / 取消在标题行：滚到底也不用回头找按钮', (WidgetTester tester) async {
+    // 盒子矮一点，内容比一屏高，才测得出「滚了按钮也还在原位」
+    await _open(tester, height: 620);
+
+    final Finder save = find.widgetWithText(FilledButton, '保存');
+    final Finder cancel = find.widgetWithText(TextButton, '取消');
+    final Rect saveBefore = tester.getRect(save);
+    final Rect cancelBefore = tester.getRect(cancel);
+    expect(
+      saveBefore.bottom,
+      lessThan(tester.getRect(_field('标题')).top),
+      reason: '按钮在表单上面，而不是等滚到底才出现',
+    );
+
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -600),
+    );
+    await tester.pumpAndSettle();
+
+    final double offset = tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(SingleChildScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position
+        .pixels;
+    expect(offset, greaterThan(100), reason: '内容确实滚动了');
+
+    expect(tester.getRect(save), saveBefore, reason: '保存按钮不随内容滚动');
+    expect(tester.getRect(cancel), cancelBefore, reason: '取消按钮不随内容滚动');
+  });
+
+  test('时长 / 大小 / 时间这些边角值', () {
+    expect(formatTrackDuration(250), '04:10');
+    expect(formatTrackDuration(3725), '1:02:05', reason: '满一小时要带上小时位');
+    expect(formatTrackDuration(0), '—');
+    expect(formatTrackDuration(double.nan), '—');
+    expect(formatFileSize(58342752), '55.64 MB');
+    expect(formatFileSize(800 * 1024), '800.0 KB');
+    expect(formatFileSize(0), '—');
+    expect(formatFileFormat(r'D:\Music\a.flac'), 'FLAC');
+    expect(formatFileFormat(r'D:\Music\没有扩展名'), '未知');
+    expect(formatChannels(1), '单声道');
+    expect(formatChannels(2), '2 声道');
+    expect(formatChannels(0), '—');
+    expect(formatPeak(0), '—');
+    expect(formatGainDb(0), '—', reason: '0 表示标签里没有这个值');
+    expect(formatLoudness(0), '—');
+    expect(formatLoudness(-14.28), '-14.3 LUFS');
+    expect(formatMoment(null), '—');
+    expect(
+      formatMoment(DateTime(2026, 8, 13, 15, 5, 24)),
+      '2026-08-13 15:05:24',
+    );
   });
 }

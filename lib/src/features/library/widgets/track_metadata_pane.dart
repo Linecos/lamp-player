@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -6,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../common/common.dart';
 import '../../../rust/api/metadata.dart';
+import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
 import 'lyrics_editor_dialog.dart';
 
@@ -23,6 +25,7 @@ class TrackMetadataPane extends StatefulWidget {
   const TrackMetadataPane({
     super.key,
     required this.filePath,
+    required this.track,
     required this.coverPath,
     required this.tags,
     required this.lyricsText,
@@ -31,10 +34,22 @@ class TrackMetadataPane extends StatefulWidget {
     required this.onPickCover,
     required this.onSave,
     required this.onClose,
+    this.onProbeChannels,
   });
 
   /// 音频文件绝对路径：标题下面显示文件名，完整路径放 tooltip
   final String filePath;
+
+  /// 曲库里的那一条：表单下面那几张信息卡片的数据源。
+  ///
+  /// 只读展示，编辑仍然只走 [tags]——这两份数据的来源不同（一个是扫描入库的
+  /// 派生量，一个是文件标签），混在一个结构里反而容易互相覆盖。
+  final Track track;
+
+  /// 探测声道数：库里不存这一列，编辑页打开时按需读一次文件头。
+  ///
+  /// 为空（或探测失败）显示「—」，不让一条展示信息卡住编辑页。
+  final Future<int?> Function()? onProbeChannels;
 
   /// 封面缓存文件路径（可空：没有封面时显示占位）
   final String? coverPath;
@@ -144,6 +159,48 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
     _comment,
   ];
 
+  /// 文件的修改 / 变更时间：只有系统知道，Dart 侧直接 stat 一次
+  DateTime? _modifiedAt;
+  DateTime? _changedAt;
+
+  /// 声道数（0 = 未知）
+  int _channels = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFacts());
+  }
+
+  /// 补两样曲库里没有的展示信息：声道数与文件时间戳。
+  ///
+  /// 两步各自落盘、各自失败得起：读不到就留空显示「—」。拆开是因为声道数
+  /// 靠读文件头（毫秒级）、文件时间是系统调用，谁先回来就先显示谁。
+  Future<void> _loadFacts() async {
+    final Future<int?> Function()? probe = widget.onProbeChannels;
+    if (probe != null) {
+      try {
+        final int channels = await probe() ?? 0;
+        if (mounted) {
+          setState(() => _channels = channels);
+        }
+      } on Object {
+        // 解析失败：留空，不要挡住编辑页
+      }
+    }
+    try {
+      final FileStat stat = await File(widget.filePath).stat();
+      if (mounted) {
+        setState(() {
+          _modifiedAt = stat.modified;
+          _changedAt = stat.changed;
+        });
+      }
+    } on Object {
+      // 文件被移走 / 没有权限：留空
+    }
+  }
+
   @override
   void dispose() {
     for (final TextEditingController controller in _fields) {
@@ -239,14 +296,15 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
         Expanded(
           child: SingleChildScrollView(
             controller: _scroll,
-            // 底部留出播放岛的高度：滚到底时「保存」停在岛上方，不被压住
+            // 底部留出播放岛的高度：滚到底时最后一张卡片停在岛上方，不被压住。
+            // 保存 / 取消在标题行（不随内容滚动），所以这里不用再给按钮让位
             padding: EdgeInsets.only(bottom: PlayerBar.occupiedHeight + 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 _buildCard(theme, scheme),
-                const SizedBox(height: 16),
-                _buildFooter(theme, scheme),
+                const SizedBox(height: 12),
+                _buildInfoCards(theme, scheme),
               ],
             ),
           ),
@@ -255,66 +313,103 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
     );
   }
 
-  /// 顶部：返回箭头 + 大标题 + 文件名。
+  /// 顶部：返回箭头 + 大标题 + 文件名，右侧是**常驻**的取消 / 保存。
   ///
-  /// 三样东西挤在一个 44 高的小行里会糊成一团：标题与文件名之间留 6px、
+  /// 按钮不放底部：下面那三张信息卡是只读的，编辑上面的字段要保存时还得
+  /// 滚过一屏不需要动的内容才能点到按钮，不划算。放在标题行后，无论滚到
+  /// 哪儿都在原位。
+  ///
+  /// 三样标题信息挤在一个 44 高的小行里会糊成一团：标题与文件名之间留 6px、
   /// 整块与下面的卡片之间留 16px，标题字号抬到 headlineSmall（与各分区的
   /// 标题同一档），返回箭头纵向居中于两行文字而不是贴着标题。
   Widget _buildHeader(ThemeData theme, ColorScheme scheme) {
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 16),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          IconButton(
-            onPressed: _saving ? null : widget.onClose,
-            icon: const Icon(Icons.arrow_back),
-            tooltip: '返回',
-            visualDensity: VisualDensity.compact,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '编辑音频信息',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Tooltip(
-                  message: widget.filePath,
-                  waitDuration: const Duration(milliseconds: 400),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(
-                        Icons.insert_drive_file_outlined,
-                        size: 14,
-                        color: scheme.onSurfaceVariant,
+          Row(
+            children: <Widget>[
+              IconButton(
+                onPressed: _saving ? null : widget.onClose,
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '返回',
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '编辑音频信息',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          // 显式用 `p.windows`：路径风格是**数据**的属性，不是
-                          // 跑测试那台机器的。`p.basename` 会按当前平台挑风格，
-                          // CI 在 ubuntu 上跑时 Windows 路径切不开，界面会把整条
-                          // 路径当地名显示（这条断言当年就是这么挂的）
-                          p.windows.basename(widget.filePath),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Tooltip(
+                      message: widget.filePath,
+                      waitDuration: const Duration(milliseconds: 400),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.insert_drive_file_outlined,
+                            size: 14,
                             color: scheme.onSurfaceVariant,
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              // 显式用 `p.windows`：路径风格是**数据**的属性，
+                              // 不是跑测试那台机器的。`p.basename` 会按当前平台
+                              // 挑风格，CI 在 ubuntu 上跑时 Windows 路径切不开，
+                              // 界面会把整条路径当地名显示（这条断言当年就是这
+                              // 么挂的）
+                              p.windows.basename(widget.filePath),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              // 保存失败 / 标题空这类提示紧挨着按钮：它跟按钮在同一个视线里，
+              // 不用滚到底才发现没保存成功
+              if (_error != null) ...<Widget>[
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    _error!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.error,
+                    ),
                   ),
                 ),
               ],
-            ),
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: _saving ? null : widget.onClose,
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? '保存中…' : '保存'),
+              ),
+            ],
           ),
         ],
       ),
@@ -664,33 +759,227 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
     );
   }
 
-  Widget _buildFooter(ThemeData theme, ColorScheme scheme) {
-    final String hint = _embedLyrics
-        ? '保存会把标签、封面与歌词一起写进音频文件。'
-        : '保存会写入音频标签与封面；歌词落到同名 .lrc。';
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(
-            _error ?? hint,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: _error == null ? scheme.onSurfaceVariant : scheme.error,
-            ),
+  /// 表单下面那三张信息卡片：曲库里的派生量 + 文件系统的事实。
+  ///
+  /// 宽屏三列、中等两列、窄屏一列——挤成三列 100px 宽时读起来比堆一屏还费劲。
+  /// 每张卡片自己带边框，跟上面那张「封面 + 表单」的板子同一档材质。
+  Widget _buildInfoCards(ThemeData theme, ColorScheme scheme) {
+    final Track track = widget.track;
+    final List<(String, IconData, List<(String, String)>)> groups =
+        <(String, IconData, List<(String, String)>)>[
+          (
+            '音频参数',
+            Icons.graphic_eq,
+            <(String, String)>[
+              ('时长', formatTrackDuration(track.durationSecs)),
+              ('比特率', formatBitrate(track.audioBitrate)),
+              ('采样率', formatSampleRate(track.sampleRate)),
+              ('位深', formatBitDepth(track.bitDepth)),
+              ('通道数', formatChannels(_channels)),
+            ],
           ),
-        ),
-        const SizedBox(width: 12),
-        TextButton(
-          onPressed: _saving ? null : widget.onClose,
-          child: const Text('取消'),
-        ),
-        const SizedBox(width: 8),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(_saving ? '保存中…' : '保存'),
-        ),
-      ],
+          (
+            '电平与增益',
+            Icons.waves,
+            <(String, String)>[
+              ('音轨编号', formatTrackNumber(track.trackNum)),
+              (
+                '音轨峰值',
+                formatPeak(
+                  track.truePeak > 0 ? track.truePeak : track.samplePeak,
+                ),
+              ),
+              ('音轨增益', formatGainDb(track.replayGain)),
+              ('响度', formatLoudness(track.loudnessLufs)),
+            ],
+          ),
+          (
+            '存储信息',
+            Icons.save_outlined,
+            <(String, String)>[
+              ('文件格式', formatFileFormat(track.path)),
+              ('文件大小', formatFileSize(track.fileSize)),
+              ('修改时间', formatMoment(_modifiedAt)),
+              ('变更时间', formatMoment(_changedAt)),
+              ('完整路径', track.path),
+            ],
+          ),
+        ];
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final int columns = constraints.maxWidth >= 880
+            ? 3
+            : (constraints.maxWidth >= 620 ? 2 : 1);
+        const double gap = 12;
+        final double cardWidth =
+            (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: <Widget>[
+            for (final (
+                  String title,
+                  IconData icon,
+                  List<(String, String)> rows,
+                )
+                in groups)
+              SizedBox(
+                width: cardWidth,
+                child: _infoCard(theme, scheme, title, icon, rows),
+              ),
+          ],
+        );
+      },
     );
   }
+
+  Widget _infoCard(
+    ThemeData theme,
+    ColorScheme scheme,
+    String title,
+    IconData icon,
+    List<(String, String)> rows,
+  ) {
+    return Container(
+      key: ValueKey<String>('metadata-info-$title'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(icon, size: 16, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          for (int i = 0; i < rows.length; i += 1) ...<Widget>[
+            if (i > 0)
+              Divider(
+                height: 1,
+                color: scheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    rows[i].$1,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    rows[i].$2,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 时长：`04:10`，满一小时写成 `1:04:10`。未知（0 / 非有限值）显示 `—`。
+String formatTrackDuration(double seconds) {
+  if (!seconds.isFinite || seconds <= 0) {
+    return '—';
+  }
+  final int total = seconds.round();
+  final int hours = total ~/ 3600;
+  final String minutes = ((total % 3600) ~/ 60).toString().padLeft(2, '0');
+  final String secs = (total % 60).toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:$minutes:$secs' : '$minutes:$secs';
+}
+
+/// 平均码率：`1819 kbps`；未知（0）显示 `—`
+String formatBitrate(int kbps) => kbps <= 0 ? '—' : '$kbps kbps';
+
+/// 采样率：`48000 Hz`；未知（0）显示 `—`
+String formatSampleRate(int hz) => hz <= 0 ? '—' : '$hz Hz';
+
+/// 位深：`24 bit`；有损编码没有这个值，显示 `—`
+String formatBitDepth(int bits) => bits <= 0 ? '—' : '$bits bit';
+
+/// 声道数：`2 声道`；1 写成「单声道」更好读；未知（0）显示 `—`
+String formatChannels(int channels) => switch (channels) {
+  <= 0 => '—',
+  1 => '单声道',
+  _ => '$channels 声道',
+};
+
+/// 音轨号：库里没有就是 null，显示 `—`
+String formatTrackNumber(int? number) =>
+    number == null || number <= 0 ? '—' : '$number';
+
+/// 峰值（线性幅度）：`0.98`；未知（0 / 非有限值）显示 `—`
+String formatPeak(double peak) =>
+    !peak.isFinite || peak <= 0 ? '—' : peak.toStringAsFixed(2);
+
+/// ReplayGain 曲目增益：`-7.62 dB`。
+///
+/// 0 表示**标签里没有**（`Track.replayGain` 的口径），不是「增益正好 0 dB」，
+/// 所以显示 `—`。
+String formatGainDb(double db) =>
+    !db.isFinite || db.abs() < 0.005 ? '—' : '${db.toStringAsFixed(2)} dB';
+
+/// 积分响度：`-14.3 LUFS`；0 = 还没现场分析过，显示 `—`
+String formatLoudness(double lufs) =>
+    !lufs.isFinite || lufs == 0 ? '—' : '${lufs.toStringAsFixed(1)} LUFS';
+
+/// 文件大小：`55.64 MB`；未知（0）显示 `—`
+String formatFileSize(int bytes) {
+  if (bytes <= 0) {
+    return '—';
+  }
+  const int kb = 1024;
+  const int mb = kb * 1024;
+  const int gb = mb * 1024;
+  if (bytes >= gb) {
+    return '${(bytes / gb).toStringAsFixed(2)} GB';
+  }
+  if (bytes >= mb) {
+    return '${(bytes / mb).toStringAsFixed(2)} MB';
+  }
+  return '${(bytes / kb).toStringAsFixed(1)} KB';
+}
+
+/// 文件格式取扩展名：`FLAC`。
+///
+/// 用 `p.windows` 显式按 Windows 风格切：路径风格是**数据**的属性，
+/// 不是跑测试那台机器的（CI 在 ubuntu 上跑，按当前平台切会切不开）。
+String formatFileFormat(String path) {
+  final String ext = p.windows
+      .extension(path)
+      .replaceFirst('.', '')
+      .toLowerCase();
+  return ext.isEmpty ? '未知' : ext.toUpperCase();
+}
+
+/// 时间戳：`2026-08-13 15:05:24`；读不到就是 `—`
+String formatMoment(DateTime? time) {
+  if (time == null) {
+    return '—';
+  }
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${time.year}-${two(time.month)}-${two(time.day)} '
+      '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
 }

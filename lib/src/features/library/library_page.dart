@@ -3026,6 +3026,9 @@ class _LibraryPageState extends State<LibraryPage>
       // 换一首歌要整块重建（输入框的 controller 在 State 里）
       key: ValueKey<String>('metadata-${track.path}'),
       filePath: track.path,
+      track: track,
+      // 声道数库里不存：编辑页打开时读一次文件头
+      onProbeChannels: () => audioChannels(path: track.path),
       coverPath: track.coverPath,
       tags: tags,
       lyricsText: _metadataLyrics,
