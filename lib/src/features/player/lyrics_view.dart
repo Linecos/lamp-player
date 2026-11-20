@@ -927,12 +927,16 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
         },
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            // 高度变了就得重新对齐并重算渐隐（见 [_onViewportResized]）
-            if (_lastViewportHeight != null &&
-                (constraints.maxHeight - _lastViewportHeight!).abs() >= 0.5) {
+            // 高度变了就得重新对齐并重算渐隐（见 [_onViewportResized]）。
+            // 基准只在真正修正过后才推进：慢拖窗口边缘时每帧变化可能都不到
+            // 0.5，若每帧都把基准刷成当前高度，累计变化再大也永远触发不了修正。
+            final double? lastHeight = _lastViewportHeight;
+            if (lastHeight == null) {
+              _lastViewportHeight = constraints.maxHeight;
+            } else if ((constraints.maxHeight - lastHeight).abs() >= 0.5) {
+              _lastViewportHeight = constraints.maxHeight;
               _onViewportResized();
             }
-            _lastViewportHeight = constraints.maxHeight;
             // 上下各留出对齐线两侧的距离，首尾行也能滚到对齐线
             final double topPad = math.max(
               24,
@@ -1130,7 +1134,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
 
   bool _opacityRefreshPending = false;
 
-  /// 上一次看到的歌词视口高度（见 [_onViewportResized]）
+  /// 上一次**已修正**的歌词视口高度（见 [_onViewportResized]）；
+  /// 不随每帧布局更新，否则连续的小幅变化会把差值抹平
   double? _lastViewportHeight;
   bool _resizeFixPending = false;
 
