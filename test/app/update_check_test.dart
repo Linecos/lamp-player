@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/update_check.dart';
@@ -172,6 +173,50 @@ void main() {
       );
       expect(outcome.failed, isTrue);
       expect(outcome.error, contains('格式'));
+    });
+  });
+
+  group('代理环境变量', () {
+    // _httpGetJson 挂的是 HttpClient.findProxyFromEnvironment：这里直接
+    // 测这套机制对环境变量的反应，保证「设了代理就别直连」这个前提成立。
+    final Uri github = Uri.parse(
+      'https://api.github.com/repos/Linecos/lamp-player/releases/latest',
+    );
+
+    test('https_proxy 指到本机代理时请求走 PROXY', () {
+      final String strategy = HttpClient.findProxyFromEnvironment(
+        github,
+        environment: <String, String>{'https_proxy': '127.0.0.1:7890'},
+      );
+      expect(strategy, contains('PROXY 127.0.0.1:7890'));
+    });
+
+    test('大写 HTTPS_PROXY 也认', () {
+      final String strategy = HttpClient.findProxyFromEnvironment(
+        github,
+        environment: <String, String>{'HTTPS_PROXY': '127.0.0.1:7890'},
+      );
+      expect(strategy, contains('PROXY 127.0.0.1:7890'));
+    });
+
+    test('没设任何变量时是 DIRECT，行为与以前一致', () {
+      final String strategy = HttpClient.findProxyFromEnvironment(
+        github,
+        environment: const <String, String>{},
+      );
+      expect(strategy, contains('DIRECT'));
+      expect(strategy, isNot(contains('PROXY')));
+    });
+
+    test('no_proxy 覆盖的地址直连', () {
+      final String strategy = HttpClient.findProxyFromEnvironment(
+        github,
+        environment: <String, String>{
+          'https_proxy': '127.0.0.1:7890',
+          'no_proxy': 'api.github.com',
+        },
+      );
+      expect(strategy, isNot(contains('PROXY 127.0.0.1:7890')));
     });
   });
 }
