@@ -8,6 +8,7 @@ import '../features/library/library_sort.dart';
 import '../features/player/equalizer.dart';
 import '../features/player/lyric_alignment.dart';
 import '../features/player/playback_queue.dart';
+import 'update_check.dart';
 
 /// 一次会话需要记住的东西：音量、上次播放、界面位置。
 ///
@@ -55,6 +56,9 @@ class SessionSnapshot {
     this.desktopLyricY,
     this.lyricAlignment = LyricAlignment.center,
     this.showTranslation = true,
+    this.autoUpdateCheck = false,
+    this.updateCheckPeriod = UpdateCheckPeriod.daily,
+    this.lastUpdateCheckAt,
   });
 
   final double volume;
@@ -177,6 +181,15 @@ class SessionSnapshot {
   /// 存原始字符串而不是 `List<ShortcutBinding>`：解析失败时调用方可以整体
   /// 回落默认值，不必让会话层认识快捷键模型。
   final String shortcutsJson;
+
+  /// 是否在启动时自动检查新版本（默认关：不主动联网）
+  final bool autoUpdateCheck;
+
+  /// 自动检查的间隔；「每次启动」也存这里
+  final UpdateCheckPeriod updateCheckPeriod;
+
+  /// 上次成功检查更新的时间；null 表示从没查过
+  final DateTime? lastUpdateCheckAt;
 }
 
 abstract interface class SessionStore {
@@ -239,6 +252,11 @@ class PrefsSessionStore implements SessionStore {
   static const String coverBackfillAttemptedKey = 'covers_backfill_attempted';
   static const String shortcutsKey = 'player_shortcuts';
   static const String volumeCurveVersionKey = 'volume_curve_version';
+
+  /// 更新检查：开关、频率、上次成功检查的时间（epoch 毫秒）
+  static const String autoUpdateCheckKey = 'update_auto_check';
+  static const String updateCheckPeriodKey = 'update_check_period';
+  static const String lastUpdateCheckKey = 'update_last_check_at';
 
   /// 当前音量曲线版本。
   ///
@@ -319,6 +337,11 @@ class PrefsSessionStore implements SessionStore {
         flowBackground: prefs.getBool(flowBackgroundKey) ?? true,
         circularCovers: prefs.getBool(circularCoversKey) ?? false,
         shortcutsJson: prefs.getString(shortcutsKey) ?? '',
+        autoUpdateCheck: prefs.getBool(autoUpdateCheckKey) ?? false,
+        updateCheckPeriod: UpdateCheckPeriod.parse(
+          prefs.getString(updateCheckPeriodKey),
+        ),
+        lastUpdateCheckAt: _parseTimestamp(prefs.getInt(lastUpdateCheckKey)),
       );
     } catch (_) {
       return const SessionSnapshot();
@@ -430,6 +453,20 @@ class PrefsSessionStore implements SessionStore {
       } else {
         await prefs.setString(shortcutsKey, snapshot.shortcutsJson);
       }
+      await prefs.setBool(autoUpdateCheckKey, snapshot.autoUpdateCheck);
+      await prefs.setString(
+        updateCheckPeriodKey,
+        snapshot.updateCheckPeriod.name,
+      );
+      final DateTime? lastUpdateCheckAt = snapshot.lastUpdateCheckAt;
+      if (lastUpdateCheckAt == null) {
+        await prefs.remove(lastUpdateCheckKey);
+      } else {
+        await prefs.setInt(
+          lastUpdateCheckKey,
+          lastUpdateCheckAt.millisecondsSinceEpoch,
+        );
+      }
     } catch (_) {
       // 保存失败不影响当前会话
     }
@@ -484,6 +521,19 @@ class PrefsSessionStore implements SessionStore {
     try {
       return jsonDecode(raw);
     } catch (_) {
+      return null;
+    }
+  }
+
+  /// epoch 毫秒 → 时间；越界或坏值当作从没查过（[DateTime.fromMillisecondsSinceEpoch]
+  /// 对极端值会抛，存档被改坏时不该让整个会话恢复失败）
+  static DateTime? _parseTimestamp(int? millis) {
+    if (millis == null || millis <= 0) {
+      return null;
+    }
+    try {
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    } on ArgumentError {
       return null;
     }
   }

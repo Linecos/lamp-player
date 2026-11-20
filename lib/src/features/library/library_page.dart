@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../../app/memory_guard.dart';
 import '../../app/app_toast.dart';
 import '../../app/session_store.dart';
+import '../../app/update_check.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
 import '../../app/tray_controller.dart';
@@ -57,6 +58,7 @@ import '../settings/listening_stats_repository.dart';
 import '../settings/listening_stats_view.dart';
 import '../settings/music_folder_store.dart';
 import '../settings/settings_view.dart';
+import '../settings/update_dialog.dart';
 import 'drop_import.dart';
 import 'library_repository.dart';
 import 'library_revision.dart';
@@ -88,6 +90,7 @@ part 'sections/albums_section.dart';
 part 'sections/filter_section.dart';
 part 'sections/quality_section.dart';
 part 'sections/folder_detail_section.dart';
+part 'sections/update_section.dart';
 
 /// 目录选择器，测试可注入假实现。
 typedef DirectoryPicker = Future<String?> Function();
@@ -818,6 +821,21 @@ class _LibraryPageState extends State<LibraryPage>
   /// 封面是否显示成圆形（设置里的开关，默认关）
   bool _circularCovers = false;
 
+  /// 是否在启动时自动检查新版本
+  bool _autoUpdateCheck = false;
+
+  /// 自动检查的间隔
+  UpdateCheckPeriod _updatePeriod = UpdateCheckPeriod.daily;
+
+  /// 上次成功检查更新的时间
+  DateTime? _lastUpdateCheckAt;
+
+  /// 正在检查更新：按钮转圈并禁用，避免连点发出多条请求
+  bool _checkingUpdate = false;
+
+  /// 最近一次检查结果的短句，显示在「检查更新」那一行的副标题
+  String? _updateStatus;
+
   /// 正在播放页歌词的水平对齐（居中 / 左 / 右），按钮点一下循环。
   ///
   /// 用通知器而不是普通字段：正在播放页是独立路由，只在 push 时构建一次，
@@ -1312,6 +1330,9 @@ class _LibraryPageState extends State<LibraryPage>
       }
       _flowBackground = snapshot.flowBackground;
       _circularCovers = snapshot.circularCovers;
+      _autoUpdateCheck = snapshot.autoUpdateCheck;
+      _updatePeriod = snapshot.updateCheckPeriod;
+      _lastUpdateCheckAt = snapshot.lastUpdateCheckAt;
       _lyricAlignment.value = snapshot.lyricAlignment;
       _showTranslation.value = snapshot.showTranslation;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
@@ -1351,6 +1372,8 @@ class _LibraryPageState extends State<LibraryPage>
       const Duration(seconds: 10),
       (_) => _isPlaying ? unawaited(_saveSession()) : null,
     );
+    // 启动时按设置的频率自动查一次；没开开关就什么都不做
+    unawaited(_maybeAutoCheckUpdates());
   }
 
   /// 恢复上次的播放队列、当前曲目与进度。
@@ -1534,6 +1557,9 @@ class _LibraryPageState extends State<LibraryPage>
       desktopLyricY: lyricPosition?.$2,
       flowBackground: _flowBackground,
       circularCovers: _circularCovers,
+      autoUpdateCheck: _autoUpdateCheck,
+      updateCheckPeriod: _updatePeriod,
+      lastUpdateCheckAt: _lastUpdateCheckAt,
       lyricAlignment: _lyricAlignment.value,
       showTranslation: _showTranslation.value,
     );

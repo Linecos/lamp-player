@@ -61,6 +61,13 @@ extension _SettingsSection on _LibraryPageState {
             onFlowBackgroundChanged: _setFlowBackground,
             circularCovers: _circularCovers,
             onCircularCoversChanged: _setCircularCovers,
+            autoUpdateCheck: _autoUpdateCheck,
+            onAutoUpdateCheckChanged: _setAutoUpdateCheck,
+            updateCheckPeriod: _updatePeriod,
+            onUpdateCheckPeriodChanged: _setUpdateCheckPeriod,
+            checkingUpdate: _checkingUpdate,
+            updateStatus: _updateStatus,
+            onCheckUpdate: () => unawaited(_checkUpdates(manual: true)),
             // 底部播放岛是浮层：列表末尾要让出它的高度，「关于」才滚得出来
             bottomPadding: PlayerBar.occupiedHeight + 8,
             onExclusiveChanged: _isAvailable && !_switchingOutput
@@ -87,6 +94,17 @@ extension _SettingsSection on _LibraryPageState {
   /// 改键后立刻重绑（`CallbackShortcuts` 跟着 build 更新）并写回会话
   void _setShortcuts(List<ShortcutBinding> bindings) {
     _update(() => _shortcuts = bindings);
+    _saveSessionNow();
+  }
+
+  void _setAutoUpdateCheck(bool value) {
+    // 开关本身只决定「以后启动查不查」，不在这里立刻发请求
+    _update(() => _autoUpdateCheck = value);
+    _saveSessionNow();
+  }
+
+  void _setUpdateCheckPeriod(UpdateCheckPeriod value) {
+    _update(() => _updatePeriod = value);
     _saveSessionNow();
   }
 }
