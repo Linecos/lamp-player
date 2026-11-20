@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
 import 'package:lamp_player/src/common/audio/volume_curve.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
+import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/now_playing_page.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
@@ -835,6 +838,41 @@ void main() {
     expect(playback.resumeCalls, 1, reason: '从上次位置继续，不需要重新加载');
 
     await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('会话没读完就退出，不会把上次曲目与进度清掉', (WidgetTester tester) async {
+    final Completer<void> gate = Completer<void>();
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(
+        lastTrackPath: '/music/潮汐.mp3',
+        lastPositionSecs: 42,
+      ),
+    )..loadGate = gate;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LibraryPage(
+          repository: FakeLibraryRepository(tracks: twoTracks()),
+          playbackService: FakePlaybackService(),
+          sessionStore: session,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 启动还没读完就退出（托盘退出 / 直接 dispose 都走这条保存路径）
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
+    expect(session.saveCalls, greaterThan(0), reason: '退出前应该落一次盘');
+    expect(
+      session.snapshot.writeLastTrack,
+      isFalse,
+      reason: '曲目还没恢复出来，这次保存不能写「上次曲目」',
+    );
+
+    gate.complete();
     await tester.pump();
   });
 
