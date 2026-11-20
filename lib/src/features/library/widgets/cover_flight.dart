@@ -80,6 +80,7 @@ VoidCallback flyCover(
   Rect Function()? toNow,
   Rect? clip,
   bool clipAtStart = true,
+  Rect? occluder,
   double fromRadius = 0,
   double toRadius = 0,
   required Widget Function(double size, double radius, double decodeScale)
@@ -111,6 +112,7 @@ VoidCallback flyCover(
       toNow: toNow,
       clip: clip,
       clipAtStart: clipAtStart,
+      occluder: occluder,
       size: math.max(from.width, to.width),
       fromRadius: fromRadius,
       toRadius: toRadius,
@@ -155,6 +157,7 @@ class _CoverFlight extends StatelessWidget {
     required this.toNow,
     required this.clip,
     required this.clipAtStart,
+    required this.occluder,
     required this.size,
     required this.fromRadius,
     required this.toRadius,
@@ -181,6 +184,9 @@ class _CoverFlight extends StatelessWidget {
   /// **只有落在列表里的那一头**才受列表视口裁剪——详情头部那张本来就在列表视口
   /// 上方，它不被列表裁（那是另一个页面），拿它去判「被挡住」会误伤每一张卡。
   final bool clipAtStart;
+
+  /// 遮挡物（播放岛卡片）的矩形（屏幕坐标）：飞行层整块挖掉它。
+  final Rect? occluder;
 
   /// 飞行盒子的边长：两端取大，靠缩放显示
   final double size;
@@ -215,89 +221,122 @@ class _CoverFlight extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double startScale = size <= 0 ? 1 : from.width / size;
-    return IgnorePointer(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(begin: 0, end: 1),
-        duration: duration,
-        curve: Curves.easeOutCubic,
-        onEnd: onEnd,
-        builder: (BuildContext context, double t, Widget? _) {
-          final Rect end = _end();
-          final double endScale = size <= 0 ? 1 : end.width / size;
-          final double scale = startScale + (endScale - startScale) * t;
-          // 沿一条略微上抛的弧线走：直线看着像「平移」，Hero 默认的
-          // `MaterialRectArcTween` 也是弧线
-          final double lift = (end.center - from.center).distance * 0.12;
-          final Offset control =
-              Offset.lerp(from.center, end.center, 0.5)! - Offset(0, lift);
-          final Offset center = _quadratic(from.center, control, end.center, t);
-          // 圆角也按视觉值走：盒子被缩放到 scale，所以传进去的半径要除以它，
-          // 才能让屏幕上的圆角正好从起点那一端的值平滑过渡到终点那一端
-          final double visualRadius = fromRadius + (toRadius - fromRadius) * t;
-          final double radius = scale <= 0
-              ? visualRadius
-              : visualRadius / scale;
+    final Widget flight = TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      onEnd: onEnd,
+      builder: (BuildContext context, double t, Widget? _) {
+        final Rect end = _end();
+        final double endScale = size <= 0 ? 1 : end.width / size;
+        final double scale = startScale + (endScale - startScale) * t;
+        // 沿一条略微上抛的弧线走：直线看着像「平移」，Hero 默认的
+        // `MaterialRectArcTween` 也是弧线
+        final double lift = (end.center - from.center).distance * 0.12;
+        final Offset control =
+            Offset.lerp(from.center, end.center, 0.5)! - Offset(0, lift);
+        final Offset center = _quadratic(from.center, control, end.center, t);
+        // 圆角也按视觉值走：盒子被缩放到 scale，所以传进去的半径要除以它，
+        // 才能让屏幕上的圆角正好从起点那一端的值平滑过渡到终点那一端
+        final double visualRadius = fromRadius + (toRadius - fromRadius) * t;
+        final double radius = scale <= 0 ? visualRadius : visualRadius / scale;
 
-          /// 整张封面（含它自己的位移 / 缩放）
-          Widget cover() => Stack(
-            children: <Widget>[
-              Positioned(
-                left: center.dx - size / 2,
-                top: center.dy - size / 2,
-                width: size,
-                height: size,
-                // 飞行途中不要被窗口边界裁掉：Overlay 本身是全屏的，
-                // 这里不额外加 Clip
+        /// 整张封面（含它自己的位移 / 缩放）
+        Widget cover() => Stack(
+          children: <Widget>[
+            Positioned(
+              left: center.dx - size / 2,
+              top: center.dy - size / 2,
+              width: size,
+              height: size,
+              // 飞行途中不要被窗口边界裁掉：Overlay 本身是全屏的，
+              // 这里不额外加 Clip
+              child: Transform.scale(
+                key: const ValueKey<String>('cover-flight'),
+                scale: scale,
+                child: buildCover(size, radius, _decodeScale),
+              ),
+            ),
+          ],
+        );
+
+        // 只看**落在列表里那一头**有没有被视口切掉：详情头部那张本来就在列表
+        // 视口上方，拿它判「被挡住」会误伤每一张卡（飞行最后 35% 把封面顶部
+        // 压下去，看着就是上面一截灰的在闪）
+        final Rect card = clipAtStart ? from : to;
+        if (!isClippedByViewport(card, clip)) {
+          return cover();
+        }
+        // 被切掉的那一截：起飞（或落地）的那一小段里从「看不见」快速推到全露，
+        // 边界用 14px 羽化，免得出现一条硬缝
+        final double reveal = Curves.easeOutCubic.transform(
+          (clipAtStart ? t / _revealFraction : (1 - t) / _revealFraction).clamp(
+            0.0,
+            1.0,
+          ),
+        );
+        final Rect viewport = clip!;
+        final bool fromTop =
+            (viewport.top - card.top) >= (card.bottom - viewport.bottom);
+        final double edge = fromTop ? viewport.top : viewport.bottom;
+        return Stack(
+          children: <Widget>[
+            Positioned(
+              left: center.dx - size / 2,
+              top: center.dy - size / 2,
+              width: size,
+              height: size,
+              child: _EdgeFadeMask(
+                opacity: reveal,
+                edge: edge - (center.dy - size / 2),
+                fromTop: fromTop,
                 child: Transform.scale(
                   key: const ValueKey<String>('cover-flight'),
                   scale: scale,
                   child: buildCover(size, radius, _decodeScale),
                 ),
               ),
-            ],
-          );
-
-          // 只看**落在列表里那一头**有没有被视口切掉：详情头部那张本来就在列表
-          // 视口上方，拿它判「被挡住」会误伤每一张卡（飞行最后 35% 把封面顶部
-          // 压下去，看着就是上面一截灰的在闪）
-          final Rect card = clipAtStart ? from : to;
-          if (!isClippedByViewport(card, clip)) {
-            return cover();
-          }
-          // 被切掉的那一截：起飞（或落地）的那一小段里从「看不见」快速推到全露，
-          // 边界用 14px 羽化，免得出现一条硬缝
-          final double reveal = Curves.easeOutCubic.transform(
-            (clipAtStart ? t / _revealFraction : (1 - t) / _revealFraction)
-                .clamp(0.0, 1.0),
-          );
-          final Rect viewport = clip!;
-          final bool fromTop =
-              (viewport.top - card.top) >= (card.bottom - viewport.bottom);
-          final double edge = fromTop ? viewport.top : viewport.bottom;
-          return Stack(
-            children: <Widget>[
-              Positioned(
-                left: center.dx - size / 2,
-                top: center.dy - size / 2,
-                width: size,
-                height: size,
-                child: _EdgeFadeMask(
-                  opacity: reveal,
-                  edge: edge - (center.dy - size / 2),
-                  fromTop: fromTop,
-                  child: Transform.scale(
-                    key: const ValueKey<String>('cover-flight'),
-                    scale: scale,
-                    child: buildCover(size, radius, _decodeScale),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+            ),
+          ],
+        );
+      },
+    );
+    final Rect? occluder = this.occluder;
+    return IgnorePointer(
+      child: occluder == null
+          ? flight
+          // 播放岛是不透明的：它盖住的那一块直接挖掉，而不是渐隐。羽化带会伸出
+          // 岛顶边 14px，那 14px 落在**可见区**里 —— 动画一撤、真实封面以全不透明
+          // 出现，那条半透明的带子就整条补回来，看着就是「到边缘柔和，结束瞬间归位」。
+          : ClipPath(clipper: FlightOccluderClipper(occluder), child: flight),
     );
   }
+}
+
+/// 把 [occluder]（播放岛卡片）那一块从画面里挖掉，飞行层只画在它周围。
+///
+/// 用裁剪而不是渐变，是因为岛上下的留白是透的、卡片本身不透明：裁剪出来的
+/// 边缘跟静止时真实封面被岛盖住的样子逐像素一致，收尾没有过渡差。
+class FlightOccluderClipper extends CustomClipper<Path> {
+  const FlightOccluderClipper(this.occluder, {this.radius = 32});
+
+  /// 遮挡物矩形（屏幕坐标）
+  final Rect occluder;
+
+  /// 遮挡物圆角
+  final double radius;
+
+  @override
+  Path getClip(Size size) {
+    final Path screen = Path()..addRect(Offset.zero & size);
+    final Path hole = Path()
+      ..addRRect(RRect.fromRectAndRadius(occluder, Radius.circular(radius)));
+    return Path.combine(PathOperation.difference, screen, hole);
+  }
+
+  @override
+  bool shouldReclip(FlightOccluderClipper oldClipper) =>
+      oldClipper.occluder != occluder || oldClipper.radius != radius;
 }
 
 /// 遮罩用的渐变：边缘两侧 [feather] 宽的一条过渡带，被挡住那一段落到 [opacity]。

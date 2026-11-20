@@ -532,6 +532,9 @@ class _LibraryPageState extends State<LibraryPage>
   final GlobalKey _artistDetailCoverKey = GlobalKey();
   final GlobalKey _albumDetailCoverKey = GlobalKey();
 
+  /// 播放岛：飞行层要按它的真实矩形挖洞（宽度封顶居中、底边还留了外边距）
+  final GlobalKey _playerBarKey = GlobalKey();
+
   /// 正在跑的飞行层。页面销毁时要撤回，否则 Overlay 上会留一张永远飞不完的图
   VoidCallback? _cancelCoverFlight;
 
@@ -1974,6 +1977,31 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
+  /// 播放岛卡片在屏幕上的矩形。
+  ///
+  /// 飞行层要把它整块挖掉：岛是不透明的，被它盖住的封面本来就不该出现；
+  /// 挖掉之后收尾那一帧跟静止时一模一样，不会在岛顶边留下一条渐隐带。
+  Rect _playerIslandRect(BuildContext context) {
+    // 量播放岛的真实矩形：它宽度封顶居中、底边还有外边距，按窗口高减常数算
+    // 会在小窗 / 宽屏下偏出去
+    final Rect? bar = rectOfKey(_playerBarKey);
+    if (bar != null && !bar.isEmpty) {
+      return Rect.fromLTRB(
+        bar.left + PlayerBar.cardSidePadding,
+        bar.top + PlayerBar.cardTopPadding,
+        bar.right - PlayerBar.cardSidePadding,
+        bar.bottom - PlayerBar.cardBottomMargin,
+      );
+    }
+    final Size size = MediaQuery.sizeOf(context);
+    return Rect.fromLTRB(
+      PlayerBar.cardSidePadding,
+      size.height - PlayerBar.occludingHeight,
+      size.width - PlayerBar.cardSidePadding,
+      size.height - PlayerBar.cardBottomMargin,
+    );
+  }
+
   /// 切到详情，并在 Overlay 上让封面从 [from] 飞到详情头部。
   ///
   /// 列表和详情是同一个页面里的两个子树（`AnimatedSwitcher` 切换），原生的
@@ -2012,6 +2040,7 @@ class _LibraryPageState extends State<LibraryPage>
         from: from,
         to: to,
         clip: clip,
+        occluder: _playerIslandRect(context),
         // 详情头部自己还在这 180ms 里上浮（AnimatedSwitcher 的 SlideTransition），
         // 每帧重新量一次终点，落地时才严丝合缝
         toNow: () => rectOfKey(targetKey) ?? to,
@@ -2067,6 +2096,7 @@ class _LibraryPageState extends State<LibraryPage>
         clip: _coverViewports[tag],
         // 回列表时卡片在终点
         clipAtStart: false,
+        occluder: _playerIslandRect(context),
         fromRadius: fromRadius,
         toRadius: toRadius,
         buildCover: buildCover,
@@ -2866,6 +2896,7 @@ class _LibraryPageState extends State<LibraryPage>
   /// [volume] 走独立 notifier：拖动音量只重建这一个子树，不碰分区内容。
   Widget _buildPlayerBar(_PlaybackProgress progress, double volume) {
     return PlayerBar(
+      key: _playerBarKey,
       spectrum: widget.spectrum,
       track: _currentTrack,
       isPlaying: progress.playing,
