@@ -21,7 +21,7 @@ String alphabetBucketOf(String name) {
   if (_isLatinLetter(rune)) {
     return String.fromCharCode(rune).toUpperCase();
   }
-  if (_isCjk(rune)) {
+  if (isCjkRune(rune)) {
     final String key = buildPinyinKey(String.fromCharCode(rune));
     final String full = key.split('|').first;
     if (full.isNotEmpty && _isLatinLetter(full.runes.first)) {
@@ -119,8 +119,6 @@ String _sortKeyOf(String label) =>
 
 bool _isLatinLetter(int rune) =>
     (rune >= 0x41 && rune <= 0x5A) || (rune >= 0x61 && rune <= 0x7A);
-
-bool _isCjk(int rune) => rune >= 0x4E00 && rune <= 0x9FFF;
 
 /// 字母分段的网格几何：算每段从哪开始，供字母导航跳转用。
 ///

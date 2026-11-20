@@ -16,6 +16,13 @@ void main() {
       expect(alphabetBucketOf('海阔天空'), 'H');
     });
 
+    test('扩展 A / 兼容区 / 扩展 B 的汉字也按拼音归档', () {
+      // 㐀 qiu、豈 qi、𠀀 he —— 只按基本区判断会全掉进 #
+      expect(alphabetBucketOf('㐀'), 'Q');
+      expect(alphabetBucketOf('豈'), 'Q');
+      expect(alphabetBucketOf('\u{20000}'), 'H');
+    });
+
     test('数字、符号、假名与空名都归到 #', () {
       expect(alphabetBucketOf('3 Doors Down'), alphabetOtherBucket);
       expect(alphabetBucketOf('!!!'), alphabetOtherBucket);
