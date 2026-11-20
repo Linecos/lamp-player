@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/app/update_check.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/player/lyric_alignment.dart';
 import 'package:lamp_player/src/features/player/playback_queue.dart';
@@ -170,6 +171,51 @@ void main() {
 
     await store.save(const SessionSnapshot(circularCovers: false));
     expect((await store.load()).circularCovers, isFalse);
+  });
+
+  test('自动检查更新的开关、频率与上次检查时间可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    final SessionSnapshot initial = await store.load();
+    expect(initial.autoUpdateCheck, isFalse, reason: '默认不主动联网');
+    expect(initial.updateCheckPeriod, UpdateCheckPeriod.daily);
+    expect(initial.lastUpdateCheckAt, isNull);
+
+    final DateTime checkedAt = DateTime(2026, 11, 20, 9, 30);
+    await store.save(
+      SessionSnapshot(
+        autoUpdateCheck: true,
+        updateCheckPeriod: UpdateCheckPeriod.weekly,
+        lastUpdateCheckAt: checkedAt,
+      ),
+    );
+
+    final SessionSnapshot restored = await store.load();
+    expect(restored.autoUpdateCheck, isTrue);
+    expect(restored.updateCheckPeriod, UpdateCheckPeriod.weekly);
+    expect(
+      restored.lastUpdateCheckAt,
+      DateTime.fromMillisecondsSinceEpoch(checkedAt.millisecondsSinceEpoch),
+      reason: '按 epoch 毫秒存，读回来必须同一时刻',
+    );
+  });
+
+  test('认不出的检查频率回落到每天', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'flutter.${PrefsSessionStore.updateCheckPeriodKey}': 'hourly',
+    });
+    expect(
+      (await const PrefsSessionStore().load()).updateCheckPeriod,
+      UpdateCheckPeriod.daily,
+    );
+  });
+
+  test('坏掉的上次检查时间当作从没查过', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'flutter.${PrefsSessionStore.lastUpdateCheckKey}': -5,
+    });
+    expect((await const PrefsSessionStore().load()).lastUpdateCheckAt, isNull);
   });
 
   test('歌词对齐方式可以存取', () async {
