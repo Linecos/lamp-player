@@ -25,6 +25,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 pub enum Button {
     FontDown,
     FontUp,
+    /// 字号回到默认值（[DEFAULT_FONT_SIZE]）
+    FontReset,
     Previous,
     PlayPause,
     Next,
@@ -51,6 +53,16 @@ pub const MAX_FONT_SIZE: i32 = 56;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub const FONT_STEP: i32 = 3;
 pub const DEFAULT_FONT_SIZE: i32 = 27;
+
+/// 目标字号与当前值不同时返回目标（先夹到范围内），相同返回 `None`。
+///
+/// 窗口上的 A- / A+ 与「恢复默认」都走这里：范围夹取、无变化时跳过重绘，
+/// 两处保持一致；也把这段判断从 GDI 代码里挪出来，非 Windows 平台能测。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn font_size_change(current: i32, target: i32) -> Option<i32> {
+    let target = target.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+    (target != current).then_some(target)
+}
 
 struct LyricState {
     text: String,
@@ -426,7 +438,9 @@ mod imp {
         WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
     };
 
-    use super::{frame, snapshot, Button, Command, Frame, FONT_STEP, MAX_FONT_SIZE, MIN_FONT_SIZE};
+    use super::{
+        font_size_change, frame, snapshot, Button, Command, Frame, DEFAULT_FONT_SIZE, FONT_STEP,
+    };
 
     const WM_LYRIC: u32 = WM_APP + 1;
     const WM_APPLY: u32 = WM_APP + 2;
@@ -910,6 +924,7 @@ mod imp {
         match button {
             Button::FontDown => change_font(hwnd, -FONT_STEP),
             Button::FontUp => change_font(hwnd, FONT_STEP),
+            Button::FontReset => change_font(hwnd, 0),
             Button::Lock => toggle_lock(hwnd),
             Button::Previous => super::emit(Command::Previous),
             Button::PlayPause => super::emit(Command::PlayPause),
@@ -918,13 +933,18 @@ mod imp {
         }
     }
 
+    /// `delta == 0` 表示回到默认字号（恢复按钮用它，省一份重复的状态处理）
     fn change_font(hwnd: HWND, delta: i32) {
         let next = {
             let mut guard = super::state();
-            let next = (guard.font_size + delta).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
-            if next == guard.font_size {
+            let target = if delta == 0 {
+                DEFAULT_FONT_SIZE
+            } else {
+                guard.font_size + delta
+            };
+            let Some(next) = font_size_change(guard.font_size, target) else {
                 return;
-            }
+            };
             guard.font_size = next;
             next
         };
@@ -1250,6 +1270,8 @@ mod imp {
                         let (label, family) = match button {
                             Button::FontDown => ("A-", ui),
                             Button::FontUp => ("A+", ui),
+                            // 圆形箭头 = 回到默认，紧挨着 A± 不会读成「刷新歌词」
+                            Button::FontReset => ("\u{E72C}", icons),
                             Button::Previous => ("\u{E892}", icons),
                             Button::PlayPause => {
                                 if playing {
@@ -1586,9 +1608,11 @@ mod imp {
         }
 
         fn new(scale: f32, font_size: i32, lines: i32) -> Self {
-            const ORDER: [Button; 7] = [
+            const ORDER: [Button; 8] = [
                 Button::FontDown,
                 Button::FontUp,
+                // 恢复默认贴在 A± 右边：改字号与撤销改字号是一件事
+                Button::FontReset,
                 Button::Previous,
                 Button::PlayPause,
                 Button::Next,
@@ -1608,7 +1632,7 @@ mod imp {
             let height =
                 (top + button_size + 6.0 * scale + text_height + 8.0 * scale).round() as i32;
 
-            let gaps = [gap, group, gap, gap, group, gap];
+            let gaps = [gap, gap, group, gap, gap, group, gap];
             let total = button_size * ORDER.len() as f32 + gaps.iter().sum::<f32>();
             let mut x = (width as f32 - total) / 2.0;
             let mut buttons = Vec::with_capacity(ORDER.len());
@@ -1666,6 +1690,7 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
+        use super::super::{MAX_FONT_SIZE, MIN_FONT_SIZE};
         use super::*;
 
         #[test]
@@ -1776,12 +1801,32 @@ mod imp {
                 vec![
                     Button::FontDown,
                     Button::FontUp,
+                    // 「恢复默认」紧跟 A±：改字号与撤销改字号是一组
+                    Button::FontReset,
                     Button::Previous,
                     Button::PlayPause,
                     Button::Next,
                     Button::Lock,
                     Button::Close,
                 ]
+            );
+        }
+
+        #[test]
+        fn reset_button_is_hittable() {
+            let layout = Layout::new(1.0, 27, 1);
+            let (_, rect) = layout
+                .buttons
+                .iter()
+                .find(|(button, _)| *button == Button::FontReset)
+                .expect("布局里没有恢复默认按钮");
+            assert_eq!(
+                hit_button(
+                    &layout,
+                    rect.X + rect.Width / 2.0,
+                    rect.Y + rect.Height / 2.0
+                ),
+                Some(Button::FontReset)
             );
         }
 
@@ -1970,6 +2015,32 @@ mod imp {
     pub(super) fn request_apply(_hwnd: isize) {}
 
     pub(super) fn request_repaint(_hwnd: isize) {}
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::{font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE};
+
+    #[test]
+    fn reset_targets_the_default_size() {
+        // 窗口上点「恢复」走的就是这条：只要不等于默认值，目标就是默认值
+        assert_eq!(
+            font_size_change(40, DEFAULT_FONT_SIZE),
+            Some(DEFAULT_FONT_SIZE)
+        );
+        assert_eq!(font_size_change(MIN_FONT_SIZE, DEFAULT_FONT_SIZE), Some(27));
+        // 已经是默认值：返回 None，调用方据此不重绘、不发命令
+        assert_eq!(font_size_change(DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE), None);
+    }
+
+    #[test]
+    fn stepped_size_is_clamped() {
+        assert_eq!(font_size_change(MAX_FONT_SIZE, MAX_FONT_SIZE + 3), None);
+        assert_eq!(font_size_change(MIN_FONT_SIZE, MIN_FONT_SIZE - 3), None);
+        assert_eq!(font_size_change(40, 43), Some(43));
+        assert_eq!(font_size_change(55, 58), Some(MAX_FONT_SIZE));
+        assert_eq!(font_size_change(17, 14), Some(MIN_FONT_SIZE));
+    }
 }
 
 #[cfg(test)]
