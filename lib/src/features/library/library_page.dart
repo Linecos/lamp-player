@@ -33,6 +33,7 @@ import 'widgets/cover_backdrop.dart';
 import 'widgets/cover_editor_dialog.dart';
 import 'widgets/cover_flight.dart';
 import 'widgets/lamp_brand_mark.dart';
+import 'widgets/sub_page_switcher.dart';
 import 'widgets/track_metadata_pane.dart';
 import '../../rust/api/player.dart' as rust;
 import '../../rust/api/scan.dart' as scan;
@@ -2824,15 +2825,11 @@ class _LibraryPageState extends State<LibraryPage>
       }
       setState(() {
         _displayedSection = section;
-        _sectionEpochs[section] = (_sectionEpochs[section] ?? 0) + 1;
         // 记下这次访问，超出上限的老分区连快照一起丢掉（见 [_keptSectionLimit]）
         _touchSection(section);
-        // 离开一个正开着详情的分区时，把它那层 AnimatedSwitcher 也重置掉：
-        // 清选中会让它从「详情」过渡到「列表」，但分区这时是 Offstage、
-        // TickerMode 冻结了动画 —— 等用户切回来，那 180ms 的淡出才继续跑，
-        // 看着就是「先显示之前的详情，再迅速换成列表」。
+        // 离开一个正开着详情的分区时丢掉它的快照：下一帧它就不在树里，
+        // 切换器的过渡状态跟着销毁，切回来直接是列表，不会继续淡出旧详情。
         if (leavingDetail) {
-          _sectionEpochs[previous] = (_sectionEpochs[previous] ?? 0) + 1;
           _forgetSection(previous);
         }
         _selectedArtist = null;
@@ -2847,7 +2844,9 @@ class _LibraryPageState extends State<LibraryPage>
           _justSwitched = section;
         } else {
           // 一步进详情：这一帧就得构建详情，不能拿目标分区的列表快照顶着
-          // （带着它会出现「先闪一下列表再跳走」）。
+          // （带着它会出现「先闪一下列表再跳走」）。jumpToken 加一，让切换器
+          // 直接换页、不做过渡。
+          _sectionEpochs[section] = (_sectionEpochs[section] ?? 0) + 1;
           _forgetSection(section);
           _justSwitched = null;
           select();

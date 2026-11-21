@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/audio/audio_quality.dart';
 import 'package:lamp_player/src/common/scroll/smooth_scroll.dart';
+import 'package:lamp_player/src/features/library/widgets/library_rail.dart';
 import 'package:lamp_player/src/features/library/widgets/quality_ring.dart';
 import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
@@ -272,6 +273,41 @@ void main() {
       // HQ 只有「丁」：其余四首不该出现
       expect(find.text('丁'), findsOneWidget);
       expect(find.text('甲'), findsNothing);
+    });
+
+    testWidgets('从别的分区切回来，点图例进子界面仍然有过渡动画', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+
+      // 切到音乐分区再切回音乐库：切换器若在这一帧被重建，重建后的第一次换页
+      // 就没有过渡了（旧页面不会跟详情一起进树）。这里按「两份同时在场」断言。
+      await tester.tap(
+        find.descendant(
+          of: find.byType(LibraryRail),
+          matching: find.text('音乐'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await openLibrarySettings(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('音乐目录'), findsOneWidget);
+
+      await tester.tap(find.textContaining('HQ · '));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(
+        find.byKey(const ValueKey<String>('quality-detail-back')),
+        findsOneWidget,
+        reason: '详情已经开始淡入',
+      );
+      expect(
+        find.text('音乐目录'),
+        findsOneWidget,
+        reason: '首页这时还没淡完，两份共存才是过渡而不是直接跳变',
+      );
+
+      await tester.pumpAndSettle();
+      expect(find.text('音乐目录'), findsNothing, reason: '过渡结束只剩详情');
     });
 
     testWidgets('返回按钮回到音乐库首页', (WidgetTester tester) async {
