@@ -1,4 +1,4 @@
-﻿# 从小米官方下载 MiSans 字体，放进 assets/fonts/misans（构建时随安装包分发）
+# 从小米官方下载 MiSans 字体，放进 assets/fonts/misans（构建时随安装包分发）
 # 用法: .\scripts\setup-misans.ps1 [-Force] [-SkipHashCheck]
 #
 # 为什么不把字体文件提交进仓库：《MiSans 字体知识产权许可协议》禁止「单独再分发
@@ -68,7 +68,8 @@ try {
             throw ('字体包里没有 ' + $font.Entry + '（小米改过目录结构？）')
         }
         $target = Join-Path $dest $font.Name
-        $entry.ExtractToFile($target, $true)
+        # PowerShell 不支持调用 C# 扩展方法，写 $entry.ExtractToFile 会报「没有该方法」
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
         Write-Host ('已解出 ' + $font.Name) -ForegroundColor Green
     }
 } finally {
