@@ -8,13 +8,14 @@
 //       --class-name=LampIcons --font-name=LampIcons
 //
 // 只收「内置图标集（`Icons`）里没有合适字形」的那几个：唱片、四柱、笔刷、
-// 店铺、GitHub 标记。有现成图形的照旧走 `Icons`（放大镜、排序箭头）；窗口四键是自绘
+// 店铺、GitHub 标记、Flutter 标记。有现成图形的照旧走 `Icons`（放大镜、排序箭头）；窗口四键是自绘
 // （15px 下要更细的笔画与描影，见 `lib/src/app/title_bar.dart`）。字体越大，
 // Release 的图标子集裁剪越容易漏，别把已有的图标往里搬。
 //
 // 来源与许可（均为 Apache License 2.0）：
 // - album_outlined / album_filled / bar_chart_4_bars：Material Symbols
 //   （google/material-design-icons）
+// - flutter：Material Symbols（google/material-design-icons）
 // - brush_variant / github / store_filled / store_outline：Material Design Icons
 //   （Templarian/MaterialDesign）
 //
@@ -57,18 +58,21 @@ class LampIcons {
     fontFamily: iconFontFamily,
   );
 
+  /// Flutter 标记：设置「关于」的技术栈
+  static const IconData flutter = IconData(0xe004, fontFamily: iconFontFamily);
+
   /// GitHub 标记：设置「关于」里的仓库入口
-  static const IconData github = IconData(0xe004, fontFamily: iconFontFamily);
+  static const IconData github = IconData(0xe005, fontFamily: iconFontFamily);
 
   /// 店铺（实心）：侧栏「音乐库」选中态
   static const IconData storeFilled = IconData(
-    0xe005,
+    0xe006,
     fontFamily: iconFontFamily,
   );
 
   /// 店铺（空心）：侧栏「音乐库」未选中态
   static const IconData storeOutline = IconData(
-    0xe006,
+    0xe007,
     fontFamily: iconFontFamily,
   );
 }

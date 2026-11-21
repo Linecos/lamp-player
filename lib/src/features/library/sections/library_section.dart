@@ -62,24 +62,12 @@ extension _LibrarySection on _LibraryPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Text(
-              '音乐库',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const Spacer(),
-            // 页头动作走标准按钮：手写的「文字胶囊」只有 29 高，低于 MD3
-            // 40 的最小触摸高度，也没有 state layer / focus ring
-            FilledButton.tonalIcon(
-              key: const ValueKey<String>('library-add-folder'),
-              onPressed: _scanning ? null : () => unawaited(_addMusicFolder()),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('添加音乐目录'),
-            ),
-          ],
+        // 页头只留标题：添加目录的入口在「音乐目录」块的 + 上，不必占两处
+        Text(
+          '音乐库',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 2),
         Expanded(
