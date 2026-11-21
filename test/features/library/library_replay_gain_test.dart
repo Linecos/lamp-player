@@ -71,7 +71,41 @@ Future<double> _progressDialogWidth(WidgetTester tester, String title) async {
   return width;
 }
 
+/// 起一次批量计算，卡在确认框上，量可见表面宽度。
+/// 确认框原先是一整段长说明，AlertDialog 按内容的固有宽度算，长句能整行撑满窗口。
+Future<double> _confirmDialogWidth(
+  WidgetTester tester,
+  List<Track> tracks,
+) async {
+  await pumpLibrary(tester, tracks: tracks);
+  await _enterSelectionAndSelectAll(tester);
+  await _rightClickRow(tester, tracks.first.title);
+  await tester.tap(find.textContaining('计算 ReplayGain'));
+  await tester.pumpAndSettle();
+
+  final Finder dialog = find.byType(AlertDialog);
+  expect(dialog, findsOneWidget, reason: '确认框要开着');
+  final Finder surface = find
+      .descendant(of: dialog, matching: find.byType(Material))
+      .first;
+  final double width = tester.getSize(surface).width;
+
+  await tester.pumpWidget(const SizedBox());
+  return width;
+}
+
 void main() {
+  testWidgets('确认框是定宽的，长说明不会把弹窗拉成整窗宽', (WidgetTester tester) async {
+    final double single = await _confirmDialogWidth(tester, <Track>[
+      sampleTrack(title: '雨'),
+    ]);
+    final double batch = await _confirmDialogWidth(tester, twoTracks());
+
+    final double expected = replayGainDialogWidth + 48;
+    expect(single, closeTo(expected, 1));
+    expect(batch, closeTo(expected, 1));
+  });
+
   testWidgets('进度框是定宽的，不随歌名长短或窗口宽度变形', (WidgetTester tester) async {
     final double shortName = await _progressDialogWidth(tester, '雨');
     final double longName = await _progressDialogWidth(

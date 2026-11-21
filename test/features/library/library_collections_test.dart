@@ -1289,6 +1289,44 @@ void main() {
     expect(recentY, lessThan(olderY), reason: '最近播放的应排在前面');
   });
 
+  testWidgets('历史标题行按钮靠右，三颗间距一致', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      seed: (FakeLibraryRepository repo) async {
+        await repo.recordPlay('/music/夜航.mp3');
+      },
+    );
+    await openHistory(tester);
+
+    final Finder play = find.widgetWithText(FilledButton, '播放全部');
+    final Finder toggle = find.byKey(
+      const ValueKey<String>('library-selection-toggle'),
+    );
+    final Finder clear = find.widgetWithText(OutlinedButton, '清空历史');
+    expect(play, findsOneWidget);
+    expect(toggle, findsOneWidget);
+    expect(clear, findsOneWidget);
+
+    // 标题行里未多选时那个占位已经是弹性段：再塞一个 Spacer 会把按钮组
+    // 挤到正中间，浏览 1344 宽窗口下「播放全部」会落在 540 左右
+    expect(
+      tester.getRect(play).left,
+      greaterThan(800),
+      reason: '按钮组要贴着行尾，不能被平分成居中',
+    );
+    expect(
+      tester.getRect(clear).left - tester.getRect(toggle).right,
+      closeTo(8, 0.5),
+      reason: '破坏性按钮与旁边的按钮一样隔 8',
+    );
+    expect(
+      tester.getRect(toggle).left - tester.getRect(play).right,
+      closeTo(8, 0.5),
+      reason: '三颗按钮的间距要一致',
+    );
+  });
+
   testWidgets('清空历史需确认，确认后回到空态', (WidgetTester tester) async {
     await pumpLibrary(
       tester,

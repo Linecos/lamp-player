@@ -394,8 +394,8 @@ class SettingsView extends StatelessWidget {
     return SmoothScroll(
       builder: (BuildContext context, ScrollController controller) => ListView(
         controller: controller,
-        // 左右留白由分区那层统一给（滚动条槽 + 对称补齐），这里只管纵向
-        padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
+        // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
+        padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
         children: children,
       ),
     );
