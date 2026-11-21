@@ -849,6 +849,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 正在播放页是否显示译文 / 罗马音；同样走通知器，切换只重画歌词
   final ValueNotifier<bool> _showTranslation = ValueNotifier<bool>(true);
 
+  /// 正在播放页是否停在沉浸模式。
+  ///
+  /// 状态放在曲库页（跨页常驻）而不是播放页自己身上：播放页是 push 出来的路由，
+  /// 关掉就销毁，重进只能读到这里记住的值。跟着会话存档一起落盘。
+  bool _immersive = false;
+
   /// 均衡器开关与 10 段增益（dB，31Hz→16kHz）
   bool _eqEnabled = false;
   List<double> _eqGains = normalizeEqGains(const <double>[]);
@@ -1338,6 +1344,7 @@ class _LibraryPageState extends State<LibraryPage>
       _lastUpdateCheckAt = snapshot.lastUpdateCheckAt;
       _lyricAlignment.value = snapshot.lyricAlignment;
       _showTranslation.value = snapshot.showTranslation;
+      _immersive = snapshot.immersive;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
       circularCovers.value = snapshot.circularCovers;
@@ -1565,6 +1572,7 @@ class _LibraryPageState extends State<LibraryPage>
       lastUpdateCheckAt: _lastUpdateCheckAt,
       lyricAlignment: _lyricAlignment.value,
       showTranslation: _showTranslation.value,
+      immersive: _immersive,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
     //
@@ -2314,6 +2322,15 @@ class _LibraryPageState extends State<LibraryPage>
   /// 显示 / 隐藏译文：歌词那边用弹簧折叠，整列跟着弹，不必整页重建
   void _toggleTranslation() {
     _showTranslation.value = !_showTranslation.value;
+    _saveSessionNow();
+  }
+
+  /// 播放页切了沉浸模式：记下来，退出重进（以及重启）都沿用
+  void _setImmersive(bool value) {
+    if (_immersive == value) {
+      return;
+    }
+    _update(() => _immersive = value);
     _saveSessionNow();
   }
 

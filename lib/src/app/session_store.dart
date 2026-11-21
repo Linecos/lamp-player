@@ -56,6 +56,7 @@ class SessionSnapshot {
     this.desktopLyricY,
     this.lyricAlignment = LyricAlignment.center,
     this.showTranslation = true,
+    this.immersive = false,
     this.autoUpdateCheck = false,
     this.updateCheckPeriod = UpdateCheckPeriod.daily,
     this.lastUpdateCheckAt,
@@ -170,6 +171,12 @@ class SessionSnapshot {
   /// 正在播放页是否显示译文 / 罗马音
   final bool showTranslation;
 
+  /// 正在播放页是否停在沉浸模式（只留封面 / 歌名 / 歌词与三个控制键）。
+  ///
+  /// 这个状态属于「页面退出重进、重启之后还该记得」的观感偏好，跟译文开关
+  /// 一个待遇；不落盘的话每次重进播放页都会退回带完整控件的普通布局。
+  final bool immersive;
+
   /// 正在播放页是否启用封面取色流光背景
   final bool flowBackground;
 
@@ -234,6 +241,7 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricYKey = 'ui_desktop_lyric_y';
   static const String lyricAlignmentKey = 'ui_lyric_alignment';
   static const String showTranslationKey = 'ui_lyric_translation';
+  static const String immersiveKey = 'ui_now_playing_immersive';
 
   /// 桌面歌词字号的默认值与范围（与 `rust/src/desktop_lyrics.rs` 保持一致）
   static const int desktopLyricFontSizeDefault = 27;
@@ -325,6 +333,7 @@ class PrefsSessionStore implements SessionStore {
           prefs.getString(lyricAlignmentKey),
         ),
         showTranslation: prefs.getBool(showTranslationKey) ?? true,
+        immersive: prefs.getBool(immersiveKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         sortAscending: prefs.getBool(sortAscendingKey) ?? true,
         detailSort: _parseSort(prefs.getString(detailSortKey)),
@@ -434,6 +443,7 @@ class PrefsSessionStore implements SessionStore {
       }
       await prefs.setString(lyricAlignmentKey, snapshot.lyricAlignment.name);
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
+      await prefs.setBool(immersiveKey, snapshot.immersive);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(sortAscendingKey, snapshot.sortAscending);
       await prefs.setString(detailSortKey, snapshot.detailSort.name);

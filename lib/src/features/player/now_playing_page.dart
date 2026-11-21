@@ -110,6 +110,8 @@ class NowPlayingPage extends StatefulWidget {
     this.onCycleLyricAlignment,
     this.showTranslation,
     this.onToggleTranslation,
+    this.immersive = false,
+    this.onImmersiveChanged,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -150,6 +152,12 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 显示 / 隐藏译文；为空时不显示该按钮
   final VoidCallback? onToggleTranslation;
+
+  /// 进页面时是否已经是沉浸模式；由曲库页传进来（跨页与重启都沿用）
+  final bool immersive;
+
+  /// 切换沉浸模式后上报当前值；为空时只管本页
+  final ValueChanged<bool>? onImmersiveChanged;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
@@ -299,6 +307,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   final SmoothScrollController _plainLyricsScroll = SmoothScrollController();
 
   /// 沉浸模式：长按播放键切换，只留封面 / 歌名 / 歌词与三个控制键。
+  ///
+  /// 初值来自 [NowPlayingPage.immersive]（曲库页记得上次的开关），切换后
+  /// 通过 [NowPlayingPage.onImmersiveChanged] 报回去，重进页面才不是每次复位。
   bool _immersive = false;
 
   /// 进入沉浸模式时的轻提示；退出不提示。
@@ -353,6 +364,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     setState(() => _immersive = next);
     // 窗口按钮画在路由上层，只能靠全局开关联动
     immersiveMode.value = next;
+    // 上报给曲库页：退出重进、重启都要还原
+    widget.onImmersiveChanged?.call(next);
     if (next) {
       _showToast('沉浸模式');
     }
@@ -394,6 +407,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   void initState() {
     super.initState();
     _livePages += 1;
+    // 恢复上次退出时的沉浸状态（跨页 / 重启都沿用）
+    _immersive = widget.immersive;
     widget.data.addListener(_onData);
     circularCovers.addListener(_syncCoverSpin);
     _onData();
@@ -534,6 +549,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         pageOwnsWindowControls.value = true;
+        // 以沉浸状态进来时，外壳那排窗口按钮也要跟着藏（见 _toggleImmersive）
+        immersiveMode.value = _immersive;
       }
     });
   }

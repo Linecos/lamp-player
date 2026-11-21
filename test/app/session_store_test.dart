@@ -26,6 +26,7 @@ void main() {
     expect(snapshot.detailSort, LibrarySort.title, reason: '专辑 / 艺术家详情默认标题');
     expect(snapshot.manualSort, isNull, reason: '歌单 / 收藏默认「自定义」');
     expect(snapshot.favoriteOrder, isEmpty);
+    expect(snapshot.immersive, isFalse, reason: '默认不带沉浸');
   });
 
   test('保存后可以完整读回', () async {
@@ -49,6 +50,8 @@ void main() {
         manualAscending: false,
         favoriteOrder: <String>['/music/a.mp3', '/music/b.mp3'],
         coverBackfillAttempted: true,
+        immersive: true,
+        showTranslation: false,
       ),
     );
 
@@ -68,6 +71,8 @@ void main() {
     expect(snapshot.manualAscending, isFalse);
     expect(snapshot.favoriteOrder, <String>['/music/a.mp3', '/music/b.mp3']);
     expect(snapshot.coverBackfillAttempted, isTrue);
+    expect(snapshot.showTranslation, isFalse);
+    expect(snapshot.immersive, isTrue, reason: '沉浸状态要能跨重启读回');
   });
 
   test('清掉上次曲目与分区后不再残留', () async {

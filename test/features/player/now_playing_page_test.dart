@@ -105,6 +105,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   VoidCallback? onCycleLyricAlignment,
   ValueListenable<bool>? showTranslation,
   VoidCallback? onToggleTranslation,
+  bool immersive = false,
+  ValueChanged<bool>? onImmersiveChanged,
   Size size = const Size(1280, 900),
 }) async {
   tester.view.physicalSize = size;
@@ -152,6 +154,8 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onCycleLyricAlignment: onCycleLyricAlignment,
         showTranslation: showTranslation,
         onToggleTranslation: onToggleTranslation,
+        immersive: immersive,
+        onImmersiveChanged: onImmersiveChanged,
         sleepTimer: sleepTimer,
         lyricsLoader: (String path) async =>
             lyrics ??
@@ -953,6 +957,52 @@ void main() {
     await tester.pumpAndSettle();
     expect(infoOpacity(), 1, reason: '退出沉浸把曲目信息淡回来');
     await _settleToast(tester);
+  });
+
+  testWidgets('带沉浸状态进来直接就停在沉浸布局，切换要回报出去', (WidgetTester tester) async {
+    // 播放页是 push 出来的路由，退出就销毁；沉浸开关记在曲库页 / 会话存档里，
+    // 重进时得原样还原，不能退回带进度条和两侧控件的普通布局。
+    final List<bool> reported = <bool>[];
+    await _pump(
+      tester,
+      data: _data(),
+      immersive: true,
+      onImmersiveChanged: reported.add,
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+      findsNothing,
+      reason: '一进来就该是沉浸布局',
+    );
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find
+                .descendant(
+                  of: find.byKey(
+                    const ValueKey<String>('now-playing-chrome-extra'),
+                  ),
+                  matching: find.byType(AnimatedOpacity),
+                )
+                .first,
+          )
+          .opacity,
+      0,
+      reason: '两侧控件直接是收起的',
+    );
+    expect(immersiveMode.value, isTrue, reason: '外壳那排窗口按钮也要跟着藏');
+
+    // 长按退出沉浸：状态要报回曲库页，否则退出重进又回到沉浸
+    await tester.longPress(
+      find.byKey(const ValueKey<String>('now-playing-toggle')),
+    );
+    await tester.pumpAndSettle();
+    expect(reported, <bool>[false], reason: '切回普通布局要上报');
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-progress')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('沉浸模式下三个键位置不变，退出不弹提示', (WidgetTester tester) async {
