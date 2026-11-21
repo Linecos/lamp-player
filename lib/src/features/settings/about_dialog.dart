@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/app_version.dart';
 import '../../common/external_link.dart';
+import '../../common/lamp_icons.dart';
 import '../../common/scroll/smooth_scroll.dart';
 
 /// 「关于」弹窗：大图标 → 名字 → 版本行 → 标语 → 技术栈 → 2×2 链接 → 署名。
@@ -200,7 +201,8 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
                       children: <Widget>[
                         Expanded(
                           child: _LinkButton(
-                            icon: Icons.code,
+                            // 内置图标集里没有 GitHub 标记，用自带字体里的字形
+                            icon: LampIcons.github,
                             label: 'GitHub',
                             scale: s,
                             onTap: () => _open(AppAboutDialog.githubUrl),
