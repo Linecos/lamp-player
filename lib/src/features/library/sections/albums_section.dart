@@ -16,36 +16,14 @@ extension _AlbumsSection on _LibraryPageState {
       }
     }
 
-    // 列表 ↔ 详情之间做个淡入上滑，和歌单、设置进听歌统计同款：只动不透明度
-    // 与位移，两份子树各自 RepaintBoundary，不会每帧重画。切换的 180ms 里两份
-    // 共存，结束后仍然只有一份。
+    // 列表 ↔ 详情之间做个淡入上滑，和歌单、音乐库同款：只动不透明度与位移，
+    // 两份子树各自 RepaintBoundary，切换的 180ms 里两份共存，结束后仍只有一份。
     //
-    // key 带分区世代：从别的分区切回来时换一个新的，免得它记着切走前的详情
-    // 再淡出 180ms（那一层已经没意义，还会看着像「先跳回旧页面」）。
-    return AnimatedSwitcher(
-      key: ValueKey<String>(
-        'albums-epoch-${_sectionEpochs[LibrarySection.albums] ?? 0}',
-      ),
-      duration: const Duration(milliseconds: 180),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
-        fit: StackFit.expand,
-        children: <Widget>[...previous, ?current],
-      ),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            // 位移只给 1.5%（约 10px）：淡入一点点上浮就够，别做成整页平移
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.015),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
+    // 不能用「换 key 让切换器重建」来清掉切走前的状态：分区切走再切回来时，
+    // 重建刚好落在用户点开专辑详情那一帧，那样旧列表就不会参与过渡
+    // （表现为「切回来第一次点击没有动画」）。清状态交给 [SubPageSwitcher.jumpToken]。
+    return SubPageSwitcher(
+      jumpToken: _sectionEpochs[LibrarySection.albums] ?? 0,
       // key 一变才会触发过渡：列表与每张专辑详情各用一个 key
       child: selected == null
           ? KeyedSubtree(
