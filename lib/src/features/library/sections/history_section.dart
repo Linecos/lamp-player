@@ -102,8 +102,10 @@ extension _HistorySection on _LibraryPageState {
             ),
             const SizedBox(width: 8),
             _buildSelectionToggle(context),
-            // 破坏性操作推到最右：紧贴「播放全部」8px 时，误触成本太高
-            const Spacer(),
+            // 三颗按钮统一 8，与其它分区标题行同一个节奏；「清空历史」是破坏性
+            // 操作，靠红色文字区分。也不能再塞弹性占位——标题行里未多选时已经
+            // 有一个，两个弹性段会把按钮组平分成居中
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               style: _headerButtonStyle().copyWith(
                 foregroundColor: WidgetStatePropertyAll<Color>(scheme.error),

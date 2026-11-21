@@ -1,11 +1,10 @@
 part of '../library_page.dart';
 
-/// 批量计算 ReplayGain 的进度框内容宽度。
+/// 批量计算 ReplayGain 两个弹窗的内容宽度（确认框与进度框共用）。
 ///
-/// 只有一条进度条 + 一行「第几首 / 共几首：歌名」。两者的固有宽度都不定：
-/// 进度条是「吃掉可用宽度」，歌名长度又随曲目变。AlertDialog 先按内容的固有
-/// 宽度算再夹到窗口，所以不钉死的话弹窗会一路顶到窗口边缘，换个窗口尺寸又是
-/// 另一个样子。420 与歌单 / 更新弹窗同一档，加上两侧 24 内边距就是 468。
+/// 确认框原先是一整段长说明，`AlertDialog` 按 `IntrinsicWidth` 取固有宽度，
+/// 长句撑到窗口边缘；进度框里那行「第几首 / 共几首：歌名」同理。420 与歌单 /
+/// 更新弹窗同一档，加上两侧 24 内边距就是 468。
 const double replayGainDialogWidth = 420;
 
 /// 多选与批量操作
@@ -261,17 +260,25 @@ extension _SelectionSection on _LibraryPageState {
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: Text(
-          tracks.length == 1
-              ? '计算这 1 首的 ReplayGain？'
-              : '计算 ${tracks.length} 首曲目的 ReplayGain？',
+        // 标题也要定宽：AlertDialog 按「标题 / 内容的固有宽度」取最大值换行排版，
+        // 只钉内容的话，标题里曲目数一多照样能把它撑宽
+        title: SizedBox(
+          width: replayGainDialogWidth,
+          child: Text(
+            tracks.length == 1
+                ? '计算这 1 首的 ReplayGain？'
+                : '计算 ${tracks.length} 首曲目的 ReplayGain？',
+          ),
         ),
-        content: const Text(
-          '会逐首分析整曲响度（EBU R128），并把结果写进音频文件的 '
-          'REPLAYGAIN_TRACK_GAIN 标签：文件会被修改（只加这一个标签，'
-          '已有的同名标签会被覆盖），每首约需 1 秒。\n'
-          '标签固定按 -18 LUFS 参考写入（ReplayGain 的通用口径），'
-          '与设置里的「参考响度」无关；峰值限幅按设置的峰值类型。',
+        content: SizedBox(
+          key: const ValueKey<String>('replay-gain-confirm'),
+          width: replayGainDialogWidth,
+          child: const Text(
+            '逐首分析整曲响度（EBU R128），把结果写进音频文件的 '
+            'REPLAYGAIN_TRACK_GAIN 标签，每首约 1 秒。\n'
+            '会改写文件，已有的同名标签被覆盖。\n'
+            '固定按 -18 LUFS 写入，不受设置里的参考响度影响。',
+          ),
         ),
         actions: <Widget>[
           TextButton(
