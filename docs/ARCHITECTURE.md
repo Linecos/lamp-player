@@ -5,28 +5,32 @@
 ## 1. 分层
 
 ```
-┌──────────────────────────────────────────┐
-│ Flutter / Dart                           │
-│   app/     应用外壳：主题、路由、会话与窗口状态  │
-│   features/ 页面（曲库、播放、设置）       │
-│   common/  通用组件与工具（无业务依赖）    │
-└───────────────┬──────────────────────────┘
-                │ flutter_rust_bridge v2（类型安全 FFI，异步）
-┌───────────────▼──────────────────────────┐
-│ Rust 核心（rust/src）                     │
-│   api/    对 Dart 暴露的唯一接口面         │
-│     db     曲库持久化（SQLite + FTS5）     │
-│     collections 歌单 / 收藏 / 播放历史     │
-│     scan   扫描入库（统计 + 写库）         │
-│     player 播放控制（状态与参数校验）      │
-│   scanner.rs 遍历与标签解析（内部模块）    │
-│   bass.rs    BASS 动态加载与调用封装       │
-│   bass/wasapi.rs WASAPI 独占 + bassmix FFI │
-└───────────────┬──────────────────────────┘
-                │ libloading 运行时加载
-┌───────────────▼──────────────────────────┐
-│ bass.dll（闭源，third_party，不入库）      │
-└──────────────────────────────────────────┘
+Flutter / Dart
+  app/       应用外壳：主题、路由、会话与窗口状态、检查更新
+  features/  页面（曲库 / 播放 / 设置）
+  common/    通用组件与工具（无业务依赖：滚动、音频评级、ReplayGain、字体、拼音）
+                    │
+                    │ flutter_rust_bridge v2（类型安全 FFI，异步）
+                    ▼
+Rust 核心（rust/src）
+  api/            对 Dart 暴露的唯一接口面，一个模块一个文件：
+                    db         曲库持久化（SQLite + FTS5）
+                    collections 歌单 / 收藏 / 播放历史
+                    scan       扫描入库（统计 + 写库）
+                    player     播放控制（状态与参数校验）
+                    metadata   标签与封面写回
+                    lyrics / desktop_lyrics  歌词读取与桌面歌词窗口
+                    media      SMTC 系统集成
+                    replaygain / cover_override / fonts / appearance / simple
+  scanner.rs      遍历与标签解析（内部模块）
+  bass.rs         公开 API 薄壳（按平台 #[path] 选实现）
+  bass/           windows（命令队列 + Engine）/ api（符号表）/ wasapi（独占 FFI）/ fft / portable
+  smtc.rs         Windows 系统媒体控制
+  single_instance.rs / desktop_lyrics.rs / system_fonts.rs / media_platform.rs
+                    │
+                    │ libloading 运行时加载
+                    ▼
+bass.dll（闭源，third_party，不入库；add-on 与 basswasapi / bassmix 同目录）
 ```
 
 **边界原则**
@@ -48,7 +52,12 @@
 | `rust/src/appearance.rs` | 读 Windows 系统强调色（MD3 动态取色） | 非 Windows 返回 `None`；`api::appearance` 只做转发 |
 | `lib/src/features/player/smtc_bridge.dart` | 把播放状态同步到系统媒体控制，并把系统按钮转成播放动作 | 页面只依赖这里的 `MediaSessionState`，不直接碰生成代码 |
 | `lib/src/features/library/sections/` | 曲库页按分区拆出的方法（`part` 文件：音乐 / 歌单 / 收藏 / 历史 / 艺术家 / 专辑 / 设置 / 播放 / 目录 / 搜索 / 过滤 / 输出） | `setState` 统一走 `_update`；同库 `part`，可访问页面私有字段 |
-| `lib/src/theme/` | 全局主题（Material 3，seed 色可配置：预设色板或系统强调色） | 页面内禁止写死颜色 |
+| `lib/src/theme/` | 全局主题（Material 3，seed 色可配置：九种预设色板或系统强调色；跟随封面取色、圆形揭示切换也在这里） | 页面内禁止写死颜色 |
+| `lib/src/common/audio/audio_quality.dart` | 音质评级纯函数（位深 / 采样率 / 码率 → HR / SQ / HQ / 其他） | 评级不落库，改口径只要重算列表 |
+| `lib/src/common/audio/replay_gain.dart` | 由测量值现算增益（参考响度 + 峰值类型） | 改设置立刻生效，不必重跑解码 |
+| `lib/src/common/scroll/smooth_scroll.dart` | 平滑滚轮（`SmoothScrollPosition` + `SmoothWheelActivity`） | 桌面端 `PrimaryScrollController` 兜不住，每处滚动视图自带控制器 |
+| `lib/src/common/text/system_fonts.dart` | 本机字体族缓存（桥接未初始化时返回空表、退回内置表） | 枚举走 Rust `api::fonts` |
+| `lib/src/app/update_check.dart` | 检查更新（版本比较、发布解析、周期判断、HTTP 拉取） | 纯逻辑，`JsonFetcher` 可注入；不走系统代理 |
 | `lib/src/features/<模块>/` | 页面与页面内状态 | 一个目录一个功能域 |
 | `lib/src/common/` | 与业务无关的组件、格式化工具 | 必须可被任意页复用 |
 | `lib/src/rust/` | **生成代码**，禁止手改 | `flutter_rust_bridge_codegen generate` |
@@ -63,7 +72,10 @@
 | `rust/src/bass/windows.rs` | Windows 实现：命令队列、`Engine`、共享 / 独占两条输出路径 | 文件内 `use super::api` |
 | `rust/src/bass/api.rs` | BASS 符号表、错误文案、DLL 查找、宽字符 | 字段 `pub(super)` |
 | `rust/src/bass/wasapi.rs` | `basswasapi` / `bassmix` 的 FFI 封装（符号、结构体、常量） | 结构体以头文件为准 |
+| `rust/src/bass/fft.rs` | 独占输出下自算频谱（回调里抄单声道 PCM → 1024 点 FFT） | 独占不能直接取解码流数据，会抢走采样 |
 | `rust/src/bass/portable.rs` | 非 Windows 空实现 | 保证 Linux CI 可编译 |
+| `rust/src/system_fonts.rs` | 读字体文件 name 表枚举本机字体族（`ttf-parser`） | 取 name_id 1（传统族名），与 Flutter / GDI+ 的解析口径一致 |
+| `rust/src/desktop_lyrics.rs` | 桌面歌词独立置顶窗口（GDI+ 画字，不经过 Flutter） | 非 Windows 返回不支持 |
 | `rust/tests/` | 集成级 Rust 测试 | 需要真实依赖（如 bundled FTS5）的用例 |
 | `scripts/` | 环境与检查脚本 | 保持可重复执行（幂等） |
 | `third_party/` | 第三方二进制（BASS） | gitignore，脚本下载 |
@@ -89,12 +101,19 @@ Dart: scanFolder(folder)
   → Rust: 读出存量文件指纹（path → mtime/size）
   → walkdir 遍历 → 未变化的文件跳过 → lofty 解析标签 → 组装 Track
       → 内嵌封面按内容哈希写入 `<曲库目录>/covers/`，路径记进 Track.cover_path
+      → 原样记下音频参数（码率 / 采样率 / 位深 / 文件大小，schema v10），评级在 Dart 侧现算
   → db.upsert_scanned（单事务，按 path 去重，写入文件指纹）
   → 清理该目录下本次没看到的记录（有遍历错误时跳过）
   → 清理没有被任何曲目引用的封面文件
   → 返回 ScanReport { scanned, unchanged, upserted, failed, walk_errors, pruned, elapsed_ms }
 Dart: 用 all_tracks() 刷新列表
 ```
+
+曲库结构升过级（v3 封面、v10 音质、v11 响度峰值）时，迁移会把老行的 `file_mtime` /
+`file_size` 清零，启动时再静默补扫一次已添加目录 —— 判据是「有曲目缺封面」或
+「全部曲目 `file_size == 0`」，补扫同时补封面与音频参数，有值后条件自然失效
+（尝试结果持久化在 `cover_backfill_attempted`）。响度 / 峰值不进扫描：只在用户
+「计算 ReplayGain」时现场解码写入三列测量值。
 
 **列表与搜索**
 
@@ -150,20 +169,28 @@ Keyboard / 耳机线控 / 任务栏缩略图
 
 ```
 LibraryPage 根部：CallbackShortcuts + Focus(autofocus)
+  默认键位表在 lib/src/features/player/shortcuts.dart（kDefaultShortcuts），
+  设置页「快捷键」可录制改键，改完写 SessionSnapshot.shortcutsJson
   空格 → 播放 / 暂停；Ctrl+←/→ → 上一首 / 下一首；←/→ → ±5 秒
   Ctrl+↑/↓ → 音量 ±5%；Ctrl+M → 静音；Ctrl+F → 聚焦搜索；Ctrl+L → 定位正在播放
   Esc → 清空搜索 / 退出搜索框；媒体键（播放暂停 / 下一首 / 上一首）同义
 搜索框聚焦时这些键**根本不绑定**（`CallbackShortcuts` 命中即标记已处理，绑了就会
 把空格从输入框里抢走）；失焦时 `_releaseSearchFocus()` 把键盘焦点交还页面，
 否则 `unfocus()` 会把焦点退给路由的 FocusScope，按键不再派发给页面、快捷键全哑。
+判断「是不是同一个组合键」一律用 `shortcutId()`（`SingleActivator` 没有值相等语义）。
 ```
 
 **会话与窗口状态**
 
 ```
 SessionStore（接口）→ PrefsSessionStore（shared_preferences）
-  音量 / 静音前音量、上次曲目与进度、循环 / 随机、当前分区、侧栏展开
-  播放与设置变化后防抖保存，退出前补一次
+  播放：音量 / 静音前音量、上次曲目与进度、循环 / 随机、队列路径与下标（结构没变只写下标）
+  界面：当前分区、侧栏展开、各分区排序与方向、收藏自定义顺序、歌词对齐 / 译文 / 沉浸
+  设置：主题与配色、界面 / 歌词字体、独占与输出设备、EQ、ReplayGain、
+        淡变与音量过渡、动态主题与流光、圆形封面、桌面歌词（字号 / 位置 / 锁定）、
+        自定义快捷键、自动检查更新（周期与上次检查时间）
+  播放与设置变化后防抖保存，退出前补一次；启动期曲库还没读完时只写设置，
+  不碰「上次曲目 / 进度」（否则会把它冲成空）
 WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多屏边界校验）
 ```
 
@@ -239,5 +266,11 @@ WindowStateStore → 只恢复尺寸与最大化，不恢复位置（缺少多�
 | `test/features/library/library_collections_test.dart` | 歌单、收藏、历史 |
 | `test/features/library/library_settings_test.dart` | 设置页、音乐目录管理、独占输出 |
 | `test/features/library/library_shell_test.dart` | 侧边栏、分区过渡动画 |
+| `test/features/library/quality_filter_test.dart` | 音质环形图与档位子页面（含「切分区回来仍有过渡」） |
+| `test/common/smooth_scroll_test.dart` / `smooth_scroll_wrap_test.dart` | 平滑滚轮的分帧与夹取、包装后 position 类型 |
+| `test/golden/` | 布局基准图（只在本地跑；CI 用 `--exclude-tags golden`） |
+
+上表只列主力文件，其余按功能域分散在 `test/features/**`、`test/common/**`，
+新增用例就近放，不要都堆进 `library_music_test.dart`。
 
 新增分区测试时从 `page_harness.dart` 取脚手架，不要各自复制 `pumpLibrary`。
