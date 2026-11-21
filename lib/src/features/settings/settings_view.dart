@@ -232,9 +232,13 @@ class SettingsView extends StatelessWidget {
       _ChoiceRow<String>(
         icon: Icons.text_fields,
         title: '歌词字体',
-        subtitle: '只影响歌词，界面字体不变',
+        // 许可协议要求「在软件中特别注明使用了 MiSans 字体」：选中时把出处写在
+        // 副标题里，因为字体与界面字体不同源，用户看得见
+        subtitle: lyricFont == miSansFamily
+            ? 'MiSans（小米）· MiSans 字体知识产权许可协议'
+            : '只影响歌词，界面字体不变',
         value: lyricFont,
-        choices: kLyricFontChoices,
+        choices: lyricFontChoices(),
         onChanged: onLyricFontChanged,
         choiceKey: const ValueKey<String>('settings-lyric-font'),
       ),

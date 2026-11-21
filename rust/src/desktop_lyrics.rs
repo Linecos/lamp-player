@@ -17,6 +17,7 @@
 //! 窗口跑在独立线程的消息循环里；歌词与开关放在全局状态中，改完 `PostMessage`
 //! 让窗口线程重绘。按钮点击通过 `listen` 注册的回调回流给 Dart。
 
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// 悬停工具栏上的按钮
@@ -322,6 +323,35 @@ pub fn set_font_size(size: i32) {
     }
 }
 
+/// 随安装包分发的字体在运行时的位置（相对 exe）。
+///
+/// 字体文件本身不进版本库（`scripts/setup-misans.ps1` 从官方下载到
+/// `assets/fonts/misans/`，构建时打进 bundle），所以这里按构建产物的布局找：
+/// `<exe>/data/flutter_assets/assets/fonts/misans/<name>`；有些打包方式会把
+/// assets 放到 exe 同级，两个位置都试一遍。找不到就返回 `None`，桌面歌词退回
+/// 系统字体——缺字体不该让窗口打不开。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn bundled_font(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    bundled_font_in(exe.parent()?, name)
+}
+
+/// 同 [`bundled_font`]，但基准目录可注入（单测用）
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn bundled_font_in(base: &Path, name: &str) -> Option<PathBuf> {
+    const DIRS: [&str; 2] = [
+        "data/flutter_assets/assets/fonts/misans",
+        "assets/fonts/misans",
+    ];
+    for dir in DIRS {
+        let path = base.join(dir).join(name);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 /// 字体族的候选顺序：用户选的 → 内置中文默认 → 西文兜底。
 ///
 /// 用户换机器、卸载字体后，选中的名字可能取不到——一路降级下去，绝不会落到
@@ -455,16 +485,18 @@ mod imp {
     };
     use windows::Win32::Graphics::GdiPlus::{
         CombineModeReplace, FillModeAlternate, FlushIntentionSync, FontStyleBold, GdipAddPathArc,
-        GdipClosePathFigure, GdipCreateBitmapFromScan0, GdipCreateFont,
+        GdipCloneFontFamily, GdipClosePathFigure, GdipCreateBitmapFromScan0, GdipCreateFont,
         GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreateSolidFill, GdipCreateStringFormat,
         GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath,
         GdipDeleteStringFormat, GdipDisposeImage, GdipDrawString, GdipFillPath, GdipFlush,
-        GdipGetImageGraphicsContext, GdipGraphicsClear, GdipMeasureString, GdipResetClip,
-        GdipSetClipRect, GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
+        GdipGetFamilyName, GdipGetFontCollectionFamilyCount, GdipGetFontCollectionFamilyList,
+        GdipGetImageGraphicsContext, GdipGraphicsClear, GdipMeasureString,
+        GdipNewPrivateFontCollection, GdipPrivateAddFontFile, GdipResetClip, GdipSetClipRect,
+        GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
         GdipSetStringFormatLineAlign, GdipSetStringFormatTrimming, GdipSetTextRenderingHint,
         GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap, GpBrush, GpFont,
-        GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat, RectF,
-        SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
+        GpFontCollection, GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat,
+        RectF, SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
         StringTrimmingEllipsisCharacter, TextRenderingHintAntiAliasGridFit, UnitPixel,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -489,6 +521,7 @@ mod imp {
     use super::{
         font_size_change, frame, snapshot, Button, Command, Frame, DEFAULT_FONT_SIZE, FONT_STEP,
     };
+    use std::sync::{Mutex, OnceLock};
 
     const WM_LYRIC: u32 = WM_APP + 1;
     const WM_APPLY: u32 = WM_APP + 2;
@@ -1591,6 +1624,113 @@ mod imp {
         lines
     }
 
+    /// 随安装包分发的字体（MiSans）建的私有字体集合。
+    ///
+    /// GDI+ 的 `GdipCreateFontFamilyFromName` 只查系统已装字体，随包字体必须用
+    /// `GdipPrivateAddFontFile` 加进私有集合。集合要活到进程结束（family 指针
+    /// 归它所有），所以缓存成 static；原始指针统一存 `usize` 以满足 `Send`。
+    struct PrivateFonts {
+        /// `*mut GpFontCollection`：**故意不删除**（family 指针归它所有），
+        /// 进程退出随它去。字段只用来占位保活，从不读取
+        _collection: usize,
+        /// 字体族名（小写去空格）→ `*mut GpFontFamily`（同样归集合所有，不能删）
+        families: Vec<(String, usize)>,
+    }
+
+    static PRIVATE_FONTS: OnceLock<Mutex<Option<PrivateFonts>>> = OnceLock::new();
+
+    /// 字体名归一化：GDI+ 报出来的可能是 `MiSans Regular` / `MiSans-Regular`，
+    /// 与设置里的 `MiSans` 只差后缀，所以比大小写与空格后再看前缀。
+    fn font_key(name: &str) -> String {
+        name.chars()
+            .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+
+    /// 惰性建立私有字体集合；真实文件不存在时返回 false（退回系统字体）
+    fn ensure_private_fonts() -> bool {
+        let Ok(mut guard) = PRIVATE_FONTS.get_or_init(|| Mutex::new(None)).lock() else {
+            return false;
+        };
+        if guard.is_none() {
+            *guard = build_private_fonts();
+        }
+        guard.is_some()
+    }
+
+    fn build_private_fonts() -> Option<PrivateFonts> {
+        let files: Vec<std::path::PathBuf> = ["MiSans-Regular.ttf", "MiSans-Demibold.ttf"]
+            .iter()
+            .filter_map(|name| super::bundled_font(name))
+            .collect();
+        if files.is_empty() {
+            return None;
+        }
+        unsafe {
+            let mut collection: *mut GpFontCollection = null_mut();
+            if GdipNewPrivateFontCollection(&mut collection).0 != 0 || collection.is_null() {
+                return None;
+            }
+            let mut added = 0;
+            for path in &files {
+                let wide_path = wide(&path.to_string_lossy());
+                if GdipPrivateAddFontFile(collection, PCWSTR(wide_path.as_ptr())).0 == 0 {
+                    added += 1;
+                }
+            }
+            if added == 0 {
+                return None;
+            }
+            let mut count: i32 = 0;
+            if GdipGetFontCollectionFamilyCount(collection, &mut count).0 != 0 || count <= 0 {
+                return None;
+            }
+            let mut list: Vec<*mut GpFontFamily> = vec![null_mut(); count as usize];
+            let mut found: i32 = 0;
+            if GdipGetFontCollectionFamilyList(collection, &mut list, &mut found).0 != 0 {
+                return None;
+            }
+            let mut families = Vec::new();
+            for family in list.into_iter().take(found.max(0) as usize) {
+                let mut buffer = [0u16; 32];
+                if GdipGetFamilyName(family, &mut buffer, 0).0 != 0 {
+                    continue;
+                }
+                let len = buffer.iter().position(|c| *c == 0).unwrap_or(0);
+                let name = String::from_utf16_lossy(&buffer[..len]);
+                families.push((font_key(&name), family as usize));
+            }
+            if families.is_empty() {
+                return None;
+            }
+            Some(PrivateFonts {
+                _collection: collection as usize,
+                families,
+            })
+        }
+    }
+
+    /// 从私有集合里取一个**可删除**的 family 副本。
+    ///
+    /// 集合里的 family 不能 `GdipDeleteFontFamily`（归集合所有），调用方拿到的
+    /// 句柄又都是「用完即删」，所以这里克隆一份，清理逻辑不用改。
+    fn private_family(name: &str) -> Option<*mut GpFontFamily> {
+        if !ensure_private_fonts() {
+            return None;
+        }
+        let guard = PRIVATE_FONTS.get()?.lock().ok()?;
+        let set = guard.as_ref()?;
+        let want = font_key(name);
+        let (_, raw) = set
+            .families
+            .iter()
+            .find(|(key, _)| key == &want || key.starts_with(&want))?;
+        let mut cloned: *mut GpFontFamily = null_mut();
+        unsafe { GdipCloneFontFamily(*raw as *mut GpFontFamily, &mut cloned) };
+        (!cloned.is_null()).then_some(cloned)
+    }
+
     /// 当前生效的歌词字体：按候选顺序取第一个系统装得到的。
     ///
     /// 每次绘制 / 测量都重取一次：`GpFontFamily` 是不带缓存的生命周期对象，
@@ -1598,7 +1738,16 @@ mod imp {
     /// 失效任何缓存。
     fn current_family() -> Option<*mut GpFontFamily> {
         let chosen = super::font_family();
-        super::font_candidates(&chosen).into_iter().find_map(family)
+        for name in super::font_candidates(&chosen) {
+            if let Some(handle) = family(name) {
+                return Some(handle);
+            }
+            // 系统里没装：试试随安装包分发的那份（MiSans）
+            if let Some(handle) = private_family(name) {
+                return Some(handle);
+            }
+        }
+        None
     }
 
     fn family(name: &str) -> Option<*mut GpFontFamily> {
@@ -2080,6 +2229,26 @@ mod font_tests {
     use super::{
         font_candidates, font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE,
     };
+
+    #[test]
+    fn bundled_font_lookup_tries_the_flutter_asset_layout() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("lamp-font-test-{}", std::process::id()));
+        let dir = base.join("data/flutter_assets/assets/fonts/misans");
+        fs::create_dir_all(&dir).expect("建目录");
+        fs::write(dir.join("MiSans-Regular.ttf"), b"not really a font").expect("写文件");
+
+        let found = super::bundled_font_in(&base, "MiSans-Regular.ttf");
+        assert_eq!(
+            found.as_deref(),
+            Some(dir.join("MiSans-Regular.ttf").as_path())
+        );
+        // 没下载过的字重、别的名字：都应该是 None，让调用方退回系统字体
+        assert_eq!(super::bundled_font_in(&base, "MiSans-Demibold.ttf"), None);
+        assert_eq!(super::bundled_font_in(&base, "whatever.ttf"), None);
+
+        fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn candidates_start_with_the_chosen_font_then_fall_back() {

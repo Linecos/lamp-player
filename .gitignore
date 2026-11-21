@@ -58,6 +58,11 @@ app.*.map.json
 # BASS 第三方二进制（闭源库，不入库，用 scripts/setup-bass.ps1 下载）
 /third_party/bass/
 
+# MiSans 字体（scripts/setup-misans.ps1 下载）：许可协议禁止单独再分发字体文件，
+# 所以只在构建时随安装包走，不进版本库；目录里只保留 .gitkeep 让资产目录存在。
+/assets/fonts/misans/*
+!/assets/fonts/misans/.gitkeep
+
 # 曲库运行时数据（现用 library.db；老版本的 *.lampdb 一并挡住）
 library.db
 library.db-wal

@@ -97,6 +97,9 @@ flutter:
   assets:
     - assets/tray_icon.ico
     - assets/app_icon.png
+    # MiSans 歌词字体（scripts/setup-misans.ps1 下载，gitignore）
+    # 声明目录而不是文件：没下载字体时构建不会失败，运行时按「字体不存在」降级
+    - assets/fonts/misans/
 
   # 项目自带的图标字体（唱片 / 四柱 / 笔刷这几个内置集没有的字形）。
   # 源 SVG 在 assets/icons，生成方式见 lib/src/common/lamp_icons.dart 顶部注释
