@@ -49,7 +49,7 @@ void main() {
     for (final String tech in AppAboutDialog.techStack) {
       expect(find.text(tech), findsOneWidget, reason: tech);
     }
-    for (final String label in <String>['GitHub', '更新日志', '开源许可', '问题反馈']) {
+    for (final String label in <String>['GitHub', '更新日志', '许可', '问题反馈']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
     expect(find.text('由 Linecos 开发'), findsOneWidget);
@@ -99,7 +99,7 @@ void main() {
     expect(find.byTooltip('已复制'), findsOneWidget, reason: '复制后图标变勾');
   });
 
-  testWidgets('四个链接各自交给 openUrl，且是正确地址', (WidgetTester tester) async {
+  testWidgets('三个链接各自交给 openUrl，「许可」打开第三方许可页', (WidgetTester tester) async {
     final List<String> opened = <String>[];
     tester.view.physicalSize = const Size(760, 1000);
     tester.view.devicePixelRatio = 1;
@@ -127,7 +127,7 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
 
-    for (final String label in <String>['GitHub', '更新日志', '开源许可', '问题反馈']) {
+    for (final String label in <String>['GitHub', '更新日志', '问题反馈']) {
       await tester.tap(find.text(label));
       await tester.pumpAndSettle();
     }
@@ -135,12 +135,17 @@ void main() {
     expect(opened, <String>[
       AppAboutDialog.githubUrl,
       AppAboutDialog.changelogUrl,
-      AppAboutDialog.licenseUrl,
       AppAboutDialog.issuesUrl,
     ]);
     for (final String url in opened) {
       expect(Uri.parse(url).isScheme('https'), isTrue, reason: url);
     }
+
+    // 「许可」不走浏览器：推 Flutter 自带的许可页（左依赖列表 + 右全文）
+    await tester.tap(find.text('许可'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LicensePage), findsOneWidget);
+    expect(opened.length, 3, reason: '许可页不打开外部链接');
   });
 
   test('弹窗按窗口比例缩放：基准以上 1.0，小窗按比例缩，0.75 兜底', () {
