@@ -52,6 +52,21 @@ class AppAboutDialog extends StatefulWidget {
       'https://github.com/Linecos/lamp-player/issues';
   static const String authorUrl = 'https://github.com/Linecos';
 
+  /// 「许可」页：Flutter 自带的第三方许可列表（左侧依赖清单、右侧全文），
+  /// 与各平台一致；项目自己的 LICENSE 仍走页脚那条 GitHub 链接。
+  static void showLicenses(BuildContext context) {
+    showLicensePage(
+      context: context,
+      applicationName: 'Lamp Player',
+      applicationVersion: 'v$appVersion',
+      applicationLegalese: '© 2026 Linecos',
+      applicationIcon: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Image.asset('assets/app_icon.png', width: 56, height: 56),
+      ),
+    );
+  }
+
   /// 三个技术栈（弹窗里横排展示）
   static const List<String> techStack = <String>['Flutter', 'Rust', 'BASS'];
 
@@ -233,10 +248,10 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
                       children: <Widget>[
                         Expanded(
                           child: _LinkButton(
-                            icon: Icons.balance,
-                            label: '开源许可',
+                            icon: Icons.shield_outlined,
+                            label: '许可',
                             scale: s,
-                            onTap: () => _open(AppAboutDialog.licenseUrl),
+                            onTap: () => AppAboutDialog.showLicenses(context),
                           ),
                         ),
                         SizedBox(width: 12 * s),
