@@ -27,7 +27,7 @@ Future<void> showAppAboutDialog(
 
 /// 技术栈的展示色：各自取品牌色，深浅主题下再按对比度压一压
 enum _Tech {
-  flutter('Flutter', Icons.flutter_dash, Color(0xFF54C5F8)),
+  flutter('Flutter', LampIcons.flutter, Color(0xFF54C5F8)),
   rust('Rust', Icons.code, Color(0xFFD97757)),
   bass('BASS', Icons.graphic_eq, Color(0xFFFFB300));
 

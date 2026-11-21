@@ -239,30 +239,29 @@ void main() {
     expect(find.text('还没有音乐目录'), findsOneWidget);
   });
 
-  testWidgets('「添加音乐目录」是带图标的标准按钮', (WidgetTester tester) async {
-    await pumpLibrary(tester, tracks: twoTracks());
+  testWidgets('添加目录的入口在「音乐目录」块右上角的加号', (WidgetTester tester) async {
+    int picks = 0;
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      directoryPicker: () async {
+        picks += 1;
+        return null;
+      },
+    );
     await openLibrarySettings(tester);
 
-    final Finder button = find.byKey(
-      const ValueKey<String>('library-add-folder'),
-    );
-    expect(button, findsOneWidget);
-    // 以前是手写的文字胶囊（约 29 高，低于 MD3 的 40 最小触摸高度），
-    // 现在是 FilledButton.tonal + 图标
+    final Finder add = find.byKey(const ValueKey<String>('library-add-folder'));
+    expect(add, findsOneWidget);
     expect(
-      tester.getSize(button).height,
+      tester.getSize(add).height,
       greaterThanOrEqualTo(40),
-      reason: '按钮高度要过 40',
+      reason: '点击热区要够 40',
     );
-    expect(
-      find.descendant(of: button, matching: find.byIcon(Icons.add)),
-      findsOneWidget,
-    );
-    expect(
-      tester.widget<FilledButton>(button).onPressed,
-      isNotNull,
-      reason: '没在扫描，按钮可点',
-    );
+
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    expect(picks, 1, reason: '点加号会打开目录选择器');
   });
 
   testWidgets('添加目录会写回存储并立即扫描', (WidgetTester tester) async {
