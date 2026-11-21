@@ -103,6 +103,24 @@ void main() {
     }
   });
 
+  test('弹层收进主题：12 圆角 + 高一级的底', () {
+    for (final ThemeData theme in <ThemeData>[
+      AppTheme.light(AppTheme.defaultSeed),
+      AppTheme.dark(AppTheme.defaultSeed),
+    ]) {
+      final ShapeBorder? shape = theme.popupMenuTheme.shape;
+      expect(shape, isA<RoundedRectangleBorder>(), reason: '别再用默认的 4px 方角');
+      expect(
+        (shape! as RoundedRectangleBorder).borderRadius,
+        BorderRadius.circular(12),
+      );
+      expect(
+        theme.popupMenuTheme.color,
+        theme.colorScheme.surfaceContainerHigh,
+      );
+    }
+  });
+
   test('中性 seed 的浅色底保持中性，不凭空染色', () {
     final ColorScheme scheme = AppTheme.schemeOf(
       const Color(0xFF808080),

@@ -40,6 +40,12 @@ class PlayerBar extends StatelessWidget {
   /// 卡片上方留的一点呼吸空间。
   static const double cardTopPadding = 8;
 
+  /// 进度条左侧时间标签的定宽：够放 `59:59`（12px 等宽数字）。
+  static const double timeLabelWidth = 44;
+
+  /// 超过一小时那一档：够放 `1:23:45`。
+  static const double timeLabelHourWidth = 56;
+
   /// 卡片底部外边距：岛贴窗口底，留一点呼吸空间。
   static const double cardBottomMargin = 12;
 
@@ -288,7 +294,17 @@ class PlayerBar extends StatelessWidget {
         return Row(
           children: <Widget>[
             if (showTime) ...<Widget>[
-              Text(formatDuration(shown), style: timeStyle),
+              // 定宽右对齐：秒数进位（0:09→0:10、59:59→1:00:00）会把右边的
+              // 滑块推走，整条进度条跟着抖一下。宽度按这局的时长定死，播放中不变
+              SizedBox(
+                width: total >= 3600 ? timeLabelHourWidth : timeLabelWidth,
+                child: Text(
+                  formatDuration(shown),
+                  style: timeStyle,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                ),
+              ),
               const SizedBox(width: 8),
             ],
             Expanded(

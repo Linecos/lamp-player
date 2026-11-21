@@ -55,6 +55,10 @@ dependencies:
   # 用 Stopwatch / DateTime.now 的话 tester.pump(6s) 推不动动画
   clock: ^1.1.2
   charset: ^2.0.1
+  # 中文本地化：内置文案（输入框右键菜单、日期选择器等）走中文，
+  # 同时把 MaterialLocalizations.scriptCategory 切到 dense，字阶基线改表意基线
+  flutter_localizations:
+    sdk: flutter
 
 # 本地打过补丁的 tray_manager：0.5.2 弹出托盘菜单前没把自己设为前台窗口，
 # 导致点菜单以外的地方关不掉菜单。补丁见 third_party/tray_manager/windows/

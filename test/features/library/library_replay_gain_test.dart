@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/session_store.dart';
+import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 
 import '../../support/fake_library.dart';
@@ -29,7 +30,61 @@ Future<void> _rightClickRow(WidgetTester tester, String title) async {
   await tester.pumpAndSettle();
 }
 
+/// 起一次计算，卡在第一首解码中途，量进度框的宽度。
+/// 进度框里那行「第几首 / 共几首：歌名」原先没有定宽：内容取自身宽度，
+/// 弹出时能一路顶到窗口宽度，换个窗口尺寸又是另一个样子。
+Future<double> _progressDialogWidth(WidgetTester tester, String title) async {
+  final Completer<void> gate = Completer<void>();
+  final FakePlaybackService playback = FakePlaybackService(
+    isAvailable: true,
+    durationSecs: 180,
+  )..analyzeGate = gate;
+  await pumpLibrary(
+    tester,
+    tracks: <Track>[sampleTrack(title: title)],
+    playback: playback,
+  );
+
+  await tester.tap(
+    find.byKey(const ValueKey<String>('library-selection-toggle')),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(title));
+  await tester.pumpAndSettle();
+  await _rightClickRow(tester, title);
+  await tester.tap(find.text('计算 ReplayGain…'));
+  await tester.pumpAndSettle();
+
+  await tester.tap(find.text('开始计算'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+
+  final Finder dialog = find.byType(AlertDialog);
+  expect(dialog, findsOneWidget, reason: '等解码时进度框要开着');
+  // 量可见的弹窗表面：AlertDialog 外面那层是 inset 盒，永远是整窗宽
+  final Finder surface = find
+      .descendant(of: dialog, matching: find.byType(Material))
+      .first;
+  final double width = tester.getSize(surface).width;
+
+  await tester.pumpWidget(const SizedBox());
+  return width;
+}
+
 void main() {
+  testWidgets('进度框是定宽的，不随歌名长短或窗口宽度变形', (WidgetTester tester) async {
+    final double shortName = await _progressDialogWidth(tester, '雨');
+    final double longName = await _progressDialogWidth(
+      tester,
+      '这是一首名字特别特别长的歌曲，长到足以把整个弹窗横向撑开',
+    );
+
+    // 内容定宽 420 + AlertDialog 自己的 24×2 内边距
+    final double expected = replayGainDialogWidth + 48;
+    expect(shortName, closeTo(expected, 1), reason: '不定宽时会被顶到窗口宽度');
+    expect(longName, closeTo(expected, 1), reason: '长标题只该省略号，不该撑开弹窗');
+  });
+
   testWidgets('多选「计算 ReplayGain」：确认后逐首写入并重扫受影响目录', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,

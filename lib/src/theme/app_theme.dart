@@ -136,6 +136,30 @@ abstract final class AppTheme {
     double contrastLevel = 0,
   }) => _build(Brightness.dark, seed, variant, contrastLevel);
 
+  /// 清掉字阶里的字距。
+  ///
+  /// Material 的两套几何（`englishLike2021` 与中文用的 `dense2021`）给 body /
+  /// label 都留了 0.4~0.5 的 `letterSpacing` —— 那是按拉丁字母设计的，汉字每
+  /// 个字都被多推半像素，长段文字（设置副标题、歌词空态）看着发松。界面以
+  /// 中文为主，这里统一归零。
+  static TextTheme _flattenTracking(TextTheme base) => base.copyWith(
+    displayLarge: base.displayLarge?.copyWith(letterSpacing: 0),
+    displayMedium: base.displayMedium?.copyWith(letterSpacing: 0),
+    displaySmall: base.displaySmall?.copyWith(letterSpacing: 0),
+    headlineLarge: base.headlineLarge?.copyWith(letterSpacing: 0),
+    headlineMedium: base.headlineMedium?.copyWith(letterSpacing: 0),
+    headlineSmall: base.headlineSmall?.copyWith(letterSpacing: 0),
+    titleLarge: base.titleLarge?.copyWith(letterSpacing: 0),
+    titleMedium: base.titleMedium?.copyWith(letterSpacing: 0),
+    titleSmall: base.titleSmall?.copyWith(letterSpacing: 0),
+    labelLarge: base.labelLarge?.copyWith(letterSpacing: 0),
+    labelMedium: base.labelMedium?.copyWith(letterSpacing: 0),
+    labelSmall: base.labelSmall?.copyWith(letterSpacing: 0),
+    bodyLarge: base.bodyLarge?.copyWith(letterSpacing: 0),
+    bodyMedium: base.bodyMedium?.copyWith(letterSpacing: 0),
+    bodySmall: base.bodySmall?.copyWith(letterSpacing: 0),
+  );
+
   static ThemeData _build(
     Brightness brightness,
     Color seed,
@@ -149,7 +173,7 @@ abstract final class AppTheme {
       contrastLevel: contrastLevel,
     );
 
-    return ThemeData(
+    final ThemeData theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       fontFamily: fontFamily,
@@ -160,6 +184,17 @@ abstract final class AppTheme {
       // 都是画在 Material 上的墨迹）可以画到 28px 圆角外面，露出直角方块。
       // 统一裁到弹窗形状，避免任何墨迹越界。
       dialogTheme: const DialogThemeData(clipBehavior: Clip.antiAlias),
+    );
+
+    return theme.copyWith(
+      textTheme: _flattenTracking(theme.textTheme),
+      primaryTextTheme: _flattenTracking(theme.primaryTextTheme),
+      // 默认弹层是 4px 圆角 + surfaceContainer：它是全应用唯一一个“几乎方角”
+      // 的浮层，偏偏又是最常弹的曲目右键 / 排序菜单，周围全是 18~32 的圆角。
+      popupMenuTheme: PopupMenuThemeData(
+        color: scheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 }

@@ -677,6 +677,41 @@ void main() {
       );
     });
   });
+
+  group('进度条时间标签', () {
+    testWidgets('时间串变长不推滑块：9:59 → 10:00 也不动', (WidgetTester tester) async {
+      // 长度真的会变的那两处：`9:59 → 10:00`（4 字变 5 字）、
+      // `59:59 → 1:00:00`（5 字变 7 字）。不定宽的话右边滑块会被推走
+      await _pumpBar(tester, position: 599, duration: 700);
+      final Rect shortLabel = tester.getRect(find.byKey(_progressKey));
+
+      await _pumpBar(tester, position: 600, duration: 700);
+      final Rect longLabel = tester.getRect(find.byKey(_progressKey));
+
+      expect(
+        shortLabel.left,
+        closeTo(longLabel.left, 0.01),
+        reason: '时间串从 4 字变 5 字，滑块不能被推走',
+      );
+    });
+
+    testWidgets('超过一小时的曲目用更宽那一档，59:59 → 1:00:00 也不抖', (
+      WidgetTester tester,
+    ) async {
+      await _pumpBar(tester, position: 3599, duration: 4000);
+      final Rect before = tester.getRect(find.byKey(_progressKey));
+
+      await _pumpBar(tester, position: 3600, duration: 4000);
+      final Rect after = tester.getRect(find.byKey(_progressKey));
+
+      expect(before.left, closeTo(after.left, 0.01), reason: '59:59 → 1:00:00');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '`1:00:00` 那一档也得塞得进定宽，不能溢出',
+      );
+    });
+  });
 }
 
 const ValueKey<String> _spectrumKey = ValueKey<String>('player-bar-spectrum');
