@@ -1121,4 +1121,41 @@ void main() {
       ),
     );
   });
+
+  testWidgets('歌词字体行可切换，选项来自内置中文字体表', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<String> picks = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFont: 'SimSun',
+            onLyricFontChanged: picks.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(
+      const ValueKey<String>('settings-lyric-font'),
+    );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+
+    // 当前值显示成中文名，不是字体族名
+    expect(find.text('宋体'), findsWidgets);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('楷体').last);
+    await tester.pumpAndSettle();
+
+    expect(picks, <String>['KaiTi'], reason: '回报的是字体族名，不是中文名');
+  });
 }

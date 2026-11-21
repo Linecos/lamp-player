@@ -551,8 +551,27 @@ extension _OutputSection on _LibraryPageState {
 
   Future<void> _pushDesktopLyricSettings() async {
     await desktop_lyrics.desktopLyricsSetFontSize(size: _desktopLyricFontSize);
+    await desktop_lyrics.desktopLyricsSetFontFamily(family: _lyricFontFamily);
     await desktop_lyrics.desktopLyricsSetLocked(locked: _desktopLyricLocked);
     await desktop_lyrics.desktopLyricsSetPlaying(playing: _isPlaying);
+  }
+
+  /// 换歌词字体：两处歌词共用一份设置——主界面歌词页在下一帧按新字体重建，
+  /// 桌面歌词窗口通过 Rust 的 GDI+ 侧重取字体族（换字体后折行会变，那边会
+  /// 重新量窗口高度）。
+  Future<void> _setLyricFontFamily(String family) async {
+    final String next = family.trim();
+    if (next == _lyricFontFamily) {
+      return;
+    }
+    _update(() => _lyricFontFamily = next);
+    try {
+      await desktop_lyrics.desktopLyricsSetFontFamily(family: next);
+    } catch (error) {
+      // 桌面歌词没开 / 窗口没建时这里是空操作，不该把设置项卡住
+      debugPrint('同步歌词字体到桌面歌词失败：$error');
+    }
+    _saveSessionNow();
   }
 
   /// 播放状态变化时同步给窗口：工具栏的播放 / 暂停字形跟着变

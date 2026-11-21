@@ -29,6 +29,7 @@ class LyricsView extends StatefulWidget {
     this.revealAlignment = 0.5,
     this.alignment = LyricAlignment.center,
     this.showTranslation = true,
+    this.fontFamily,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -59,6 +60,12 @@ class LyricsView extends StatefulWidget {
   /// 切换时不是直接摘掉，而是让每行的译文块按弹簧折叠 / 展开，整列歌词跟着
   /// 一起弹——直接换掉的话下面的行会「啪」地跳一下。
   final bool showTranslation;
+
+  /// 歌词字体族（系统字体名）；null 表示跟随主题字体。
+  ///
+  /// 只作用于歌词正文，不动界面其余部分——想换的往往就是「歌词难看」，
+  /// 不是整个应用的字体。
+  final String? fontFamily;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -953,6 +960,19 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     });
   }
 
+  /// 歌词用的 TextTheme：把「歌词字体」设置套在主题上。
+  ///
+  /// 走 `TextTheme.apply` 而不是在每个 `TextStyle.copyWith` 里塞 family：
+  /// 正文、逐字染色层、译文三处都从同一个 `textTheme` 取样式，套一次全对上，
+  /// 漏改一处就会出现「正文换了、译文还是雅黑」。
+  TextTheme _lyricTheme(TextTheme base) {
+    final String? family = widget.fontFamily;
+    if (family == null || family.isEmpty) {
+      return base;
+    }
+    return base.apply(fontFamily: family);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -1047,7 +1067,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                           jump: _jump,
                           line: widget.lines[index],
                           position: _smooth,
-                          textTheme: theme.textTheme,
+                          textTheme: _lyricTheme(theme.textTheme),
                           alignment: widget.alignment,
                           translation: _translation,
                           userScrolling: _userScrolling,

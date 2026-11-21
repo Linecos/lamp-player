@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.21（2026-11-20）**
+> **当前版本：v0.22（2026-11-21）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.22 变更：**新增** `desktop_lyrics_set_font_family` / `desktop_lyrics_font_family`
+> （桌面歌词字体族，来自设置里的「歌词字体」）。同时补上此前一直没在本文登记的
+> §15 `api::desktop_lyrics`——该模块早已存在，只是契约里缺一节。纯新增，不改现有语义。
 >
 > v0.21 变更（**破坏性，Dart 侧已同步**）：
 >
@@ -608,7 +612,46 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   缓存写失败不报错（下次扫描会重新提取），音频文件本身写失败才报错。
 - 自定义封面（艺术家 / 专辑 / 歌单）不走这里，走 `api::cover_override`。
 
-## 15. 生成代码规则
+## 15. 桌面歌词 `api::desktop_lyrics`
+
+一个独立的置顶无边框窗口，用 GDI+ 直接画字（不经过 Flutter 引擎），因此这里的
+接口都是「推状态 + 拉状态」，没有 widget 可以复用。非 Windows 平台上
+`desktop_lyrics_supported()` 返回 `false`，其余调用报错或空操作。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `desktop_lyrics_supported() -> bool` | `bool desktopLyricsSupported()` | 是 | **已实现** |
+| `desktop_lyrics_show() -> Result<()>` | `Future<void> desktopLyricsShow()` | 否 | **已实现** |
+| `desktop_lyrics_hide() -> Result<()>` | `Future<void> desktopLyricsHide()` | 否 | **已实现** |
+| `desktop_lyrics_set_line(line: String) -> Result<()>` | `Future<void> desktopLyricsSetLine({required String line})` | 否 | **已实现** |
+| `desktop_lyrics_set_progress(ratio: f32)` | `void desktopLyricsSetProgress({required double ratio})` | 是 | **已实现** |
+| `desktop_lyrics_set_playing(playing: bool)` | `Future<void> desktopLyricsSetPlaying({required bool playing})` | 否 | **已实现** |
+| `desktop_lyrics_set_font_size(size: i32)` | `Future<void> desktopLyricsSetFontSize({required int size})` | 否 | **已实现** |
+| `desktop_lyrics_font_size() -> i32` | `int desktopLyricsFontSize()` | 是 | **已实现** |
+| `desktop_lyrics_set_font_family(family: String)` | `Future<void> desktopLyricsSetFontFamily({required String family})` | 否 | **已实现**（v0.22） |
+| `desktop_lyrics_font_family() -> String` | `String desktopLyricsFontFamily()` | 是 | **已实现**（v0.22） |
+| `desktop_lyrics_set_locked(locked: bool)` | `Future<void> desktopLyricsSetLocked({required bool locked})` | 否 | **已实现** |
+| `desktop_lyrics_locked() -> bool` | `bool desktopLyricsLocked()` | 是 | **已实现** |
+| `desktop_lyrics_set_position(x: i32, y: i32)` | `void desktopLyricsSetPosition({required int x, required int y})` | 是 | **已实现** |
+| `desktop_lyrics_position() -> Option<DesktopLyricPosition>` | `DesktopLyricPosition? desktopLyricsPosition()` | 是 | **已实现** |
+| `desktop_lyrics_commands() -> Stream<DesktopLyricsCommand>` | `Stream<DesktopLyricsCommand> desktopLyricsCommands()` | — | **已实现** |
+
+语义补充：
+
+- **窗口上的按钮回流用事件流**：`DesktopLyricsCommand` 里的播放 / 切歌 / 关闭 /
+  锁定 / 字号变化都由窗口推给 Dart。带值的（锁定、字号）命令不带字段，Dart 收到后
+  用对应的 getter 读最新值再写会话存档——两边各自存一份值迟早会对不上。
+- **字号**范围 16–56（96 DPI 逻辑像素），Rust 侧夹取；默认 27。窗口工具栏的
+  A- / A+ / 「恢复默认」都直接改 Rust 侧状态，再发 `FontSizeChanged` 通知 Dart。
+- **字体族**只接受**系统已安装**的字体名（GDI+ 的 `GdipCreateFontFamilyFromName`
+  拿不到未安装字体，本应用也不打包字体）。空串 = 内置默认链：`Microsoft YaHei UI`
+  → `Segoe UI`；用户选的字体在目标机器上不存在时按同一链降级，不会出现空白窗口。
+- **换字号 / 换字体都要重排窗口**：折行数按当前字体测量，长句可能从两行变三行，
+  窗口高度随之变化；因此这两个 setter 走 `request_apply()` 而不是单纯重绘。
+- 位置是屏幕坐标、由 Rust 夹到当前显示器工作区内；Dart 只负责记到会话存档里，
+  下次启动原样推回去。
+
+## 16. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。
