@@ -354,9 +354,9 @@ pub fn bundled_font_in(base: &Path, name: &str) -> Option<PathBuf> {
 
 /// 这个字体族名是不是随包 MiSans 的别名（`MiSans`、`MiSans Light`…）。
 ///
-/// Flutter 侧为了能逐字重选，注册时给每个字重起了别名；字体文件里它们的家族名
-/// 其实都叫 `MiSans`，GDI+ 只能按真实家族名建字体，所以设置里的别名要先归一到
-/// 这个名字再往下走。
+/// 随包现在只带常规一款，设置里的值就是 `MiSans`；但早先随包发过四个字重，
+/// 存档里可能还留着 `MiSans Light` 这类带字重后缀的旧名。GDI+ 只能按字体文件
+/// 里的真实家族名建字体，所以带后缀的旧名先归一到 `MiSans` 再往下走。
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn is_bundled_family(name: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
@@ -366,9 +366,9 @@ pub fn is_bundled_family(name: &str) -> bool {
 
 /// 这款字体在桌面歌词窗口里该用常规字形还是粗体字形。
 ///
-/// 窗口这边只有「家族 + 是否粗体」两档：随包 MiSans 的四个字重在 GDI+ 里合并
-/// 成一族，选细体 / 常规就用常规字形，选中黑 / 粗体才用粗体——至少能分出两档，
-/// 而不是四款看起来一模一样。系统字体维持原来的粗体。
+/// 窗口这边只有「家族 + 是否粗体」两档。随包 MiSans 用常规字形（文件就是这个
+/// 字重）；系统字体维持原来的粗体。名字里带 light / regular / thin 的（包括旧版
+/// 随包字重别名）也按常规处理。
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn prefers_regular_weight(family: &str) -> bool {
     let name = family.trim().to_ascii_lowercase();
@@ -1438,9 +1438,9 @@ mod imp {
     /// 按字体族建一个字体对象。
     ///
     /// 先按用户选的字重偏好转（见 `prefers_regular_weight`），取不到再退另一档：
-    /// 随包 MiSans 的 family 来自私有字体集合，四个字重文件家族名相同，GDI+ 是否
-    /// 把它们并成「一族的不同字重」取决于实现——万一取不到想要的样式，原来那句
-    /// `GdipCreateFont` 失败就直接不画，整个窗口会变成空白。
+    /// 随包 MiSans 的 family 来自私有字体集合，文件里只有一个字重，GDI+ 未必按
+    /// 请求的样式建得出来——万一取不到想要的样式，原来那句 `GdipCreateFont` 失败
+    /// 就直接不画，整个窗口会变成空白。
     fn create_font(family: *const GpFontFamily, size: f32, prefer_regular: bool) -> *mut GpFont {
         let order = if prefer_regular {
             [FontStyleRegular.0, FontStyleBold.0]
@@ -1722,16 +1722,11 @@ mod imp {
 
     fn build_private_fonts() -> Option<PrivateFonts> {
         // 与 lib/src/common/text/bundled_fonts.dart 的 kMiSansFaces 一一对应：
-        // 这些文件的家族名都是 MiSans，加进集合后合并成一族的不同字重
-        let files: Vec<std::path::PathBuf> = [
-            "MiSans-Light.ttf",
-            "MiSans-Regular.ttf",
-            "MiSans-Medium.ttf",
-            "MiSans-Bold.ttf",
-        ]
-        .iter()
-        .filter_map(|name| super::bundled_font(name))
-        .collect();
+        // 随包只带常规一款，字体文件里的家族名是 MiSans
+        let files: Vec<std::path::PathBuf> = ["MiSans-Regular.ttf"]
+            .iter()
+            .filter_map(|name| super::bundled_font(name))
+            .collect();
         if files.is_empty() {
             return None;
         }

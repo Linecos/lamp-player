@@ -644,11 +644,10 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 - **字号**范围 16–56（96 DPI 逻辑像素），Rust 侧夹取；默认 27。窗口工具栏的
   A- / A+ / 「恢复默认」都直接改 Rust 侧状态，再发 `FontSizeChanged` 通知 Dart。
 - **字体族**接受两种值：① **系统已安装**的字体名（GDI+ 的
-  `GdipCreateFontFamilyFromName` 拿不到未安装字体）；② 随安装包分发的 MiSans 别名
-  （`MiSans` / `MiSans Light` / `MiSans Regular` / `MiSans Medium` / `MiSans Bold`）。
-  后者由私有字体集合提供，这几个别名在字体文件里共用家族名 `MiSans`，Rust 侧会
-  归一成这个名字再建字体。GDI+ 这边只有「常规 / 粗体」两档：`Light` / `Regular`
-  用常规字形，`Medium` / `Bold` 用粗体字形（主界面歌词按别名各自渲染，四档都在）。
+  `GdipCreateFontFamilyFromName` 拿不到未安装字体）；② 随安装包分发的 MiSans
+  （`MiSans`）。后者由私有字体集合提供，字体文件里的家族名就是 `MiSans`；早先
+  随包发过四个字重时的旧别名（`MiSans Light` 等）也会归一成这个名字。GDI+ 这边
+  只有「常规 / 粗体」两档：随包 MiSans 用常规字形，系统字体用粗体字形。
   空串 = 内置默认链：`Microsoft YaHei UI` → `Segoe UI`；取不到时按同一链降级，
   不会出现空白窗口。
 - **换字号 / 换字体都要重排窗口**：折行数按当前字体测量，长句可能从两行变三行，

@@ -6,8 +6,8 @@
 # MiSans-LICENSE.pdf 是协议要求「随字体副本保留」的许可协议，一并下载。
 #
 # 官方包是 227 MB 的全字重合集（10 个静态字重 + 1 个可变字体），这里只取歌词
-# 用得上的四个：Light / Regular / Medium / Bold。每个字重约 8 MB，全带会让安装包
-# 多出 80 MB。协议不允许改编字体，所以不做子集化；增减字重时同步改
+# 用得上的常规一款（约 8 MB）。每多带一个字重安装包就多 8 MB，而粗细在下拉里
+# 已能靠系统字体换。协议不允许改编字体，所以不做子集化；增减字重时同步改
 # lib/src/common/text/bundled_fonts.dart 的 kMiSansFaces 与本表。
 
 [CmdletBinding()]
@@ -27,10 +27,7 @@ $licenseSha256 = '4A93A27CD2BD81B3B5ECFD0A853144A876FA26938A93A68443C67D74172FCB
 
 # 条目名（zip 内路径）与落地文件名
 $fonts = @(
-    @{ Entry = 'MiSans/ttf/MiSans-Light.ttf'; Name = 'MiSans-Light.ttf' }
     @{ Entry = 'MiSans/ttf/MiSans-Regular.ttf'; Name = 'MiSans-Regular.ttf' }
-    @{ Entry = 'MiSans/ttf/MiSans-Medium.ttf'; Name = 'MiSans-Medium.ttf' }
-    @{ Entry = 'MiSans/ttf/MiSans-Bold.ttf'; Name = 'MiSans-Bold.ttf' }
 )
 
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
