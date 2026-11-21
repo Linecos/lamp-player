@@ -1120,6 +1120,64 @@ void main() {
     expect(maxDriftBack, lessThan(1), reason: '展开方向同样一帧都不动');
   });
 
+  testWidgets('换行瞬间连点译文，当前行不会被一点点顶上去', (WidgetTester tester) async {
+    // 切换译文的滚动补偿按「当前行上面那些译文块的自然高度」算。可视口外的行
+    // 已经被 ListView 回收、量不到高度，补偿就少一大截，当前行被往上顶一点；
+    // 换行那一帧再连点几次，每次都少补一行，画面就是歌词慢慢往上爬。
+    const int lineMs = 10000;
+    final ValueNotifier<double> position = ValueNotifier<double>(102.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 30; i += 1)
+        _line(
+          start: i * lineMs,
+          end: (i + 1) * lineMs,
+          text: '第$i行',
+          translation: 'line $i',
+        ),
+    ];
+
+    bool show = true;
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: show,
+    );
+    await tester.pumpAndSettle();
+
+    // 每次换行的那一帧连着点三次，然后等弹簧和译文都走完
+    int active = 10;
+    for (int round = 0; round < 4; round += 1) {
+      active += 1;
+      position.value = active * lineMs / 1000 + 0.2;
+      await tester.pump();
+      for (int click = 0; click < 3; click += 1) {
+        show = !show;
+        await _pump(
+          tester,
+          lines: lines,
+          position: position,
+          playing: playing,
+          showTranslation: show,
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      for (int i = 0; i < 70; i += 1) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(
+        tester.getRect(find.text('第$active行')).center.dy,
+        closeTo(350, 1),
+        reason: '第 $round 轮：当前行被顶离了对齐线，补偿少算了视口外那几行',
+      );
+    }
+  });
+
   testWidgets('点击歌词行按该行时间跳转', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);

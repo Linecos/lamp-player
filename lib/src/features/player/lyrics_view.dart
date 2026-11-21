@@ -265,6 +265,14 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   double _translationStart = 1;
   double _translationSpan = 0;
 
+  /// 切换期间「当前行的对齐偏移 − 实际滚动偏移」这个差值要恒定。
+  ///
+  /// 上面那条公式只数得进构建范围的行：视口外被 ListView 回收的行没有
+  /// RenderObject，量不到译文高度，模型就少算一大截（一行译文约 30px）。
+  /// 少算多少，当前行就被顶高多少，连点几下会一路往上爬。所以动画期间每帧
+  /// 布局完都用 [_revealOffset] 量一次真实位置，把这个差值钉回去。
+  double _translationGap = double.nan;
+
   /// 插值后的进度：每帧更新，只被当前行监听
   final ValueNotifier<double> _smooth = ValueNotifier<double>(0);
 
@@ -464,6 +472,19 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
         : double.nan;
     _translationStart = _translation.value;
     _translationSpan = _translationHeightAbove();
+    _translationGap = _revealGap();
+  }
+
+  /// 当前行「对齐偏移 − 滚动偏移」的差值；量不到当前行时为 NaN
+  double _revealGap() {
+    if (!_scroll.hasClients || _active < 0) {
+      return double.nan;
+    }
+    final double reveal = _revealOffset(_active);
+    if (reveal.isNaN) {
+      return double.nan;
+    }
+    return reveal - _scroll.position.pixels;
   }
 
   /// 当前行上面那些译文块的自然高度之和（不受折叠进度影响）
@@ -491,7 +512,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _followTranslation();
+        // 动画已经停了，这里要强对一次：预估漏算的行只能在布局之后量出来
+        _calibrateTranslation(force: true);
         // 译文折叠会改行高，行区间跟着变
         _refreshRowOpacity();
       }
@@ -520,6 +542,56 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if ((clamped - position.pixels).abs() > 0.5) {
       position.jumpTo(clamped);
     }
+    _scheduleTranslationCalibration();
+  }
+
+  /// 布局之后按真实位置对一次补偿（同一帧里只排一次）。
+  ///
+  /// 预估只数得到进构建范围的行，视口外的行漏算，误差会一直攒着往上顶。
+  /// 这里量的是「当前行本来该在的对齐偏移」与「实际滚动偏移」之差：动画开始时
+  /// 记下它，之后每帧把这个差值钉成常数，当前行就不会挪位。
+  void _scheduleTranslationCalibration() {
+    if (_translationCalibrating || !mounted) {
+      return;
+    }
+    _translationCalibrating = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _translationCalibrating = false;
+      _calibrateTranslation();
+    });
+  }
+
+  bool _translationCalibrating = false;
+
+  void _calibrateTranslation({bool force = false}) {
+    if (_userScrolling || (force != true && !_translation.isAnimating)) {
+      return;
+    }
+    if (_translationGap.isNaN || !_scroll.hasClients) {
+      return;
+    }
+    final double reveal = _revealOffset(_active);
+    if (reveal.isNaN) {
+      return;
+    }
+    final ScrollPosition position = _scroll.position;
+    final double delta = _translation.value - _translationStart;
+    final double target = reveal - _translationGap;
+    final double clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    // 量出来的偏差就是模型漏算的那一截（只差在「上面那些行」的总高度上），
+    // 顺手折算回每单位进度的补偿量，后面几帧的预估也就不再偏
+    final double correction = clamped - position.pixels;
+    if (correction.abs() > 0.5) {
+      position.jumpTo(clamped);
+      if ((target - clamped).abs() < 0.5 && delta.abs() > 0.05) {
+        _translationSpan = math.max(0, _translationSpan + correction / delta);
+      }
+    }
+    // 预估的起点跟着实际位置挪，免得下一帧又按旧锚点跳回去
+    _translationAnchor = position.pixels - _translationSpan * delta;
   }
 
   List<GlobalKey> _buildKeys() =>
