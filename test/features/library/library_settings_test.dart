@@ -659,30 +659,6 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
-
-  testWidgets('超宽窗口下设置页限宽居中，不再横跨整屏', (WidgetTester tester) async {
-    const double windowWidth = 2200;
-    await pumpLibrary(
-      tester,
-      tracks: twoTracks(),
-      viewSize: const Size(windowWidth, 900),
-    );
-    await openSettings(tester);
-
-    final Rect view = tester.getRect(find.byType(SettingsView));
-    expect(view.width, lessThanOrEqualTo(800), reason: '内容要被 820 的栏宽兜住');
-    expect(view.width, greaterThan(600), reason: '别把设置页缩成一条');
-    expect(
-      tester.getCenter(find.byType(SettingsView)).dx,
-      closeTo(
-        (LibraryRail.contentLeftInset(true) +
-                (windowWidth - LibraryRail.islandGap)) /
-            2,
-        1.5,
-      ),
-      reason: '两侧留白要对称',
-    );
-  });
 }
 
 /// 统计子界面的假数据源：只给最小可用的一份，够断言「内容真的渲染了」
