@@ -1,8 +1,11 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.22（2026-11-21）**
+> **当前版本：v0.23（2026-11-21）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.23 变更：**新增** `api::fonts::installed_font_families`（本机字体族枚举，
+> 供设置页「选择字体」弹窗）。纯新增，见 §16。
 >
 > v0.22 变更：**新增** `desktop_lyrics_set_font_family` / `desktop_lyrics_font_family`
 > （桌面歌词字体族，来自设置里的「歌词字体」）。同时补上此前一直没在本文登记的
@@ -655,7 +658,25 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 - 位置是屏幕坐标、由 Rust 夹到当前显示器工作区内；Dart 只负责记到会话存档里，
   下次启动原样推回去。
 
-## 16. 生成代码规则
+## 16. 字体枚举 `api::fonts`
+
+设置页「选择字体」弹窗用，只读、无状态。
+
+| Rust 签名 | Dart 签名 | sync | 状态 |
+|---|---|---|---|
+| `installed_font_families() -> Vec<String>` | `Future<List<String>> installedFontFamilies()` | 否 | **已实现** |
+
+语义补充：
+
+- 扫 `%WINDIR%\Fonts` 与 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`（双击安装的用户字体），
+  读字体文件 name 表取**传统族名**（name_id 1）。`Light / Semibold` 这类字重在 Windows
+  上是独立族名，Flutter 与 GDI+ 都按它解析；用排版族名（name_id 16）会把它们合并掉，
+  存档里已有的 `Microsoft YaHei Light` 反而找不到。没有 1 时才退 16。
+- `.ttc` 逐个 face 解析（最多 32 个），小写名去重、按名字排序后返回。
+- 第一次调用扫全部字体文件（本机约 0.6 秒），结果缓存在 Rust 侧；平台无关，非 Windows
+  扫不到目录时返回空表，Dart 侧会退回内置的中文字体表兜底。
+
+## 17. 生成代码规则
 
 - `lib/src/rust/**`、`rust/src/frb_generated.rs` 全部由 codegen 产出，**禁止手改**。
 - 提交前用 `git status` 确认生成文件与 Rust 源码是同一批改动。

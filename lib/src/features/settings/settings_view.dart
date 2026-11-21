@@ -14,6 +14,7 @@ import '../player/shortcuts.dart';
 
 import 'theme_controller.dart';
 import 'about_dialog.dart';
+import 'font_picker_dialog.dart';
 import 'widgets/settings_rows.dart';
 
 /// 设置页骨架。
@@ -234,22 +235,6 @@ class SettingsView extends StatelessWidget {
         onChanged: onOutputDeviceChanged,
         choiceKey: const ValueKey<String>('settings-output-device'),
       ),
-      _ChoiceRow<String>(
-        icon: Icons.text_fields,
-        title: '歌词字体',
-        // 许可协议要求「在软件中特别注明使用了 MiSans 字体」：选中时把出处写在
-        // 副标题里，因为字体与界面字体不同源，用户看得见
-        subtitle: isBundledMiSansFamily(lyricFont)
-            ? 'MiSans（小米）· MiSans 字体知识产权许可协议'
-            : '只影响歌词，界面字体不变',
-        value: lyricFont,
-        choices: lyricFontChoices(),
-        onChanged: onLyricFontChanged,
-        choiceKey: const ValueKey<String>('settings-lyric-font'),
-        // 每个选项用它代表的那款字体画：选之前就能看出粗细差别
-        itemStyle: (String family) =>
-            TextStyle(fontFamily: lyricFontFamilyOrNull(family), fontSize: 15),
-      ),
       _SwitchRow(
         icon: Icons.surround_sound,
         title: '独占输出（WASAPI）',
@@ -348,6 +333,7 @@ class SettingsView extends StatelessWidget {
       const _DynamicThemeRow(),
       const _AccentColorRow(),
       _InterfaceFontRow(onChanged: onInterfaceFontChanged),
+      _LyricFontRow(value: lyricFont, onChanged: onLyricFontChanged),
       _SwitchRow(
         icon: Icons.auto_awesome,
         title: '动态流光背景',
@@ -926,15 +912,14 @@ class _InterfaceFontRow extends StatelessWidget implements SettingsSearchable {
   Widget build(BuildContext context) {
     final ThemeController? controller = ThemeScope.maybeOf(context);
     final String family = controller?.fontFamily ?? '';
-    return _ChoiceRow<String>(
+    return FontSettingRow(
       icon: Icons.font_download_outlined,
       title: '界面字体',
-      // 许可协议要求「在软件中特别注明使用了 MiSans 字体」：选中时写明出处
-      subtitle: isBundledMiSansFamily(family)
-          ? 'MiSans（小米）· MiSans 字体知识产权许可协议'
-          : '整个界面生效，歌词单独设置',
+      // 字体出处统一放「关于」弹窗，这一行只讲影响范围
+      subtitle: '整个界面生效，歌词单独设置',
       value: family,
-      choices: interfaceFontChoices(),
+      defaultLabel: kDefaultInterfaceFontLabel,
+      pillKey: const ValueKey<String>('settings-interface-font'),
       onChanged: controller == null
           ? null
           : (String picked) {
@@ -942,12 +927,31 @@ class _InterfaceFontRow extends StatelessWidget implements SettingsSearchable {
               unawaited(controller.setFontFamily(picked));
               onChanged?.call();
             },
-      choiceKey: const ValueKey<String>('settings-interface-font'),
-      // 每个选项用它代表的字体画：选之前就能看出字形
-      itemStyle: (String picked) => TextStyle(
-        fontFamily: interfaceFontFamilyOrNull(picked),
-        fontSize: 15,
-      ),
+    );
+  }
+}
+
+/// 「歌词字体」：只覆盖歌词（主界面与桌面歌词），不跟随界面字体时生效。
+class _LyricFontRow extends StatelessWidget implements SettingsSearchable {
+  const _LyricFontRow({required this.value, this.onChanged});
+
+  final String value;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  String get searchText => '歌词字体 字体 外观 桌面歌词 中文';
+
+  @override
+  Widget build(BuildContext context) {
+    return FontSettingRow(
+      icon: Icons.text_fields,
+      title: '歌词字体',
+      // 字体出处统一放「关于」弹窗，这一行只讲影响范围
+      subtitle: '只影响歌词，界面字体不变',
+      value: value,
+      defaultLabel: kLyricFontChoices.first.$2,
+      pillKey: const ValueKey<String>('settings-lyric-font'),
+      onChanged: onChanged,
     );
   }
 }

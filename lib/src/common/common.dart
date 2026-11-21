@@ -11,6 +11,7 @@ export 'scroll/smooth_scroll.dart';
 export 'text/bundled_fonts.dart';
 export 'text/interface_font.dart';
 export 'text/lyric_font.dart';
+export 'text/system_fonts.dart';
 export 'widgets/album_cover.dart';
 export 'widgets/artist_avatar.dart';
 export 'widgets/cover_shape.dart';

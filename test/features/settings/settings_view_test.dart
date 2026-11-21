@@ -1123,7 +1123,7 @@ void main() {
     );
   });
 
-  testWidgets('歌词字体行可切换，选项来自内置中文字体表', (WidgetTester tester) async {
+  testWidgets('歌词字体行点开弹窗后可选，选择来自本机字体（读不到时用内置表兜底）', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1148,19 +1148,25 @@ void main() {
     );
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
-
     // 当前值显示成中文名，不是字体族名
     expect(find.text('宋体'), findsWidgets);
 
     await tester.tap(row);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('楷体').last);
+    // 弹窗里能搜，按族名或中文名都行
+    expect(find.text('选择字体'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('font-picker-search')),
+      '楷',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('font-choice-KaiTi')));
     await tester.pumpAndSettle();
 
     expect(picks, <String>['KaiTi'], reason: '回报的是字体族名，不是中文名');
   });
 
-  testWidgets('打包字体注册后，歌词字体下拉里出现 MiSans 并写明出处', (WidgetTester tester) async {
+  testWidgets('打包字体注册后，字体弹窗里出现 MiSans', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1190,26 +1196,32 @@ void main() {
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
 
-    // 选中随包字体时，副标题按许可要求写明出处
+    // 选中随包字体时，胶囊写字体名，副标题只讲影响范围（出处放「关于」弹窗）
     expect(find.text('MiSans'), findsWidgets);
-    expect(find.textContaining('MiSans 字体知识产权许可协议'), findsWidgets);
+    expect(find.text('只影响歌词，界面字体不变'), findsWidgets);
+    expect(find.textContaining('知识产权许可协议'), findsNothing);
 
     await tester.tap(row);
     await tester.pumpAndSettle();
-    // 只发常规一款，选项里就该只有一个 MiSans（不是四款字重）
-    expect(find.text(kMiSansFaces.first.label), findsWidgets);
-    final Text item = tester.widget<Text>(
-      find.text(kMiSansFaces.first.label).last,
+    // 只发常规一款，列表里就该只有一个 MiSans（不是四款字重）
+    final Finder item = find.byKey(
+      const ValueKey<String>('font-choice-MiSans'),
     );
-    // 选项用它代表的字体画，选之前就能看出字形
-    expect(item.style?.fontFamily, kMiSansFaces.first.family);
+    expect(item, findsOneWidget);
+    final Text text = tester.widget<Text>(
+      find.descendant(of: item, matching: find.byType(Text)),
+    );
+    // 每一项用它代表的字体画，选之前就能看出字形
+    expect(text.style?.fontFamily, kMiSansFaces.first.family);
 
-    await tester.tap(find.text(kMiSansFaces.first.label).last);
+    await tester.tap(item);
     await tester.pumpAndSettle();
     expect(picks, <String>['MiSans']);
   });
 
-  testWidgets('存档里留着已下线的字重别名时，下拉退回跟随界面字体而不是抛错', (WidgetTester tester) async {
+  testWidgets('存档里留着已下线的字重别名时，行里显示归一后的 MiSans 而不是原样英文', (
+    WidgetTester tester,
+  ) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1230,8 +1242,57 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // DropdownButton 里没有这一项时不崩，显示退到首项
-    expect(find.text('跟随界面字体'), findsWidgets);
+    final Finder row = find.byKey(
+      const ValueKey<String>('settings-lyric-font'),
+    );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    // 旧字重别名不该让行里冒出一个对不上的英文家族名
+    expect(find.text('MiSans Bold'), findsNothing);
+    expect(find.text('MiSans'), findsWidgets);
+  });
+
+  testWidgets('两行字体都在外观区、紧挨着，窄窗口里胶囊也留在视口内', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 560);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFont: 'SimSun',
+            onLyricFontChanged: (String _) {},
+            onInterfaceFontChanged: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder interfacePill = find.byKey(
+      const ValueKey<String>('settings-interface-font'),
+    );
+    final Finder lyricPill = find.byKey(
+      const ValueKey<String>('settings-lyric-font'),
+    );
+    await tester.scrollUntilVisible(
+      interfacePill,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    final Rect interfaceRect = tester.getRect(interfacePill);
+    final Rect lyricRect = tester.getRect(lyricPill);
+    // 两行同一张外观卡里、上下相邻
+    expect(lyricRect.top - interfaceRect.bottom, lessThan(40));
+    // 胶囊完整落在视口里（窄窗口不该被右缘切掉）
+    expect(interfaceRect.right, lessThanOrEqualTo(900));
+    expect(lyricRect.right, lessThanOrEqualTo(900));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('界面字体行可切换：改的是主题控制器，不是歌词字体', (WidgetTester tester) async {
@@ -1269,7 +1330,7 @@ void main() {
 
     await tester.tap(row);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('宋体').last);
+    await tester.tap(find.byKey(const ValueKey<String>('font-choice-SimSun')));
     await tester.pumpAndSettle();
 
     expect(controller.fontFamily, 'SimSun');
