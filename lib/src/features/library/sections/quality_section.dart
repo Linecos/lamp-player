@@ -86,7 +86,7 @@ extension _QualitySection on _LibraryPageState {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const Spacer(),
+            _buildSelectionHeaderSlot(context),
             FilledButton.tonalIcon(
               style: _headerButtonStyle(),
               onPressed: tracks.isEmpty
@@ -95,6 +95,8 @@ extension _QualitySection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
+            const SizedBox(width: 8),
+            _buildSelectionToggle(context),
           ],
         ),
         const SizedBox(height: 2),
@@ -110,11 +112,18 @@ extension _QualitySection on _LibraryPageState {
         Expanded(
           child: tracks.isEmpty
               ? EmptyState(
-                  icon: Icons.tune,
-                  title: '这一档没有歌曲',
-                  message:
-                      '整个曲库里没有 ${qualityLabel(quality)} '
-                      '（${qualityCaption(quality)}）的曲目。',
+                  icon: searching ? Icons.search_off : Icons.tune,
+                  title: searching ? '没有找到匹配的音乐' : '这一档没有歌曲',
+                  message: searching
+                      ? '这一档里没有标题、艺术家或专辑包含「$_query」的曲目。'
+                      : '整个曲库里没有 ${qualityLabel(quality)} '
+                            '（${qualityCaption(quality)}）的曲目。',
+                  action: searching
+                      ? TextButton(
+                          onPressed: _clearSearch,
+                          child: const Text('清除搜索'),
+                        )
+                      : null,
                 )
               : TrackListView(
                   key: ValueKey<String>('quality-detail-${quality.name}'),
@@ -131,6 +140,21 @@ extension _QualitySection on _LibraryPageState {
                       unawaited(_toggleFavorite(track)),
                   onContextAction: (Track track, TrackContextAction action) =>
                       _onTrackContext(tracks, track, action),
+                  selectionMode: _selectionMode,
+                  onSelectAll: _selectionMode ? _toggleSelectAll : null,
+                  selectionAllFavored: _selectionAllFavored,
+                  selectedPaths: _selectedPaths,
+                  onSelect:
+                      (
+                        Track track, {
+                        required bool toggle,
+                        required bool range,
+                      }) => _onTrackSelect(
+                        tracks,
+                        track,
+                        toggle: toggle,
+                        range: range,
+                      ),
                 ),
         ),
       ],
