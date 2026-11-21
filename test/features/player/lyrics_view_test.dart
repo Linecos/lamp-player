@@ -40,6 +40,7 @@ Future<void> _pump(
   double alignment = 0.5,
   LyricAlignment lyricAlign = LyricAlignment.center,
   bool showTranslation = true,
+  String? fontFamily,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
   tester.view.devicePixelRatio = 1;
@@ -59,6 +60,7 @@ Future<void> _pump(
           revealAlignment: alignment,
           alignment: lyricAlign,
           showTranslation: showTranslation,
+          fontFamily: fontFamily,
         ),
       ),
     ),
@@ -1884,5 +1886,44 @@ void main() {
       playing.value = false;
       await tester.pump();
     });
+  });
+
+  testWidgets('设置的歌词字体套到歌词正文上，界面字体不受影响', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[_line(start: 0, end: 5000, text: '换字体的一行')],
+      position: position,
+      playing: playing,
+      fontFamily: 'SimSun',
+    );
+
+    final Text text = tester.widget<Text>(find.text('换字体的一行').first);
+    expect(text.style?.fontFamily, 'SimSun', reason: '歌词用设置里的字体族');
+  });
+
+  testWidgets('没设字体时歌词跟随主题字体', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[_line(start: 0, end: 5000, text: '默认字体的一行')],
+      position: position,
+      playing: playing,
+    );
+
+    final Text text = tester.widget<Text>(find.text('默认字体的一行').first);
+    expect(
+      text.style?.fontFamily,
+      AppTheme.fontFamily,
+      reason: '空设置 = 跟随主题的雅黑 Light',
+    );
   });
 }

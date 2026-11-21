@@ -35,6 +35,8 @@ class SettingsView extends StatelessWidget {
     this.onEqualizerChanged,
     this.onEqPresetsChanged,
     this.devices = const <rust.PlayerDevice>[],
+    this.lyricFont = '',
+    this.onLyricFontChanged,
     this.outputDevice = -1,
     this.onOutputDeviceChanged,
     this.replayGain = false,
@@ -114,6 +116,12 @@ class SettingsView extends StatelessWidget {
 
   /// 是否按标签的 ReplayGain 统一响度
   final bool replayGain;
+
+  /// 歌词字体族名；空串 = 跟随界面字体。只作用于歌词正文，不动界面字体
+  final String lyricFont;
+
+  /// 换歌词字体；为空表示不可操作
+  final ValueChanged<String>? onLyricFontChanged;
 
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
@@ -220,6 +228,15 @@ class SettingsView extends StatelessWidget {
         ],
         onChanged: onOutputDeviceChanged,
         choiceKey: const ValueKey<String>('settings-output-device'),
+      ),
+      _ChoiceRow<String>(
+        icon: Icons.text_fields,
+        title: '歌词字体',
+        subtitle: '只影响歌词，界面字体不变',
+        value: lyricFont,
+        choices: kLyricFontChoices,
+        onChanged: onLyricFontChanged,
+        choiceKey: const ValueKey<String>('settings-lyric-font'),
       ),
       _SwitchRow(
         icon: Icons.surround_sound,

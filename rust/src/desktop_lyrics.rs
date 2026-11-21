@@ -69,6 +69,8 @@ struct LyricState {
     visible: bool,
     playing: bool,
     font_size: i32,
+    /// 歌词字体族名（系统字体）；空串 = 用内置默认链（雅黑 UI → Segoe UI）
+    font_family: String,
     /// 本行已经唱到的比例（0..=1）。
     ///
     /// 有逐字时间轴时由 Dart 按 30fps 推进，用来裁切高亮层；没有逐字数据时
@@ -107,6 +109,7 @@ fn state() -> MutexGuard<'static, LyricState> {
                 visible: false,
                 playing: false,
                 font_size: DEFAULT_FONT_SIZE,
+                font_family: String::new(),
                 progress: 1.0,
                 locked: false,
                 position: None,
@@ -317,6 +320,51 @@ pub fn set_font_size(size: i32) {
     if changed {
         request_apply();
     }
+}
+
+/// 字体族的候选顺序：用户选的 → 内置中文默认 → 西文兜底。
+///
+/// 用户换机器、卸载字体后，选中的名字可能取不到——一路降级下去，绝不会落到
+/// 「一个 family 都建不出来」的空白窗口。重复项去掉，免得白建一次 font family。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn font_candidates<'a>(chosen: &'a str) -> Vec<&'a str> {
+    let chosen = chosen.trim();
+    let mut out: Vec<&'a str> = Vec::with_capacity(3);
+    if !chosen.is_empty() {
+        out.push(chosen);
+    }
+    for fallback in ["Microsoft YaHei UI", "Segoe UI"] {
+        if !out.iter().any(|name| name.eq_ignore_ascii_case(fallback)) {
+            out.push(fallback);
+        }
+    }
+    out
+}
+
+/// 设置歌词字体族（系统字体名）；空串表示回到内置默认。
+///
+/// 只认系统里已安装的字体族——GDI+ 的 `GdipCreateFontFamilyFromName` 拿不到
+/// 未安装的字体，所以这里不做任何加载，取不到就由 [`font_candidates`] 降级。
+pub fn set_font_family(family: &str) {
+    let family = family.trim();
+    let changed = {
+        let mut guard = state();
+        if guard.font_family == family {
+            false
+        } else {
+            guard.font_family = family.to_string();
+            true
+        }
+    };
+    if changed {
+        // 换字体后同一句话的折行会变：走 apply 让窗口高度重新量一遍
+        request_apply();
+    }
+}
+
+/// 当前歌词字体族名（空串 = 内置默认）
+pub fn font_family() -> String {
+    state().font_family.clone()
 }
 
 /// 锁定 = 整窗鼠标穿透；解锁恢复拖动与按钮
@@ -1145,7 +1193,7 @@ mod imp {
         hovered_button: Option<Button>,
         progress: f32,
     ) {
-        let ui = family("Microsoft YaHei UI").or_else(|| family("Segoe UI"));
+        let ui = current_family();
         let icons = family("Segoe MDL2 Assets");
 
         unsafe {
@@ -1486,7 +1534,7 @@ mod imp {
 
     /// 真正去问 GDI+ 的那一步；任何环节失败都当一行（宁可少占高度）
     fn measure_line_count(text: &str, width: f32, font_px: f32) -> i32 {
-        let Some(family) = family("Microsoft YaHei UI").or_else(|| family("Segoe UI")) else {
+        let Some(family) = current_family() else {
             return 1;
         };
         let mut lines = 1;
@@ -1541,6 +1589,16 @@ mod imp {
             let _ = GdipDeleteFontFamily(family);
         }
         lines
+    }
+
+    /// 当前生效的歌词字体：按候选顺序取第一个系统装得到的。
+    ///
+    /// 每次绘制 / 测量都重取一次：`GpFontFamily` 是不带缓存的生命周期对象，
+    /// 调用方用完即删（见 draw 末尾的 GdipDeleteFontFamily），换字体也就不需要
+    /// 失效任何缓存。
+    fn current_family() -> Option<*mut GpFontFamily> {
+        let chosen = super::font_family();
+        super::font_candidates(&chosen).into_iter().find_map(family)
     }
 
     fn family(name: &str) -> Option<*mut GpFontFamily> {
@@ -2019,7 +2077,35 @@ mod imp {
 
 #[cfg(test)]
 mod font_tests {
-    use super::{font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE};
+    use super::{
+        font_candidates, font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE,
+    };
+
+    #[test]
+    fn candidates_start_with_the_chosen_font_then_fall_back() {
+        assert_eq!(
+            font_candidates("SimSun"),
+            vec!["SimSun", "Microsoft YaHei UI", "Segoe UI"]
+        );
+    }
+
+    #[test]
+    fn empty_choice_uses_the_builtin_chain() {
+        assert_eq!(
+            font_candidates("   "),
+            vec!["Microsoft YaHei UI", "Segoe UI"],
+            "空串 / 全空白 = 跟随内置默认"
+        );
+    }
+
+    #[test]
+    fn candidates_do_not_repeat_the_fallback() {
+        // 用户挑的就是兜底那一款：别把同一个名字排两遍，白建一次 font family
+        assert_eq!(
+            font_candidates("microsoft yahei ui"),
+            vec!["microsoft yahei ui", "Segoe UI"]
+        );
+    }
 
     #[test]
     fn reset_targets_the_default_size() {
