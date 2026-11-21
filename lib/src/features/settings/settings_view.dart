@@ -35,6 +35,8 @@ class SettingsView extends StatelessWidget {
     this.onEqualizerChanged,
     this.onEqPresetsChanged,
     this.devices = const <rust.PlayerDevice>[],
+    this.lyricFont = '',
+    this.onLyricFontChanged,
     this.outputDevice = -1,
     this.onOutputDeviceChanged,
     this.replayGain = false,
@@ -114,6 +116,12 @@ class SettingsView extends StatelessWidget {
 
   /// 是否按标签的 ReplayGain 统一响度
   final bool replayGain;
+
+  /// 歌词字体族名；空串 = 跟随界面字体。只作用于歌词正文，不动界面字体
+  final String lyricFont;
+
+  /// 换歌词字体；为空表示不可操作
+  final ValueChanged<String>? onLyricFontChanged;
 
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
@@ -220,6 +228,22 @@ class SettingsView extends StatelessWidget {
         ],
         onChanged: onOutputDeviceChanged,
         choiceKey: const ValueKey<String>('settings-output-device'),
+      ),
+      _ChoiceRow<String>(
+        icon: Icons.text_fields,
+        title: '歌词字体',
+        // 许可协议要求「在软件中特别注明使用了 MiSans 字体」：选中时把出处写在
+        // 副标题里，因为字体与界面字体不同源，用户看得见
+        subtitle: isBundledMiSansFamily(lyricFont)
+            ? 'MiSans（小米）· MiSans 字体知识产权许可协议'
+            : '只影响歌词，界面字体不变',
+        value: lyricFont,
+        choices: lyricFontChoices(),
+        onChanged: onLyricFontChanged,
+        choiceKey: const ValueKey<String>('settings-lyric-font'),
+        // 每个选项用它代表的那款字体画：选之前就能看出粗细差别
+        itemStyle: (String family) =>
+            TextStyle(fontFamily: lyricFontFamilyOrNull(family), fontSize: 15),
       ),
       _SwitchRow(
         icon: Icons.surround_sound,
@@ -451,6 +475,7 @@ class _ChoiceRow<T> extends StatefulWidget implements SettingsSearchable {
     required this.choices,
     required this.onChanged,
     this.choiceKey,
+    this.itemStyle,
   });
 
   final IconData icon;
@@ -460,6 +485,10 @@ class _ChoiceRow<T> extends StatefulWidget implements SettingsSearchable {
   final List<(T, String)> choices;
   final ValueChanged<T>? onChanged;
   final Key? choiceKey;
+
+  /// 给每个选项单独指定文字样式。字体选择器用它把选项本身画成对应字体：
+  /// 菜单里光看「细体 / 粗体」几个字，是分不出差别的。
+  final TextStyle? Function(T value)? itemStyle;
 
   @override
   String get searchText => '$title ${subtitle ?? ''}';
@@ -568,6 +597,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
                           item.$2,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: widget.itemStyle?.call(item.$1),
                         ),
                       ),
                   ],

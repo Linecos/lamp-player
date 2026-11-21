@@ -107,6 +107,21 @@ pub fn desktop_lyrics_set_font_size(size: i32) {
     desktop_lyrics::set_font_size(size);
 }
 
+/// 设置歌词字体族：系统已安装的字体名（如 `Microsoft YaHei Light`），或随包
+/// MiSans 的别名（`MiSans`、`MiSans Light`…；各字重在字体文件里同属 `MiSans`）。
+///
+/// 空串表示回到内置默认（雅黑 UI → Segoe UI）。取不到时会按这条链自动降级，
+/// 不会因为用户换了机器 / 卸了字体而让歌词消失。
+pub fn desktop_lyrics_set_font_family(family: String) {
+    desktop_lyrics::set_font_family(&family);
+}
+
+/// 当前歌词字体族名（空串 = 内置默认）
+#[flutter_rust_bridge::frb(sync)]
+pub fn desktop_lyrics_font_family() -> String {
+    desktop_lyrics::font_family()
+}
+
 /// 锁定（鼠标穿透）/ 解锁
 pub fn desktop_lyrics_set_locked(locked: bool) {
     desktop_lyrics::set_locked(locked);
