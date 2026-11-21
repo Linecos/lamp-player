@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
+import 'package:lamp_player/src/common/text/bundled_fonts.dart';
 import 'package:lamp_player/src/features/settings/equalizer_panel.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
@@ -1120,5 +1121,90 @@ void main() {
         tester.view.physicalSize.height / tester.view.devicePixelRatio - 108,
       ),
     );
+  });
+
+  testWidgets('歌词字体行可切换，选项来自内置中文字体表', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<String> picks = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFont: 'SimSun',
+            onLyricFontChanged: picks.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(
+      const ValueKey<String>('settings-lyric-font'),
+    );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+
+    // 当前值显示成中文名，不是字体族名
+    expect(find.text('宋体'), findsWidgets);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('楷体').last);
+    await tester.pumpAndSettle();
+
+    expect(picks, <String>['KaiTi'], reason: '回报的是字体族名，不是中文名');
+  });
+
+  testWidgets('打包字体注册后，MiSans 各字重在下拉里各占一项', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    registeredBundledFamilies.addAll(
+      kMiSansFaces.map((BundledFontFace face) => face.family),
+    );
+    addTearDown(registeredBundledFamilies.clear);
+
+    final List<String> picks = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFont: 'MiSans Bold',
+            onLyricFontChanged: picks.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(
+      const ValueKey<String>('settings-lyric-font'),
+    );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+
+    // 当前值是粗体，副标题按许可要求写明出处
+    expect(find.text('MiSans 粗体'), findsWidgets);
+    expect(find.textContaining('MiSans 字体知识产权许可协议'), findsWidgets);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    // 四个字重都在：不是只剩一个「MiSans」
+    for (final BundledFontFace face in kMiSansFaces) {
+      expect(find.text(face.label), findsWidgets, reason: '缺 ${face.label}');
+      // 每个选项用它代表的那款字体画，菜单里才看得出粗细
+      final Text item = tester.widget<Text>(find.text(face.label).last);
+      expect(item.style?.fontFamily, face.family);
+    }
+    await tester.tap(find.text('MiSans 细体').last);
+    await tester.pumpAndSettle();
+    expect(picks, <String>['MiSans Light']);
   });
 }

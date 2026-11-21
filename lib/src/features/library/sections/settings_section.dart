@@ -33,6 +33,9 @@ extension _SettingsSection on _LibraryPageState {
             onEqualizerChanged: _isAvailable ? _setEqualizer : null,
             onEqPresetsChanged: _setEqCustomPresets,
             devices: _devices,
+            lyricFont: _lyricFontFamily,
+            onLyricFontChanged: (String family) =>
+                unawaited(_setLyricFontFamily(family)),
             outputDevice: _outputDevice,
             onOutputDeviceChanged: _isAvailable && !_switchingOutput
                 ? (int index) => unawaited(_setOutputDevice(index))
