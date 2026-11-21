@@ -647,9 +647,10 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   `GdipCreateFontFamilyFromName` 拿不到未安装字体）；② 随安装包分发的 MiSans 别名
   （`MiSans` / `MiSans Light` / `MiSans Regular` / `MiSans Medium` / `MiSans Bold`）。
   后者由私有字体集合提供，这几个别名在字体文件里共用家族名 `MiSans`，Rust 侧会
-  归一成这个名字再建字体；桌面歌词的正文固定用粗体，所以四个字重在窗口里看不出
-  差别（主界面歌词按别名各自渲染）。空串 = 内置默认链：`Microsoft YaHei UI` →
-  `Segoe UI`；取不到时按同一链降级，不会出现空白窗口。
+  归一成这个名字再建字体。GDI+ 这边只有「常规 / 粗体」两档：`Light` / `Regular`
+  用常规字形，`Medium` / `Bold` 用粗体字形（主界面歌词按别名各自渲染，四档都在）。
+  空串 = 内置默认链：`Microsoft YaHei UI` → `Segoe UI`；取不到时按同一链降级，
+  不会出现空白窗口。
 - **换字号 / 换字体都要重排窗口**：折行数按当前字体测量，长句可能从两行变三行，
   窗口高度随之变化；因此这两个 setter 走 `request_apply()` 而不是单纯重绘。
 - 位置是屏幕坐标、由 Rust 夹到当前显示器工作区内；Dart 只负责记到会话存档里，

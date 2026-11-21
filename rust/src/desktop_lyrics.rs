@@ -364,6 +364,19 @@ pub fn is_bundled_family(name: &str) -> bool {
     name == "misans" || name.starts_with("misans ") || name.starts_with("misans-")
 }
 
+/// 这款字体在桌面歌词窗口里该用常规字形还是粗体字形。
+///
+/// 窗口这边只有「家族 + 是否粗体」两档：随包 MiSans 的四个字重在 GDI+ 里合并
+/// 成一族，选细体 / 常规就用常规字形，选中黑 / 粗体才用粗体——至少能分出两档，
+/// 而不是四款看起来一模一样。系统字体维持原来的粗体。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn prefers_regular_weight(family: &str) -> bool {
+    let name = family.trim().to_ascii_lowercase();
+    ["light", "regular", "thin"]
+        .iter()
+        .any(|keyword| name.contains(keyword))
+}
+
 /// 字体族的候选顺序：用户选的 → 内置中文默认 → 西文兜底。
 ///
 /// 用户换机器、卸载字体后，选中的名字可能取不到——一路降级下去，绝不会落到
@@ -1417,14 +1430,24 @@ mod imp {
         }
     }
 
-    /// 按字体族建一个字体对象：先要粗体，家族没有粗体就退到常规。
+    /// 当前设置的字重偏好（见 `super::prefers_regular_weight`）
+    fn prefer_regular() -> bool {
+        super::prefers_regular_weight(&super::font_family())
+    }
+
+    /// 按字体族建一个字体对象。
     ///
-    /// 桌面歌词的正文一直用粗体。随包 MiSans 的 family 来自私有字体集合——四个
-    /// 字重文件家族名相同，GDI+ 是否把它们并成「一族的不同字重」取决于实现：
-    /// 万一取不到 `FontStyleBold`，原来那句 `GdipCreateFont` 失败就直接不画，
-    /// 整个窗口会变成空白。退一步用常规，宁可字细一点也不能不出字。
-    fn create_font(family: *const GpFontFamily, size: f32) -> *mut GpFont {
-        for style in [FontStyleBold.0, FontStyleRegular.0] {
+    /// 先按用户选的字重偏好转（见 `prefers_regular_weight`），取不到再退另一档：
+    /// 随包 MiSans 的 family 来自私有字体集合，四个字重文件家族名相同，GDI+ 是否
+    /// 把它们并成「一族的不同字重」取决于实现——万一取不到想要的样式，原来那句
+    /// `GdipCreateFont` 失败就直接不画，整个窗口会变成空白。
+    fn create_font(family: *const GpFontFamily, size: f32, prefer_regular: bool) -> *mut GpFont {
+        let order = if prefer_regular {
+            [FontStyleRegular.0, FontStyleBold.0]
+        } else {
+            [FontStyleBold.0, FontStyleRegular.0]
+        };
+        for style in order {
             let mut font: *mut GpFont = null_mut();
             if unsafe { GdipCreateFont(family, size, style, UnitPixel, &mut font) }.0 == 0
                 && !font.is_null()
@@ -1444,7 +1467,7 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) {
-        let font: *mut GpFont = create_font(family, size);
+        let font: *mut GpFont = create_font(family, size, prefer_regular());
         if font.is_null() {
             return;
         }
@@ -1508,7 +1531,7 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) -> Option<RectF> {
-        let font: *mut GpFont = create_font(family, size);
+        let font: *mut GpFont = create_font(family, size, prefer_regular());
         if font.is_null() {
             return None;
         }
@@ -1619,7 +1642,7 @@ mod imp {
                 && GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics).0 == 0
             {
                 if let Ok(format) = make_format(true, true) {
-                    let font: *mut GpFont = create_font(family, font_px);
+                    let font: *mut GpFont = create_font(family, font_px, prefer_regular());
                     if !font.is_null() {
                         let rect = RectF {
                             X: 0.0,
@@ -2272,7 +2295,8 @@ mod imp {
 #[cfg(test)]
 mod font_tests {
     use super::{
-        font_candidates, font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE,
+        font_candidates, font_size_change, prefers_regular_weight, DEFAULT_FONT_SIZE,
+        MAX_FONT_SIZE, MIN_FONT_SIZE,
     };
 
     #[test]
@@ -2332,6 +2356,18 @@ mod font_tests {
             font_candidates("microsoft yahei ui"),
             vec!["microsoft yahei ui", "Segoe UI"]
         );
+    }
+
+    #[test]
+    fn bundled_weights_pick_regular_or_bold_for_the_window() {
+        // 窗口只有「常规 / 粗体」两档：细体与常规算常规，中黑与粗体算粗体
+        assert!(prefers_regular_weight("MiSans Light"));
+        assert!(prefers_regular_weight("MiSans Regular"));
+        assert!(!prefers_regular_weight("MiSans Medium"));
+        assert!(!prefers_regular_weight("MiSans Bold"));
+        // 系统字体维持原来的粗体，空串同默认
+        assert!(!prefers_regular_weight("SimSun"));
+        assert!(!prefers_regular_weight(""));
     }
 
     #[test]
