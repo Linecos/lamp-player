@@ -117,7 +117,7 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'app_lifecycle.dart';
 import 'routes.dart';
@@ -12,6 +13,26 @@ import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
 import '../features/settings/theme_controller.dart';
 import '../theme/app_theme.dart';
+
+/// 应用支持的语言：中文优先，英文兜底。
+///
+/// 不配这套的话 `MaterialApp` 会回落到 `en_US`：内置文案（输入框右键的
+/// 剪切 / 复制 / 粘贴、日期与时间选择器）全是英文，`MaterialLocalizations`
+/// 的 scriptCategory 也停在 englishLike。
+const List<Locale> appSupportedLocales = <Locale>[
+  Locale('zh', 'CN'),
+  Locale('en'),
+];
+
+/// 界面主语言：文案写死中文，内置文案也跟着它走。
+const Locale appLocale = Locale('zh', 'CN');
+
+const List<LocalizationsDelegate<dynamic>> appLocalizationsDelegates =
+    <LocalizationsDelegate<dynamic>>[
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ];
 
 /// 应用外壳：主题 + 路由 + 全局配置都收在这里。
 ///
@@ -85,6 +106,11 @@ class _LampAppState extends State<LampApp> {
           return MaterialApp(
             title: 'Lamp Player',
             debugShowCheckedModeBanner: false,
+            localizationsDelegates: appLocalizationsDelegates,
+            supportedLocales: appSupportedLocales,
+            // 界面文案全是写死的中文，内置文案也强制中文：否则英文系统的
+            // Windows 上右键菜单会是 Cut / Copy / Paste，和界面混着两种语言
+            locale: appLocale,
             // 强调色与调色板风格由设置决定：预设色板 / 系统强调色 / 跟随封面
             theme: AppTheme.light(
               _theme.effectiveSeed,
@@ -159,6 +185,9 @@ class LampStartupErrorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Lamp Player',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: appLocalizationsDelegates,
+      supportedLocales: appSupportedLocales,
+      locale: appLocale,
       theme: AppTheme.light(AppTheme.defaultSeed),
       darkTheme: AppTheme.dark(AppTheme.defaultSeed),
       themeMode: ThemeMode.system,

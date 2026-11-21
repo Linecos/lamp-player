@@ -394,8 +394,8 @@ class SettingsView extends StatelessWidget {
     return SmoothScroll(
       builder: (BuildContext context, ScrollController controller) => ListView(
         controller: controller,
-        // 右侧留一条滚动条槽：桌面端滚动条浮在视口右缘，不留空会压住卡片边
-        padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
+        // 左右留白由分区那层统一给（滚动条槽 + 对称补齐），这里只管纵向
+        padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
         children: children,
       ),
     );
@@ -515,7 +515,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
                   Text(
                     widget.subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -668,7 +668,7 @@ class _SliderRowState extends State<_SliderRow> {
                   Text(
                     widget.subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -793,7 +793,7 @@ class _SwitchRow extends StatelessWidget implements SettingsSearchable {
                     Text(
                       subtitle!,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.outline,
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -958,7 +958,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.outline,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],

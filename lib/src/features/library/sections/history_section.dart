@@ -102,7 +102,8 @@ extension _HistorySection on _LibraryPageState {
             ),
             const SizedBox(width: 8),
             _buildSelectionToggle(context),
-            const SizedBox(width: 8),
+            // 破坏性操作推到最右：紧贴「播放全部」8px 时，误触成本太高
+            const Spacer(),
             OutlinedButton.icon(
               style: _headerButtonStyle().copyWith(
                 foregroundColor: WidgetStatePropertyAll<Color>(scheme.error),

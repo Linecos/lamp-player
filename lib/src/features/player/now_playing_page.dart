@@ -1370,7 +1370,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             const SizedBox(height: 4),
             Text(
               '把同名 .lrc 放到歌曲旁边即可显示',
-              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

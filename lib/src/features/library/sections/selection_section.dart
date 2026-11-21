@@ -1,5 +1,13 @@
 part of '../library_page.dart';
 
+/// 批量计算 ReplayGain 的进度框内容宽度。
+///
+/// 只有一条进度条 + 一行「第几首 / 共几首：歌名」。两者的固有宽度都不定：
+/// 进度条是「吃掉可用宽度」，歌名长度又随曲目变。AlertDialog 先按内容的固有
+/// 宽度算再夹到窗口，所以不钉死的话弹窗会一路顶到窗口边缘，换个窗口尺寸又是
+/// 另一个样子。420 与歌单 / 更新弹窗同一档，加上两侧 24 内边距就是 468。
+const double replayGainDialogWidth = 420;
+
 /// 多选与批量操作
 ///
 /// 选择状态收敛在页面，列表只负责画复选框并转发点击；批量操作复用仓库的
@@ -295,28 +303,35 @@ extension _SelectionSection on _LibraryPageState {
       showDialog<void>(
         context: context,
         barrierDismissible: false,
+        // 弹窗宽度由内容定：AlertDialog 先按内容的固有宽度算，再夹到可用宽度。
+        // 进度条的固有宽度是「吃掉可用宽度」、歌名又是不定长的，不钉死的话
+        // 弹窗宽度会跟着窗口和当前曲目变
         builder: (BuildContext dialogContext) => AlertDialog(
           title: const Text('正在计算 ReplayGain'),
-          content: ValueListenableBuilder<_ReplayGainProgress>(
-            valueListenable: progress,
-            builder: (BuildContext context, _ReplayGainProgress value, _) {
-              final double ratio = value.total == 0
-                  ? 0
-                  : value.done / value.total;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  LinearProgressIndicator(value: ratio),
-                  const SizedBox(height: 12),
-                  Text(
-                    '${value.done}/${value.total}：${value.title}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              );
-            },
+          content: SizedBox(
+            key: const ValueKey<String>('replay-gain-progress'),
+            width: replayGainDialogWidth,
+            child: ValueListenableBuilder<_ReplayGainProgress>(
+              valueListenable: progress,
+              builder: (BuildContext context, _ReplayGainProgress value, _) {
+                final double ratio = value.total == 0
+                    ? 0
+                    : value.done / value.total;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    LinearProgressIndicator(value: ratio),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${value.done}/${value.total}：${value.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
           actions: <Widget>[
             TextButton(

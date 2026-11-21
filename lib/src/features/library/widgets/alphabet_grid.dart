@@ -22,6 +22,13 @@ const double gridRightReserve = railWidth + railInset + 12;
 /// 每段标题占的高度（含上下空隙）
 const double alphabetHeaderExtent = 34;
 
+/// 网格左侧内缩。
+///
+/// 列表行的悬停胶囊在内容卡 16 的基础上再缩 10（给圆角留边），首列落在 26。
+/// 网格原先贴着内容卡边缘从 16 起，切「音乐 ↔ 专辑」时整块内容横跳 10px。
+/// 这里补同样的 10，两条左边缘才对得上。
+const double alphabetGridLeftInset = 10;
+
 /// 视口顶部那一条的位置：哪一段、段内第几条、以及在那一行里已经滚过去了多少。
 ///
 /// 只记「像素偏移」是不够的：开关侧栏时列数不变但卡片会变宽，行高跟着变，
@@ -422,7 +429,9 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                       _windowChrome
                 : constraints.maxWidth;
             final AlphabetGridMetrics metrics = AlphabetGridMetrics(
-              // 卡片不许跑到导航条底下，横向先把它让出来
+              // 卡片不许跑到导航条底下，横向先把它让出来。
+              // 左侧那 10 只作为 SliverPadding 的缩进，不参与列数换算 ——
+              // 列数一变，每段行数跟着变，侧栏开关时的锚点也全都要重算
               viewportWidth: math.max(0, planWidth - gridRightReserve),
               tileWidth: widget.tileWidth,
               crossAxisSpacing: widget.crossAxisSpacing,
@@ -478,7 +487,10 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                       ),
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.only(right: gridRightReserve),
+                      padding: const EdgeInsets.only(
+                        left: alphabetGridLeftInset,
+                        right: gridRightReserve,
+                      ),
                       sliver: SliverGrid(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: metrics.crossAxisCount,
@@ -572,7 +584,7 @@ class _SectionHeader extends StatelessWidget {
               Text(
                 '$count',
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
