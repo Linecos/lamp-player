@@ -112,6 +112,7 @@ class NowPlayingPage extends StatefulWidget {
     this.onToggleTranslation,
     this.immersive = false,
     this.onImmersiveChanged,
+    this.lyricFontFamily,
   });
 
   /// 打开均衡器页；为空时不显示该按钮
@@ -158,6 +159,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 切换沉浸模式后上报当前值；为空时只管本页
   final ValueChanged<bool>? onImmersiveChanged;
+
+  /// 歌词字体族（系统字体名）；null / 空串 = 跟随主题字体
+  final String? lyricFontFamily;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
@@ -1404,6 +1408,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       revealAlignment: revealAlignment,
       alignment: alignment,
       showTranslation: showTranslation,
+      fontFamily: widget.lyricFontFamily,
     );
   }
 

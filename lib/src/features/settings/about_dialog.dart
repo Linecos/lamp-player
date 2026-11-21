@@ -3,12 +3,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 
 import '../../app/app_version.dart';
+import '../../common/common.dart';
 import '../../common/external_link.dart';
-import '../../common/lamp_icons.dart';
-import '../../common/scroll/smooth_scroll.dart';
 
 /// 「关于」弹窗：大图标 → 名字 → 版本行 → 标语 → 技术栈 → 2×2 链接 → 署名。
 ///
@@ -196,6 +196,15 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
                           _TechChip(tech: tech, scale: s),
                       ],
                     ),
+                    // MiSans 许可要求注明出处：只在字体真的随包分发时显示
+                    if (misansAvailable) ...<Widget>[
+                      SizedBox(height: 12 * s),
+                      Text(
+                        '歌词字体 MiSans © Xiaomi，依《MiSans 字体知识产权许可协议》使用',
+                        textAlign: TextAlign.center,
+                        style: caption,
+                      ),
+                    ],
                     SizedBox(height: 22 * s),
                     Row(
                       children: <Widget>[

@@ -17,6 +17,7 @@
 //! 窗口跑在独立线程的消息循环里；歌词与开关放在全局状态中，改完 `PostMessage`
 //! 让窗口线程重绘。按钮点击通过 `listen` 注册的回调回流给 Dart。
 
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// 悬停工具栏上的按钮
@@ -69,6 +70,8 @@ struct LyricState {
     visible: bool,
     playing: bool,
     font_size: i32,
+    /// 歌词字体族名（系统字体）；空串 = 用内置默认链（雅黑 UI → Segoe UI）
+    font_family: String,
     /// 本行已经唱到的比例（0..=1）。
     ///
     /// 有逐字时间轴时由 Dart 按 30fps 推进，用来裁切高亮层；没有逐字数据时
@@ -107,6 +110,7 @@ fn state() -> MutexGuard<'static, LyricState> {
                 visible: false,
                 playing: false,
                 font_size: DEFAULT_FONT_SIZE,
+                font_family: String::new(),
                 progress: 1.0,
                 locked: false,
                 position: None,
@@ -319,6 +323,113 @@ pub fn set_font_size(size: i32) {
     }
 }
 
+/// 随安装包分发的字体在运行时的位置（相对 exe）。
+///
+/// 字体文件本身不进版本库（`scripts/setup-misans.ps1` 从官方下载到
+/// `assets/fonts/misans/`，构建时打进 bundle），所以这里按构建产物的布局找：
+/// `<exe>/data/flutter_assets/assets/fonts/misans/<name>`；有些打包方式会把
+/// assets 放到 exe 同级，两个位置都试一遍。找不到就返回 `None`，桌面歌词退回
+/// 系统字体——缺字体不该让窗口打不开。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn bundled_font(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    bundled_font_in(exe.parent()?, name)
+}
+
+/// 同 [`bundled_font`]，但基准目录可注入（单测用）
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn bundled_font_in(base: &Path, name: &str) -> Option<PathBuf> {
+    const DIRS: [&str; 2] = [
+        "data/flutter_assets/assets/fonts/misans",
+        "assets/fonts/misans",
+    ];
+    for dir in DIRS {
+        let path = base.join(dir).join(name);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// 这个字体族名是不是随包 MiSans 的别名（`MiSans`、`MiSans Light`…）。
+///
+/// Flutter 侧为了能逐字重选，注册时给每个字重起了别名；字体文件里它们的家族名
+/// 其实都叫 `MiSans`，GDI+ 只能按真实家族名建字体，所以设置里的别名要先归一到
+/// 这个名字再往下走。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn is_bundled_family(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    // 只认同名或以空格 / 连字符分隔的后缀，别把 `MiSansx` 这类名字也吞进来
+    name == "misans" || name.starts_with("misans ") || name.starts_with("misans-")
+}
+
+/// 这款字体在桌面歌词窗口里该用常规字形还是粗体字形。
+///
+/// 窗口这边只有「家族 + 是否粗体」两档：随包 MiSans 的四个字重在 GDI+ 里合并
+/// 成一族，选细体 / 常规就用常规字形，选中黑 / 粗体才用粗体——至少能分出两档，
+/// 而不是四款看起来一模一样。系统字体维持原来的粗体。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn prefers_regular_weight(family: &str) -> bool {
+    let name = family.trim().to_ascii_lowercase();
+    ["light", "regular", "thin"]
+        .iter()
+        .any(|keyword| name.contains(keyword))
+}
+
+/// 字体族的候选顺序：用户选的 → 内置中文默认 → 西文兜底。
+///
+/// 用户换机器、卸载字体后，选中的名字可能取不到——一路降级下去，绝不会落到
+/// 「一个 family 都建不出来」的空白窗口。重复项去掉，免得白建一次 font family。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn font_candidates<'a>(chosen: &'a str) -> Vec<&'a str> {
+    let chosen = chosen.trim();
+    // 随包字体的各字重共用家族名：选「MiSans Light」在 GDI+ 里也是建「MiSans」
+    // 这一族（桌面歌词的正文固定用粗体，字重差异在这里体现不出来）
+    let chosen = if is_bundled_family(chosen) {
+        "MiSans"
+    } else {
+        chosen
+    };
+    let mut out: Vec<&'a str> = Vec::with_capacity(3);
+    if !chosen.is_empty() {
+        out.push(chosen);
+    }
+    for fallback in ["Microsoft YaHei UI", "Segoe UI"] {
+        if !out.iter().any(|name| name.eq_ignore_ascii_case(fallback)) {
+            out.push(fallback);
+        }
+    }
+    out
+}
+
+/// 设置歌词字体族（系统字体名，或随包 MiSans 的别名）；空串表示回到内置默认。
+///
+/// 系统字体只认已安装的——GDI+ 的 `GdipCreateFontFamilyFromName` 拿不到未安装
+/// 的字体，所以这里不做任何加载；随包 MiSans 由私有字体集合提供（见
+/// `private_family`）。两种都取不到时由 [`font_candidates`] 降级到雅黑 UI。
+pub fn set_font_family(family: &str) {
+    let family = family.trim();
+    let changed = {
+        let mut guard = state();
+        if guard.font_family == family {
+            false
+        } else {
+            guard.font_family = family.to_string();
+            true
+        }
+    };
+    if changed {
+        // 换字体后同一句话的折行会变：走 apply 让窗口高度重新量一遍
+        request_apply();
+    }
+}
+
+/// 当前歌词字体族名（空串 = 内置默认）
+pub fn font_family() -> String {
+    state().font_family.clone()
+}
+
 /// 锁定 = 整窗鼠标穿透；解锁恢复拖动与按钮
 pub fn set_locked(locked: bool) {
     let changed = {
@@ -406,17 +517,20 @@ mod imp {
         HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows::Win32::Graphics::GdiPlus::{
-        CombineModeReplace, FillModeAlternate, FlushIntentionSync, FontStyleBold, GdipAddPathArc,
-        GdipClosePathFigure, GdipCreateBitmapFromScan0, GdipCreateFont,
-        GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreateSolidFill, GdipCreateStringFormat,
-        GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath,
-        GdipDeleteStringFormat, GdipDisposeImage, GdipDrawString, GdipFillPath, GdipFlush,
-        GdipGetImageGraphicsContext, GdipGraphicsClear, GdipMeasureString, GdipResetClip,
-        GdipSetClipRect, GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
+        CombineModeReplace, FillModeAlternate, FlushIntentionSync, FontStyleBold, FontStyleRegular,
+        GdipAddPathArc, GdipCloneFontFamily, GdipClosePathFigure, GdipCreateBitmapFromScan0,
+        GdipCreateFont, GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreateSolidFill,
+        GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily,
+        GdipDeleteGraphics, GdipDeletePath, GdipDeleteStringFormat, GdipDisposeImage,
+        GdipDrawString, GdipFillPath, GdipFlush, GdipGetFamilyName,
+        GdipGetFontCollectionFamilyCount, GdipGetFontCollectionFamilyList,
+        GdipGetImageGraphicsContext, GdipGraphicsClear, GdipMeasureString,
+        GdipNewPrivateFontCollection, GdipPrivateAddFontFile, GdipResetClip, GdipSetClipRect,
+        GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
         GdipSetStringFormatLineAlign, GdipSetStringFormatTrimming, GdipSetTextRenderingHint,
         GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap, GpBrush, GpFont,
-        GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat, RectF,
-        SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
+        GpFontCollection, GpFontFamily, GpGraphics, GpImage, GpPath, GpSolidFill, GpStringFormat,
+        RectF, SmoothingModeAntiAlias, StringAlignmentCenter, StringFormatFlagsNoWrap,
         StringTrimmingEllipsisCharacter, TextRenderingHintAntiAliasGridFit, UnitPixel,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -441,6 +555,7 @@ mod imp {
     use super::{
         font_size_change, frame, snapshot, Button, Command, Frame, DEFAULT_FONT_SIZE, FONT_STEP,
     };
+    use std::sync::{Mutex, OnceLock};
 
     const WM_LYRIC: u32 = WM_APP + 1;
     const WM_APPLY: u32 = WM_APP + 2;
@@ -1145,7 +1260,7 @@ mod imp {
         hovered_button: Option<Button>,
         progress: f32,
     ) {
-        let ui = family("Microsoft YaHei UI").or_else(|| family("Segoe UI"));
+        let ui = current_family();
         let icons = family("Segoe MDL2 Assets");
 
         unsafe {
@@ -1315,6 +1430,34 @@ mod imp {
         }
     }
 
+    /// 当前设置的字重偏好（见 `super::prefers_regular_weight`）
+    fn prefer_regular() -> bool {
+        super::prefers_regular_weight(&super::font_family())
+    }
+
+    /// 按字体族建一个字体对象。
+    ///
+    /// 先按用户选的字重偏好转（见 `prefers_regular_weight`），取不到再退另一档：
+    /// 随包 MiSans 的 family 来自私有字体集合，四个字重文件家族名相同，GDI+ 是否
+    /// 把它们并成「一族的不同字重」取决于实现——万一取不到想要的样式，原来那句
+    /// `GdipCreateFont` 失败就直接不画，整个窗口会变成空白。
+    fn create_font(family: *const GpFontFamily, size: f32, prefer_regular: bool) -> *mut GpFont {
+        let order = if prefer_regular {
+            [FontStyleRegular.0, FontStyleBold.0]
+        } else {
+            [FontStyleBold.0, FontStyleRegular.0]
+        };
+        for style in order {
+            let mut font: *mut GpFont = null_mut();
+            if unsafe { GdipCreateFont(family, size, style, UnitPixel, &mut font) }.0 == 0
+                && !font.is_null()
+            {
+                return font;
+            }
+        }
+        null_mut()
+    }
+
     unsafe fn draw_text(
         graphics: *mut GpGraphics,
         text: &str,
@@ -1324,8 +1467,8 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) {
-        let mut font: *mut GpFont = null_mut();
-        if unsafe { GdipCreateFont(family, size, FontStyleBold.0, UnitPixel, &mut font) }.0 != 0 {
+        let font: *mut GpFont = create_font(family, size, prefer_regular());
+        if font.is_null() {
             return;
         }
         let mut brush: *mut GpSolidFill = null_mut();
@@ -1388,8 +1531,8 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) -> Option<RectF> {
-        let mut font: *mut GpFont = null_mut();
-        if unsafe { GdipCreateFont(family, size, FontStyleBold.0, UnitPixel, &mut font) }.0 != 0 {
+        let font: *mut GpFont = create_font(family, size, prefer_regular());
+        if font.is_null() {
             return None;
         }
         let mut utf16: Vec<u16> = text.encode_utf16().collect();
@@ -1486,7 +1629,7 @@ mod imp {
 
     /// 真正去问 GDI+ 的那一步；任何环节失败都当一行（宁可少占高度）
     fn measure_line_count(text: &str, width: f32, font_px: f32) -> i32 {
-        let Some(family) = family("Microsoft YaHei UI").or_else(|| family("Segoe UI")) else {
+        let Some(family) = current_family() else {
             return 1;
         };
         let mut lines = 1;
@@ -1499,9 +1642,8 @@ mod imp {
                 && GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics).0 == 0
             {
                 if let Ok(format) = make_format(true, true) {
-                    let mut font: *mut GpFont = null_mut();
-                    if GdipCreateFont(family, font_px, FontStyleBold.0, UnitPixel, &mut font).0 == 0
-                    {
+                    let font: *mut GpFont = create_font(family, font_px, prefer_regular());
+                    if !font.is_null() {
                         let rect = RectF {
                             X: 0.0,
                             Y: 0.0,
@@ -1541,6 +1683,139 @@ mod imp {
             let _ = GdipDeleteFontFamily(family);
         }
         lines
+    }
+
+    /// 随安装包分发的字体（MiSans）建的私有字体集合。
+    ///
+    /// GDI+ 的 `GdipCreateFontFamilyFromName` 只查系统已装字体，随包字体必须用
+    /// `GdipPrivateAddFontFile` 加进私有集合。集合要活到进程结束（family 指针
+    /// 归它所有），所以缓存成 static；原始指针统一存 `usize` 以满足 `Send`。
+    struct PrivateFonts {
+        /// `*mut GpFontCollection`：**故意不删除**（family 指针归它所有），
+        /// 进程退出随它去。字段只用来占位保活，从不读取
+        _collection: usize,
+        /// 字体族名（小写去空格）→ `*mut GpFontFamily`（同样归集合所有，不能删）
+        families: Vec<(String, usize)>,
+    }
+
+    static PRIVATE_FONTS: OnceLock<Mutex<Option<PrivateFonts>>> = OnceLock::new();
+
+    /// 字体名归一化：GDI+ 报出来的可能是 `MiSans Regular` / `MiSans-Regular`，
+    /// 与设置里的 `MiSans` 只差后缀，所以比大小写与空格后再看前缀。
+    fn font_key(name: &str) -> String {
+        name.chars()
+            .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+
+    /// 惰性建立私有字体集合；真实文件不存在时返回 false（退回系统字体）
+    fn ensure_private_fonts() -> bool {
+        let Ok(mut guard) = PRIVATE_FONTS.get_or_init(|| Mutex::new(None)).lock() else {
+            return false;
+        };
+        if guard.is_none() {
+            *guard = build_private_fonts();
+        }
+        guard.is_some()
+    }
+
+    fn build_private_fonts() -> Option<PrivateFonts> {
+        // 与 lib/src/common/text/bundled_fonts.dart 的 kMiSansFaces 一一对应：
+        // 这些文件的家族名都是 MiSans，加进集合后合并成一族的不同字重
+        let files: Vec<std::path::PathBuf> = [
+            "MiSans-Light.ttf",
+            "MiSans-Regular.ttf",
+            "MiSans-Medium.ttf",
+            "MiSans-Bold.ttf",
+        ]
+        .iter()
+        .filter_map(|name| super::bundled_font(name))
+        .collect();
+        if files.is_empty() {
+            return None;
+        }
+        unsafe {
+            let mut collection: *mut GpFontCollection = null_mut();
+            if GdipNewPrivateFontCollection(&mut collection).0 != 0 || collection.is_null() {
+                return None;
+            }
+            let mut added = 0;
+            for path in &files {
+                let wide_path = wide(&path.to_string_lossy());
+                if GdipPrivateAddFontFile(collection, PCWSTR(wide_path.as_ptr())).0 == 0 {
+                    added += 1;
+                }
+            }
+            if added == 0 {
+                return None;
+            }
+            let mut count: i32 = 0;
+            if GdipGetFontCollectionFamilyCount(collection, &mut count).0 != 0 || count <= 0 {
+                return None;
+            }
+            let mut list: Vec<*mut GpFontFamily> = vec![null_mut(); count as usize];
+            let mut found: i32 = 0;
+            if GdipGetFontCollectionFamilyList(collection, &mut list, &mut found).0 != 0 {
+                return None;
+            }
+            let mut families = Vec::new();
+            for family in list.into_iter().take(found.max(0) as usize) {
+                let mut buffer = [0u16; 32];
+                if GdipGetFamilyName(family, &mut buffer, 0).0 != 0 {
+                    continue;
+                }
+                let len = buffer.iter().position(|c| *c == 0).unwrap_or(0);
+                let name = String::from_utf16_lossy(&buffer[..len]);
+                families.push((font_key(&name), family as usize));
+            }
+            if families.is_empty() {
+                return None;
+            }
+            Some(PrivateFonts {
+                _collection: collection as usize,
+                families,
+            })
+        }
+    }
+
+    /// 从私有集合里取一个**可删除**的 family 副本。
+    ///
+    /// 集合里的 family 不能 `GdipDeleteFontFamily`（归集合所有），调用方拿到的
+    /// 句柄又都是「用完即删」，所以这里克隆一份，清理逻辑不用改。
+    fn private_family(name: &str) -> Option<*mut GpFontFamily> {
+        if !ensure_private_fonts() {
+            return None;
+        }
+        let guard = PRIVATE_FONTS.get()?.lock().ok()?;
+        let set = guard.as_ref()?;
+        let want = font_key(name);
+        let (_, raw) = set
+            .families
+            .iter()
+            .find(|(key, _)| key == &want || key.starts_with(&want))?;
+        let mut cloned: *mut GpFontFamily = null_mut();
+        unsafe { GdipCloneFontFamily(*raw as *mut GpFontFamily, &mut cloned) };
+        (!cloned.is_null()).then_some(cloned)
+    }
+
+    /// 当前生效的歌词字体：按候选顺序取第一个系统装得到的。
+    ///
+    /// 每次绘制 / 测量都重取一次：`GpFontFamily` 是不带缓存的生命周期对象，
+    /// 调用方用完即删（见 draw 末尾的 GdipDeleteFontFamily），换字体也就不需要
+    /// 失效任何缓存。
+    fn current_family() -> Option<*mut GpFontFamily> {
+        let chosen = super::font_family();
+        for name in super::font_candidates(&chosen) {
+            if let Some(handle) = family(name) {
+                return Some(handle);
+            }
+            // 系统里没装：试试随安装包分发的那份（MiSans）
+            if let Some(handle) = private_family(name) {
+                return Some(handle);
+            }
+        }
+        None
     }
 
     fn family(name: &str) -> Option<*mut GpFontFamily> {
@@ -2019,7 +2294,81 @@ mod imp {
 
 #[cfg(test)]
 mod font_tests {
-    use super::{font_size_change, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE};
+    use super::{
+        font_candidates, font_size_change, prefers_regular_weight, DEFAULT_FONT_SIZE,
+        MAX_FONT_SIZE, MIN_FONT_SIZE,
+    };
+
+    #[test]
+    fn bundled_font_lookup_tries_the_flutter_asset_layout() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("lamp-font-test-{}", std::process::id()));
+        let dir = base.join("data/flutter_assets/assets/fonts/misans");
+        fs::create_dir_all(&dir).expect("建目录");
+        fs::write(dir.join("MiSans-Regular.ttf"), b"not really a font").expect("写文件");
+
+        let found = super::bundled_font_in(&base, "MiSans-Regular.ttf");
+        assert_eq!(
+            found.as_deref(),
+            Some(dir.join("MiSans-Regular.ttf").as_path())
+        );
+        // 没下载过的字重、别的名字：都应该是 None，让调用方退回系统字体
+        assert_eq!(super::bundled_font_in(&base, "MiSans-Medium.ttf"), None);
+        assert_eq!(super::bundled_font_in(&base, "whatever.ttf"), None);
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn candidates_start_with_the_chosen_font_then_fall_back() {
+        assert_eq!(
+            font_candidates("SimSun"),
+            vec!["SimSun", "Microsoft YaHei UI", "Segoe UI"]
+        );
+    }
+
+    #[test]
+    fn bundled_family_aliases_collapse_to_the_real_family() {
+        // 设置里选的是「MiSans 细体」这类别名，GDI+ 只认字体文件里的家族名
+        assert_eq!(
+            font_candidates("MiSans Light"),
+            vec!["MiSans", "Microsoft YaHei UI", "Segoe UI"]
+        );
+        assert_eq!(font_candidates("misans bold")[0], "MiSans");
+        // 系统字体不受影响，也不该被误当成随包字体
+        assert_eq!(font_candidates("MiSansx")[0], "MiSansx");
+        assert_eq!(font_candidates("SimSun")[0], "SimSun");
+    }
+
+    #[test]
+    fn empty_choice_uses_the_builtin_chain() {
+        assert_eq!(
+            font_candidates("   "),
+            vec!["Microsoft YaHei UI", "Segoe UI"],
+            "空串 / 全空白 = 跟随内置默认"
+        );
+    }
+
+    #[test]
+    fn candidates_do_not_repeat_the_fallback() {
+        // 用户挑的就是兜底那一款：别把同一个名字排两遍，白建一次 font family
+        assert_eq!(
+            font_candidates("microsoft yahei ui"),
+            vec!["microsoft yahei ui", "Segoe UI"]
+        );
+    }
+
+    #[test]
+    fn bundled_weights_pick_regular_or_bold_for_the_window() {
+        // 窗口只有「常规 / 粗体」两档：细体与常规算常规，中黑与粗体算粗体
+        assert!(prefers_regular_weight("MiSans Light"));
+        assert!(prefers_regular_weight("MiSans Regular"));
+        assert!(!prefers_regular_weight("MiSans Medium"));
+        assert!(!prefers_regular_weight("MiSans Bold"));
+        // 系统字体维持原来的粗体，空串同默认
+        assert!(!prefers_regular_weight("SimSun"));
+        assert!(!prefers_regular_weight(""));
+    }
 
     #[test]
     fn reset_targets_the_default_size() {

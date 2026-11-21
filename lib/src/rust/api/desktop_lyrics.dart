@@ -63,6 +63,20 @@ Future<void> desktopLyricsSetFontSize({required int size}) => RustLib
     .api
     .crateApiDesktopLyricsDesktopLyricsSetFontSize(size: size);
 
+/// 设置歌词字体族：系统已安装的字体名（如 `Microsoft YaHei Light`），或随包
+/// MiSans 的别名（`MiSans`、`MiSans Light`…；各字重在字体文件里同属 `MiSans`）。
+///
+/// 空串表示回到内置默认（雅黑 UI → Segoe UI）。取不到时会按这条链自动降级，
+/// 不会因为用户换了机器 / 卸了字体而让歌词消失。
+Future<void> desktopLyricsSetFontFamily({required String family}) => RustLib
+    .instance
+    .api
+    .crateApiDesktopLyricsDesktopLyricsSetFontFamily(family: family);
+
+/// 当前歌词字体族名（空串 = 内置默认）
+String desktopLyricsFontFamily() =>
+    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsFontFamily();
+
 /// 锁定（鼠标穿透）/ 解锁
 Future<void> desktopLyricsSetLocked({required bool locked}) => RustLib
     .instance

@@ -51,6 +51,7 @@ class SessionSnapshot {
     this.shortcutsJson = '',
     this.desktopLyrics = false,
     this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
+    this.lyricFontFamily = '',
     this.desktopLyricLocked = false,
     this.desktopLyricX,
     this.desktopLyricY,
@@ -158,6 +159,12 @@ class SessionSnapshot {
   /// 桌面歌词字号（96 DPI 逻辑像素）；Rust 侧同样夹在 16–56
   final int desktopLyricFontSize;
 
+  /// 歌词字体族名（系统字体）；空串 = 跟随界面字体
+  ///
+  /// 两处歌词共用：主界面歌词页作为 `TextStyle.fontFamily`，桌面歌词推给
+  /// Rust 的 GDI+ 侧。只认系统已安装的字体，取不到时那边会自动降级。
+  final String lyricFontFamily;
+
   /// 桌面歌词是否锁定（锁定 = 鼠标穿透）
   final bool desktopLyricLocked;
 
@@ -236,6 +243,7 @@ class PrefsSessionStore implements SessionStore {
   static const String volumeFadeKey = 'player_volume_fade';
   static const String desktopLyricsKey = 'ui_desktop_lyrics';
   static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
+  static const String lyricFontFamilyKey = 'ui_lyric_font';
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
   static const String desktopLyricXKey = 'ui_desktop_lyric_x';
   static const String desktopLyricYKey = 'ui_desktop_lyric_y';
@@ -326,6 +334,7 @@ class PrefsSessionStore implements SessionStore {
             (prefs.getInt(desktopLyricFontSizeKey) ??
                     desktopLyricFontSizeDefault)
                 .clamp(desktopLyricFontSizeMin, desktopLyricFontSizeMax),
+        lyricFontFamily: prefs.getString(lyricFontFamilyKey) ?? '',
         desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
         desktopLyricX: prefs.getInt(desktopLyricXKey),
         desktopLyricY: prefs.getInt(desktopLyricYKey),
@@ -431,6 +440,7 @@ class PrefsSessionStore implements SessionStore {
           desktopLyricFontSizeMax,
         ),
       );
+      await prefs.setString(lyricFontFamilyKey, snapshot.lyricFontFamily);
       await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
       final int? x = snapshot.desktopLyricX;
       final int? y = snapshot.desktopLyricY;

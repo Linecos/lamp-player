@@ -11,6 +11,7 @@ import 'package:lamp_player/src/app/memory_trim.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/common/frame_log.dart';
+import 'package:lamp_player/src/common/text/bundled_fonts.dart';
 import 'package:lamp_player/src/common/hang_log.dart';
 import 'package:lamp_player/src/common/memory_log.dart';
 import 'package:lamp_player/src/common/ui_clock.dart';
@@ -36,6 +37,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 卡死 / 闪退的现场记录（%TEMP%\lamp-player-hang.log），要最先起来
   startHangLog();
+  // 随安装包分发的歌词字体（MiSans）：缺文件只是注册不上，不影响启动
+  await registerBundledFonts();
   // 封面缓存默认 100MB，对桌面窗口来说远大于一屏能看的数量，先收紧再挂界面
   configureImageCache();
 
