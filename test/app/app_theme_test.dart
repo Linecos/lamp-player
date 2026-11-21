@@ -26,6 +26,27 @@ void main() {
     }
   });
 
+  test('传入界面字体时整棵主题换族，回退链不变', () {
+    final ThemeData custom = AppTheme.light(
+      AppTheme.defaultSeed,
+      fontFamily: 'SimSun',
+    );
+    expect(custom.textTheme.bodyMedium?.fontFamily, 'SimSun');
+    expect(custom.textTheme.titleLarge?.fontFamily, 'SimSun');
+    expect(
+      custom.textTheme.bodyMedium?.fontFamilyFallback,
+      contains('Microsoft YaHei UI'),
+      reason: '换族只换首选，中文回退链还得在',
+    );
+
+    // 空串 = 用默认，别把 fontFamily 设成空家族导致整界面掉到系统默认
+    final ThemeData fallback = AppTheme.light(
+      AppTheme.defaultSeed,
+      fontFamily: '',
+    );
+    expect(fallback.textTheme.bodyMedium?.fontFamily, 'Microsoft YaHei Light');
+  });
+
   test('调色板风格清单完整且互不重复', () {
     expect(
       AppTheme.variantOptions,

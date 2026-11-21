@@ -36,6 +36,9 @@ extension _SettingsSection on _LibraryPageState {
             lyricFont: _lyricFontFamily,
             onLyricFontChanged: (String family) =>
                 unawaited(_setLyricFontFamily(family)),
+            // 界面字体存在主题控制器里；换过之后要把新字体重推给桌面歌词
+            onInterfaceFontChanged: () =>
+                unawaited(_syncDesktopLyricFontFamily()),
             outputDevice: _outputDevice,
             onOutputDeviceChanged: _isAvailable && !_switchingOutput
                 ? (int index) => unawaited(_setOutputDevice(index))
