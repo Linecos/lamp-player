@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../common/text/lyric_font.dart';
 import '../../theme/app_theme.dart';
 
 /// 主题状态：深浅模式 + 强调色种子。改动立即生效，并异步写入本地存储。
@@ -27,6 +28,9 @@ class ThemeController extends ChangeNotifier {
   /// 高对比存储键：'1' / '0'。
   static const String contrastPrefsKey = 'theme_contrast';
 
+  /// 界面字体存储键：字体族名，空串 = 默认（微软雅黑 Light）。
+  static const String fontPrefsKey = 'theme_font';
+
   /// 上次封面色存储键：0xAARRGGBB 的十进制字符串。
   ///
   /// 与 [seedPrefsKey] 分开：那个记的是「模式」（跟随封面只写一个哨兵值），
@@ -52,6 +56,7 @@ class ThemeController extends ChangeNotifier {
   Color? _seedColor;
   DynamicSchemeVariant _variant = AppTheme.defaultVariant;
   bool _highContrast = false;
+  String _fontFamily = '';
 
   /// 系统强调色缓存；由外部（启动时 / 切到跟随系统时）注入
   Color? _systemAccent;
@@ -83,6 +88,9 @@ class ThemeController extends ChangeNotifier {
 
   /// 是否用高对比色阶（contrastLevel = 1.0）。
   bool get highContrast => _highContrast;
+
+  /// 界面字体族名；空串 = 默认字体（[AppTheme.fontFamily]）。
+  String get fontFamily => _fontFamily;
 
   /// 是否跟随封面取色。
   ///
@@ -165,6 +173,14 @@ class ThemeController extends ChangeNotifier {
       );
       if (savedContrast != null && savedContrast != _highContrast) {
         _highContrast = savedContrast;
+        changed = true;
+      }
+      // 早先随包发过 MiSans 的四个字重，存档里可能是旧别名：过一遍归一
+      final String savedFont = normalizeLyricFontFamily(
+        prefs.getString(fontPrefsKey) ?? '',
+      );
+      if (savedFont != _fontFamily) {
+        _fontFamily = savedFont;
         changed = true;
       }
       if (changed) {
@@ -311,6 +327,27 @@ class ThemeController extends ChangeNotifier {
       await prefs.setString(contrastPrefsKey, value ? '1' : '0');
     } catch (error) {
       debugPrint('保存高对比设置失败：$error');
+    }
+  }
+
+  /// 切换界面字体；空串 = 回到默认（微软雅黑 Light）。
+  Future<void> setFontFamily(String family) async {
+    final String name = family.trim();
+    if (_disposed || name == _fontFamily) {
+      return;
+    }
+    _userChanged = true;
+    _fontFamily = name;
+    notifyListeners();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      if (name.isEmpty) {
+        await prefs.remove(fontPrefsKey);
+      } else {
+        await prefs.setString(fontPrefsKey, name);
+      }
+    } catch (error) {
+      debugPrint('保存界面字体失败：$error');
     }
   }
 

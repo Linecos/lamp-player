@@ -393,4 +393,47 @@ void main() {
     await controller.setFollowCover(false);
     expect(controller.effectiveVariant, DynamicSchemeVariant.tonalSpot);
   });
+
+  test('界面字体默认是空串，切换后落盘并通知界面', () async {
+    final ThemeController controller = ThemeController();
+    expect(controller.fontFamily, isEmpty);
+
+    int notified = 0;
+    controller.addListener(() => notified += 1);
+    await controller.setFontFamily('SimSun');
+
+    expect(controller.fontFamily, 'SimSun');
+    expect(notified, 1);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.fontPrefsKey), 'SimSun');
+
+    // 同值再设一次不重复通知、不重复写盘
+    await controller.setFontFamily('SimSun');
+    expect(notified, 1);
+
+    // 回到默认 = 删键
+    await controller.setFontFamily('');
+    expect(controller.fontFamily, isEmpty);
+    expect(prefs.getString(ThemeController.fontPrefsKey), isNull);
+  });
+
+  test('restore 读取已保存的界面字体，并把旧字重别名归一', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      ThemeController.fontPrefsKey: 'SimSun',
+    });
+    final ThemeController controller = ThemeController();
+    await controller.restore();
+    expect(controller.fontFamily, 'SimSun');
+
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      ThemeController.fontPrefsKey: 'MiSans Bold',
+    });
+    final ThemeController legacy = ThemeController();
+    await legacy.restore();
+    expect(
+      legacy.fontFamily,
+      'MiSans Bold',
+      reason: '字体没注册时原样保留，注册后由下拉归一到 MiSans',
+    );
+  });
 }

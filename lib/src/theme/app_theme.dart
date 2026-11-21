@@ -124,17 +124,22 @@ abstract final class AppTheme {
     'sans-serif',
   ];
 
+  /// 界面字体（默认 [fontFamily]）。传入 `null` 或空串表示用默认字体。
+  ///
+  /// 设置里的「界面字体」改的就是它：整棵界面共用一套字体，回退链不变。
   static ThemeData light(
     Color seed, {
     DynamicSchemeVariant variant = defaultVariant,
     double contrastLevel = 0,
-  }) => _build(Brightness.light, seed, variant, contrastLevel);
+    String? fontFamily,
+  }) => _build(Brightness.light, seed, variant, contrastLevel, fontFamily);
 
   static ThemeData dark(
     Color seed, {
     DynamicSchemeVariant variant = defaultVariant,
     double contrastLevel = 0,
-  }) => _build(Brightness.dark, seed, variant, contrastLevel);
+    String? fontFamily,
+  }) => _build(Brightness.dark, seed, variant, contrastLevel, fontFamily);
 
   /// 清掉字阶里的字距。
   ///
@@ -165,6 +170,7 @@ abstract final class AppTheme {
     Color seed,
     DynamicSchemeVariant variant,
     double contrastLevel,
+    String? fontFamily,
   ) {
     final ColorScheme scheme = schemeOf(
       seed,
@@ -173,10 +179,13 @@ abstract final class AppTheme {
       contrastLevel: contrastLevel,
     );
 
+    final String? chosen = fontFamily?.trim();
     final ThemeData theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      fontFamily: fontFamily,
+      fontFamily: (chosen == null || chosen.isEmpty)
+          ? AppTheme.fontFamily
+          : chosen,
       fontFamilyFallback: fontFallback,
       appBarTheme: const AppBarTheme(centerTitle: false),
       visualDensity: VisualDensity.adaptivePlatformDensity,

@@ -116,11 +116,13 @@ class _LampAppState extends State<LampApp> {
               _theme.effectiveSeed,
               variant: _theme.effectiveVariant,
               contrastLevel: _theme.highContrast ? 1.0 : 0.0,
+              fontFamily: _theme.fontFamily,
             ),
             darkTheme: AppTheme.dark(
               _theme.effectiveSeed,
               variant: _theme.effectiveVariant,
               contrastLevel: _theme.highContrast ? 1.0 : 0.0,
+              fontFamily: _theme.fontFamily,
             ),
             // 不用 MaterialApp 自带的 200ms ThemeData 过渡：那意味着每一帧换
             // 一次配色，而曲库页的分区快照是按「建快照那一刻的颜色」定死的，
