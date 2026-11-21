@@ -8,6 +8,7 @@ export 'formatters/duration.dart';
 export 'formatters/file_size.dart';
 export 'lamp_icons.dart';
 export 'scroll/smooth_scroll.dart';
+export 'text/bundled_fonts.dart';
 export 'text/lyric_font.dart';
 export 'widgets/album_cover.dart';
 export 'widgets/artist_avatar.dart';
