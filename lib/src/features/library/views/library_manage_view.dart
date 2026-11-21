@@ -230,6 +230,7 @@ class LibraryManageView extends StatelessWidget {
                       title: '音乐目录',
                       count: '${folders.length} 个',
                       trailing: IconButton(
+                        key: const ValueKey<String>('library-add-folder'),
                         tooltip: '添加音乐目录',
                         onPressed: scanning ? null : onAddFolder,
                         visualDensity: VisualDensity.compact,
