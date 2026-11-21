@@ -347,6 +347,26 @@ void main() {
       expect(position, isA<SmoothScrollPosition>());
     });
 
+    testWidgets('子界面里多选只勾这一档', (WidgetTester tester) async {
+      await pumpLibrary(tester, tracks: mixedQualityTracks());
+      await openLibrarySettings(tester);
+      await tester.tap(find.textContaining('HR · '));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('library-selection-toggle')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('track-select-all')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('已选 2 首'),
+        findsOneWidget,
+        reason: 'HR 只有甲、乙两首，全选不该把别的档算进来',
+      );
+    });
+
     testWidgets('子界面里点播放全部只放这一档', (WidgetTester tester) async {
       final FakePlaybackService playback = FakePlaybackService(
         isAvailable: true,
