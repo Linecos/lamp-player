@@ -55,6 +55,7 @@ class SettingsView extends StatelessWidget {
     this.shortcuts = kDefaultShortcuts,
     this.flowBackground = true,
     this.onFlowBackgroundChanged,
+    this.onInterfaceFontChanged,
     this.circularCovers = false,
     this.onCircularCoversChanged,
     this.autoUpdateCheck = false,
@@ -122,6 +123,10 @@ class SettingsView extends StatelessWidget {
 
   /// 换歌词字体；为空表示不可操作
   final ValueChanged<String>? onLyricFontChanged;
+
+  /// 界面字体换过之后的通知（值本身在 [ThemeController] 里）：曲库页据此把
+  /// 新字体重推给桌面歌词窗口，歌词选「跟随界面字体」时那边才跟着变
+  final VoidCallback? onInterfaceFontChanged;
 
   /// 切换 ReplayGain；为空表示当前不可操作
   final ValueChanged<bool>? onReplayGainChanged;
@@ -342,6 +347,7 @@ class SettingsView extends StatelessWidget {
       const _ThemeRow(),
       const _DynamicThemeRow(),
       const _AccentColorRow(),
+      _InterfaceFontRow(onChanged: onInterfaceFontChanged),
       _SwitchRow(
         icon: Icons.auto_awesome,
         title: '动态流光背景',
@@ -898,6 +904,49 @@ class _ThemeRow extends StatelessWidget implements SettingsSearchable {
           shape: const StadiumBorder(),
           textStyle: theme.textTheme.bodyMedium,
         ),
+      ),
+    );
+  }
+}
+
+/// 「界面字体」：整棵界面用的字体族，默认是主题里写死的微软雅黑 Light。
+///
+/// 与「歌词字体」是两件事：这一项改的是全局主题字体（歌词选「跟随界面字体」
+/// 时也跟着变），歌词那一项只覆盖歌词。
+class _InterfaceFontRow extends StatelessWidget implements SettingsSearchable {
+  const _InterfaceFontRow({this.onChanged});
+
+  /// 字体换过之后的通知（值本身存在 [ThemeController] 里）
+  final VoidCallback? onChanged;
+
+  @override
+  String get searchText => '界面字体 字体 外观 中文';
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeController? controller = ThemeScope.maybeOf(context);
+    final String family = controller?.fontFamily ?? '';
+    return _ChoiceRow<String>(
+      icon: Icons.font_download_outlined,
+      title: '界面字体',
+      // 许可协议要求「在软件中特别注明使用了 MiSans 字体」：选中时写明出处
+      subtitle: isBundledMiSansFamily(family)
+          ? 'MiSans（小米）· MiSans 字体知识产权许可协议'
+          : '整个界面生效，歌词单独设置',
+      value: family,
+      choices: interfaceFontChoices(),
+      onChanged: controller == null
+          ? null
+          : (String picked) {
+              // setFontFamily 先更新字段再 await 写盘，这里读到的已是新值
+              unawaited(controller.setFontFamily(picked));
+              onChanged?.call();
+            },
+      choiceKey: const ValueKey<String>('settings-interface-font'),
+      // 每个选项用它代表的字体画：选之前就能看出字形
+      itemStyle: (String picked) => TextStyle(
+        fontFamily: interfaceFontFamilyOrNull(picked),
+        fontSize: 15,
       ),
     );
   }

@@ -1233,4 +1233,51 @@ void main() {
     // DropdownButton 里没有这一项时不崩，显示退到首项
     expect(find.text('跟随界面字体'), findsWidgets);
   });
+
+  testWidgets('界面字体行可切换：改的是主题控制器，不是歌词字体', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    final List<String> lyricPicks = <String>[];
+    int interfaceNotices = 0;
+    await tester.pumpWidget(
+      ThemeScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: AppTheme.light(AppTheme.defaultSeed),
+          home: Scaffold(
+            body: SettingsView(
+              lyricFont: '',
+              onLyricFontChanged: lyricPicks.add,
+              onInterfaceFontChanged: () => interfaceNotices++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(
+      const ValueKey<String>('settings-interface-font'),
+    );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    expect(find.text('默认（微软雅黑 Light）'), findsWidgets);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('宋体').last);
+    await tester.pumpAndSettle();
+
+    expect(controller.fontFamily, 'SimSun');
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ThemeController.fontPrefsKey), 'SimSun');
+    // 换完要通知曲库页把新字体重推给桌面歌词
+    expect(interfaceNotices, 1);
+    // 界面字体与歌词字体是两件事，不能串台
+    expect(lyricPicks, isEmpty);
+  });
 }

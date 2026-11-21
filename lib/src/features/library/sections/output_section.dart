@@ -549,9 +549,22 @@ extension _OutputSection on _LibraryPageState {
     return _desktopLyricWindow;
   }
 
+  /// 桌面歌词该用的字体族。
+  ///
+  /// 歌词字体选了具体字体就用它；选「跟随界面字体」（空串）时取主题里的界面
+  /// 字体，两处歌词才不会一个是雅黑 UI、一个换了界面字体。
+  String get _desktopLyricFontFamily {
+    if (_lyricFontFamily.isNotEmpty) {
+      return _lyricFontFamily;
+    }
+    return ThemeScope.readOf(context)?.fontFamily ?? '';
+  }
+
   Future<void> _pushDesktopLyricSettings() async {
     await desktop_lyrics.desktopLyricsSetFontSize(size: _desktopLyricFontSize);
-    await desktop_lyrics.desktopLyricsSetFontFamily(family: _lyricFontFamily);
+    await desktop_lyrics.desktopLyricsSetFontFamily(
+      family: _desktopLyricFontFamily,
+    );
     await desktop_lyrics.desktopLyricsSetLocked(locked: _desktopLyricLocked);
     await desktop_lyrics.desktopLyricsSetPlaying(playing: _isPlaying);
   }
@@ -565,13 +578,22 @@ extension _OutputSection on _LibraryPageState {
       return;
     }
     _update(() => _lyricFontFamily = next);
+    await _syncDesktopLyricFontFamily();
+    _saveSessionNow();
+  }
+
+  /// 把当前该用的字体族推给桌面歌词窗口
+  ///
+  /// 两个来源都会走到这里：换歌词字体、换界面字体（歌词选「跟随」时）。
+  Future<void> _syncDesktopLyricFontFamily() async {
     try {
-      await desktop_lyrics.desktopLyricsSetFontFamily(family: next);
+      await desktop_lyrics.desktopLyricsSetFontFamily(
+        family: _desktopLyricFontFamily,
+      );
     } catch (error) {
       // 桌面歌词没开 / 窗口没建时这里是空操作，不该把设置项卡住
       debugPrint('同步歌词字体到桌面歌词失败：$error');
     }
-    _saveSessionNow();
   }
 
   /// 播放状态变化时同步给窗口：工具栏的播放 / 暂停字形跟着变

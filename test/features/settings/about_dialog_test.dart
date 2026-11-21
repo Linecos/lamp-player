@@ -27,7 +27,12 @@ void main() {
     await tester.pumpWidget(_app(const SettingsView()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Lamp Player'));
+    // 「外观」里多了界面字体一行，「关于」入口要滚到可见处才点得到
+    final Finder aboutRow = find.text('Lamp Player');
+    await tester.scrollUntilVisible(aboutRow, 240);
+    await tester.pumpAndSettle();
+
+    await tester.tap(aboutRow);
     await tester.pumpAndSettle();
 
     expect(find.byType(AppAboutDialog), findsOneWidget);
