@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/app/app_lifecycle.dart';
+import 'package:lamp_player/src/app/first_frame_reveal.dart';
 import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/memory_guard.dart';
 import 'package:lamp_player/src/app/memory_trim.dart';
@@ -105,6 +106,7 @@ Future<void> main() async {
   runApp(
     LampApp(themeController: theme, lifecycle: lifecycle, trayController: tray),
   );
+  _revealAfterFirstFrame();
 }
 
 /// 申请成为唯一实例；`false` 表示已有实例（已通知它把窗口亮出来）
@@ -149,6 +151,25 @@ Future<void> _runStartupError({String? title, required String message}) async {
     title == null
         ? LampStartupErrorApp(message: message)
         : LampStartupErrorApp(title: title, message: message),
+  );
+  _revealAfterFirstFrame();
+}
+
+/// 首帧真正光栅化之后再显示窗口。
+///
+/// 之前是在建窗回调里直接 `show()`：那会儿 Flutter 一帧都还没画，窗只能露出一块
+/// 空白（未上屏的交换链），也就是启动时闪过的那一下白。原生 runner 本来就在首帧
+/// 回调里 `Show()`（见 `windows/runner/flutter_window.cpp`），这里等同一个时机
+/// 再做显示 + 抢焦点 + 恢复计时，两边都不会抢在首帧前面。
+///
+/// 这条路径也覆盖「第二个实例」：单实例检查失败退出时，窗口还停在隐藏状态，
+/// 不会再闪一下空白框。
+void _revealAfterFirstFrame() {
+  unawaited(
+    revealOnFirstFrame(
+      WidgetsBinding.instance.waitUntilFirstFrameRasterized,
+      onRasterized: _showWindow,
+    ),
   );
 }
 
@@ -231,36 +252,30 @@ Future<void> _setupWindow(WindowSnapshot state) async {
       center: position == null,
       titleBarStyle: TitleBarStyle.hidden,
     );
-    // 等首帧就绪后再 show，避免先闪一下系统标题栏
-    unawaited(
-      windowManager.waitUntilReadyToShow(options, () async {
-        // 回调是 unawaited 的，抛出去就成了未处理异常；而且这几步互相独立，
-        // 位置 / 最大化失败都不该连累窗口显示不出来——那样程序看起来像没启动。
-        try {
-          if (position != null) {
-            await windowManager.setPosition(position);
-          }
-        } catch (error) {
-          debugPrint('恢复窗口位置失败：$error');
-        }
-        try {
-          if (state.maximized) {
-            await windowManager.maximize();
-          }
-        } catch (error) {
-          debugPrint('恢复最大化失败：$error');
-        }
-        try {
-          await windowManager.show();
-          UiClock.resume(_hiddenReason);
-          UiClock.resume(_minimizedReason);
-          _syncVisualActivity(visible: true);
-          await windowManager.focus();
-        } catch (error) {
-          debugPrint('显示窗口失败：$error');
-        }
-      }),
-    );
+    // 尺寸 / 位置 / 最大化必须**在首帧之前**全部落定，所以这里逐步 await，
+    // 不能用 unawaited 的回调：回调要等平台侧回来，实测会晚于首帧——runner 在
+    // 首帧回调里就把窗口 Show 出来（Dart 侧随后也 show 一次），geometry 还没定
+    // 好就会先露出默认的 1280×720@(10,10)，再跳成真正的窗口，
+    // 也就是「先别的地方闪一下，界面才在中间出现」。
+    await windowManager.waitUntilReadyToShow(options, null);
+    // 几步互相独立：位置 / 最大化失败都不该连累窗口显示不出来——那样程序
+    // 看起来像没启动
+    if (position != null) {
+      try {
+        await windowManager.setPosition(position);
+      } catch (error) {
+        debugPrint('恢复窗口位置失败：$error');
+      }
+    }
+    if (state.maximized) {
+      try {
+        await windowManager.maximize();
+      } catch (error) {
+        debugPrint('恢复最大化失败：$error');
+      }
+    }
+    // 这里只定位 / 定尺寸，**不 show**：等首帧光栅化再显示（见
+    // `_revealAfterFirstFrame`），否则会先露出一块没画内容的空白窗
   } catch (error) {
     debugPrint('窗口初始化失败（保留系统标题栏）：$error');
   }
