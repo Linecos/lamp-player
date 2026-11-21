@@ -19,9 +19,9 @@ class BundledFontFace {
 
   /// Flutter 侧 `TextStyle.fontFamily` 用的家族名。
   ///
-  /// MiSans 各字重在字体文件里**共用同一个家族名 `MiSans`**，字重靠子族
-  /// （Light / Regular / Medium / Bold）区分；要让用户能逐款选，注册时必须
-  /// 各起一个别名，否则 Flutter 侧只有一个「MiSans」可选。
+  /// 直接用字体文件里的家族名 `MiSans`。早先随包发过四个字重时，四个文件同名，
+  /// 注册到一起只剩一个可选值，才需要按字重各起别名；只发常规一款就没这个问题。
+  /// 存档里残留的旧别名（`MiSans Light` 等）由 [normalizeLyricFontFamily] 归一。
   final String family;
 
   /// 下拉里显示的名字
@@ -30,30 +30,15 @@ class BundledFontFace {
 
 /// MiSans 随包分发的字重。
 ///
-/// 官方包有 10 个静态字重 + 1 个可变字体，逐个全带会让安装包多出 80 MB；
-/// 这里只取歌词实际用得上的四款（细 / 常规 / 中黑 / 粗）。想加减字重就改
-/// `scripts/setup-misans.ps1` 里的同一张表，再在下面这行数组里对应增删即可，
-/// 其他代码都是遍历，不用动。
+/// 官方包有 10 个静态字重 + 1 个可变字体，全带会让安装包多出 80 MB。歌词只留
+/// 常规一款：想换粗细，下拉里还有系统字体那几款（雅黑 Light / 黑体 / 宋体等），
+/// 而每多带一个 MiSans 字重就是 8 MB 安装包。要再加字重就同步改
+/// `scripts/setup-misans.ps1` 里的同一张表，再在这里加一行——其他代码都是遍历。
 const List<BundledFontFace> kMiSansFaces = <BundledFontFace>[
   BundledFontFace(
-    asset: 'assets/fonts/misans/MiSans-Light.ttf',
-    family: 'MiSans Light',
-    label: 'MiSans 细体',
-  ),
-  BundledFontFace(
     asset: 'assets/fonts/misans/MiSans-Regular.ttf',
-    family: 'MiSans Regular',
-    label: 'MiSans 常规',
-  ),
-  BundledFontFace(
-    asset: 'assets/fonts/misans/MiSans-Medium.ttf',
-    family: 'MiSans Medium',
-    label: 'MiSans 中黑',
-  ),
-  BundledFontFace(
-    asset: 'assets/fonts/misans/MiSans-Bold.ttf',
-    family: 'MiSans Bold',
-    label: 'MiSans 粗体',
+    family: 'MiSans',
+    label: 'MiSans',
   ),
 ];
 
@@ -66,7 +51,8 @@ bool get misansAvailable => registeredBundledFamilies.isNotEmpty;
 /// 这个家族名是不是随包 MiSans 的别名（`MiSans`、`MiSans Light`…）
 ///
 /// GDI+ 那侧要把它归一成字体文件里的真实家族名。只认同名或以空格 / 连字符
-/// 分隔的后缀，避免把 `MiSansx` 这类名字也吞掉。
+/// 分隔的后缀，避免把 `MiSansx` 这类名字也吞掉。早先的四个字重别名仍按这个
+/// 规则命中，存档老值才不会断掉。
 bool isBundledMiSansFamily(String family) {
   final String name = family.trim().toLowerCase();
   return name == 'misans' ||
@@ -79,9 +65,6 @@ bool isBundledMiSansFamily(String family) {
 /// 为什么要运行时注册而不是写进 `pubspec` 的 `fonts:`：字体文件是被 gitignore
 /// 的，写进 `fonts:` 会让「没下载字体」的机器（包括 CI）构建直接失败；运行时
 /// 用 [FontLoader] 读资产，缺文件只是注册不上，程序照常跑。
-///
-/// 每款字重单独注册成一个家族（见 [BundledFontFace.family]）：字体文件里它们
-/// 同名，注册到一起就只剩一个可选值了。
 Future<void> registerBundledFonts() async {
   registeredBundledFamilies.clear();
   for (final BundledFontFace face in kMiSansFaces) {

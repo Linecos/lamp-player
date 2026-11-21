@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../common/audio/replay_gain.dart';
 import '../common/audio/volume_curve.dart';
+import '../common/text/lyric_font.dart';
 import '../features/library/library_sort.dart';
 import '../features/player/equalizer.dart';
 import '../features/player/lyric_alignment.dart';
@@ -334,7 +335,9 @@ class PrefsSessionStore implements SessionStore {
             (prefs.getInt(desktopLyricFontSizeKey) ??
                     desktopLyricFontSizeDefault)
                 .clamp(desktopLyricFontSizeMin, desktopLyricFontSizeMax),
-        lyricFontFamily: prefs.getString(lyricFontFamilyKey) ?? '',
+        lyricFontFamily: normalizeLyricFontFamily(
+          prefs.getString(lyricFontFamilyKey) ?? '',
+        ),
         desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
         desktopLyricX: prefs.getInt(desktopLyricXKey),
         desktopLyricY: prefs.getInt(desktopLyricYKey),
