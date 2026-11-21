@@ -1,8 +1,13 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.23（2026-11-21）**
+> **当前版本：v0.24（2026-11-22）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.24 变更：**补登记** `api::metadata::audio_channels(path) -> Result<i32>`
+> （2026-11-20 就已实现，元数据编辑页的「声道数」用它；`lofty` 的
+> `FileProperties::channels()`，不升 schema、不用重扫，读不到时调用方显示「—」）。
+> 纯新增，见 §14。
 >
 > v0.23 变更：**新增** `api::fonts::installed_font_families`（本机字体族枚举，
 > 供设置页「选择字体」弹窗）。纯新增，见 §16。
@@ -590,6 +595,7 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 | Rust 签名 | Dart 签名 | sync | 状态 |
 |---|---|---|---|
 | `read_track_tags(path: String) -> Result<TrackTags>` | `Future<TrackTags> readTrackTags({required String path})` | 否 | **已实现** |
+| `audio_channels(path: String) -> Result<i32>` | `Future<int> audioChannels({required String path})` | 否 | **已实现**（v0.24） |
 | `write_track_tags(path: String, tags: TrackTags) -> Result<TrackTags>` | `Future<TrackTags> writeTrackTags({required String path, required TrackTags tags})` | 否 | **已实现** |
 | `write_track_cover(path: String, source: String) -> Result<String>` | `Future<String> writeTrackCover({required String path, required String source})` | 否 | **已实现**（v0.18） |
 
@@ -614,6 +620,9 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   缓存里那张，调用方拿它更新 `Track.cover_path`。超过 1024 长边会缩、非 JPEG 会转 JPEG；
   缓存写失败不报错（下次扫描会重新提取），音频文件本身写失败才报错。
 - 自定义封面（艺术家 / 专辑 / 歌单）不走这里，走 `api::cover_override`。
+- `audio_channels`（v0.24）：只读文件属性拿声道数（`lofty` 的 `FileProperties::channels()`），
+  曲库不存这一列，所以每次打开元数据面板按需调用；文件读不到或格式不报时返回 0，
+  界面统一显示「—」。返回不在 `Track` 里，也不要为此加 schema。
 
 ## 15. 桌面歌词 `api::desktop_lyrics`
 
