@@ -70,10 +70,9 @@ class LyricsView extends StatefulWidget {
 /// 一下子的，看着就是一条看不见的边。改成两段缓冲后，alpha 是 S 形收尾，
 /// 边界感就散了。
 ///
-/// 顶部 [deadZone] 是**严格 0** 的死区，而且调用方必须把它落在行与行之间
-/// （见 [_LyricsViewState._deadZone]）。固定像素的死区一定会切在某一行中间：
-/// 上半截被抹掉、下半截留下来，看着就是顶上一排断断续续的横线（字的底笔）。
-/// 死区结束在行边界上，被裁的行整行消失，下面那行从 0 开始淡入，两头都干净。
+/// 顶部一段由 [LyricsView] 自己按行框顶边算（见 `_fadeInRamp`），这里只需要
+/// 把 [top] 之内的 alpha 给成 0、[top] 处到全不透明；传 0 就得到「顶部不淡、
+/// 只淡底部」的曲线。
 ///
 /// 底部一段按「丝带高度 [band] + 随高度缩放的过渡」算：最小窗口（900×560）里
 /// 歌词区只有 370 高，用固定值会把整个下半屏吃掉。过渡段最少 [_fadeRampMin]，
@@ -83,7 +82,6 @@ List<double> lyricFadeStops({
   required double height,
   required double top,
   required double band,
-  double deadZone = 0,
 }) {
   if (height <= 0) {
     return const <double>[0, 0, 0, 0, 1, 1, 1, 1];
@@ -94,7 +92,6 @@ List<double> lyricFadeStops({
   );
   final double bottom = (band + ramp).clamp(0.0, height);
   final double t = (top / height).clamp(0.0, 1.0);
-  final double d = (deadZone / height).clamp(0.0, t);
   final double b = (1 - bottom / height).clamp(0.0, 1.0);
   // 极矮的歌词区里两段会越过对方，取中点收成一条硬边，别让 stops 反序
   if (t > b) {
@@ -103,8 +100,8 @@ List<double> lyricFadeStops({
   }
   return <double>[
     0,
-    d,
-    d + (t - d) * 0.7,
+    t * 0.5,
+    t * 0.8,
     t,
     b,
     b + (1 - b) * 0.3,
@@ -165,32 +162,13 @@ double _fadeAlpha(double t, List<double> stops) {
   return _fadeColors.last.a;
 }
 
-/// 行框顶边到字迹顶边的距离：9px 内边距 + 字体自身的行距（实测 15~17px）。
+/// 顶部渐显走多少像素：约一行高（普通行 55、当前行 59）。
 ///
-/// 淡入段必须从这里才开始算。从行框顶边起算的话，等画到字的时候淡入段已经
-/// 走掉七成，最上面那行字一出现就是七成亮度，看着像半截残影。
-const double _fadeTopOffset = 13;
-
-/// 顶部淡出：字迹出现之后还要多少像素才渐显到全不透明。
-///
-/// 死区落在「视口内第一条完整行」的顶边上（见 [_LyricsViewState._topBoundary]），
-/// 被上沿裁掉的行整行消失，不会切出半截字。剩下这行从字迹顶边开始淡入，
-/// 30px 大约走到行框底边，正好在自身高度里走完。
-const double _fadeTopRamp = 30;
-
-/// 量不到行位置时的兜底：按一整行算（普通行约 50、当前行约 59），乘 0.5
-const double _fadeTop = 120;
-
-/// 死区在行边界上再往下多盖的像素。
-///
-/// 行内下内边距 9px，最远的行模糊 σ=3.2、高斯支撑约 3σ≈10px：底笔会溢出
-/// 行框约 1px。死区正好卡在行框边界时，这一截就从渐显段漏出来（顶部那排虚线）。
-const double _deadZoneGuard = 2;
-
-/// 死区下边界：下一行的行框顶边再让出 [_deadZoneGuard]，上限取歌词区高度的 42%
-@visibleForTesting
-double deadZoneBoundary(double nextTop, double height) =>
-    (nextTop + _deadZoneGuard).clamp(0.0, height * 0.42);
+/// 按**行框顶边**连续取值，不再按「死区落在行边界」跳：行跨过原来那条线时
+/// alpha 会从半亮一步掉到 0，滚轮一格 100+ px 更明显，看着就是整块消失。
+/// 连续收尾之后行还没被裁就开始变暗，滚出上沿时正好是 0；而被裁的行顶边
+/// 必然小于 0，也顺带归零，不会切出半截字（原来死区要防的就是这个）。
+const double _fadeInRamp = 56;
 
 /// 隔了 [distance] 行的模糊强度 σ（0 = 不糊）。
 ///
@@ -301,10 +279,6 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   /// 每行外层（[Transform]）的 key。不能用正文那个：正文在 Transform 里面，
   /// `getOffsetToReveal` 会把弹簧位移一起算进去，目标位置就跟着弹簧飘了
   late List<GlobalKey> _lineKeys;
-
-  /// 视口里第一行的下标。滚动是连续的，每次从它挪几步就能找到新位置，
-  /// 不必全量测量（全屏能露出二十多行）
-  int _firstVisible = 0;
 
   /// 每行译文块的 key：量它的**自然高度**（不受折叠进度影响），用来算补偿量
   late List<GlobalKey> _translationKeys;
@@ -417,7 +391,6 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _keys = _buildKeys();
       _lineKeys = _buildKeys();
       _translationKeys = _buildKeys();
-      _firstVisible = 0;
       _activeNotifier.value = -1;
       _smooth.value = _base;
       _activeNotifier.value = _indexAt(_base);
@@ -1054,21 +1027,16 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (height <= 0) {
       return;
     }
-    // 与旧的遮罩用同一套曲线：顶部死区（行边界）+ 字迹起的淡入段 + 底部丝带
-    final double deadZone = _topBoundary(height, shiftY) + _fadeTopOffset;
-    final double top = math.min(deadZone + _fadeTopRamp, height * 0.5);
+    // 只需要底部的「丝带 + 过渡段」：顶部交给下面按行框顶边的连续渐显，
+    // 走 stops 的话它会和死区/行边界一起跳，反而画出硬切。
     final List<double> stops = lyricFadeStops(
       height: height,
-      top: top,
+      top: 0,
       band: widget.edgeFadeBand,
-      deadZone: deadZone,
     );
     // 默认全量跑一遍：没进视口的行没有 RenderObject，下面会整段跳过，代价只是
-    // 一次 null 检查。**不能**按「上一帧的第一行」往下数 32 行开窗——点歌词 /
-    // 拖进度条是大跳，上一帧那行早就没布局了，[_firstVisible] 会卡在旧值上，
-    // 窗口落到别处，真正可见的行保留旧 alpha，画面上就是一条一条的暗带。
-    //
-    // 弹簧跟拍是每帧都调的，那时只有当前行附近的几十行会动，用 [around] 收窄。
+    // 一次 null 检查。弹簧跟拍是每帧都调的，那时只有当前行附近的几十行会动，
+    // 用 [around] 收窄。
     final int start = around == null ? 0 : math.max(0, around - 24);
     final int end = around == null ? count : math.min(count, around + 40);
     for (int i = start; i < end; i += 1) {
@@ -1091,12 +1059,14 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
             layoutTop -
             _layoutOffset(text, line).dy;
         final double y = layoutTop + spring + shiftY;
-        value = lyricRowOpacity(
-          top: y,
-          bottom: y + line.size.height,
-          height: height,
-          stops: stops,
-        );
+        value =
+            lyricRowOpacity(
+              top: y,
+              bottom: y + line.size.height,
+              height: height,
+              stops: stops,
+            ) *
+            _topFadeIn(y);
       }
       // 当前行不吃上下沿渐隐——但只在**没人滚它**的时候。
       //
@@ -1115,6 +1085,21 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
         notifier.value = value;
       }
     }
+  }
+
+  /// 顶部渐显：行框顶边从视口上沿（0）往上 [_fadeInRamp] 内线性淡入。
+  ///
+  /// 取「行框顶边」而不是取区间平均：顶边一旦小于 0 就说明这行已经被视口裁了，
+  /// 直接归零，不会露出半截字；而顶边还在 0 之上时是连续的，不会出现整块跳掉。
+  double _topFadeIn(double y) {
+    if (y <= 0) {
+      return 0;
+    }
+    if (y >= _fadeInRamp) {
+      return 1;
+    }
+    final double t = y / _fadeInRamp;
+    return t * t * (3 - 2 * t);
   }
 
   /// 布局之后再刷一次渐隐（同一帧里多次调用只排一次）。
@@ -1163,82 +1148,12 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _refreshRowOpacity();
     });
   }
-
-  /// 顶部死区的下边界：被视口上沿裁掉的那行整行消失，从下一行的顶边才开始
-  /// 渐显。没有行被裁（最上面那行完整）时返回 0，走正常的顶部渐隐。
-  ///
-  /// 死区必须按行边界走，不能用固定像素：固定值必然切在某一行中间，那一行的
-  /// 上半截被抹掉、下半截留下来，就是顶部那排断断续续的横线（字的底笔）。
-  double _topBoundary(double height, [double shiftY = 0]) {
-    final RenderObject? self = context.findRenderObject();
-    final int last = widget.lines.length - 1;
-    if (self == null || last < 0) {
-      return 0;
-    }
-
-    ({double top, double bottom})? bounds(int index) {
-      final RenderObject? box = _lineKeys[index].currentContext
-          ?.findRenderObject();
-      if (box is! RenderBox || !box.hasSize || !box.attached) {
-        return null;
-      }
-      final double top =
-          box.localToGlobal(Offset.zero, ancestor: self).dy + shiftY;
-      return (top: top, bottom: top + box.size.height);
-    }
-
-    // 从上次的位置滚动挪到「第一行还留在视口里的」。
-    //
-    // 不能拿 [active] 当起点：用户手动拖过之后当前行可能已经在视口外；也不能
-    // 固定往前数几行——全屏时歌词区一千多像素、二十来行，顶部那行离当前行很
-    // 远，数少了就漏掉它，于是误判成「最上面那行完整」、死区给 0，被裁的那行
-    // 就露出来了（顶部那排横线）。滚动是连续的，从上次的位置挪几步就够。
-    int first = _firstVisible.clamp(0, last);
-    while (first > 0) {
-      final ({double top, double bottom})? prev = bounds(first - 1);
-      if (prev == null || prev.bottom <= 0.5) {
-        break;
-      }
-      first -= 1;
-    }
-    while (first < last) {
-      final ({double top, double bottom})? cur = bounds(first);
-      if (cur == null || cur.bottom > 0.5) {
-        break;
-      }
-      first += 1;
-    }
-    _firstVisible = first;
-
-    final ({double top, double bottom})? head = bounds(first);
-    if (head == null) {
-      return _fallbackDeadZone(height);
-    }
-    if (head.top >= -0.5) {
-      // 最上面这行是完整的：不需要死区
-      return 0;
-    }
-    // 这行被上沿裁了：死区推到下一行的顶边，让它整行消失
-    if (first < last) {
-      final ({double top, double bottom})? next = bounds(first + 1);
-      if (next != null && next.top > 0) {
-        return deadZoneBoundary(next.top, height);
-      }
-    }
-    return _fallbackDeadZone(height);
-  }
-
-  /// 量不到行位置时的兜底：按一行的高度估（22×1.45 + 上下各 9）
-  double _fallbackDeadZone(double height) {
-    return math.min(_fadeTop, height * 0.38) * 0.5;
-  }
 }
 
 /// 与 [lyricFadeStops] 的 8 个 stop 一一对应的 alpha（S 形收尾）。
 ///
-/// 顶部前两档都是 0，一直盖到 [lyricFadeStops] 的 0.5 处（[_fadeTop] 的一半，
-/// 约一整行高）：被视口裁掉的行最多露这么多，再往下才允许出现任何亮度。
-/// 底部保持原来的 70% / 12%，往下淡出不需要那么陡。
+/// 顶部前两档是 0，只有 [lyricFadeStops] 传了非 0 的 `top` 才用得上；底部
+/// 保持原来的 70% / 12%，往下淡出不需要那么陡。
 const List<Color> _fadeColors = <Color>[
   Color(0x00FFFFFF),
   Color(0x00FFFFFF),

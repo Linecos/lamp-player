@@ -1144,31 +1144,20 @@ void main() {
   });
 
   test('上下淡出的 stops：两端各留缓冲，底部盖过丝带再留一段过渡', () {
-    // 死区由「视口内第一条完整行的顶边」决定，这里取一行的高度
-    final List<double> stops = lyricFadeStops(
-      height: 700,
-      top: 120,
-      band: 78,
-      deadZone: 60,
-    );
+    final List<double> stops = lyricFadeStops(height: 700, top: 120, band: 78);
     expect(stops, hasLength(8), reason: '两端各三段缓冲，中间两段全不透明');
     expect(stops.first, 0);
     expect(stops.last, 1);
-    expect(
-      stops[1] * 700,
-      closeTo(60, 0.5),
-      reason: '死区边界落在行与行之间，死区内 alpha 恒为 0',
-    );
     expect(stops[3] * 700, closeTo(120, 0.5), reason: '顶部过渡到 120 走完');
-    expect(stops[2], greaterThan(stops[1]), reason: '死区结束后仍要有渐变段，不能变成硬切');
-    // 死区比渐变还高时夹住，别让 stops 反序
+    expect(stops[1], greaterThan(0), reason: '顶部走完之前要有缓冲段，不能一步跳');
+    expect(stops[2], greaterThan(stops[1]), reason: '缓冲段里 alpha 逐级涨，不能变成硬切');
+    // 顶部长过底部起点时夹住，别让 stops 反序
     final List<double> clamped = lyricFadeStops(
       height: 700,
-      top: 60,
+      top: 600,
       band: 78,
-      deadZone: 200,
     );
-    expect(clamped[1], closeTo(60 / 700, 1e-9));
+    expect(clamped[1], clamped[3], reason: '顶部长过底部起点时收成一条硬边，stops 不能反序');
     final double bottom = (1 - stops[4]) * 700;
     expect(
       bottom,
@@ -1176,14 +1165,6 @@ void main() {
       reason: '盖住 78 高的频谱丝带之后还要有过渡段',
     );
     expect(bottom, lessThan(700 / 2), reason: '别把半个歌词区都吃掉');
-  });
-
-  test('死区越过行框边界 2px：模糊底笔不会从渐显段漏出', () {
-    // 行内下内边距 9px，最远行的模糊 σ=3.2 会外溢约 10px，正好越过行框 1px
-    expect(deadZoneBoundary(20, 700), closeTo(22, 1e-9));
-    expect(deadZoneBoundary(0, 700), closeTo(2, 1e-9));
-    // 上限仍按歌词区高度的 42% 夹住
-    expect(deadZoneBoundary(600, 700), closeTo(700 * 0.42, 1e-9));
   });
 
   test('模糊强度逐级递增，中间不许有空档', () {
@@ -1229,18 +1210,13 @@ void main() {
     }
   });
 
-  test('边界渐隐曲线：顶部死区 0、中间 1、底部淡出', () {
-    // 600 高的视口、顶部死区 45 + 淡入段到 90、底部丝带 78
-    final List<double> stops = lyricFadeStops(
-      height: 600,
-      top: 90,
-      band: 78,
-      deadZone: 45,
-    );
+  test('边界渐隐曲线：顶部淡入、中间 1、底部淡出', () {
+    // 600 高的视口、顶部渐显到 90、底部丝带 78
+    final List<double> stops = lyricFadeStops(height: 600, top: 90, band: 78);
     expect(
       lyricRowOpacity(top: 0, bottom: 40, height: 600, stops: stops),
       0,
-      reason: '死区里的行整行不可见',
+      reason: '顶部渐显段里的行整行不可见',
     );
     expect(
       lyricRowOpacity(top: 260, bottom: 300, height: 600, stops: stops),
@@ -1449,6 +1425,75 @@ void main() {
         rows[2].value - rows[0].value,
         greaterThan(0.1),
         reason: '顶部没有渐变：跳格之后整段都是同一个亮度',
+      );
+    });
+
+    testWidgets('滚轮一格一格往下滚，顶部每行的 alpha 连续变化，不会整块跳掉', (
+      WidgetTester tester,
+    ) async {
+      // 顶部渐隐按行框顶边连续取值。以前是「死区 + 淡入段」：死区落在行边界上，
+      // 行跨过那条线的瞬间 alpha 从半亮一步掉到 0，滚轮一格 100+ px 更明显，
+      // 画面上就是向上滚的行整块消失。这条用例盯的就是「不许出现这种台阶」。
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+      );
+      await tester.pumpAndSettle();
+
+      final ScrollPosition scroll = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final Rect viewport = tester.getRect(find.byType(ListView));
+
+      // 每行按「行框顶边」记一串 alpha，步长 5px（比滚轮一格细得多，
+      // 这样任何台阶都会暴露成相邻两帧的大跳变）
+      final Map<int, List<double>> trace = <int, List<double>>{};
+      for (int step = 0; step < 120; step += 1) {
+        scroll.jumpTo(scroll.pixels + 5);
+        await tester.pump();
+        for (int i = 0; i < 24; i += 1) {
+          final Finder row = find.byKey(ValueKey<String>('lyric-$i'));
+          if (row.evaluate().isEmpty) {
+            continue;
+          }
+          final double top = tester.getRect(row).top - viewport.top;
+          if (top < 0 || top > viewport.height * 0.5) {
+            continue;
+          }
+          final Finder text = find.descendant(
+            of: row,
+            matching: find.byType(Text),
+          );
+          if (text.evaluate().isEmpty) {
+            continue;
+          }
+          trace
+              .putIfAbsent(i, () => <double>[])
+              .add(tester.widget<Text>(text.first).style?.color?.a ?? -1);
+        }
+      }
+      expect(trace.length, greaterThan(3), reason: '顶部那几行都要被记到');
+
+      double biggestJump = 0;
+      for (final List<double> values in trace.values) {
+        for (int k = 1; k < values.length; k += 1) {
+          biggestJump = math.max(
+            biggestJump,
+            (values[k] - values[k - 1]).abs(),
+          );
+        }
+      }
+      expect(
+        biggestJump,
+        lessThan(0.2),
+        reason: '顶部行的 alpha 出现台阶：行在跨过某条线时整块跳掉了',
       );
     });
 
