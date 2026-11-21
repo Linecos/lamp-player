@@ -7,7 +7,7 @@
 
 ### 新增
 
-- **歌词字体加入 MiSans（小米）**：字体随安装包分发，不必装到系统里也能选。许可协议禁止「单独再分发字体文件」，所以字体不进仓库，改由 `scripts/setup-misans.ps1` 从小米官网下载（227 MB 官方全字重包，只取 Regular + Demibold 两个字重，约 16 MB）到 `assets/fonts/misans/`（gitignore），构建时打进 bundle；没跑脚本时选项里不显示 MiSans，其余功能照旧。主界面歌词用运行时 `FontLoader` 注册（不写进 `pubspec` 的 `fonts:`，否则没下载字体的机器连构建都过不去）；桌面歌词那侧走 GDI+ 私有字体集合（`GdipPrivateAddFontFile`），系统没装也能画，取不到就退回雅黑 UI。按协议要求在设置页副标题与关于弹窗注明字体出处，许可证 PDF 随包附带
+- **歌词字体加入 MiSans（小米），四个字重可选**：字体随安装包分发，不必装到系统里也能选。许可协议禁止「单独再分发字体文件」，所以字体不进仓库，改由 `scripts/setup-misans.ps1` 从小米官网下载（227 MB 官方全字重包，只取 Light / Regular / Medium / Bold 四个字重，约 32 MB）到 `assets/fonts/misans/`（gitignore），构建时打进 bundle；没跑脚本时选项里不显示 MiSans，其余功能照旧。四个字重在字体文件里共用家族名 `MiSans`，主界面按字重各注册成一个家族别名（`MiSans Light` 等），下拉里才能逐款选；桌面歌词那侧走 GDI+ 私有字体集合（`GdipPrivateAddFontFile`），GDI+ 只能按真实家族名建字体，所以四个别名在窗口里合并为 `MiSans` 一族（歌词正文固定用粗体）。系统没装也能画，取不到就退回雅黑 UI。按协议要求在设置页副标题与关于弹窗注明字体出处，许可证 PDF 随包附带
 
 ### 新增
 

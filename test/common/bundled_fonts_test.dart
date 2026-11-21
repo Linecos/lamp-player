@@ -15,7 +15,9 @@ double _width(String text, String? family) {
 }
 
 void main() {
-  testWidgets('注册后 MiSans 的字形真的生效（不是回退字体）', (WidgetTester tester) async {
+  tearDown(registeredBundledFamilies.clear);
+
+  testWidgets('注册后各字重分别生效（不是都回退到系统字体）', (WidgetTester tester) async {
     await registerBundledFonts();
     if (!misansAvailable) {
       // 没跑过 scripts/setup-misans.ps1（比如 CI）：跳过而不是失败
@@ -24,13 +26,19 @@ void main() {
     }
 
     const String sample = '夜色温柔 Abc 123';
-    final double withMiSans = _width(sample, miSansFamily);
-    final double withTheme = _width(sample, AppTheme.fontFamily);
+    final String light = kMiSansFaces.first.family;
+
+    // 四款都注册上了：别名不同，家族就不会互相覆盖
+    expect(registeredBundledFamilies.length, kMiSansFaces.length);
     expect(
-      withMiSans,
-      isNot(closeTo(withTheme, 1.0)),
-      reason: '两者宽度一致说明 MiSans 没注册上、只是回退到了系统字体',
+      _width(sample, light),
+      isNot(closeTo(_width(sample, AppTheme.fontFamily), 1.0)),
+      reason: '宽度与主题字体一致说明没注册上、只是回退',
     );
+    // 每款都有实际字宽（不是空家族导致 0 宽）
+    for (final BundledFontFace face in kMiSansFaces) {
+      expect(_width(sample, face.family), greaterThan(0));
+    }
   });
 
   testWidgets('字体包缺失时不抛异常，标记为不可用', (WidgetTester tester) async {
