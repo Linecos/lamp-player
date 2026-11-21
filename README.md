@@ -103,16 +103,16 @@ flutter pub get
 cargo fetch --manifest-path rust/Cargo.toml
 .\scripts\setup-bass.ps1         # 从 un4seen 官网下载 BASS 2.4
 .\scripts\setup-bass-output.ps1  # 独占输出所需 basswasapi / bassmix（可选）
-.\scripts\setup-misans.ps1      # MiSans 歌词字体（可选，227 MB 官方包）
+.\scripts\setup-misans.ps1        # MiSans 歌词字体（可选，227 MB 官方包）
 ```
 
 > BASS 为闭源第三方库，不随仓库分发（`third_party/bass/` 已 gitignore）。
 > `scripts/setup-bass.ps1` 会下载 BASS 与官方 add-on（flac/opus/ape/wma）并校验 SHA256；
 > m4a/aac 播放还需要 `scripts/setup-bass-plugins.ps1` 补 `bass_aac.dll`。
 > 构建时 CMake 自动把它们拷到 exe 目录。
-> `scripts/setup-misans.ps1` 从小米官网下载 MiSans 字体包，只取 Light / Regular /
-> Medium / Bold 四个字重（约 32 MB）放进 `assets/fonts/misans/`（已 gitignore），随安装包
-> 分发给用户；不跑这一步只是歌词字体里没有 MiSans 选项，其余功能不受影响。
+> `scripts/setup-misans.ps1` 从小米官网下载 MiSans 字体包，只取歌词用得上的常规一款
+> （约 8 MB）放进 `assets/fonts/misans/`（已 gitignore），随安装包分发给用户；不跑这一步
+> 只是歌词字体里没有 MiSans 选项，其余功能不受影响。
 >
 > Rust 装在非默认位置时，需设置 `RUSTUP_HOME` / `CARGO_HOME`。
 

@@ -1160,7 +1160,7 @@ void main() {
     expect(picks, <String>['KaiTi'], reason: '回报的是字体族名，不是中文名');
   });
 
-  testWidgets('打包字体注册后，MiSans 各字重在下拉里各占一项', (WidgetTester tester) async {
+  testWidgets('打包字体注册后，歌词字体下拉里出现 MiSans 并写明出处', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -1176,7 +1176,7 @@ void main() {
         theme: AppTheme.light(AppTheme.defaultSeed),
         home: Scaffold(
           body: SettingsView(
-            lyricFont: 'MiSans Bold',
+            lyricFont: 'MiSans',
             onLyricFontChanged: picks.add,
           ),
         ),
@@ -1190,21 +1190,47 @@ void main() {
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
 
-    // 当前值是粗体，副标题按许可要求写明出处
-    expect(find.text('MiSans 粗体'), findsWidgets);
+    // 选中随包字体时，副标题按许可要求写明出处
+    expect(find.text('MiSans'), findsWidgets);
     expect(find.textContaining('MiSans 字体知识产权许可协议'), findsWidgets);
 
     await tester.tap(row);
     await tester.pumpAndSettle();
-    // 四个字重都在：不是只剩一个「MiSans」
-    for (final BundledFontFace face in kMiSansFaces) {
-      expect(find.text(face.label), findsWidgets, reason: '缺 ${face.label}');
-      // 每个选项用它代表的那款字体画，菜单里才看得出粗细
-      final Text item = tester.widget<Text>(find.text(face.label).last);
-      expect(item.style?.fontFamily, face.family);
-    }
-    await tester.tap(find.text('MiSans 细体').last);
+    // 只发常规一款，选项里就该只有一个 MiSans（不是四款字重）
+    expect(find.text(kMiSansFaces.first.label), findsWidgets);
+    final Text item = tester.widget<Text>(
+      find.text(kMiSansFaces.first.label).last,
+    );
+    // 选项用它代表的字体画，选之前就能看出字形
+    expect(item.style?.fontFamily, kMiSansFaces.first.family);
+
+    await tester.tap(find.text(kMiSansFaces.first.label).last);
     await tester.pumpAndSettle();
-    expect(picks, <String>['MiSans Light']);
+    expect(picks, <String>['MiSans']);
+  });
+
+  testWidgets('存档里留着已下线的字重别名时，下拉退回跟随界面字体而不是抛错', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    registeredBundledFamilies.add('MiSans');
+    addTearDown(registeredBundledFamilies.clear);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFont: 'MiSans Bold',
+            onLyricFontChanged: (String _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // DropdownButton 里没有这一项时不崩，显示退到首项
+    expect(find.text('跟随界面字体'), findsWidgets);
   });
 }
