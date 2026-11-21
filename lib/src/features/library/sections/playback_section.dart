@@ -465,6 +465,9 @@ extension _PlaybackSection on _LibraryPageState {
               onCycleLyricAlignment: _cycleLyricAlignment,
               showTranslation: _showTranslation,
               onToggleTranslation: _toggleTranslation,
+              // 沉浸模式跨页记着：播放页销毁后重进要还原
+              immersive: _immersive,
+              onImmersiveChanged: _setImmersive,
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
               shortcuts: _shortcuts,
