@@ -1199,6 +1199,9 @@ void main() {
     // 四个字重都在：不是只剩一个「MiSans」
     for (final BundledFontFace face in kMiSansFaces) {
       expect(find.text(face.label), findsWidgets, reason: '缺 ${face.label}');
+      // 每个选项用它代表的那款字体画，菜单里才看得出粗细
+      final Text item = tester.widget<Text>(find.text(face.label).last);
+      expect(item.style?.fontFamily, face.family);
     }
     await tester.tap(find.text('MiSans 细体').last);
     await tester.pumpAndSettle();
