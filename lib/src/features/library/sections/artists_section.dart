@@ -16,35 +16,13 @@ extension _ArtistsSection on _LibraryPageState {
       }
     }
 
-    // 列表 ↔ 详情之间做个淡入上滑，和歌单、专辑、设置进听歌统计同款：只动
-    // 不透明度与位移，两份子树各自 RepaintBoundary，不会每帧重画。
+    // 列表 ↔ 详情之间做个淡入上滑，和歌单、专辑、音乐库同款：只动不透明度与
+    // 位移，两份子树各自 RepaintBoundary。
     //
-    // key 带分区世代：从别的分区切回来时换一个新的，免得它记着切走前的详情
-    // 再淡出 180ms（那一层已经没意义，还会看着像「先跳回旧页面」）。
-    return AnimatedSwitcher(
-      key: ValueKey<String>(
-        'artists-epoch-${_sectionEpochs[LibrarySection.artists] ?? 0}',
-      ),
-      duration: const Duration(milliseconds: 180),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
-        fit: StackFit.expand,
-        children: <Widget>[...previous, ?current],
-      ),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            // 位移只给 1.5%（约 10px）：淡入一点点上浮就够，别做成整页平移
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.015),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
+    // 不用「换 key 让切换器重建」：分区切回来后的第一次点击会正好赶上重建，
+    // 旧页面就不参与过渡了（见 [SubPageSwitcher]）。
+    return SubPageSwitcher(
+      jumpToken: _sectionEpochs[LibrarySection.artists] ?? 0,
       // key 一变才会触发过渡：列表与每位艺术家详情各用一个 key
       child: selected == null
           ? KeyedSubtree(

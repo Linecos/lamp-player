@@ -13,31 +13,10 @@ extension _LibrarySection on _LibraryPageState {
     // 与设置页原来那套一样：列表 ↔ 子界面之间淡入上滑，两份子树各自
     // RepaintBoundary，过渡的 180ms 里才共存。
     //
-    // key 带分区世代：从别的分区切回来时换一个新的，免得它记着切走前的
-    // 统计页再淡出 180ms。
-    return AnimatedSwitcher(
-      key: ValueKey<String>(
-        'library-epoch-${_sectionEpochs[LibrarySection.library] ?? 0}',
-      ),
-      duration: const Duration(milliseconds: 180),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (Widget? current, List<Widget> previous) => Stack(
-        fit: StackFit.expand,
-        children: <Widget>[...previous, ?current],
-      ),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.015),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        );
-      },
+    // 切换器不能靠换 key 重建：分区切走再切回来的第一次点击正好赶上重建，
+    // 旧页面就不会参与过渡（「切回来第一次点音质没有动画」）。
+    return SubPageSwitcher(
+      jumpToken: _sectionEpochs[LibrarySection.library] ?? 0,
       child: KeyedSubtree(
         key: ValueKey<String>(
           'library-$statsOpen-${quality?.name ?? ''}-${folder ?? ''}',
