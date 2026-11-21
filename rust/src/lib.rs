@@ -26,3 +26,4 @@ pub mod scanner;
 pub mod single_instance;
 #[cfg(windows)]
 pub mod smtc;
+mod system_fonts;

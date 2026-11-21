@@ -8,6 +8,7 @@ import 'api/collections.dart';
 import 'api/cover_override.dart';
 import 'api/db.dart';
 import 'api/desktop_lyrics.dart';
+import 'api/fonts.dart';
 import 'api/lyrics.dart';
 import 'api/media.dart';
 import 'api/metadata.dart';
