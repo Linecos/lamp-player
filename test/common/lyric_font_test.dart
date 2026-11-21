@@ -5,26 +5,16 @@ import 'package:lamp_player/src/common/text/lyric_font.dart';
 void main() {
   tearDown(registeredBundledFamilies.clear);
 
-  test('MiSans 只在注册成功时进候选，排在中文字体之前', () {
+  test('内置中文字体表只做别名：不重复、MiSans 不混进来', () {
     registeredBundledFamilies.clear();
-    final int without = lyricFontChoices().length;
     expect(
-      lyricFontChoices().map(((String, String) item) => item.$1),
+      kLyricFontChoices.map(((String, String) item) => item.$1),
       isNot(contains('MiSans')),
-      reason: '没跑过 setup-misans.ps1 的机器上不该出现选不了的项',
+      reason: '随包字体只在注册成功时才出现在弹窗里，别写进别名表',
     );
-
-    registeredBundledFamilies.addAll(
-      kMiSansFaces.map((BundledFontFace face) => face.family),
-    );
-    final List<(String, String)> all = lyricFontChoices();
-    expect(all.length, without + kMiSansFaces.length);
-    // 紧跟「跟随界面字体」，在系统字体之前
-    expect(all[1].$1, 'MiSans');
-    expect(all[1].$2, 'MiSans');
     expect(
-      all.map(((String, String) item) => item.$1).toSet().length,
-      all.length,
+      kLyricFontChoices.map(((String, String) item) => item.$1).toSet().length,
+      kLyricFontChoices.length,
       reason: '别名不能重复，否则同一款字体会出现两次',
     );
   });

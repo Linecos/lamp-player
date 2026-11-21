@@ -22,6 +22,7 @@ pub mod collections;
 pub mod cover_override;
 pub mod db;
 pub mod desktop_lyrics;
+pub mod fonts;
 pub mod lyrics;
 pub mod media;
 pub mod metadata;
