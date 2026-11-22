@@ -40,6 +40,8 @@ Future<void> _pump(
   double alignment = 0.5,
   LyricAlignment lyricAlign = LyricAlignment.center,
   bool showTranslation = true,
+  bool blur = true,
+  bool spring = true,
   String? fontFamily,
 }) async {
   tester.view.physicalSize = const Size(900, 700);
@@ -60,6 +62,8 @@ Future<void> _pump(
           revealAlignment: alignment,
           alignment: lyricAlign,
           showTranslation: showTranslation,
+          blurEnabled: blur,
+          springScroll: spring,
           fontFamily: fontFamily,
         ),
       ),
@@ -440,6 +444,31 @@ void main() {
     // distance 1~5 各一行，全都带模糊：级别逐级递增，不能「1 行全清、下一行糊死」，
     // 也不能到某一档就突然变清楚（那样屏幕上会出现「糊 → 清楚 → 再淡」的断档）
     expect(_blurred, findsNWidgets(5));
+  });
+
+  testWidgets('设置里关掉模糊：一行都不糊，结构照旧保留', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        for (int i = 0; i < 6; i += 1)
+          _line(start: i * 5000, end: (i + 1) * 5000, text: '第 $i 行'),
+      ],
+      position: position,
+      playing: playing,
+      blur: false,
+    );
+
+    expect(_blurred, findsNothing);
+    // 只改 enabled、不换树结构：每行那层 ImageFiltered 还在，只是没开离屏
+    expect(
+      find.byWidgetPredicate((Widget widget) => widget is ImageFiltered),
+      findsWidgets,
+    );
   });
 
   testWidgets('拖动歌词时临时关掉模糊，松手 3 秒后恢复', (WidgetTester tester) async {
@@ -1690,6 +1719,72 @@ void main() {
 
       final ListView view = tester.widget<ListView>(find.byType(ListView));
       expect(view.physics, isA<BouncingScrollPhysics>());
+    });
+
+    testWidgets('设置里关掉弹性滚动：退化成普通平移，不推回也不逐行弹', (WidgetTester tester) async {
+      final ValueNotifier<double> position = ValueNotifier<double>(52);
+      final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+      addTearDown(position.dispose);
+      addTearDown(playing.dispose);
+
+      await _pump(
+        tester,
+        lines: manyLines(),
+        position: position,
+        playing: playing,
+        spring: false,
+      );
+
+      final ScrollController controller = controllerOf(tester);
+      final double before = controller.offset;
+
+      /// 某一行自己的弹簧位移（`Transform` 的 Y 偏移）；关掉后这层根本不建
+      double shiftOf(int index) {
+        final Finder spring = find.descendant(
+          of: find.byKey(ValueKey<String>('lyric-$index')),
+          matching: find.byType(Transform),
+        );
+        if (spring.evaluate().isEmpty) {
+          return 0;
+        }
+        return tester
+            .widget<Transform>(spring.first)
+            .transform
+            .getTranslation()
+            .y;
+      }
+
+      playing.value = true;
+      await tester.pump();
+
+      position.value = 57;
+      await tester.pump();
+      expect(controller.offset, closeTo(before, 0.5), reason: '关掉弹性后也不能一帧跳过去');
+
+      // 前 100ms 只走一小段：是普通的 420ms 缓入缓出平移，不是跳变
+      await tester.pump(const Duration(milliseconds: 100));
+      final double movedEarly = controller.offset - before;
+      for (int i = 0; i < 24; i += 1) {
+        expect(shiftOf(i), 0, reason: '平移期间没有任何一行被推回，第 $i 行');
+      }
+
+      // 全程一帧一帧走完，中途也不出现推回层
+      for (int i = 0; i < 8; i += 1) {
+        await tester.pump(const Duration(milliseconds: 60));
+        for (int j = 0; j < 24; j += 1) {
+          expect(shiftOf(j), 0, reason: '平移途中第 $j 行不该有弹簧位移');
+        }
+      }
+      final double total = controller.offset - before;
+      expect(total, greaterThan(20), reason: '最终要停在新行');
+      expect(
+        movedEarly,
+        lessThan(total * 0.35),
+        reason: '100ms 时只该走完一小段：既不是跳变，也不该像弹簧那样冲',
+      );
+
+      playing.value = false;
+      await tester.pump();
     });
 
     testWidgets('歌词区不再挂滚动条', (WidgetTester tester) async {

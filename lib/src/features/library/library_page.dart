@@ -856,6 +856,14 @@ class _LibraryPageState extends State<LibraryPage>
   /// 正在播放页是否显示译文 / 罗马音；同样走通知器，切换只重画歌词
   final ValueNotifier<bool> _showTranslation = ValueNotifier<bool>(true);
 
+  /// 歌词远处的行是否糊开（设置项，默认开）
+  ///
+  /// 普通字段即可：设置页与播放页不可能同屏，改完下次进播放页就生效。
+  bool _lyricBlur = true;
+
+  /// 换行时整列是否弹簧地跟到新行（设置项，默认开）
+  bool _lyricSpring = true;
+
   /// 正在播放页是否停在沉浸模式。
   ///
   /// 状态放在曲库页（跨页常驻）而不是播放页自己身上：播放页是 push 出来的路由，
@@ -1353,6 +1361,8 @@ class _LibraryPageState extends State<LibraryPage>
       _lastUpdateCheckAt = snapshot.lastUpdateCheckAt;
       _lyricAlignment.value = snapshot.lyricAlignment;
       _showTranslation.value = snapshot.showTranslation;
+      _lyricBlur = snapshot.lyricBlur;
+      _lyricSpring = snapshot.lyricSpring;
       _immersive = snapshot.immersive;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
@@ -1582,6 +1592,8 @@ class _LibraryPageState extends State<LibraryPage>
       lastUpdateCheckAt: _lastUpdateCheckAt,
       lyricAlignment: _lyricAlignment.value,
       showTranslation: _showTranslation.value,
+      lyricBlur: _lyricBlur,
+      lyricSpring: _lyricSpring,
       immersive: _immersive,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
@@ -2320,6 +2332,16 @@ class _LibraryPageState extends State<LibraryPage>
     _update(() => _circularCovers = value);
     // 所有 AlbumCover 都订阅这个通知器，改完立刻生效，不必整页重建
     circularCovers.value = value;
+    _saveSessionNow();
+  }
+
+  void _setLyricBlur(bool value) {
+    _update(() => _lyricBlur = value);
+    _saveSessionNow();
+  }
+
+  void _setLyricSpring(bool value) {
+    _update(() => _lyricSpring = value);
     _saveSessionNow();
   }
 

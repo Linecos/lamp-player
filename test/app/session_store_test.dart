@@ -281,6 +281,22 @@ void main() {
     expect((await store.load()).showTranslation, isTrue);
   });
 
+  test('歌词模糊 / 弹性滚动开关可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    final SessionSnapshot defaults = await store.load();
+    expect(defaults.lyricBlur, isTrue, reason: '没有存档时两项都默认开');
+    expect(defaults.lyricSpring, isTrue);
+
+    await store.save(
+      const SessionSnapshot(lyricBlur: false, lyricSpring: false),
+    );
+    final SessionSnapshot read = await store.load();
+    expect(read.lyricBlur, isFalse);
+    expect(read.lyricSpring, isFalse);
+  });
+
   test('独占输出偏好可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();

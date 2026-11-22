@@ -490,6 +490,38 @@ void main() {
     expect(session.snapshot.circularCovers, isTrue);
   });
 
+  testWidgets('歌词模糊 / 弹性滚动开关都会写回会话', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      sessionStore: session,
+      viewSize: const Size(1280, 1400),
+    );
+    await openSettings(tester);
+
+    expect(session.snapshot.lyricBlur, isTrue, reason: '默认开启');
+    expect(session.snapshot.lyricSpring, isTrue, reason: '默认开启');
+
+    final Finder blurToggle = find.byKey(
+      const ValueKey<String>('settings-lyric-blur-switch'),
+    );
+    await tester.ensureVisible(blurToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(blurToggle);
+    await tester.pumpAndSettle();
+    expect(session.snapshot.lyricBlur, isFalse);
+
+    final Finder springToggle = find.byKey(
+      const ValueKey<String>('settings-lyric-spring-switch'),
+    );
+    await tester.ensureVisible(springToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(springToggle);
+    await tester.pumpAndSettle();
+    expect(session.snapshot.lyricSpring, isFalse);
+  });
+
   testWidgets('清理缺失文件只删记录并展示清理条数', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,

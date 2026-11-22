@@ -469,6 +469,8 @@ extension _PlaybackSection on _LibraryPageState {
               immersive: _immersive,
               onImmersiveChanged: _setImmersive,
               lyricFontFamily: _lyricFontFamily,
+              lyricBlur: _lyricBlur,
+              lyricSpring: _lyricSpring,
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
               shortcuts: _shortcuts,
