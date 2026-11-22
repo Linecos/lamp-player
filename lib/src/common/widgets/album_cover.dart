@@ -84,6 +84,7 @@ class AlbumCover extends StatefulWidget {
     this.transitionScale = 1.06,
     this.circular = false,
     this.decodeScale = 1,
+    this.evictOnDispose,
   });
 
   /// 封面缓存文件路径；空字符串或 `null` 表示没有封面。
@@ -120,6 +121,16 @@ class AlbumCover extends StatefulWidget {
   /// 只有播放岛与正在播放页需要（封面的「主角」位置）；列表行、歌单卡片、
   /// 专辑 / 艺术家页一律方形——一行行圆头像看着比方形更碎，也更容易和行高打架。
   final bool circular;
+
+  /// 卸载时是否把解码结果从图片缓存里摘掉。
+  ///
+  /// 默认按尺寸决定（见 `_CoverImageState._evictMinSize`）：大图一张顶几十张
+  /// 小图，页面关了就该还回去。
+  ///
+  /// **Hero 飞行层里的那份要传 false**：它是临时副本，和页面 / 播放岛共用
+  /// 同一份解码结果；飞行一结束它就卸载，顺手 evict 会把真正落地要显示的那份
+  /// 一起清掉——大封面在落地的第一帧退回灰底阴影盘，等重新解码。
+  final bool? evictOnDispose;
 
   @override
   State<AlbumCover> createState() => _AlbumCoverState();
@@ -406,6 +417,7 @@ class _AlbumCoverState extends State<AlbumCover>
               file: File(coverPath),
               cacheWidth: _decodeWidthFor(widget.size),
               size: widget.size,
+              evictOnDispose: widget.evictOnDispose,
               fallback: _fallback(context),
             ),
     );
@@ -444,6 +456,7 @@ class _CoverImage extends StatefulWidget {
     required this.cacheWidth,
     required this.size,
     required this.fallback,
+    this.evictOnDispose,
   });
 
   final File file;
@@ -451,6 +464,9 @@ class _CoverImage extends StatefulWidget {
 
   /// 逻辑显示边长：只用来判断「这张封面值不值得在卸载时把解码结果扔掉」
   final double size;
+
+  /// 覆盖「按尺寸决定要不要 evict」的默认行为
+  final bool? evictOnDispose;
 
   final Widget fallback;
 
@@ -497,7 +513,8 @@ class _CoverImageState extends State<_CoverImage> {
   /// 还没跑过第一次判定：`Scrollable.maybeOf` 要建立依赖，得等 initState 走完
   bool _needsRefresh = true;
 
-  bool get _evictOnDispose => widget.size >= _evictMinSize;
+  bool get _evictOnDispose =>
+      widget.evictOnDispose ?? widget.size >= _evictMinSize;
 
   bool _resolveExists() {
     final String path = widget.file.path;
@@ -622,6 +639,38 @@ class _CoverImageState extends State<_CoverImage> {
   }
 }
 
+/// 飞行 shuttle 垫底的小图：就是播放岛正在显示的那一份。
+///
+/// 播放页大图（380~440）和播放岛（56）不是同一档解码，而大图保留到页面
+/// 卸载为止、卸载即 evict（见 `_CoverImageState._evictMinSize`）——所以
+/// **每次点开播放页都是冷解码**。飞行开始的头一两帧大图还没解出来，两端子树
+/// 又都被 Hero 换成了占位，画面上就是「点开播放详情页，封面闪一下」。
+///
+/// 这里重挂一份播放岛尺寸的 [AlbumCover]：解码宽度算的是同一套（`size` 56 +
+/// 当前像素比），缓存键与播放岛上那份一致，当帧直接命中；shuttle 再把它拉到
+/// 当前飞行框。大图解好就盖上去，中间不做任何淡入淡出（理由见
+/// [coverFlightShuttle]）。飞行框一开始只有 56，这时候它还是清晰的原图。
+///
+/// [circular] 必须与真封面一致：垫底那份是**单独一套裁剪**，忘了跟上的话，
+/// 圆形封面起飞的头几帧是一块方图（大图还没解出来，露出来的正是它）。
+Widget coverFlightBackdrop({
+  required String? path,
+  required bool playing,
+  bool circular = false,
+}) {
+  return AlbumCover(
+    path: path,
+    size: playerBarCoverSize,
+    // 圆角交给 shuttle 按进度裁，这里不自带
+    radius: 0,
+    // 圆形封面是 `ClipOval`，不是「半径 = 边长一半」的圆角框
+    circular: circular,
+    playing: playing,
+    // 临时副本：卸载时不能把播放岛那份正在用的解码结果一起摘掉
+    evictOnDispose: false,
+  );
+}
+
 /// 大封面的投影。
 ///
 /// 正在播放页的封面本体与它的 Hero 飞行 shuttle 共用这一份配置：两边必须
@@ -728,19 +777,34 @@ class CoverShadow extends StatelessWidget {
 ///
 /// [cover] 要传**不带自己圆角**的那份（`radius: 0`）：内层若先裁成 28，小图那端
 /// 需要的圆角（换算到 shuttle 坐标约 120）会被内层 28 抢先裁掉，等于白算。
+///
+/// [backdrop] 垫在 [cover] 底下（见 [coverFlightBackdrop]）：大图还没解出来的
+/// 头几帧先拿它顶上，解好之后被 [cover] 直接盖住。
 Widget coverFlightShuttle({
   required double size,
   required Widget cover,
+  Widget? backdrop,
   ValueListenable<double>? turns,
   bool circular = false,
   double fromSize = 0,
   double fromRadius = 0,
   double toRadius = 0,
 }) {
+  // 两张图同一个盒子、同一份裁剪：垫底那张按自己的尺寸画，再整体拉到飞行框
+  final Widget picture = backdrop == null
+      ? cover
+      : Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            // `BoxFit.contain`：垫底那份是正方形，拉到飞行框正好铺满、不变形
+            FittedBox(fit: BoxFit.contain, child: backdrop),
+            cover,
+          ],
+        );
   // 圆形封面飞行途中接着转：shuttle 是独立子树，不自己盯着相位的话，
   // 退场第一帧就会退回正面（「先回到最开始的样子再退出」就是这一帧）
   final Widget art = turns == null
-      ? cover
+      ? picture
       : ValueListenableBuilder<double>(
           valueListenable: turns,
           builder: (BuildContext context, double value, Widget? child) =>
@@ -749,7 +813,7 @@ Widget coverFlightShuttle({
                 angle: value * math.pi * 2,
                 child: child,
               ),
-          child: cover,
+          child: picture,
         );
   return LayoutBuilder(
     builder: (BuildContext context, BoxConstraints constraints) {

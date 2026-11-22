@@ -277,6 +277,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// 当前封面的取色结果；为空时背景用主题色兜底。
   List<Color>? _palette;
 
+  /// 封面 Hero 子树的身份锚（见 build 里的说明）：Hero 在「占位树 ↔ 正常树」
+  /// 之间换形时，靠它把整棵封面子树「搬」过去，而不是拆掉重挂。
+  final GlobalKey _coverKey = GlobalKey();
+
   /// 当前路由的转场动画：收起时据此把窗口按钮交还给全局那层
   Animation<double>? _routeAnimation;
 
@@ -1240,6 +1244,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             // 继续挂着原封面：不布局也不绘制（不会像 `Opacity`
                             // 那样把透明度下推到模糊阴影上、每帧退回 saveLayer），
                             // 但子树与图片订阅都还在，落地直接接上。
+                            //
+                            // 注意占位树和落地后的树形不一样（落地那棵多一层
+                            // `TickerMode > KeyedSubtree`），没有 `_coverKey` 的
+                            // 话整棵封面子树会在落地那一帧被拆掉重挂：新的
+                            // `_CoverImage` 重新去解一次图，中间那几十毫秒露出的
+                            // 就是底下的灰色阴影盘（2026-11-22 实拍）。GlobalKey
+                            // 让框架把旧元素「搬」进新位置，State 与已解码的那帧
+                            // 都还在
                             placeholderBuilder:
                                 (
                                   BuildContext context,
@@ -1260,6 +1272,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             flightShuttleBuilder: (_, _, _, _, _) =>
                                 coverFlightShuttle(
                                   size: size,
+                                  // 大图是冷解码（大封面卸载即 evict），飞行头一两帧
+                                  // 还没解出来：垫一层播放岛那份小图顶上，否则两端
+                                  // 都换成占位时画面上什么都没有（「封面闪一下」）
+                                  backdrop: coverFlightBackdrop(
+                                    path: track.coverPath,
+                                    playing: playing,
+                                    circular: circularCovers.value,
+                                  ),
                                   // 飞行这一份不自带圆角：形状由 shuttle 按进度裁
                                   // （内层先裁 28 的话，缩到播放岛那端会被它抢先
                                   // 裁成更方的角，见 coverFlightShuttle 注释）
@@ -1269,6 +1289,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                     radius: 0,
                                     circular: true,
                                     playing: playing,
+                                    // 临时副本：卸载时别把页面那份要用的解码
+                                    // 结果一起 evict 掉（见 evictOnDispose）
+                                    evictOnDispose: false,
                                   ),
                                   circular: true,
                                   // 另一端是播放岛的小封面：圆角按两端插值
@@ -1284,6 +1307,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             // 阴影挂在 Hero **里面**：留在外面时封面飞走了、那圈黑影
                             // 还杵在原地
                             child: CoverShadow(
+                              key: _coverKey,
                               radius: 28,
                               circular: true,
                               // 旋转用「Transform 在上、RepaintBoundary 在下」：
