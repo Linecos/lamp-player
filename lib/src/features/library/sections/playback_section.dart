@@ -1626,24 +1626,94 @@ extension _PlaybackSection on _LibraryPageState {
     }
   }
 
-  /// 启动后在后台把还没有增益的曲目逐首算一遍，结果由引擎写进曲库。
+  /// 预热第一轮先算的「马上要听」窗口：当前曲目之后几首
+  static const int _warmNearCount = 5;
+
+  /// 慢补两首之间的空档。分析一首要把整段音频解一遍（1~2 秒满负荷），
+  /// 连着跑就是一个核被占满、磁盘一直在读；播放中还要解码出帧，空档再拉长。
+  static const Duration _warmGapIdle = Duration(seconds: 3);
+  static const Duration _warmGapPlaying = Duration(seconds: 8);
+
+  /// 增益还不知道：标签里没有、也没测量过
+  bool _gainUnknown(Track track) =>
+      track.replayGain == 0 &&
+      track.loudnessLufs == 0 &&
+      !_autoLoudness.containsKey(track.path);
+
+  /// 预热第一轮要算的曲目：当前曲目 + 队列紧接着的几首。
+  ///
+  /// 这一小批决定「下一首起播有没有归一」，必须一条不落地先算完。
+  /// 随机模式下下一首是现抽的，队列顺序推不出来，所以单独问一次 [peekNext]。
+  List<Track> _warmNearTracks() {
+    final List<Track> near = <Track>[];
+    void add(Track? track) {
+      if (track == null || !_gainUnknown(track)) {
+        return;
+      }
+      if (near.any((Track other) => other.path == track.path)) {
+        return;
+      }
+      near.add(track);
+    }
+
+    add(_currentTrack);
+    add(_queue.current);
+    final List<Track> queue = _queue.tracks;
+    final int? next = _queue.peekNext();
+    if (next != null && next >= 0 && next < queue.length) {
+      add(queue[next]);
+    }
+    final int start = _queue.index;
+    for (
+      int i = 1;
+      start >= 0 && i <= _warmNearCount && start + i < queue.length;
+      i += 1
+    ) {
+      add(queue[start + i]);
+    }
+    return near;
+  }
+
+  /// 慢补的空档：可被 [dispose] 取消（页面销毁后循环停在这里不再往下走）
+  Future<void> _warmGainPause() {
+    final Completer<void> done = Completer<void>();
+    _warmGainTimer?.cancel();
+    _warmGainTimer = Timer(
+      _isPlaying ? _warmGapPlaying : _warmGapIdle,
+      done.complete,
+    );
+    return done.future;
+  }
+
+  /// 启动后在后台把还没有增益的曲目算一遍，结果由引擎写进曲库。
   ///
   /// 增益未知时起播不做归一（见 [_startCurrent]），所以要让「已知」尽快覆盖
-  /// 整个曲库：算过就落库，之后每次起播都直接带上，只跑这一次。曲库很大时
-  /// 一轮要几分钟，算完的部分下次启动不用再算。
+  /// 整个曲库：算过就落库，之后每次起播都直接带上，只跑这一次。
+  ///
+  /// 分两轮：先算马上要听的（当前 + 队列随后几首），它们决定下一次切歌的
+  /// 听感；剩下的低频慢补。一次把全库算完等于冷启动几分钟满负荷——风扇
+  /// 一直转、磁盘一直在读，而这部分工作摊平了没有任何损失。
   Future<void> _warmAutoGains() async {
     if (!widget.prefetchReplayGain || !_replayGain || !_isAvailable) {
       return;
+    }
+    for (final Track track in _warmNearTracks()) {
+      if (_warmGainsCancelled || !_replayGain) {
+        return;
+      }
+      await _autoGain(track.path);
     }
     // 快照：分析期间曲库可能被重扫换掉
     for (final Track track in List<Track>.of(_tracks)) {
       if (_warmGainsCancelled || !_replayGain) {
         return;
       }
-      if (track.replayGain != 0 ||
-          track.loudnessLufs != 0 ||
-          _autoLoudness.containsKey(track.path)) {
+      if (!_gainUnknown(track)) {
         continue;
+      }
+      await _warmGainPause();
+      if (_warmGainsCancelled || !_replayGain) {
+        return;
       }
       await _autoGain(track.path);
     }
