@@ -10,6 +10,11 @@ extension _LibrarySection on _LibraryPageState {
     final AudioQuality? quality = _qualityDetail;
     final String? folder = _folderDetail;
 
+    // 分区一露头就把统计数据查好：用户点「听歌统计」时结果已经在手，
+    // 子界面第一帧直接是内容，不会闪一下「正在统计…」。
+    // 有缓存 / 已有请求在跑时这里是空调用，重复构建没有代价。
+    prefetchListeningStats(repository: widget.statsRepository);
+
     // 与设置页原来那套一样：列表 ↔ 子界面之间淡入上滑，两份子树各自
     // RepaintBoundary，过渡的 180ms 里才共存。
     //

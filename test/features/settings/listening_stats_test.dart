@@ -544,4 +544,72 @@ void main() {
     expect(size.height, 56, reason: '默认 BackButton 只有 48，不好点');
     expect(find.byTooltip('返回设置'), findsOneWidget);
   });
+
+  testWidgets('再次进入统计界面时首帧就是内容，不闪「正在统计…」', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final _FakeStatsRepository repository = _FakeStatsRepository(
+      stats: const PlayStats(
+        totalSeconds: 600,
+        totalPlays: 2,
+        trackCount: 1,
+        activeDays: 1,
+      ),
+    );
+
+    Widget stats() => MaterialApp(
+      theme: AppTheme.light(AppTheme.defaultSeed),
+      home: Scaffold(
+        body: ListeningStatsView(repository: repository, onBack: () {}),
+      ),
+    );
+
+    await tester.pumpWidget(stats());
+    await tester.pumpAndSettle();
+    expect(find.text('10 分钟'), findsOneWidget);
+
+    // 关掉（无条件构建，子界面随之销毁），再进来
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(stats());
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(find.text('正在统计…'), findsNothing, reason: '缓存里已有结果，不该再进加载态');
+    expect(find.text('10 分钟'), findsOneWidget, reason: '第一帧直接是内容');
+  });
+
+  testWidgets('预热后再进入，首帧同样是内容', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final _FakeStatsRepository repository = _FakeStatsRepository(
+      stats: const PlayStats(
+        totalSeconds: 600,
+        totalPlays: 2,
+        trackCount: 1,
+        activeDays: 1,
+      ),
+    );
+
+    // 模拟音乐库分区先把数据查好
+    prefetchListeningStats(repository: repository);
+    await tester.pump();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: ListeningStatsView(repository: repository, onBack: () {}),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(find.text('正在统计…'), findsNothing);
+    expect(find.text('10 分钟'), findsOneWidget);
+  });
 }
