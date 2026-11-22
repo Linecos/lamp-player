@@ -480,18 +480,16 @@ class _PlayerBarLeft extends StatelessWidget {
                   tag: coverHeroTag,
                   createRectTween: (Rect? begin, Rect? end) =>
                       RectTween(begin: begin, end: end),
-                  // 飞行期间两端会被换成空白占位，图片流也跟着松开：落地时
-                  // 如果这个尺寸的解码结果已被缓存淘汰，就会先空一帧再出图——
-                  // 收起播放页时看到的「封面闪一下」。
-                  // 占位里用 `Offstage` 继续挂着原封面：不布局也不绘制（所以
-                  // 不会像 `Opacity` 那样把透明度下推、碰到底层模糊每帧退回
-                  // saveLayer），但子树与图片订阅都还在，落地直接接上。
-                  placeholderBuilder:
-                      (BuildContext context, Size size, Widget child) =>
-                          SizedBox.fromSize(
-                            size: size,
-                            child: Offstage(child: child),
-                          ),
+                  // 飞行期间播放条这一端**继续画自己的小封面**：Hero 默认把两端
+                  // 都换成空白，封面一走，这块就空了——页面的淡入还没盖到这里，
+                  // 露出来的是播放条底色 + 鼠标悬停的那层高亮，看着就是一块亮灰
+                  // 圆盘「闪一下」。原图留着，`AlbumCover` 的图片订阅也就一直活着，
+                  // 落地时直接接上（不用像以前那样靠 `Offstage` 挂树）。
+                  placeholderBuilder: (
+                    BuildContext context,
+                    Size size,
+                    Widget child,
+                  ) => SizedBox.fromSize(size: size, child: child),
                   // 圆形封面与小封面共用同一个旋转相位：播放页退出时封面是
                   // 「接着转」飞回来的，落地也不会突然跳回正面（见 CoverSpin）
                   child: SpinningCover(
