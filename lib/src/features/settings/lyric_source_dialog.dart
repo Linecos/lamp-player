@@ -90,6 +90,13 @@ class _LyricSourceOrderDialogState extends State<_LyricSourceOrderDialog> {
                     buildDefaultDragHandles: false,
                     itemCount: _order.length,
                     onReorderItem: _onReorder,
+                    // 都不用默认代理：它会在圆角卡片外面套一个直角 Material，露出
+                    // 一块方正底色
+                    proxyDecorator: (
+                      Widget child,
+                      int index,
+                      Animation<double> animation,
+                    ) => child,
                     itemBuilder: (BuildContext context, int index) {
                       final LyricSource source = _order[index];
                       return _SourceTile(
