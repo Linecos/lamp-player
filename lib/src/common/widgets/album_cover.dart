@@ -45,6 +45,23 @@ int coverDecodeWidth(double logicalSize, double devicePixelRatio) {
   return coverDecodeSteps.last;
 }
 
+/// 这张图是不是已经解过（或正在解）了，可以直接画出来。
+///
+/// 不能拿 provider 本身当键：`ResizeImage` 往缓存里塞的是它自己的私有键，
+/// 只有先 `obtainKey` 一次才能问到。这两类 provider 的 key 都是同步算出来的，
+/// 不涉及 IO，可以放心在构建路径上问。
+bool imageAlreadyCached(ImageProvider<Object> provider) {
+  bool? cached;
+  // `SynchronousFuture.then` 是当场执行完的，回调跑完返回值就有了；
+  // 真碰上异步算 key 的 provider 就按「没缓存」处理，顶多多留 100ms。
+  unawaited(
+    provider.obtainKey(ImageConfiguration.empty).then<void>((Object key) {
+      cached = PaintingBinding.instance.imageCache.containsKey(key);
+    }),
+  );
+  return cached ?? false;
+}
+
 /// 专辑封面缩略图：有缓存文件就显示图片，否则回退到音符 / 播放中图标。
 ///
 /// 只接收文件路径，不依赖曲目模型，任何页面都能复用。
@@ -388,6 +405,7 @@ class _AlbumCoverState extends State<AlbumCover>
           : _CoverImage(
               file: File(coverPath),
               cacheWidth: _decodeWidthFor(widget.size),
+              size: widget.size,
               fallback: _fallback(context),
             ),
     );
@@ -424,11 +442,16 @@ class _CoverImage extends StatefulWidget {
   const _CoverImage({
     required this.file,
     required this.cacheWidth,
+    required this.size,
     required this.fallback,
   });
 
   final File file;
   final int cacheWidth;
+
+  /// 逻辑显示边长：只用来判断「这张封面值不值得在卸载时把解码结果扔掉」
+  final double size;
+
   final Widget fallback;
 
   @override
@@ -446,7 +469,35 @@ class _CoverImageState extends State<_CoverImage> {
 
   static const int _maxKnownExisting = 512;
 
+  /// 滚动中给新出现的封面留的冷静期：一闪而过、还没画出来就被扔掉的行，
+  /// 不必真的去读盘 + 解码。
+  ///
+  /// 只在「最近一层滚动视图正在滚动」时才生效：静止时新出现的一行（窗口变大、
+  /// 切分区、首次进列表）当帧就解码，不会平白多出一段灰底。
+  static const Duration _scrollDecodeDelay = Duration(milliseconds: 100);
+
+  /// 逻辑边长不小于它的封面，卸载时把解码结果从图片缓存里摘掉。
+  ///
+  /// 列表行（44）和网格卡片（190）留着：回滚时零成本，40MB 上限也装得下。
+  /// 详情头图（240）、播放页大图（200–440）一张顶几十张小图，而且同一个页面
+  /// 里只会出现一次，关掉就该还回去。
+  static const double _evictMinSize = 200;
+
   late bool _exists;
+
+  /// 这一刻该画哪份解码结果（也是卸载时要从缓存里摘掉的那个）
+  ImageProvider? _provider;
+
+  /// 冷静期到点的定时器
+  Timer? _delay;
+
+  /// 到点没有：false 时根本不建 `Image`，也就不会有解码
+  bool _ready = false;
+
+  /// 还没跑过第一次判定：`Scrollable.maybeOf` 要建立依赖，得等 initState 走完
+  bool _needsRefresh = true;
+
+  bool get _evictOnDispose => widget.size >= _evictMinSize;
 
   bool _resolveExists() {
     final String path = widget.file.path;
@@ -464,6 +515,56 @@ class _CoverImageState extends State<_CoverImage> {
     return exists;
   }
 
+  /// 与 `Image.file(cacheWidth:)` 完全一致的提供者：这样 `containsKey`、
+  /// 预解码和真正去解的那一份才是同一个键。
+  ImageProvider _providerFor() => ResizeImage.resizeIfNeeded(
+    widget.cacheWidth,
+    null,
+    FileImage(widget.file),
+  );
+
+  bool get _scrolling {
+    try {
+      return Scrollable.maybeOf(context)?.position.isScrollingNotifier.value ??
+          false;
+    } catch (_) {
+      // position 还没挂上（极早期的构建）：按静止处理，别把图拖没了
+      return false;
+    }
+  }
+
+  void _refresh() {
+    _delay?.cancel();
+    _delay = null;
+    _ready = false;
+    final ImageProvider? previous = _provider;
+    _provider = null;
+    final ImageProvider provider = _providerFor();
+    // 换了一张图（或换了档）：大图的旧解码结果立刻还回去
+    if (previous != null && previous != provider && _evictOnDispose) {
+      unawaited(previous.evict());
+    }
+    if (!_exists) {
+      return;
+    }
+    _provider = provider;
+    // 已经解过（含正在解）：冷静期没有意义，当帧画出来
+    if (imageAlreadyCached(provider)) {
+      _ready = true;
+      return;
+    }
+    if (!_scrolling) {
+      _ready = true;
+      return;
+    }
+    _delay = Timer(_scrollDecodeDelay, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _ready = true);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -471,22 +572,49 @@ class _CoverImageState extends State<_CoverImage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_needsRefresh) {
+      return;
+    }
+    _needsRefresh = false;
+    _refresh();
+  }
+
+  @override
   void didUpdateWidget(_CoverImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.file.path != widget.file.path) {
+    final bool changed =
+        oldWidget.file.path != widget.file.path ||
+        oldWidget.cacheWidth != widget.cacheWidth ||
+        oldWidget.size != widget.size;
+    if (changed) {
       _exists = _resolveExists();
+      _refresh();
     }
   }
 
   @override
+  void dispose() {
+    _delay?.cancel();
+    _delay = null;
+    final ImageProvider? provider = _provider;
+    _provider = null;
+    if (provider != null && _evictOnDispose) {
+      unawaited(provider.evict());
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (!_exists) {
+    final ImageProvider? provider = _provider;
+    if (!_exists || !_ready || provider == null) {
       return widget.fallback;
     }
-    return Image.file(
-      widget.file,
+    return Image(
+      image: provider,
       fit: BoxFit.cover,
-      cacheWidth: widget.cacheWidth,
       gaplessPlayback: true,
       errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
           widget.fallback,

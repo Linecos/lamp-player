@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 /// 飞行的封面就越像是「自己长大了」，而不是贴着一张滑进来的图。这层 opacity
 /// 在 Impeller 下每帧要一张离屏图层，是转场内存尖刺的一部分——**但不能拿它
 /// 换内存**（试过去掉，页面变成「实心顶出来」，已回退），怎么省见
-/// `docs/PROJECT_MEMORY.md` §6 第 79 条。
 class NowPlayingPageRoute extends PageRouteBuilder<Object?> {
   /// 转场（前进或后退）没走完时收到的 pop 请求，先记下，等转场结束再执行。
   bool _popQueued = false;

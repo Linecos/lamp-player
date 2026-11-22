@@ -9,6 +9,7 @@ import 'package:lamp_player/src/app/image_cache_config.dart';
 import 'package:lamp_player/src/app/memory_guard.dart';
 import 'package:lamp_player/src/app/memory_trim.dart';
 import 'package:lamp_player/src/app/tray_controller.dart';
+import 'package:lamp_player/src/app/window_occlusion.dart';
 import 'package:lamp_player/src/app/window_state.dart';
 import 'package:lamp_player/src/common/frame_log.dart';
 import 'package:lamp_player/src/common/text/bundled_fonts.dart';
@@ -312,9 +313,21 @@ Future<Offset?> _restorePosition(WindowSnapshot state) async {
   }
 }
 
-// 两个来源分别记账：关闭到托盘与最小化可能同时发生。
+// 三个来源分别记账：关闭到托盘、最小化、被整个盖住可能同时发生。
 const String _hiddenReason = 'hidden';
 const String _minimizedReason = 'minimized';
+const String _occludedReason = 'occluded';
+
+/// 连续几次对账都判定「被盖住」才进省电。
+///
+/// 对账是 2 秒一次，所以要 ~4 秒：切窗口时那个瞬间的 alt-tab 预览、弹出的
+/// 全屏对话框都会遮挡一下，不该立刻把动画停掉。
+///
+/// **不看焦点**：把正在播放页当全屏背景铺着、前面开个小窗口干活时，窗口失焦
+/// 但大半张脸都露在外面，封面该转、频谱该跳——那种情况既没被盖住，也就不会
+/// 停；真正该省的只有「放大一个别的窗口把播放器整个盖死」。
+/// 见 `window_occlusion.dart`。
+const int _occlusionTicks = 2;
 
 /// 视觉活动跟着窗口可见性走：频谱停采集，藏起来时顺手放掉封面缓存。
 ///
@@ -323,8 +336,13 @@ const String _minimizedReason = 'minimized';
 /// 转场只有 300ms，拿错了就有相当概率在**可见**状态下误清一次封面缓存、
 /// 甚至把工作集交还系统——那会让封面重新解码（看起来闪一下），
 /// 任务管理器里的内存也会莫名跳一下。
+///
+/// 「被整个盖住」不算藏起来：窗口还在屏幕上（只是上面压了别的东西，切回来
+/// 就是原样），所以这里只停频谱采集，**不清缓存、不交还工作集**——清了切回来
+/// 那一帧会闪一下。
 void _syncVisualActivity({required bool visible}) {
-  SpectrumController.instance.setSuspended(!visible);
+  _lastVisible = visible;
+  SpectrumController.instance.setSuspended(!(visible && !_idleOccluded));
   if (!visible) {
     // 只在「刚藏起来」那个沿上起一次延迟任务：可见性对账每 2 秒一次，
     // 每次都起既没必要，也会把刚解出来的图立刻丢掉
@@ -349,6 +367,12 @@ void _syncVisualActivity({required bool visible}) {
 bool _wasVisible = true;
 Timer? _trimTimer;
 
+/// 最近一次对账得到的可见性：省电状态结束时按它决定频谱要不要开
+bool _lastVisible = true;
+
+/// 已被别的窗口整个盖住、进入省电（装饰动画与频谱都停了，音频照常播）
+bool _idleOccluded = false;
+
 /// 窗口生命周期：尺寸防抖落盘 + 关闭行为（隐藏到托盘 / 退出）。
 ///
 /// 尺寸变化后防抖落盘；最大化时只记住「最大化」标记，尺寸沿用上一次普通状态。
@@ -363,6 +387,9 @@ class _AppWindowListener with WindowListener {
   Timer? _visibilityTimer;
   bool _checkingVisibility = false;
   bool _visibilityDirty = false;
+
+  /// 连续几次对账判定为「被盖住」
+  int _coveredTicks = 0;
 
   void attach() {
     windowManager.addListener(this);
@@ -399,6 +426,7 @@ class _AppWindowListener with WindowListener {
       // 这里用的是刚查到的真实可见性，不能再读 UiClock：转场（播放页进出）
       // 也会让它暂停，误判成「藏起来了」就会在可见状态下清缓存、交还工作集
       _syncVisualActivity(visible: visible && !minimized);
+      _syncOcclusion(visible: visible && !minimized);
     } catch (_) {
       // 插件尚未就绪时维持当前状态，不能误冻住界面。
     } finally {
@@ -410,10 +438,72 @@ class _AppWindowListener with WindowListener {
     }
   }
 
+  /// 遮挡对账：连续几拍都被盖死才进省电，露出来立刻恢复。
+  ///
+  /// 只在「看得见」时才算遮挡：最小化 / 藏到托盘时窗口本来就没画，走另一条路。
+  void _syncOcclusion({required bool visible}) {
+    if (_closing) {
+      return;
+    }
+    if (!visible) {
+      _coveredTicks = 0;
+      _leaveIdle();
+      return;
+    }
+    if (_idleOccluded) {
+      // 已经在省电：这里每 2 秒复查一次，露出来一帧就恢复
+      if (!isWindowFullyCovered()) {
+        _leaveIdle();
+      }
+      return;
+    }
+    if (!isWindowFullyCovered()) {
+      _coveredTicks = 0;
+      return;
+    }
+    _coveredTicks += 1;
+    if (_coveredTicks >= _occlusionTicks) {
+      _coveredTicks = 0;
+      _enterIdle();
+    }
+  }
+
   @override
   void onWindowMinimize() {
     UiClock.pause(_minimizedReason);
+    _coveredTicks = 0;
+    _leaveIdle();
     _syncVisualActivity(visible: false);
+  }
+
+  @override
+  void onWindowFocus() {
+    // 拿到焦点就说明没人盖着，恢复要立刻——等到下一次 2 秒对账会有明显的僵帧
+    _coveredTicks = 0;
+    _leaveIdle();
+  }
+
+  /// 被盖死：停掉所有装饰动画的节拍与频谱采集，音频不动。
+  void _enterIdle() {
+    if (_closing || _idleOccluded) {
+      return;
+    }
+    _idleOccluded = true;
+    UiClock.pause(_occludedReason);
+    _syncVisualActivity(visible: _lastVisible);
+    if (memoryLogEnabled) {
+      printMemory('被遮挡静默');
+    }
+  }
+
+  /// 重新露出来 / 回到前台：相位接着走（[UiClock] 会把停表的时长扣掉，不跳帧）。
+  void _leaveIdle() {
+    if (!_idleOccluded) {
+      return;
+    }
+    _idleOccluded = false;
+    UiClock.resume(_occludedReason);
+    _syncVisualActivity(visible: _lastVisible);
   }
 
   @override
