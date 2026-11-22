@@ -29,6 +29,8 @@ class LyricsView extends StatefulWidget {
     this.revealAlignment = 0.5,
     this.alignment = LyricAlignment.center,
     this.showTranslation = true,
+    this.blurEnabled = true,
+    this.springScroll = true,
     this.fontFamily,
   });
 
@@ -60,6 +62,19 @@ class LyricsView extends StatefulWidget {
   /// 切换时不是直接摘掉，而是让每行的译文块按弹簧折叠 / 展开，整列歌词跟着
   /// 一起弹——直接换掉的话下面的行会「啪」地跳一下。
   final bool showTranslation;
+
+  /// 远处的行是否糊开（见 [lyricBlurSigma]）。
+  ///
+  /// 关掉只影响这一层：边界渐隐、距离淡出照旧，行 widget 与滚动锚定都不变。
+  /// 「拖动时临时关模糊」仍然优先——滚动中一律不糊。
+  final bool blurEnabled;
+
+  /// 换行时整列是否弹簧地跟到新行（见 [_jumpToActive] 与 [_SpringLyricLine]）。
+  ///
+  /// 开着是「先跳到新位置、把视口内的行推回旧位置、再逐行错峰弹回」；关掉就
+  /// 退化成普通的 420ms 平移（[_scrollToActive]），只有一次整体位移、没有推回、
+  /// 没有逐行弹簧。**不能退成 jumpTo**：那样整列会一帧换位，看着是跳变。
+  final bool springScroll;
 
   /// 歌词字体族（系统字体名）；null 表示跟随主题字体。
   ///
@@ -835,6 +850,12 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _scrollToActive();
       return;
     }
+    if (!widget.springScroll) {
+      // 关掉弹性滚动：不推回、不逐行错峰，退化成普通的 420ms 平移（[_scrollToActive]）。
+      // 不能直接 jumpTo——那一帧整列「啪」地换位，看着就是跳变。
+      _scrollToActive();
+      return;
+    }
     _driving = true;
     // 这一帧先别重算 alpha：`jumpTo` 已经把整列挪到新位置，但行还没推回去，
     // 现在算出来的是「新位置」的亮度，画面上却还是旧位置 —— 就是那一跳。
@@ -1193,6 +1214,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                             alignment: widget.alignment,
                             translation: _translation,
                             userScrolling: _userScrolling,
+                            blurEnabled: widget.blurEnabled,
                             edgeOpacity: _edgeOpacityAt(index),
                             onSeek: widget.onSeek,
                           ),
@@ -1444,6 +1466,7 @@ class _LyricLineWrapper extends StatelessWidget {
     required this.alignment,
     required this.translation,
     required this.userScrolling,
+    required this.blurEnabled,
     required this.edgeOpacity,
     required this.onSeek,
   });
@@ -1460,6 +1483,10 @@ class _LyricLineWrapper extends StatelessWidget {
   final LyricAlignment alignment;
   final Animation<double> translation;
   final bool userScrolling;
+
+  /// 设置里的模糊总开关；关掉时这一行永远不糊
+  final bool blurEnabled;
+
   final ValueListenable<double> edgeOpacity;
 
   final Future<void> Function(double) onSeek;
@@ -1484,7 +1511,7 @@ class _LyricLineWrapper extends StatelessWidget {
           textTheme: textTheme,
           alignment: alignment,
           translation: translation,
-          blur: !userScrolling,
+          blur: blurEnabled && !userScrolling,
           edgeOpacity: edgeOpacity,
           onSeek: onSeek,
         );

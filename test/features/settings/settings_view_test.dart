@@ -260,6 +260,47 @@ void main() {
     expect(find.text('圆形封面'), findsOneWidget);
   });
 
+  testWidgets('歌词模糊 / 弹性滚动两个开关默认开启并回调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> blurChanges = <bool>[];
+    final List<bool> springChanges = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            onLyricBlurChanged: blurChanges.add,
+            onLyricSpringChanged: springChanges.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder blurToggle = find.byKey(
+      const ValueKey<String>('settings-lyric-blur-switch'),
+    );
+    await tester.ensureVisible(blurToggle);
+    await tester.tap(blurToggle);
+    await tester.pumpAndSettle();
+    expect(blurChanges, <bool>[false], reason: '默认开，点一下应回调关闭');
+
+    final Finder springToggle = find.byKey(
+      const ValueKey<String>('settings-lyric-spring-switch'),
+    );
+    await tester.ensureVisible(springToggle);
+    await tester.tap(springToggle);
+    await tester.pumpAndSettle();
+    expect(springChanges, <bool>[false], reason: '默认开，点一下应回调关闭');
+
+    expect(find.text('歌词模糊'), findsOneWidget);
+    expect(find.text('歌词弹性滚动'), findsOneWidget);
+  });
+
   testWidgets('关闭到托盘开关展示状态并回调', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
@@ -763,6 +804,7 @@ void main() {
       const ValueKey<String>('settings-output-device'),
     );
     await tester.ensureVisible(deviceRow);
+    await tester.pumpAndSettle();
     await tester.tap(deviceRow);
     await tester.pumpAndSettle();
     await tester.tap(find.text('耳机').last);
@@ -774,6 +816,7 @@ void main() {
       const ValueKey<String>('settings-replay-gain-switch'),
     );
     await tester.ensureVisible(gainSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(gainSwitch);
     await tester.pumpAndSettle();
     expect(gainPicks, <bool>[true]);
@@ -799,6 +842,7 @@ void main() {
       const ValueKey<String>('settings-crossfade-switch'),
     );
     await tester.ensureVisible(fadeSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(fadeSwitch);
     await tester.pumpAndSettle();
     expect(fadeSwitches, <bool>[false]);
@@ -808,6 +852,7 @@ void main() {
       const ValueKey<String>('settings-volume-fade-switch'),
     );
     await tester.ensureVisible(volumeFadeSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(volumeFadeSwitch);
     await tester.pumpAndSettle();
     expect(fadeToggles, <bool>[false]);

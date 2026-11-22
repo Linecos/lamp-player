@@ -58,6 +58,8 @@ class SessionSnapshot {
     this.desktopLyricY,
     this.lyricAlignment = LyricAlignment.center,
     this.showTranslation = true,
+    this.lyricBlur = true,
+    this.lyricSpring = true,
     this.immersive = false,
     this.autoUpdateCheck = false,
     this.updateCheckPeriod = UpdateCheckPeriod.daily,
@@ -179,6 +181,15 @@ class SessionSnapshot {
   /// 正在播放页是否显示译文 / 罗马音
   final bool showTranslation;
 
+  /// 歌词远处的行是否糊开（默认开）。
+  ///
+  /// 关掉后只留透明度层次：不再逐行跑一遍离屏模糊，观感更「干脆」，
+  /// 低配机器也能省下每帧的光栅。
+  final bool lyricBlur;
+
+  /// 换行时整列是否弹簧地跟到新行（默认开）。关掉直接切到新行。
+  final bool lyricSpring;
+
   /// 正在播放页是否停在沉浸模式（只留封面 / 歌名 / 歌词与三个控制键）。
   ///
   /// 这个状态属于「页面退出重进、重启之后还该记得」的观感偏好，跟译文开关
@@ -250,6 +261,10 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricYKey = 'ui_desktop_lyric_y';
   static const String lyricAlignmentKey = 'ui_lyric_alignment';
   static const String showTranslationKey = 'ui_lyric_translation';
+
+  /// 歌词远处行模糊 / 换行时的弹簧跟随
+  static const String lyricBlurKey = 'ui_lyric_blur';
+  static const String lyricSpringKey = 'ui_lyric_spring';
   static const String immersiveKey = 'ui_now_playing_immersive';
 
   /// 桌面歌词字号的默认值与范围（与 `rust/src/desktop_lyrics.rs` 保持一致）
@@ -345,6 +360,8 @@ class PrefsSessionStore implements SessionStore {
           prefs.getString(lyricAlignmentKey),
         ),
         showTranslation: prefs.getBool(showTranslationKey) ?? true,
+        lyricBlur: prefs.getBool(lyricBlurKey) ?? true,
+        lyricSpring: prefs.getBool(lyricSpringKey) ?? true,
         immersive: prefs.getBool(immersiveKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         sortAscending: prefs.getBool(sortAscendingKey) ?? true,
@@ -456,6 +473,8 @@ class PrefsSessionStore implements SessionStore {
       }
       await prefs.setString(lyricAlignmentKey, snapshot.lyricAlignment.name);
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
+      await prefs.setBool(lyricBlurKey, snapshot.lyricBlur);
+      await prefs.setBool(lyricSpringKey, snapshot.lyricSpring);
       await prefs.setBool(immersiveKey, snapshot.immersive);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(sortAscendingKey, snapshot.sortAscending);

@@ -38,6 +38,10 @@ class SettingsView extends StatelessWidget {
     this.devices = const <rust.PlayerDevice>[],
     this.lyricFont = '',
     this.onLyricFontChanged,
+    this.lyricBlur = true,
+    this.onLyricBlurChanged,
+    this.lyricSpring = true,
+    this.onLyricSpringChanged,
     this.outputDevice = -1,
     this.onOutputDeviceChanged,
     this.replayGain = false,
@@ -124,6 +128,18 @@ class SettingsView extends StatelessWidget {
 
   /// 换歌词字体；为空表示不可操作
   final ValueChanged<String>? onLyricFontChanged;
+
+  /// 歌词远处的行是否糊开（默认开）；关掉只剩透明度层次
+  final bool lyricBlur;
+
+  /// 切换歌词模糊；为空表示不可操作
+  final ValueChanged<bool>? onLyricBlurChanged;
+
+  /// 换行时整列是否弹簧地跟到新行（默认开）；关掉直接切到新行
+  final bool lyricSpring;
+
+  /// 切换歌词弹性滚动；为空表示不可操作
+  final ValueChanged<bool>? onLyricSpringChanged;
 
   /// 界面字体换过之后的通知（值本身在 [ThemeController] 里）：曲库页据此把
   /// 新字体重推给桌面歌词窗口，歌词选「跟随界面字体」时那边才跟着变
@@ -334,6 +350,22 @@ class SettingsView extends StatelessWidget {
       const _AccentColorRow(),
       _InterfaceFontRow(onChanged: onInterfaceFontChanged),
       _LyricFontRow(value: lyricFont, onChanged: onLyricFontChanged),
+      _SwitchRow(
+        icon: Icons.blur_on_rounded,
+        title: '歌词模糊',
+        switchKey: const ValueKey<String>('settings-lyric-blur-switch'),
+        subtitle: '远处的行按距离糊开；关掉只按距离变淡',
+        value: lyricBlur,
+        onChanged: onLyricBlurChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.waves_rounded,
+        title: '歌词弹性滚动',
+        switchKey: const ValueKey<String>('settings-lyric-spring-switch'),
+        subtitle: '唱到下一句时整列弹簧地跟过去；关掉直接切到新行',
+        value: lyricSpring,
+        onChanged: onLyricSpringChanged,
+      ),
       _SwitchRow(
         icon: Icons.auto_awesome,
         title: '动态流光背景',

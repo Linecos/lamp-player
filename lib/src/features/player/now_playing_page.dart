@@ -113,7 +113,15 @@ class NowPlayingPage extends StatefulWidget {
     this.immersive = false,
     this.onImmersiveChanged,
     this.lyricFontFamily,
+    this.lyricBlur = true,
+    this.lyricSpring = true,
   });
+
+  /// 歌词远处的行是否糊开（设置项）；关掉只留透明度层次
+  final bool lyricBlur;
+
+  /// 换行时整列是否弹簧地跟到新行（设置项）；关掉直接切过去
+  final bool lyricSpring;
 
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
@@ -1433,6 +1441,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       alignment: alignment,
       showTranslation: showTranslation,
       fontFamily: widget.lyricFontFamily,
+      blurEnabled: widget.lyricBlur,
+      springScroll: widget.lyricSpring,
     );
   }
 
