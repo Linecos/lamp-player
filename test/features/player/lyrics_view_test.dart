@@ -1180,6 +1180,124 @@ void main() {
     }
   });
 
+  testWidgets('译文动画进行中换行，当前行仍要停在对齐线上', (WidgetTester tester) async {
+    // 译文收放是 300ms 的补偿动画，补偿起点在动画开始时记下。换行恰好落在
+    // 动画中途时：换行先 jumpTo 把新行归位，但逐帧补偿还拿着「旧行」的锚点，
+    // 会把刚归位的滚动位置拉回旧行的目标；帧末按实际位置重算补偿时，量到的
+    // 是被拉歪之后的值，错的差值被钉进 gap，当前行从此偏着不动。
+    const int lineMs = 10000;
+    final ValueNotifier<double> position = ValueNotifier<double>(102.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(true);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 30; i += 1)
+        _line(
+          start: i * lineMs,
+          end: (i + 1) * lineMs,
+          text: '第$i行',
+          translation: 'line $i',
+        ),
+    ];
+
+    bool show = true;
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: show,
+    );
+    await tester.pumpAndSettle();
+
+    // 开始收起译文，让补偿动画跑到中途
+    show = false;
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: show,
+    );
+    await tester.pump(const Duration(milliseconds: 120));
+
+    // 动画还剩一半时换行
+    position.value = 11 * lineMs / 1000 + 0.2;
+    for (int i = 0; i < 60; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.text('第11行')).center.dy,
+      closeTo(350, 2),
+      reason:
+          '换行发生在译文动画中途：补偿不能拿旧行的锚点继续拉，'
+          '当前行要停在对齐线上',
+    );
+  });
+
+  testWidgets('快速连点切换译文，当前行不会上下抖', (WidgetTester tester) async {
+    // 单次切换时残差层（[_AnchorShift]）的平移恰好接近 0，看不出问题；
+    // 300ms 的动画跑不完就连点，每次重算补偿起点都会漏掉「已经画出来的那层
+    // 平移」——每点一次当前行就被掰一下，连点就是上下抖。这里逐帧采当前位置
+    // 的实际矩形（getRect 走 applyPaintTransform，含残差平移）。
+    const int lineMs = 10000;
+    final ValueNotifier<double> position = ValueNotifier<double>(100.2);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    final List<LyricLine> lines = <LyricLine>[
+      for (int i = 0; i < 30; i += 1)
+        _line(
+          start: i * lineMs,
+          end: (i + 1) * lineMs,
+          text: '第$i行歌词正文',
+          translation: 'translation $i',
+        ),
+    ];
+
+    bool show = true;
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      showTranslation: show,
+    );
+    await tester.pumpAndSettle();
+
+    final double base = tester.getRect(find.text('第10行歌词正文')).center.dy;
+    double worst = 0;
+    for (int click = 0; click < 6; click += 1) {
+      show = !show;
+      await _pump(
+        tester,
+        lines: lines,
+        position: position,
+        playing: playing,
+        showTranslation: show,
+      );
+      for (int frame = 0; frame < 4; frame += 1) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final double y = tester.getRect(find.text('第10行歌词正文')).center.dy;
+        worst = math.max(worst, (y - base).abs());
+      }
+    }
+
+    expect(worst, lessThan(0.3), reason: '连点切换译文时当前行要钉在原来的位置上，不能被残差平移带偏');
+
+    // 收尾时动画最后那点进度（亚像素）落地，允许半像素以内
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.text('第10行歌词正文')).center.dy,
+      closeTo(base, 1),
+      reason: '整段连点结束后仍要回到原位',
+    );
+  });
+
   testWidgets('点击歌词行按该行时间跳转', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(0);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
