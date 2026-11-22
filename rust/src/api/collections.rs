@@ -630,28 +630,29 @@ pub fn record_play_time(path: String, day: i32, seconds: i64) -> anyhow::Result<
 }
 
 /// 听歌总览：累计时长、累计次数、曲目数、活跃天数。
+///
+/// 四项各自扫一张表，本来会走四趟 `query_row`（每趟都要过一遍锁与语句缓存）；
+/// 写成一条 SELECT 的子查询后仍只扫四遍表，但只往返一次，设置页打开统计时少三次开销。
 pub fn play_stats() -> anyhow::Result<PlayStats> {
     with_conn(|conn| {
-        let total_seconds: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(seconds), 0) FROM play_sessions",
+        let (total_seconds, total_plays, track_count, active_days) = conn.query_row(
+            r#"
+            SELECT
+                (SELECT COALESCE(SUM(seconds), 0) FROM play_sessions),
+                -- 「听过曲目」只数真正计过次的：起播时 touch 出来的行 play_count 还是 0
+                (SELECT COALESCE(SUM(play_count), 0) FROM play_history),
+                (SELECT COUNT(*) FROM play_history WHERE play_count > 0),
+                (SELECT COUNT(DISTINCT day) FROM play_sessions WHERE seconds > 0)
+            "#,
             [],
-            |row| row.get(0),
-        )?;
-        let total_plays: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(play_count), 0) FROM play_history",
-            [],
-            |row| row.get(0),
-        )?;
-        // 「听过曲目」只数真正计过次的：起播时 touch 出来的行 play_count 还是 0
-        let track_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM play_history WHERE play_count > 0",
-            [],
-            |row| row.get(0),
-        )?;
-        let active_days: i64 = conn.query_row(
-            "SELECT COUNT(DISTINCT day) FROM play_sessions WHERE seconds > 0",
-            [],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
         )?;
         Ok(PlayStats {
             total_seconds,

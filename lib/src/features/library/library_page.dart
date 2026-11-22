@@ -736,6 +736,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 页面已销毁：后台补算的循环看到它就收手
   bool _warmGainsCancelled = false;
 
+  /// 慢补时的空档计时器：销毁时取消（也让挂在空档上的循环自然停在原地）
+  Timer? _warmGainTimer;
+
   /// 换曲交叉淡变时长（秒）；0 关闭
   double _crossfadeSeconds = 0;
 
@@ -1165,6 +1168,7 @@ class _LibraryPageState extends State<LibraryPage>
   @override
   void dispose() {
     _warmGainsCancelled = true;
+    _warmGainTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_lyricCommands?.cancel());
     _debounce?.cancel();

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app/window_occlusion.dart';
 import '../features/player/cover_palette.dart';
 import '../features/player/cover_spin.dart';
 
@@ -136,6 +137,8 @@ void printMemory(String tag) {
     // 转场 / 开关页面之后 CPU 下不去时先看这一项：还在「60fps」说明
     // 有个来源没被撤掉，时钟一直以 16ms 跑
     '｜旋转 ${CoverSpin.debugTicking ? '60fps' : '停'}（来源 ${CoverSpin.debugOwners}）'
+    // 遮挡判定也会让时钟停表；分不清「时钟停了」和「被盖住了」时先看这一项
+    '｜遮挡 ${probeOcclusion().debugLabel}'
     '｜${_widgetStats()}',
   );
 }

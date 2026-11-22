@@ -149,4 +149,112 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
+
+  testWidgets('滚动中出现的封面先不进解码，冷静期过了才建 Image', (WidgetTester tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 200);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final String path = await _writePng(tester);
+    addTearDown(() => File(path).deleteSync());
+
+    // 第 2 行才有封面：初始视口只够到第 1 行，那一行是纯文字
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 400,
+            height: 200,
+            child: ListView.builder(
+              itemExtent: 400,
+              itemCount: 6,
+              itemBuilder: (BuildContext context, int index) => SizedBox(
+                height: 400,
+                child: index == 2
+                    ? Center(child: AlbumCover(path: path, size: 240))
+                    : Center(child: Text('row$index')),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(Image), findsNothing, reason: '开局这一屏没有封面');
+
+    final TestGesture gesture = await tester.startGesture(
+      const Offset(200, 100),
+    );
+    await gesture.moveBy(const Offset(0, -80));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -700));
+    await tester.pump();
+
+    expect(find.byType(Image), findsNothing, reason: '封面是在滚动中挂上来的，先别读盘 + 解码');
+
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.byType(Image), findsOneWidget, reason: '冷静期一过就正常解码，不能一直空着');
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('大封面卸载时把解码结果摘掉，小封面留着', (WidgetTester tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final String path = await _writePng(tester);
+    addTearDown(() => File(path).deleteSync());
+
+    ImageProvider providerOf(double size) => ResizeImage.resizeIfNeeded(
+      coverDecodeWidth(size, 1),
+      null,
+      FileImage(File(path)),
+    );
+
+    late BuildContext host;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) {
+            host = context;
+            return const SizedBox();
+          },
+        ),
+      ),
+    );
+
+    // 先把解码结果放进缓存（没有监听者 → 变成 keepAlive 条目）
+    await tester.runAsync(() async {
+      await precacheImage(providerOf(240), host);
+      await precacheImage(providerOf(56), host);
+    });
+    // precacheImage 在帧末才摘监听者，摘掉之后才从 live 转成 keepAlive
+    await tester.pump();
+    expect(
+      imageAlreadyCached(providerOf(240)),
+      isTrue,
+      reason: '前置条件：大图已经在缓存里',
+    );
+
+    await tester.pumpWidget(_wrap(AlbumCover(path: path, size: 240)));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(
+      imageAlreadyCached(providerOf(240)),
+      isFalse,
+      reason: '详情头图 / 播放页大图只在页面里出现一次，关掉就该还回去',
+    );
+
+    await tester.pumpWidget(_wrap(AlbumCover(path: path, size: 56)));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(
+      imageAlreadyCached(providerOf(56)),
+      isTrue,
+      reason: '列表小图留着：回滚时零成本，40MB 上限也装得下',
+    );
+  });
 }

@@ -463,6 +463,28 @@ void main() {
     expect(find.byType(ToastPill), findsNothing, reason: '补扫应静默进行');
   });
 
+  testWidgets('补扫多个目录只在最后重载一次曲库', (WidgetTester tester) async {
+    // 逐目录重载等于把整份列表（和其中的封面）重复建一遍：启动后列表连闪几下。
+    // 补扫期间没有新增曲目可看，扫完统一重载一次就够。
+    final String first = tempFolder().path;
+    final String second = tempFolder().path;
+    final FakeMusicFolderStore folders = FakeMusicFolderStore(
+      folders: <String>[first, second],
+    );
+    final FakeSessionStore session = FakeSessionStore(
+      snapshot: const SessionSnapshot(coverBackfillAttempted: false),
+    );
+    final FakeLibraryRepository repository = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: folders,
+      sessionStore: session,
+    );
+
+    expect(repository.scannedFolders, <String>[first, second]);
+    expect(repository.loadCalls, 2, reason: '启动读一次 + 补扫结束统一重载一次');
+  });
+
   testWidgets('已尝试过补扫时启动不再自动扫描', (WidgetTester tester) async {
     final String folder = tempFolder().path;
     final FakeMusicFolderStore folders = FakeMusicFolderStore(

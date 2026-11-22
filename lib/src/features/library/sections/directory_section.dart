@@ -71,8 +71,13 @@ extension _DirectorySection on _LibraryPageState {
       if (!mounted) {
         return;
       }
-      await _scanDirectory(folder, notify: false);
+      await _scanDirectory(folder, notify: false, reload: false);
     }
+    if (!mounted) {
+      return;
+    }
+    // 各目录都扫完了才重载一次列表：一次建树，不再逐目录重建
+    await _loadTracks(silent: true);
     if (!mounted) {
       return;
     }
@@ -204,7 +209,15 @@ extension _DirectorySection on _LibraryPageState {
   /// 扫描指定目录；设置页展示结果，空曲库时用 SnackBar 提示。
   ///
   /// 自动补扫时传 `notify: false`，避免多个目录各弹一次提示。
-  Future<bool> _scanDirectory(String folder, {bool notify = true}) async {
+  ///
+  /// [reload] 为 false 时扫完不重载曲库：自动补扫要连着扫好几个目录，
+  /// 每个目录各重载一遍等于把整份列表（和其中的封面）重复建 N 次，启动后
+  /// 列表会连闪几下、滚动位置跟着跳。调用方扫完最后一个目录统一重载一次。
+  Future<bool> _scanDirectory(
+    String folder, {
+    bool notify = true,
+    bool reload = true,
+  }) async {
     if (_scanning) {
       return false;
     }
@@ -217,7 +230,9 @@ extension _DirectorySection on _LibraryPageState {
     });
     try {
       final scan.ScanReport report = await _repository.scanFolder(folder);
-      await _loadTracks(silent: true);
+      if (reload) {
+        await _loadTracks(silent: true);
+      }
       if (!mounted) {
         return false;
       }
