@@ -69,6 +69,10 @@ pub fn init_db(path: String) -> anyhow::Result<()> {
 
     let mut conn = Connection::open(&path).with_context(|| format!("打开曲库失败: {path}"))?;
     conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    // WAL 下 NORMAL 只在检查点刷盘：进程崩了不丢已提交事务（改动都落在 WAL 里），
+    // 只有掉电 / 拔盘才可能丢最后一段。曲库全是能重建的派生数据，换来的是每次
+    // 写事务少一次 fsync——扫描、播放计数、会话落库都走这条路径
+    conn.execute_batch("PRAGMA synchronous = NORMAL;")?;
     // 歌单 / 收藏 / 历史用外键关联 tracks.path，删除曲目时要级联清理
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     // 外部工具（备份脚本、DB 客户端）持写锁时等一会儿，而不是立刻 SQLITE_BUSY
