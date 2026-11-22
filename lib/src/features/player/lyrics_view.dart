@@ -272,6 +272,9 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   double _translationStart = 1;
   double _translationSpan = 0;
 
+  /// 残差补偿层（[_AnchorShift]）的挂点：布局后量残差、绘制前平移
+  final GlobalKey _shiftKey = GlobalKey();
+
   /// 切换期间「当前行的对齐偏移 − 实际滚动偏移」这个差值要恒定。
   ///
   /// 上面那条公式只数得进构建范围的行：视口外被 ListView 回收的行没有
@@ -472,17 +475,46 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     );
   }
 
-  /// 以「当前滚动位置 + 当前进度」为起点重算补偿
-  void _rebaseTranslation() {
+  /// 以「当前滚动位置 + 当前进度」为起点重算补偿。
+  ///
+  /// [recenter]：换行触发的重算传 true。换行刚 `jumpTo` 归位过，当前行本来
+  /// 就该精确停在对齐线上；但 jumpTo 用的是上一帧的布局，译文还在动，这一帧
+  /// 的重排又会把行挪开一点，按 pixels 记 gap 会把这点漂移永久钉住。所以锚点
+  /// 直接从「当前行应落在对齐线上」反推，gap 清零——后续逐帧校准全部以
+  /// 对齐线为准，而不是以「重算那一刻恰好所在的位置」为准。
+  void _rebaseTranslation({bool recenter = false}) {
+    // 模型说的是滚动偏移，起点就取裸的 pixels（残差平移不参与模型）
     _translationAnchor = _scroll.hasClients
         ? _scroll.position.pixels
         : double.nan;
     _translationStart = _translation.value;
     _translationSpan = _translationHeightAbove();
-    _translationGap = _revealGap();
+    // 目标位置**只在第一次切换时量**。
+    //
+    // 动画中途再点一次（连点）时，画面上的当前行已经被残差层钉在原来的位置上，
+    // 那才是要继续保持的位置。重新按 `reveal − pixels` 量一遍，量到的是布局
+    // 与滚动偏移的关系，和「上一次真正画出来的位置」差着残差、还差着帧末校准
+    // 刚做完还没画出来的那次跳转——每点一次就把当前行掰一下，连点就是上下抖。
+    // 位置本身没变过，沿用上一个目标即可。
+    if (_translationGap.isNaN) {
+      _translationGap = _revealGap();
+    }
+    if (recenter) {
+      final double reveal = _revealOffset(_active);
+      if (!reveal.isNaN) {
+        _translationGap = 0;
+        _translationAnchor =
+            reveal -
+            _translationSpan * (_translation.value - _translationStart);
+      }
+    }
   }
 
-  /// 当前行「对齐偏移 − 滚动偏移」的差值；量不到当前行时为 NaN
+  /// 当前行「对齐偏移 − 内容实际位置」的差值；量不到当前行时为 NaN
+  ///
+  /// 这里的「内容实际位置」是 [_contentOffset]（已含残差层的绘制平移），
+  /// 所以记下来的是**画面上**的位置：动画中途再切一次（连点）时，基准是连续
+  /// 的，不会因为残差把当前行掰一下。
   double _revealGap() {
     if (!_scroll.hasClients || _active < 0) {
       return double.nan;
@@ -491,7 +523,76 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (reveal.isNaN) {
       return double.nan;
     }
-    return reveal - _scroll.position.pixels;
+    return reveal - _contentOffset;
+  }
+
+  /// 布局后、绘制前的残差补偿量；null = 保持现状（见 [_AnchorShift]）。
+  ///
+  /// 逐帧预估（[_followTranslation]）只能数到构建范围内的行：视口外的行被
+  /// ListView 回收，几何冻结在最后已知的高度；动画中途它们带着当前进度的高度
+  /// 重新进入构建范围，真实收缩率会台阶式上涨。恒定速率的预估模型每帧都会差
+  /// 几个像素，而帧末校准（[_calibrateTranslation]）跳到的位置下一帧才画得出
+  /// 来——两拍之间差的那几个像素，就是切译文时看得见的上下抖动。
+  ///
+  /// 这里在布局之后直接量「当前行离理想位置还差多少」，以绘制平移在**同一帧**
+  /// 补齐；滚动位置仍由校准逐帧收敛，动画结束时两层一起归零。
+  double? _anchorShiftDelta() {
+    if (!_translation.isAnimating ||
+        _userScrolling ||
+        _active < 0 ||
+        !_scroll.hasClients ||
+        _translationGap.isNaN) {
+      return null;
+    }
+    final ScrollPosition position = _scroll.position;
+    final double reveal = _revealOffset(_active);
+    if (reveal.isNaN) {
+      return null;
+    }
+    final double ideal = (reveal - _translationGap).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    // 只补预估的零头。残差一大说明滚动正被别的东西驱动（进度条跳转刚起步、
+    // 边缘钳制），钉住内容反而错，交给驱动本身去走。
+    final double shift = position.pixels - ideal;
+    if (shift.abs() > 16) {
+      return null;
+    }
+    return shift;
+  }
+
+  void _clearAnchorShift() {
+    final RenderObject? renderObject = _shiftKey.currentContext
+        ?.findRenderObject();
+    if (renderObject is _RenderAnchorShift) {
+      renderObject.clearShift();
+    }
+  }
+
+  /// 残差层当前施加的绘制平移（还没画过就是 0）。
+  ///
+  /// 这一层平移让「布局位置」和「画出来的位置」差一个量：动画中途再切一次
+  /// 译文时，如果按 `reveal − pixels` 记录当时的视觉基准，就会漏掉这层平移，
+  /// 每点一次当前行就被那几像素掰一下——连点看着就是上下抖。
+  double get _anchorShift {
+    final RenderObject? renderObject = _shiftKey.currentContext
+        ?.findRenderObject();
+    if (renderObject is _RenderAnchorShift) {
+      return renderObject.shift;
+    }
+    return 0;
+  }
+
+  /// 当前画面上内容实际滚到的位置：`pixels − 残差平移`。
+  ///
+  /// 一切补偿计算都用它，而不是裸的 `position.pixels`：`reveal − 它`
+  /// 才是当前行真正画在屏幕上的位置（[_AnchorShift] 的 paint 平移已经算在内）。
+  double get _contentOffset {
+    if (!_scroll.hasClients) {
+      return double.nan;
+    }
+    return _scroll.position.pixels - _anchorShift;
   }
 
   /// 当前行上面那些译文块的自然高度之和（不受折叠进度影响）
@@ -521,6 +622,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       if (mounted) {
         // 动画已经停了，这里要强对一次：预估漏算的行只能在布局之后量出来
         _calibrateTranslation(force: true);
+        // 残差补偿层收工：滚动已经校准到位，平移归零
+        _clearAnchorShift();
         // 译文折叠会改行高，行区间跟着变
         _refreshRowOpacity();
       }
@@ -546,6 +649,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       position.minScrollExtent,
       position.maxScrollExtent,
     );
+    // 模型给的是「滚动偏移」；画面上差的那点残差由 [_AnchorShift] 补齐
     if ((clamped - position.pixels).abs() > 0.5) {
       position.jumpTo(clamped);
     }
@@ -648,11 +752,21 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     // 跨了一行以上 = 拖进度条 / 点歌词 / 切歌，不是自然换行
     final bool multiLine = (_active - next).abs() > 1;
     _activeNotifier.value = next; // 只更新 notifier，不 setState
-    // 切换中途换行的话，等这一帧跳完再按新布局重算补偿起点，别拿旧锚点继续补
+    // 切换中途换行的话，等这一帧跳完再按新布局重算补偿起点，别拿旧锚点继续补。
+    //
+    // 但旧锚点必须**立刻**摘掉：换行自己会 `jumpTo` 把新行归位，而本轮帧里
+    // 译文控制器的逐帧补偿（[_followTranslation]）还拿着「旧行」的锚点与补偿
+    // 量，会把刚归位的滚动位置拉回旧行的目标；帧末重算（[_rebaseTranslation]）
+    // 量到的是被拉歪之后的 pixels，错的差值从此被钉进 [_translationGap]，
+    // 当前行就一直偏着，直到下一次换行才自愈。实测偏移量有五十多像素。
+    // 锚点与差值一起置 NaN（两处补偿逻辑见 NaN 直接跳过），等这一帧布局完
+    // 再按新行重算。
     if (_translation.isAnimating) {
+      _translationAnchor = double.nan;
+      _translationGap = double.nan;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _translation.isAnimating) {
-          _rebaseTranslation();
+          _rebaseTranslation(recenter: true);
         }
       });
     }
@@ -932,6 +1046,11 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   /// 两件事：暂停自动跟随（不然刚滚开就被拽回当前行），并临时关掉远处行的模糊
   /// —— 滚动中一行都看不清，糊着只是白费光栅。上下的边界渐隐是外层遮罩，不受影响。
   void _beginUserScroll({bool restartTimer = true}) {
+    // 拖动期间滚动位置归用户管，残差补偿层跟着清零
+    _clearAnchorShift();
+    // 用户自己滚过之后，当前行不再停在对齐线上：切换目标作废，下次切换重新量
+    _translationGap = double.nan;
+    _translationAnchor = double.nan;
     // 旧的计时先作废：拖到一半被「停手 3 秒」拽回去会很突兀
     _resumeTimer?.cancel();
     if (!_userScrolling) {
@@ -1038,41 +1157,45 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                   // `addRepaintBoundaries: false`：行内自己已经有一层
                   // `RepaintBoundary`（弹动复用光栅），再让 ListView 包一层是
                   // 两层边界、两张位图。
-                  child: ListView.builder(
-                    controller: _scroll,
-                    // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
-                    // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
-                    physics: const BouncingScrollPhysics(),
-                    padding: EdgeInsets.only(
-                      top: topPad,
-                      bottom: bottomPad,
-                      left: _scrollPaddingX,
-                      right: _scrollPaddingX,
-                    ),
-                    // 视口外多留几行（400px ≈ 6 行）：换行时相邻行要能被弹簧推到，
-                    // 留太少会看到「从无到有」地冒出来
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(400),
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    itemCount: widget.lines.length,
-                    itemBuilder: (BuildContext context, int index) => Center(
-                      child: SizedBox(
-                        width: band,
-                        child: _LyricLineWrapper(
-                          index: index,
-                          activeNotifier: _activeNotifier,
-                          lineKey: _lineKeys[index],
-                          anchorKey: _keys[index],
-                          translationKey: _translationKeys[index],
-                          jump: _jump,
-                          line: widget.lines[index],
-                          position: _smooth,
-                          textTheme: _lyricTheme(theme.textTheme),
-                          alignment: widget.alignment,
-                          translation: _translation,
-                          userScrolling: _userScrolling,
-                          edgeOpacity: _edgeOpacityAt(index),
-                          onSeek: widget.onSeek,
+                  child: _AnchorShift(
+                    key: _shiftKey,
+                    resolve: _anchorShiftDelta,
+                    child: ListView.builder(
+                      controller: _scroll,
+                      // 橡皮筋回弹：拖到首尾还能再拽出去一点再弹回来，和「弹」的
+                      // 跟随曲线是同一套手感（桌面默认的 Clamping 是贴住的）
+                      physics: const BouncingScrollPhysics(),
+                      padding: EdgeInsets.only(
+                        top: topPad,
+                        bottom: bottomPad,
+                        left: _scrollPaddingX,
+                        right: _scrollPaddingX,
+                      ),
+                      // 视口外多留几行（400px ≈ 6 行）：换行时相邻行要能被弹簧推到，
+                      // 留太少会看到「从无到有」地冒出来
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(400),
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: false,
+                      itemCount: widget.lines.length,
+                      itemBuilder: (BuildContext context, int index) => Center(
+                        child: SizedBox(
+                          width: band,
+                          child: _LyricLineWrapper(
+                            index: index,
+                            activeNotifier: _activeNotifier,
+                            lineKey: _lineKeys[index],
+                            anchorKey: _keys[index],
+                            translationKey: _translationKeys[index],
+                            jump: _jump,
+                            line: widget.lines[index],
+                            position: _smooth,
+                            textTheme: _lyricTheme(theme.textTheme),
+                            alignment: widget.alignment,
+                            translation: _translation,
+                            userScrolling: _userScrolling,
+                            edgeOpacity: _edgeOpacityAt(index),
+                            onSeek: widget.onSeek,
+                          ),
                         ),
                       ),
                     ),
@@ -2364,4 +2487,89 @@ class _TopInsetClipper extends CustomClipper<Rect> {
 
   @override
   bool shouldReclip(_TopInsetClipper oldClipper) => oldClipper.inset != inset;
+}
+
+/// 把「帧末校准」提前到绘制前的残差补偿层（包着歌词 [ListView]）。
+///
+/// 逐帧预估（[_FollowTranslation]）在动画相位里跳，帧末校准（
+/// [_CalibrateTranslation]）要等布局完才能量到真实位置，跳转下一帧才画得
+/// 出来——两拍之间差的那几个像素就是切译文时的上下抖动。这个 RenderObject
+/// 在自己 performLayout 的尾部（子树已布局完、还没绘制）量出残差，直接以
+/// 绘制平移在同一帧补齐。
+class _AnchorShift extends SingleChildRenderObjectWidget {
+  const _AnchorShift({required this.resolve, required super.child, super.key});
+
+  /// 布局完成后询问绘制平移量；返回 null 表示保持现状
+  final double? Function() resolve;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return _RenderAnchorShift(resolve);
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _RenderAnchorShift renderObject,
+  ) {
+    renderObject.resolve = resolve;
+  }
+}
+
+class _RenderAnchorShift extends RenderProxyBox {
+  _RenderAnchorShift(this.resolve);
+
+  double? Function() resolve;
+
+  double _shift = 0;
+
+  /// 当前施加的绘制平移（正 = 内容往下多画）。补偿计算要靠它把「画出来的
+  /// 位置」算准，否则动画中途再切一次会把基准挪走（连点时上下抖）。
+  double get shift => _shift;
+
+  /// 动画被打断（动画结束、用户开始拖动）时把残留的平移清掉。
+  void clearShift() {
+    if (_shift == 0) {
+      return;
+    }
+    _shift = 0;
+    markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    // 残差要在 paint 里量而不是 layout：视口多半是 relayout boundary，行高
+    // 变化的 markNeedsLayout 传不到这一层；而 markNeedsPaint 一定能传上来
+    // （绘制传播只停在 RepaintBoundary，这一层之上才有）。此时布局已完成，
+    // 量到的就是这一帧最终的样子，平移当帧生效。
+    final double? shift = resolve();
+    if (shift != null && !shift.isNaN) {
+      _shift = shift;
+    }
+    if (_shift == 0 || child == null) {
+      super.paint(context, offset);
+      return;
+    }
+    final Matrix4 transform = Matrix4.translationValues(0, _shift, 0);
+    context.pushTransform(needsCompositing, offset, transform, super.paint);
+  }
+
+  @override
+  void applyPaintTransform(RenderObject child, Matrix4 transform) {
+    super.applyPaintTransform(child, transform);
+    // 让 localToGlobal（测试取矩形、浮层定位）看得见这层平移。
+    // 量补偿量的路径（_revealOffset / _layoutOffset）走的是布局几何，
+    // 不经过这里，不会被自己的平移污染。
+    if (_shift != 0) {
+      transform.multiply(Matrix4.translationValues(0, _shift, 0));
+    }
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    return super.hitTestChildren(
+      result,
+      position: position - Offset(0, _shift),
+    );
+  }
 }
