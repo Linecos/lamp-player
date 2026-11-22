@@ -13,7 +13,9 @@ import 'listening_stats_repository.dart';
 /// 次数沿用 `play_history.play_count`，包含更早的历史。
 ///
 /// 这是**设置分区里的子界面**，不是独立路由：左侧栏和底部播放岛都还在。
-/// 打开时才创建（关闭即销毁），所以进来才查库、离开不留后台开销。
+/// 打开时才创建（关闭即销毁）；但结果会缓存（见 [_statsCache]），重新进来
+/// 直接有内容——否则每次进来第一帧都在 `FutureBuilder` 的 waiting 状态上，
+/// 就是那下「正在统计…」的闪烁。
 class ListeningStatsView extends StatefulWidget {
   const ListeningStatsView({
     super.key,
@@ -43,14 +45,117 @@ class ListeningStatsView extends StatefulWidget {
   State<ListeningStatsView> createState() => _ListeningStatsViewState();
 }
 
-class _ListeningStatsViewState extends State<ListeningStatsView> {
-  /// 一次取满一年：热力图显示多少周由窗口宽度决定，改窗口不必重新查库
-  /// （一年也就 371 行，代价可以忽略）
-  static const int _maxWeeks = 53;
+/// 统计结果缓存。
+///
+/// 子界面是「打开才建、关闭即销毁」的，每次进来都是新的 State、新的 Future；
+/// `FutureBuilder` 在 future 完成的**那一帧之前**必然是 waiting，哪怕查库只花
+/// 1ms，也会先画一帧「正在统计…」再换成内容——看着就是闪一下。
+///
+/// 所以结果按数据源缓存：重新进来时直接把上次的结果同步画出来，顺手在后台
+/// 刷新（成功就悄悄替换，不出现加载态）。缓存按 repository 身份分，
+/// 测试注入的假数据源各算各的。
+final Expando<_StatsBundle> _statsCache = Expando<_StatsBundle>(
+  'listening-stats-cache',
+);
+final Expando<DateTime> _statsCacheAt = Expando<DateTime>(
+  'listening-stats-cache-at',
+);
+final Expando<Future<_StatsBundle>> _statsInflight =
+    Expando<Future<_StatsBundle>>('listening-stats-inflight');
 
+/// 缓存多久之内不重复查库：进进出出（返回设置再点回来）时不必每次都打库
+const Duration _statsCacheTtl = Duration(seconds: 15);
+
+DateTime? _cachedAtFor(ListeningStatsRepository repository) =>
+    _statsCacheAt[repository];
+
+bool _isFresh(ListeningStatsRepository repository) {
+  final DateTime? at = _cachedAtFor(repository);
+  if (at == null) {
+    return false;
+  }
+  return DateTime.now().difference(at) < _statsCacheTtl;
+}
+
+/// 热力图一次取满一年：显示多少周由窗口宽度决定，改窗口不必重新查库
+/// （一年也就 371 行，代价可以忽略）
+const int _maxWeeks = 53;
+
+/// 查库（并发去重）：同一个数据源同时只跑一次，结果写进缓存
+Future<_StatsBundle> _requestStats(
+  ListeningStatsRepository repository, {
+  bool force = false,
+}) {
+  final Future<_StatsBundle>? running = _statsInflight[repository];
+  if (running != null) {
+    return running;
+  }
+  if (!force && _statsCache[repository] != null && _isFresh(repository)) {
+    return Future<_StatsBundle>.value(_statsCache[repository]);
+  }
+  final DateTime start = DateTime.now();
+  final Future<_StatsBundle> future = _fetchStats(repository).then(
+    (_StatsBundle bundle) {
+      _statsCache[repository] = bundle;
+      // 用发起时刻算年龄：查库期间不该算「已经旧了」
+      _statsCacheAt[repository] = start;
+      _statsInflight[repository] = null;
+      return bundle;
+    },
+    onError: (Object error, StackTrace stack) {
+      _statsInflight[repository] = null;
+      throw error;
+    },
+  );
+  _statsInflight[repository] = future;
+  return future;
+}
+
+/// 预热：分区一建起来就把统计查好，用户点「听歌统计」时已经是现成数据。
+///
+/// 只查一次（有缓存 / 有在跑的请求就直接返回），重复调用没有代价。
+void prefetchListeningStats({ListeningStatsRepository? repository}) {
+  final ListeningStatsRepository repo =
+      repository ?? const RustListeningStatsRepository();
+  if (_statsCache[repo] != null && _isFresh(repo)) {
+    return;
+  }
+  // 这里没人 await：挂一个吞错的监听，避免查库失败变成 unhandled error
+  unawaited(
+    _requestStats(
+      repo,
+      force: _statsCache[repo] != null,
+    ).then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+  );
+}
+
+/// 四个查询互不依赖，并行发起；用 record 的 wait 保证任一失败都会被捕获，
+/// 不会留下未 await 的 future 变成 unhandled error。
+Future<_StatsBundle> _fetchStats(ListeningStatsRepository repository) async {
+  final DateTime start = _heatmapStart(DateTime.now(), _maxWeeks);
+  final (
+    PlayStats stats,
+    List<TrackPlayStat> top,
+    List<ArtistPlayStat> artists,
+    List<DailyPlaytime> daily,
+  ) = await (
+    repository.playStats(),
+    repository.topTracks(),
+    repository.topArtists(),
+    repository.dailyPlaytime(_dayKey(start)),
+  ).wait;
+  return _StatsBundle(stats: stats, top: top, artists: artists, daily: daily);
+}
+
+class _ListeningStatsViewState extends State<ListeningStatsView> {
   late final ListeningStatsRepository _repository =
       widget.repository ?? const RustListeningStatsRepository();
-  late Future<_StatsBundle> _future = _load();
+
+  /// 上次的结果：有它就能同步画出内容，不经过加载态
+  _StatsBundle? _bundle;
+
+  /// 加载时出的错：只有「手里什么都没有」时才展示
+  Object? _error;
 
   /// 下半部分看哪一套排行
   RankTab _tab = RankTab.songs;
@@ -59,34 +164,57 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
   final SmoothScrollController _scroll = SmoothScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    _bundle = _statsCache[_repository];
+    _refresh();
+  }
+
+  @override
   void dispose() {
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<_StatsBundle> _load() async {
-    final DateTime start = _heatmapStart(DateTime.now(), _maxWeeks);
-    // 三个查询互不依赖，并行发起；用 record 的 wait 保证任一失败都会被捕获，
-    // 不会留下未 await 的 future 变成 unhandled error。
-    final (
-      PlayStats stats,
-      List<TrackPlayStat> top,
-      List<ArtistPlayStat> artists,
-      List<DailyPlaytime> daily,
-    ) = await (
-      _repository.playStats(),
-      _repository.topTracks(),
-      _repository.topArtists(),
-      _repository.dailyPlaytime(_dayKey(start)),
-    ).wait;
-    return _StatsBundle(stats: stats, top: top, artists: artists, daily: daily);
+  /// 取数：有缓存就先画着，后台刷新；没缓存才显示加载态
+  void _refresh({bool force = false}) {
+    final bool hasContent = _bundle != null;
+    if (_statsInflight[_repository] != null) {
+      // 已经有人在查（预热 / 上一次刷新），等它就好
+      _statsInflight[_repository]!.then<void>(
+        (_) => _adopt(_statsCache[_repository], null),
+        onError: (Object error, StackTrace _) => _adopt(null, error),
+      );
+      return;
+    }
+    if (!force && hasContent && _isFresh(_repository)) {
+      return;
+    }
+    _requestStats(_repository, force: force).then<void>(
+      (_) => _adopt(_statsCache[_repository], null),
+      onError: (Object error, StackTrace _) => _adopt(null, error),
+    );
   }
 
-  void _reload() {
+  void _adopt(_StatsBundle? bundle, Object? error) {
+    if (!mounted) {
+      return;
+    }
+    if (bundle == null && _bundle != null) {
+      // 后台刷新失败但手里还有上次的数据：继续显示，不打扰
+      return;
+    }
     setState(() {
-      _future = _load();
+      if (bundle != null) {
+        _bundle = bundle;
+        _error = null;
+      } else {
+        _error = error;
+      }
     });
   }
+
+  void _reload() => _refresh(force: true);
 
   @override
   Widget build(BuildContext context) {
@@ -125,24 +253,17 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
           ],
         ),
         Expanded(
-          child: FutureBuilder<_StatsBundle>(
-            future: _future,
-            builder:
-                (BuildContext context, AsyncSnapshot<_StatsBundle> snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const LoadingState(message: '正在统计…');
-                  }
-                  if (snapshot.hasError) {
-                    return ErrorRetry(
-                      title: '统计读取失败',
-                      error: snapshot.error!,
-                      onRetry: _reload,
-                    );
-                  }
-                  final _StatsBundle bundle = snapshot.data!;
-                  return _buildBody(context, bundle);
-                },
-          ),
+          // 有上次的结果就直接画（哪怕还在后台刷新）：不再经过 FutureBuilder 的
+          // waiting 那一帧，也就没有「正在统计…」那一下闪
+          child: switch ((_bundle, _error)) {
+            (final _StatsBundle bundle, _) => _buildBody(context, bundle),
+            (null, final Object error) => ErrorRetry(
+              title: '统计读取失败',
+              error: error,
+              onRetry: _reload,
+            ),
+            _ => const LoadingState(message: '正在统计…'),
+          },
         ),
       ],
     );
