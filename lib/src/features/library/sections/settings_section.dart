@@ -40,6 +40,8 @@ extension _SettingsSection on _LibraryPageState {
             onLyricBlurChanged: _setLyricBlur,
             lyricSpring: _lyricSpring,
             onLyricSpringChanged: _setLyricSpring,
+            lyricSourceOrder: _lyricSourceOrder,
+            onLyricSourceOrderChanged: _setLyricSourceOrder,
             // 界面字体存在主题控制器里；换过之后要把新字体重推给桌面歌词
             onInterfaceFontChanged: () =>
                 unawaited(_syncDesktopLyricFontFamily()),

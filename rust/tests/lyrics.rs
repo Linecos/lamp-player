@@ -1,4 +1,4 @@
-//! 歌词读取测试：`.lrc` 旁载优先、内嵌标签兜底、没有歌词时返回空结构。
+//! 歌词读取测试：旁载 `.lrc` 与内嵌标签两种来源、优先级顺序、没有歌词时返回空结构。
 
 use std::fs;
 use std::path::PathBuf;
@@ -65,7 +65,7 @@ fn sidecar_lrc_wins_over_embedded() {
     )
     .expect("写入 lrc");
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读取歌词");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读取歌词");
     assert_eq!(lyrics.source, "sidecar");
     assert_eq!(lyrics.lines.len(), 2);
     assert_eq!(lyrics.lines[0].time_ms, 1200);
@@ -89,7 +89,7 @@ fn reads_embedded_unsynchronized_lyrics() {
     tag.save_to_path(&song, WriteOptions::default())
         .expect("写入内嵌歌词");
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读取歌词");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读取歌词");
     assert_eq!(lyrics.source, "embedded");
     assert!(lyrics.lines.is_empty(), "无时间轴时应走 plain");
     assert_eq!(lyrics.plain, "第一段\n第二段");
@@ -101,7 +101,7 @@ fn missing_lyrics_is_not_an_error() {
     let song = dir.0.join("纯音乐.wav");
     write_wav(&song);
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("没有歌词也应成功");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("没有歌词也应成功");
     assert_eq!(lyrics.source, "none");
     assert!(lyrics.lines.is_empty());
     assert!(lyrics.plain.is_empty());
@@ -118,7 +118,7 @@ fn utf16_sidecar_is_decoded() {
     }
     fs::write(song.with_extension("lrc"), bytes).expect("写入 utf16 lrc");
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读取歌词");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读取歌词");
     assert_eq!(lyrics.lines.len(), 1);
     assert_eq!(lyrics.lines[0].text, "中文歌词");
 }
@@ -138,7 +138,7 @@ fn sidecar_with_inline_words_and_translation() {
     )
     .expect("写入逐字 lrc");
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读取歌词");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读取歌词");
     assert_eq!(lyrics.source, "sidecar");
     assert_eq!(lyrics.lines.len(), 2, "同时间戳的三行要合并成一行");
     let first = &lyrics.lines[0];
@@ -166,7 +166,7 @@ fn sidecar_target_writes_the_lrc_file() {
     .expect("写入旁载");
     assert_eq!(written, song.with_extension("lrc").to_string_lossy());
 
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读回");
     assert_eq!(lyrics.source, "sidecar");
     assert_eq!(lyrics.lines.len(), 1);
 }
@@ -188,7 +188,7 @@ fn embedded_target_writes_into_the_audio_file() {
     .expect("写入内嵌");
 
     assert!(!lrc.exists(), "选了内嵌就不该再生成 .lrc");
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读回");
     assert_eq!(lyrics.source, "embedded");
     assert_eq!(lyrics.lines.len(), 1);
     assert_eq!(lyrics.lines[0].time_ms, 2_500);
@@ -213,8 +213,49 @@ fn embedded_target_refreshes_an_existing_sidecar() {
     .expect("写入内嵌");
 
     // 旁载优先：不刷新的话读出来还是「旧旁载」，等于这次保存白做
-    let lyrics = lyrics_load(song.to_string_lossy().into_owned()).expect("读回");
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读回");
     assert_eq!(lyrics.source, "sidecar");
     assert_eq!(lyrics.lines[0].text, "新的");
     assert!(fs::read_to_string(&lrc).expect("读 lrc").contains("新的"));
+}
+
+/// 两边都有歌词：`embedded_first` 换顺序，内容跟着换
+#[test]
+fn embedded_first_flips_the_source_order() {
+    use lofty::config::WriteOptions;
+    use lofty::prelude::{ItemKey, TagExt};
+    use lofty::tag::{Tag, TagType};
+
+    let dir = TempDir::new("order");
+    let song = dir.0.join("两边.wav");
+    write_wav(&song);
+    fs::write(song.with_extension("lrc"), "[00:01.00]旁载行\n").expect("写入 lrc");
+
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.insert_text(ItemKey::UnsyncLyrics, "内嵌段落".to_string());
+    tag.save_to_path(&song, WriteOptions::default())
+        .expect("写入内嵌");
+
+    let sidecar_first = lyrics_load(song.to_string_lossy().into_owned(), false).expect("读取");
+    assert_eq!(sidecar_first.source, "sidecar");
+    assert_eq!(sidecar_first.lines[0].text, "旁载行");
+    assert!(sidecar_first.plain.is_empty());
+
+    let embedded_first = lyrics_load(song.to_string_lossy().into_owned(), true).expect("读取");
+    assert_eq!(embedded_first.source, "embedded");
+    assert!(embedded_first.lines.is_empty());
+    assert_eq!(embedded_first.plain, "内嵌段落");
+}
+
+/// 先试的那一边没有能用的歌词时退给另一边，不会变成「没歌词」
+#[test]
+fn embedded_first_falls_back_to_sidecar_when_tag_is_empty() {
+    let dir = TempDir::new("order_fallback");
+    let song = dir.0.join("只有旁载.wav");
+    write_wav(&song);
+    fs::write(song.with_extension("lrc"), "[00:01.00]旁载行\n").expect("写入 lrc");
+
+    let lyrics = lyrics_load(song.to_string_lossy().into_owned(), true).expect("读取");
+    assert_eq!(lyrics.source, "sidecar");
+    assert_eq!(lyrics.lines[0].text, "旁载行");
 }

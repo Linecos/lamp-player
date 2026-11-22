@@ -522,6 +522,49 @@ void main() {
     expect(session.snapshot.lyricSpring, isFalse);
   });
 
+  testWidgets('歌词来源优先级弹窗拖完顺序写回会话', (WidgetTester tester) async {
+    final FakeSessionStore session = FakeSessionStore();
+    await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      sessionStore: session,
+      viewSize: const Size(1280, 1400),
+    );
+    await openSettings(tester);
+
+    expect(session.snapshot.lyricSourceOrder, <String>[
+      'sidecar',
+      'embedded',
+    ], reason: '默认旁载优先');
+
+    final Finder row = find.text('歌词来源优先级');
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('lyric-source-dialog')),
+      findsOneWidget,
+    );
+
+    final Finder handle = find.descendant(
+      of: find.byKey(const ValueKey<String>('lyric-source-embedded')),
+      matching: find.byIcon(Icons.drag_indicator),
+    );
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(handle),
+    );
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -40));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -60));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(session.snapshot.lyricSourceOrder, <String>['embedded', 'sidecar']);
+  });
+
   testWidgets('清理缺失文件只删记录并展示清理条数', (WidgetTester tester) async {
     final FakeLibraryRepository repository = await pumpLibrary(
       tester,

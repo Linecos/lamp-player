@@ -1291,11 +1291,13 @@ fn wire__crate__api__lyrics__lyrics_load_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_path = <String>::sse_decode(&mut deserializer);
+            let api_embedded_first = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok = crate::api::lyrics::lyrics_load(api_path)?;
+                        let output_ok =
+                            crate::api::lyrics::lyrics_load(api_path, api_embedded_first)?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )

@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.24（2026-11-22）**
+> **当前版本：v0.25（2026-11-23）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.25 变更（**破坏性，Dart 侧已同步**）：`lyrics_load(path)` 加
+> `embedded_first: bool`——「歌词来源优先级」设置（默认旁载优先）要能反过来。
+> 两条来源都不变，先试的一边解析不出内容仍退给另一边，见 §9。
 >
 > v0.24 变更：**补登记** `api::metadata::audio_channels(path) -> Result<i32>`
 > （2026-11-20 就已实现，元数据编辑页的「声道数」用它；`lofty` 的
@@ -444,7 +448,7 @@
 
 | Rust 签名 | Dart 签名 | 状态 |
 |---|---|---|
-| `lyrics_load(path: String) -> Result<TrackLyrics>` | `Future<TrackLyrics> lyricsLoad({required String path})` | **已实现** |
+| `lyrics_load(path: String, embedded_first: bool) -> Result<TrackLyrics>` | `Future<TrackLyrics> lyricsLoad({required String path, required bool embeddedFirst})` | **已实现** |
 | `lyrics_read_raw(path: String) -> Result<RawLyrics>` | `Future<RawLyrics> lyricsReadRaw({required String path})` | **已实现** |
 | `lyrics_shift_raw(text: String, delta_ms: i64) -> String`（sync） | `String lyricsShiftRaw({required String text, required int deltaMs})` | **已实现** |
 | `lyrics_save_raw(path: String, text: String, target: String) -> Result<String>` | `Future<String> lyricsSaveRaw({required String path, required String text, required String target})` | **已实现** |
@@ -459,7 +463,7 @@
 - `lyrics_save_raw` 的 `target` 取 `sidecar` / `embedded`（其他值按 `sidecar` 处理）：
   - `sidecar`：写同名 `.lrc`（UTF-8 无 BOM），返回写入路径。
   - `embedded`：写音频标签（ID3v2 的 USLT / Vorbis 的 `LYRICS`），返回音频文件路径。
-    读取侧是「旁载优先」，所以**同目录已有同名 `.lrc` 时会一并把同样的文本刷进去**，
+    默认「旁载优先」，所以**同目录已有同名 `.lrc` 时会一并把同样的文本刷进去**，
     否则旧旁载会盖住刚落进标签的新歌词；没有 `.lrc` 就不新建。
 - 界面顺序：先 `shift_raw` 拿到新文本给用户看，确认后 `save_raw` 落盘。
 
@@ -468,7 +472,11 @@
 - `TrackLyrics`：`lines`（按时间升序，毫秒）+ `plain`（无时间轴文本）+ `source`（`sidecar` / `embedded` / `none`）。
 - `LyricLine`：`time_ms` / `end_ms`（下一行起点，末行按最后一个字推算）+ `text` + `words`（逐字时间轴，空表示行级）+ `translation`（同时间戳的其余行，`\n` 分隔）。
 - `LyricWord`：`time_ms` + `text`。
-- 优先级：同目录同名 `.lrc`（`.LRC` 也试）> `.ttml`（`.TTML` 也试）> 内嵌 `Lyrics` / `UnsynchronizedLyrics`。
+- 优先级（v0.25 起由 `embedded_first` 指定，默认旁载优先）：
+  旁载同名 `.lrc`（`.LRC` 也试）→ `.ttml`（`.TTML` 也试）→ 内嵌 `Lyrics` / `UnsynchronizedLyrics`；
+  `embedded_first = true` 时内嵌先试，读不到再退旁载（顺序反过来，来源集合不变）。
+- 编辑用的 `lyrics_read_raw` 仍**固定旁载优先**：编辑窗要显示「改的是哪个文件」，
+  跟着播放顺序漂会让同一首歌的编辑目标随设置变。
 - 格式按**内容**嗅探（根元素 `<tt` 走 TTML，其余按 LRC），不看扩展名：旁载与内嵌两条路都可能拿到 TTML。
 - **没有歌词不是错误**：返回空结构、`source = none`；只有音频文件本身读不了才会抛。
 - 解析规则：一行多个时间戳会展开成多行；`[ar:...]` 这类元数据忽略；空行（间奏）保留为空文本。

@@ -297,6 +297,44 @@ void main() {
     expect(read.lyricSpring, isFalse);
   });
 
+  test('歌词来源优先级可以存取，坏存档会被补齐', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    expect((await store.load()).lyricSourceOrder, <String>[
+      'sidecar',
+      'embedded',
+    ], reason: '没有存档时默认旁载优先');
+
+    await store.save(
+      const SessionSnapshot(lyricSourceOrder: <String>['embedded', 'sidecar']),
+    );
+    expect((await store.load()).lyricSourceOrder, <String>[
+      'embedded',
+      'sidecar',
+    ]);
+
+    // 老存档 / 手改过：缺的补到末尾，不认识的丢掉
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(PrefsSessionStore.lyricSourceOrderKey, <String>[
+      'embedded',
+      'sidecar',
+      'cloud',
+    ]);
+    expect((await store.load()).lyricSourceOrder, <String>[
+      'embedded',
+      'sidecar',
+    ]);
+
+    await prefs.setStringList(PrefsSessionStore.lyricSourceOrderKey, <String>[
+      'embedded',
+    ]);
+    expect((await store.load()).lyricSourceOrder, <String>[
+      'embedded',
+      'sidecar',
+    ]);
+  });
+
   test('独占输出偏好可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();
