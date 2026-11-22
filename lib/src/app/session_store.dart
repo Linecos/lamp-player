@@ -8,6 +8,7 @@ import '../common/text/lyric_font.dart';
 import '../features/library/library_sort.dart';
 import '../features/player/equalizer.dart';
 import '../features/player/lyric_alignment.dart';
+import '../features/player/lyric_source.dart';
 import '../features/player/playback_queue.dart';
 import 'update_check.dart';
 
@@ -60,6 +61,7 @@ class SessionSnapshot {
     this.showTranslation = true,
     this.lyricBlur = true,
     this.lyricSpring = true,
+    this.lyricSourceOrder = const <String>['sidecar', 'embedded'],
     this.immersive = false,
     this.autoUpdateCheck = false,
     this.updateCheckPeriod = UpdateCheckPeriod.daily,
@@ -190,6 +192,12 @@ class SessionSnapshot {
   /// 换行时整列是否弹簧地跟到新行（默认开）。关掉直接切到新行。
   final bool lyricSpring;
 
+  /// 歌词来源的优先级，存来源 id（见 `LyricSource`）；排在前面先读。
+  ///
+  /// 只存 id 而不是枚举：会话层不必认识播放器的来源模型，顺序的合法化
+  /// （补缺、丢垃圾）由 [lyricSourceOrderFromIds] 在读取时统一做。
+  final List<String> lyricSourceOrder;
+
   /// 正在播放页是否停在沉浸模式（只留封面 / 歌名 / 歌词与三个控制键）。
   ///
   /// 这个状态属于「页面退出重进、重启之后还该记得」的观感偏好，跟译文开关
@@ -265,6 +273,9 @@ class PrefsSessionStore implements SessionStore {
   /// 歌词远处行模糊 / 换行时的弹簧跟随
   static const String lyricBlurKey = 'ui_lyric_blur';
   static const String lyricSpringKey = 'ui_lyric_spring';
+
+  /// 歌词来源优先级（来源 id 列表，排前面的先读）
+  static const String lyricSourceOrderKey = 'ui_lyric_source_order';
   static const String immersiveKey = 'ui_now_playing_immersive';
 
   /// 桌面歌词字号的默认值与范围（与 `rust/src/desktop_lyrics.rs` 保持一致）
@@ -362,6 +373,9 @@ class PrefsSessionStore implements SessionStore {
         showTranslation: prefs.getBool(showTranslationKey) ?? true,
         lyricBlur: prefs.getBool(lyricBlurKey) ?? true,
         lyricSpring: prefs.getBool(lyricSpringKey) ?? true,
+        lyricSourceOrder: lyricSourceOrderIds(
+          lyricSourceOrderFromIds(prefs.getStringList(lyricSourceOrderKey)),
+        ),
         immersive: prefs.getBool(immersiveKey) ?? false,
         sort: _parseSort(prefs.getString(sortKey)),
         sortAscending: prefs.getBool(sortAscendingKey) ?? true,
@@ -475,6 +489,7 @@ class PrefsSessionStore implements SessionStore {
       await prefs.setBool(showTranslationKey, snapshot.showTranslation);
       await prefs.setBool(lyricBlurKey, snapshot.lyricBlur);
       await prefs.setBool(lyricSpringKey, snapshot.lyricSpring);
+      await prefs.setStringList(lyricSourceOrderKey, snapshot.lyricSourceOrder);
       await prefs.setBool(immersiveKey, snapshot.immersive);
       await prefs.setString(sortKey, snapshot.sort.name);
       await prefs.setBool(sortAscendingKey, snapshot.sortAscending);

@@ -9,10 +9,18 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// 读取曲目歌词。
 ///
+/// `embedded_first` 决定两条来源的先后：默认 `false` 是旁载 `.lrc` 优先、其次
+/// 内嵌标签；`true` 反过来（设置里的「歌词来源优先级」）。
+///
 /// 没有歌词是正常情况（返回空结构，`source` 为 `none`），不报错；
 /// 只有路径本身不可读时才返回错误。
-Future<TrackLyrics> lyricsLoad({required String path}) =>
-    RustLib.instance.api.crateApiLyricsLyricsLoad(path: path);
+Future<TrackLyrics> lyricsLoad({
+  required String path,
+  required bool embeddedFirst,
+}) => RustLib.instance.api.crateApiLyricsLyricsLoad(
+  path: path,
+  embeddedFirst: embeddedFirst,
+);
 
 /// 读取歌词原文：旁载优先，其次内嵌。没有歌词返回空结构，不报错。
 Future<RawLyrics> lyricsReadRaw({required String path}) =>

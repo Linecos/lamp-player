@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/app.dart';
 import 'package:lamp_player/src/common/text/bundled_fonts.dart';
+import 'package:lamp_player/src/features/player/lyric_source.dart';
 import 'package:lamp_player/src/features/settings/equalizer_panel.dart';
 import 'package:lamp_player/src/features/settings/settings_view.dart';
 import 'package:lamp_player/src/features/settings/theme_controller.dart';
@@ -299,6 +300,71 @@ void main() {
 
     expect(find.text('歌词模糊'), findsOneWidget);
     expect(find.text('歌词弹性滚动'), findsOneWidget);
+  });
+
+  testWidgets('歌词来源优先级：点开弹窗用六点抓手拖动排序', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<List<LyricSource>> changes = <List<LyricSource>>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(onLyricSourceOrderChanged: changes.add),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.text('歌词来源优先级');
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    expect(find.text('先用同名旁载歌词，没有才用内嵌'), findsOneWidget, reason: '默认旁载优先');
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('lyric-source-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('旁载歌词'), findsOneWidget);
+    expect(find.text('内嵌歌词'), findsOneWidget);
+
+    // 按住「内嵌」右侧的六点抓手往上拖，越过上面那条
+    final Finder handle = find.descendant(
+      of: find.byKey(const ValueKey<String>('lyric-source-embedded')),
+      matching: find.byIcon(Icons.drag_indicator),
+    );
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(handle),
+    );
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -40));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -60));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(changes.single, <LyricSource>[
+      LyricSource.embedded,
+      LyricSource.sidecar,
+    ]);
+    // 弹窗里也是新顺序（内嵌那行在上）
+    expect(
+      tester.getTopLeft(find.text('内嵌歌词')).dy,
+      lessThan(tester.getTopLeft(find.text('旁载歌词')).dy),
+    );
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('lyric-source-dialog')),
+      findsNothing,
+    );
   });
 
   testWidgets('关闭到托盘开关展示状态并回调', (WidgetTester tester) async {

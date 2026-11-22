@@ -46,6 +46,7 @@ import '../../app/image_cache_config.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
 import '../player/lyric_alignment.dart';
+import '../player/lyric_source.dart';
 import '../player/now_playing_page.dart';
 import '../player/now_playing_route.dart';
 import '../player/desktop_lyric_cue.dart';
@@ -864,6 +865,12 @@ class _LibraryPageState extends State<LibraryPage>
   /// 换行时整列是否弹簧地跟到新行（设置项，默认开）
   bool _lyricSpring = true;
 
+  /// 歌词来源的优先级（设置项，默认旁载优先）
+  ///
+  /// 读取歌词的两个入口（正在播放页、桌面歌词）都要按这个顺序来；改了顺序
+  /// 之后桌面歌词立刻按新顺序重读，播放页下次进入自然生效。
+  List<LyricSource> _lyricSourceOrder = lyricSourceOrderDefault;
+
   /// 正在播放页是否停在沉浸模式。
   ///
   /// 状态放在曲库页（跨页常驻）而不是播放页自己身上：播放页是 push 出来的路由，
@@ -1363,6 +1370,7 @@ class _LibraryPageState extends State<LibraryPage>
       _showTranslation.value = snapshot.showTranslation;
       _lyricBlur = snapshot.lyricBlur;
       _lyricSpring = snapshot.lyricSpring;
+      _lyricSourceOrder = lyricSourceOrderFromIds(snapshot.lyricSourceOrder);
       _immersive = snapshot.immersive;
       // 封面形状是全局通知器：曲库列表、播放条、正在播放页都靠它，恢复后
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
@@ -1594,6 +1602,7 @@ class _LibraryPageState extends State<LibraryPage>
       showTranslation: _showTranslation.value,
       lyricBlur: _lyricBlur,
       lyricSpring: _lyricSpring,
+      lyricSourceOrder: lyricSourceOrderIds(_lyricSourceOrder),
       immersive: _immersive,
     );
     // 快照在调用时定稿，排队只影响写入时机，不会读到时才取字段。
@@ -2343,6 +2352,16 @@ class _LibraryPageState extends State<LibraryPage>
   void _setLyricSpring(bool value) {
     _update(() => _lyricSpring = value);
     _saveSessionNow();
+  }
+
+  /// 歌词来源优先级变了：落盘，桌面歌词立刻按新顺序重读
+  void _setLyricSourceOrder(List<LyricSource> order) {
+    if (listEquals(_lyricSourceOrder, order)) {
+      return;
+    }
+    _update(() => _lyricSourceOrder = order);
+    _saveSessionNow();
+    _reloadDesktopLyrics();
   }
 
   /// 歌词对齐切到下一档（居中 → 左 → 右 → 居中）

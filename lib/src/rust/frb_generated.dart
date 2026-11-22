@@ -191,7 +191,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<List<Playlist>> crateApiCollectionsListPlaylists();
 
-  Future<TrackLyrics> crateApiLyricsLyricsLoad({required String path});
+  Future<TrackLyrics> crateApiLyricsLyricsLoad({
+    required String path,
+    required bool embeddedFirst,
+  });
 
   Future<RawLyrics> crateApiLyricsLyricsReadRaw({required String path});
 
@@ -1428,12 +1431,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "list_playlists", argNames: []);
 
   @override
-  Future<TrackLyrics> crateApiLyricsLyricsLoad({required String path}) {
+  Future<TrackLyrics> crateApiLyricsLyricsLoad({
+    required String path,
+    required bool embeddedFirst,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
+          sse_encode_bool(embeddedFirst, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1446,14 +1453,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiLyricsLyricsLoadConstMeta,
-        argValues: [path],
+        argValues: [path, embeddedFirst],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiLyricsLyricsLoadConstMeta =>
-      const TaskConstMeta(debugName: "lyrics_load", argNames: ["path"]);
+  TaskConstMeta get kCrateApiLyricsLyricsLoadConstMeta => const TaskConstMeta(
+    debugName: "lyrics_load",
+    argNames: ["path", "embeddedFirst"],
+  );
 
   @override
   Future<RawLyrics> crateApiLyricsLyricsReadRaw({required String path}) {

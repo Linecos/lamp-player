@@ -10,11 +10,13 @@ import '../../rust/api/player.dart' as rust;
 import '../../theme/app_theme.dart';
 import '../player/equalizer.dart';
 import '../player/equalizer_dialog.dart';
+import '../player/lyric_source.dart';
 import '../player/shortcuts.dart';
 
 import 'theme_controller.dart';
 import 'about_dialog.dart';
 import 'font_picker_dialog.dart';
+import 'lyric_source_dialog.dart';
 import 'widgets/settings_rows.dart';
 
 /// 设置页骨架。
@@ -42,6 +44,8 @@ class SettingsView extends StatelessWidget {
     this.onLyricBlurChanged,
     this.lyricSpring = true,
     this.onLyricSpringChanged,
+    this.lyricSourceOrder = lyricSourceOrderDefault,
+    this.onLyricSourceOrderChanged,
     this.outputDevice = -1,
     this.onOutputDeviceChanged,
     this.replayGain = false,
@@ -140,6 +144,12 @@ class SettingsView extends StatelessWidget {
 
   /// 切换歌词弹性滚动；为空表示不可操作
   final ValueChanged<bool>? onLyricSpringChanged;
+
+  /// 歌词来源优先级：排在前面的先用（默认旁载优先）
+  final List<LyricSource> lyricSourceOrder;
+
+  /// 拖完顺序回调；为空表示不可操作
+  final ValueChanged<List<LyricSource>>? onLyricSourceOrderChanged;
 
   /// 界面字体换过之后的通知（值本身在 [ThemeController] 里）：曲库页据此把
   /// 新字体重推给桌面歌词窗口，歌词选「跟随界面字体」时那边才跟着变
@@ -350,6 +360,10 @@ class SettingsView extends StatelessWidget {
       const _AccentColorRow(),
       _InterfaceFontRow(onChanged: onInterfaceFontChanged),
       _LyricFontRow(value: lyricFont, onChanged: onLyricFontChanged),
+      _LyricSourceOrderRow(
+        order: lyricSourceOrder,
+        onChanged: onLyricSourceOrderChanged,
+      ),
       _SwitchRow(
         icon: Icons.blur_on_rounded,
         title: '歌词模糊',
@@ -984,6 +998,39 @@ class _LyricFontRow extends StatelessWidget implements SettingsSearchable {
       defaultLabel: kLyricFontChoices.first.$2,
       pillKey: const ValueKey<String>('settings-lyric-font'),
       onChanged: onChanged,
+    );
+  }
+}
+
+/// 「歌词来源优先级」：一首歌两处都有歌词时先用哪个，点开弹窗拖动排序。
+class _LyricSourceOrderRow extends StatelessWidget
+    implements SettingsSearchable {
+  const _LyricSourceOrderRow({required this.order, this.onChanged});
+
+  final List<LyricSource> order;
+  final ValueChanged<List<LyricSource>>? onChanged;
+
+  @override
+  String get searchText => '歌词来源优先级 旁载 内嵌 LRC 标签 排序 外观';
+
+  @override
+  Widget build(BuildContext context) {
+    final ValueChanged<List<LyricSource>>? changed = onChanged;
+    final bool sidecarFirst =
+        order.isEmpty || order.first == LyricSource.sidecar;
+    return SettingsActionRow(
+      icon: Icons.swap_vert_rounded,
+      title: '歌词来源优先级',
+      subtitle: sidecarFirst ? '先用同名旁载歌词，没有才用内嵌' : '先用内嵌标签，没有才用同名旁载',
+      onTap: changed == null
+          ? null
+          : () => unawaited(
+              showLyricSourceOrderDialog(
+                context,
+                order: order,
+                onChanged: changed,
+              ),
+            ),
     );
   }
 }

@@ -1,5 +1,5 @@
-//! 歌词读取：同目录 `.lrc` 优先，其次音频内嵌标签。另提供编辑用的原文
-//! 读写与「整体平移时间戳」。
+//! 歌词读取：同目录 `.lrc` 与音频内嵌标签，顺序由 `embedded_first` 指定。另提供
+//! 编辑用的原文读写与「整体平移时间戳」。
 
 use crate::lyrics as core;
 use anyhow::Result;
@@ -37,10 +37,13 @@ pub struct TrackLyrics {
 
 /// 读取曲目歌词。
 ///
+/// `embedded_first` 决定两条来源的先后：默认 `false` 是旁载 `.lrc` 优先、其次
+/// 内嵌标签；`true` 反过来（设置里的「歌词来源优先级」）。
+///
 /// 没有歌词是正常情况（返回空结构，`source` 为 `none`），不报错；
 /// 只有路径本身不可读时才返回错误。
-pub fn lyrics_load(path: String) -> Result<TrackLyrics> {
-    let lyrics = core::load(Path::new(&path))?;
+pub fn lyrics_load(path: String, embedded_first: bool) -> Result<TrackLyrics> {
+    let lyrics = core::load(Path::new(&path), embedded_first)?;
     Ok(TrackLyrics {
         lines: lyrics
             .lines

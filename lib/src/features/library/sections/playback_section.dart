@@ -471,6 +471,7 @@ extension _PlaybackSection on _LibraryPageState {
               lyricFontFamily: _lyricFontFamily,
               lyricBlur: _lyricBlur,
               lyricSpring: _lyricSpring,
+              lyricEmbeddedFirst: embeddedFirstIn(_lyricSourceOrder),
               // 播放页整个盖住了外壳标题栏，拖动区得靠它自己
               windowControls: _windowControls,
               shortcuts: _shortcuts,

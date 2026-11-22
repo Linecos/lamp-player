@@ -77,7 +77,8 @@ typedef LyricsLoader = Future<lyrics_api.TrackLyrics> Function(String path);
 
 /// 正在播放页：大封面 + 曲目信息 + 同步歌词。
 ///
-/// 歌词来源见 `rust/src/lyrics.rs`：同目录 `.lrc` 优先，其次内嵌标签。
+/// 歌词来源见 `rust/src/lyrics.rs`：同名旁载文件与音频内嵌标签，先后由设置里的
+/// 「歌词来源优先级」决定（默认旁载优先）。
 /// 没有时间轴时按纯文本展示；点歌词行会 seek 到该行时间。
 class NowPlayingPage extends StatefulWidget {
   const NowPlayingPage({
@@ -115,6 +116,7 @@ class NowPlayingPage extends StatefulWidget {
     this.lyricFontFamily,
     this.lyricBlur = true,
     this.lyricSpring = true,
+    this.lyricEmbeddedFirst = false,
   });
 
   /// 歌词远处的行是否糊开（设置项）；关掉只留透明度层次
@@ -122,6 +124,9 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 换行时整列是否弹簧地跟到新行（设置项）；关掉直接切过去
   final bool lyricSpring;
+
+  /// 读歌词时是否先试内嵌标签（「歌词来源优先级」里内嵌排第一时为 true）
+  final bool lyricEmbeddedFirst;
 
   /// 打开均衡器页；为空时不显示该按钮
   final VoidCallback? onOpenEqualizer;
@@ -715,7 +720,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     try {
       final LyricsLoader loader =
           widget.lyricsLoader ??
-          (String value) => lyrics_api.lyricsLoad(path: value);
+          (String value) => lyrics_api.lyricsLoad(
+            path: value,
+            embeddedFirst: widget.lyricEmbeddedFirst,
+          );
       result = await loader(path);
     } catch (error) {
       debugPrint('读取歌词失败：$error');

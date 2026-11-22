@@ -1,4 +1,5 @@
-//! 歌词：优先读同目录同名 `.lrc`，其次读音频内嵌标签。
+//! 歌词：同目录同名 `.lrc` 与音频内嵌标签两条来源，顺序由调用方指定
+//! （默认旁载优先，见 [`load`]）。
 //!
 //! 只做「拿到文本并解析时间轴」，不联网、不猜歌词。没有时间戳的纯文本歌词
 //! 放在 `plain` 里，界面原样滚动显示。
@@ -68,30 +69,53 @@ impl Lyrics {
     }
 }
 
-/// 读取歌词：[音频路径] 旁的 `.lrc` 优先，其次内嵌。
-pub fn load(audio: &Path) -> Result<Lyrics> {
-    if let Some(text) = read_sidecar(audio) {
-        let mut lyrics = parse_auto(&text);
-        if !lyrics.is_empty() {
-            lyrics.source = "sidecar".to_string();
+/// 读取歌词：默认音频旁的 `.lrc` 优先、其次内嵌；`embedded_first` 反过来让
+/// 内嵌先试（设置里的「歌词来源优先级」）。
+pub fn load(audio: &Path, embedded_first: bool) -> Result<Lyrics> {
+    if embedded_first {
+        if let Some(lyrics) = load_embedded(audio) {
+            return Ok(lyrics);
+        }
+        if let Some(lyrics) = load_sidecar(audio) {
+            return Ok(lyrics);
+        }
+    } else {
+        if let Some(lyrics) = load_sidecar(audio) {
+            return Ok(lyrics);
+        }
+        if let Some(lyrics) = load_embedded(audio) {
             return Ok(lyrics);
         }
     }
+    Ok(Lyrics::empty())
+}
 
-    match read_embedded(audio) {
-        Ok(Some(text)) => {
-            let mut lyrics = parse_auto(&text);
-            if lyrics.is_empty() && !crate::lyrics_ttml::looks_like_ttml(&text) {
-                // 没有时间戳：交给界面当纯文本显示。
-                // TTML 没有解析出东西时不能这么兜底，否则整篇 XML 会被当歌词显示
-                lyrics.plain = text.trim().to_string();
-            }
-            lyrics.source = "embedded".to_string();
-            Ok(lyrics)
-        }
-        // 解析失败（文件损坏/格式不支持）等同于没有歌词，不让调用方报错
-        _ => Ok(Lyrics::empty()),
+/// 旁载歌词；文件不存在或解析不出内容时 `None`
+fn load_sidecar(audio: &Path) -> Option<Lyrics> {
+    let text = read_sidecar(audio)?;
+    let mut lyrics = parse_auto(&text);
+    if lyrics.is_empty() {
+        return None;
     }
+    lyrics.source = "sidecar".to_string();
+    Some(lyrics)
+}
+
+/// 内嵌歌词；标签读不到或 TTML 解析不出内容时 `None`
+fn load_embedded(audio: &Path) -> Option<Lyrics> {
+    // 解析失败（文件损坏/格式不支持）等同于没有歌词，不让调用方报错
+    let text = read_embedded(audio).ok().flatten()?;
+    let mut lyrics = parse_auto(&text);
+    if lyrics.is_empty() {
+        if crate::lyrics_ttml::looks_like_ttml(&text) {
+            // TTML 没解析出东西时不能兜底成纯文本，否则整篇 XML 会被当歌词显示
+            return None;
+        }
+        // 没有时间戳：交给界面当纯文本显示。
+        lyrics.plain = text.trim().to_string();
+    }
+    lyrics.source = "embedded".to_string();
+    Some(lyrics)
 }
 
 /// 同目录同名歌词：`.lrc` 优先，其次 `.ttml`；两种都大小写不敏感地试。
@@ -434,6 +458,9 @@ fn parse_timestamp(raw: &str) -> Option<i64> {
 /// 读歌词「原文」：旁载优先，其次内嵌。编辑窗要的是能原样编辑的文本
 /// （含 `[ti:]`、逐字标签这些结构），不是 [`load`] 那种解析过的行。
 ///
+/// 顺序**不跟随** [`load`] 的 `embedded_first`：编辑窗要显示「这次改的是哪个
+/// 文件」，跟着播放顺序漂会让同一首歌的编辑目标随设置变。
+///
 /// 返回（文本，来源 `sidecar` / `embedded`）；两边都没有时 `None`。
 pub fn raw_text(audio: &Path) -> Option<(String, &'static str)> {
     if let Some(text) = read_sidecar(audio) {
@@ -451,7 +478,8 @@ pub fn raw_text(audio: &Path) -> Option<(String, &'static str)> {
 ///
 /// 统一写旁载而不是改写音频内嵌标签：改内嵌要重写整个音频文件（几 MB 起步、
 /// 有损坏风险），而 `.lrc` 是可读文本、出问题随时能删。原本只有内嵌歌词的
-/// 曲目在第一次编辑后也会有 `.lrc`——[`load`] 读旁载优先，行为一致。
+/// 曲目在第一次编辑后也会有 `.lrc`——默认「旁载优先」时 [`load`] 读到的就是
+/// 这份新写的旁载。
 pub fn write_sidecar(audio: &Path, text: &str) -> Result<PathBuf> {
     let path = audio.with_extension("lrc");
     std::fs::write(&path, text)

@@ -195,6 +195,7 @@ extension _OutputSection on _LibraryPageState {
     try {
       final lyrics_api.TrackLyrics loaded = await lyrics_api.lyricsLoad(
         path: path,
+        embeddedFirst: embeddedFirstIn(_lyricSourceOrder),
       );
       if (!mounted || _lyricsPath != path) {
         return;
@@ -206,6 +207,19 @@ extension _OutputSection on _LibraryPageState {
       // 没有歌词文件是常态，不该打扰用户
       debugPrint('读取歌词失败：$error');
     }
+  }
+
+  /// 换过来源优先级：桌面歌词按新顺序重读当前这首。
+  ///
+  /// 缓存键只有路径，不改顺序的话 `_loadLyrics` 直接 return，桌面歌词会一直
+  /// 停在旧来源那版歌词上。
+  void _reloadDesktopLyrics() {
+    final String? path = _lyricsPath;
+    if (path == null) {
+      return;
+    }
+    _lyricsPath = null;
+    unawaited(_loadLyrics(path));
   }
 
   /// 桌面歌词眼下的播放位置（秒）。
