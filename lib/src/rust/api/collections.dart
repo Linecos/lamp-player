@@ -177,6 +177,9 @@ Future<void> recordPlayTime({
 );
 
 /// 听歌总览：累计时长、累计次数、曲目数、活跃天数。
+///
+/// 四项各自扫一张表，本来会走四趟 `query_row`（每趟都要过一遍锁与语句缓存）；
+/// 写成一条 SELECT 的子查询后仍只扫四遍表，但只往返一次，设置页打开统计时少三次开销。
 Future<PlayStats> playStats() =>
     RustLib.instance.api.crateApiCollectionsPlayStats();
 
