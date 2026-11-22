@@ -279,7 +279,7 @@ void main() {
     expect(playback.playedGains.last, -6.5);
   });
 
-  testWidgets('启动后后台补算：点歌时增益已就绪，起播直接带上', (WidgetTester tester) async {
+  testWidgets('启动后后台慢补：算完的曲目点歌时增益已就绪', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
       durationSecs: 180,
@@ -296,9 +296,10 @@ void main() {
       ),
     );
 
-    // 没点任何歌，曲库里缺增益的曲目已经被逐首算完
-    // 补算不挂在帧上，多 pump 几次让它跑完
-    for (int i = 0; i < 50 && playback.analyzedPaths.length < 2; i += 1) {
+    // 没有队列可恢复，两首都落在「其余曲目」那一轮：中间有空档，
+    // 补算不挂在帧上，按空档时长往前推
+    for (int i = 0; i < 6 && playback.analyzedPaths.length < 2; i += 1) {
+      await tester.pump(const Duration(seconds: 3));
       await tester.pump();
     }
     expect(playback.analyzedPaths.toSet(), <String>{
@@ -310,6 +311,46 @@ void main() {
     await tester.tap(find.text('夜航'));
     await tester.pumpAndSettle();
     expect(playback.playedGains, <double>[-7.5]);
+  });
+
+  testWidgets('启动预热先算队列接着的几首，剩下的等空档慢补', (WidgetTester tester) async {
+    final List<Track> tracks = <Track>[
+      for (int i = 0; i < 7; i += 1) sampleTrack(title: '曲$i'),
+    ];
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    )..analyzedGain = -6;
+    await pumpLibrary(
+      tester,
+      tracks: tracks,
+      playback: playback,
+      sessionStore: FakeSessionStore(
+        snapshot: SessionSnapshot(
+          coverBackfillAttempted: true,
+          replayGain: true,
+          queuePaths: tracks.map((Track track) => track.path).toList(),
+          queueIndex: 0,
+        ),
+      ),
+    );
+
+    // 当前曲目 + 队列随后 5 首：起播就可能轮到它们，启动时不算空档直接算完
+    expect(playback.analyzedPaths, hasLength(6));
+    expect(playback.analyzedPaths.toSet(), <String>{
+      for (int i = 0; i < 6; i += 1) tracks[i].path,
+    });
+    // 第 7 首没人马上要听，落在慢补那一轮：到这一步还没算
+    expect(
+      playback.analyzedPaths,
+      isNot(contains(tracks[6].path)),
+      reason: '剩下的曲目要拉开空档，不能冷启动就满负荷跑',
+    );
+
+    // 等一个空档，它才轮到
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(playback.analyzedPaths, contains(tracks[6].path));
   });
 
   testWidgets('参考响度改了按新目标现算：不重新解码', (WidgetTester tester) async {
