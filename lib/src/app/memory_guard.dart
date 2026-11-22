@@ -21,13 +21,17 @@ import 'memory_trim.dart';
 /// 做法：每 [interval] 看一次 RSS，超阈值就
 /// 1. 清掉图片缓存里「没人用但留着下次快」的那部分（`clear()`，不动正在显示的）；
 /// 2. 清掉模糊用的 ImageFilter 缓存；
-/// 3. `SetProcessWorkingSetSize(-1,-1)` 让系统把空闲页换出。
+/// 3. **只在界面不可见时**才 `SetProcessWorkingSetSize(-1,-1)`（见 [trimWorkingSet]
+///    的契约：它只是把页换出去，可见时调等于让下一帧再读回来）。
 ///
 /// 阈值取「前台 230MB / 不可见 150MB」：前台太激进会让
 /// 刚清掉的封面立刻又被解回来，反而多一轮磁盘 IO；不可见时没人看画面，
 /// 可以连 live image 一起放掉（[trimImageCache] 就是这么做的）。
 ///
-/// 只在 Windows 桌面有意义；其它平台 `trimWorkingSet()` 自己是空操作。
+/// 前台还有一个**迟滞**：[growthStepBytes]。修剪完把当下的 RSS 记成基线，
+/// 之后再涨满这一台阶才允许动第二次——否则稳态下每 60 秒都会把刚涨回来的
+/// 同一批页再按一次，看着在干活，其实是工作集反复换出换入。不可见时不用这道
+/// 门槛：那会儿没人看画面，多剪一次只有好处。
 class MemoryGuard {
   MemoryGuard._();
 
@@ -44,10 +48,19 @@ class MemoryGuard {
   /// 不可见（最小化 / 在托盘）阈值：更低，因为重新读页的代价没人感知
   static const int hiddenLimitBytes = 150 << 20;
 
+  /// 前台两次修剪之间至少要再涨这么多。
+  ///
+  /// 单次换歌的台阶是 5~15MB，攒到 40MB 才值得再动一刀；门槛太低（比如 5MB）
+  /// 等于没门槛，稳态下仍然每 60 秒剪一次同一批页。
+  static const int growthStepBytes = 40 << 20;
+
   static Timer? _timer;
 
   /// 额外的一次性检查（换歌、退出播放页之后用）
   static Timer? _soon;
+
+  /// 上一次修剪之后的 RSS；负数表示还没剪过，第一次超阈值必剪
+  static int _baselineRss = -1;
 
   /// 启动看门（重复调用无副作用）
   static void start() {
@@ -63,6 +76,7 @@ class MemoryGuard {
     _timer = null;
     _soon?.cancel();
     _soon = null;
+    _baselineRss = -1;
   }
 
   /// 在 [delay] 之后补查一次。
@@ -90,21 +104,58 @@ class MemoryGuard {
   static bool overLimit(int rssBytes, {required bool visible}) =>
       rssBytes >= (visible ? visibleLimitBytes : hiddenLimitBytes);
 
+  /// 这一次该做什么。
+  ///
+  /// [baselineBytes] 是上次修剪之后的 RSS（负数表示还没剪过）。前台要求
+  /// 「比基线再涨满 [growthStepBytes]」才动手，见类注释里的迟滞说明。
+  @visibleForTesting
+  static ({bool trimCaches, bool releaseWorkingSet}) plan({
+    required int rssBytes,
+    required bool visible,
+    required int baselineBytes,
+  }) {
+    const ({bool trimCaches, bool releaseWorkingSet}) idle = (
+      trimCaches: false,
+      releaseWorkingSet: false,
+    );
+    if (!overLimit(rssBytes, visible: visible)) {
+      return idle;
+    }
+    if (visible &&
+        baselineBytes >= 0 &&
+        rssBytes - baselineBytes < growthStepBytes) {
+      // 稳态：涨回来的那点还没到值得再动一刀的量
+      return idle;
+    }
+    // 交还工作集只在不可见时做；可见时它只是把页换出去，下一帧又读回来
+    return (trimCaches: true, releaseWorkingSet: !visible);
+  }
+
   static Future<void> _tick() async {
     try {
       final bool visible = await _isVisible();
       final int rss = ProcessInfo.currentRss;
-      if (!overLimit(rss, visible: visible)) {
+      final ({bool trimCaches, bool releaseWorkingSet}) next = plan(
+        rssBytes: rss,
+        visible: visible,
+        baselineBytes: _baselineRss,
+      );
+      if (!next.trimCaches) {
         return;
       }
       final int before = rss;
       trimCaches(keepLiveImages: visible);
-      trimWorkingSet();
+      if (next.releaseWorkingSet) {
+        trimWorkingSet();
+      }
+      // 修剪之后的水位当成新基线：下一次要在它之上再涨一台阶才允许再剪
+      _baselineRss = ProcessInfo.currentRss;
       if (memoryLogEnabled) {
         final ImageCache cache = PaintingBinding.instance.imageCache;
         printMemory(
           '修剪（${visible ? '前台' : '不可见'}，触发 '
           '${(before / (1024 * 1024)).toStringAsFixed(0)}MB，'
+          '之后 ${(_baselineRss / (1024 * 1024)).toStringAsFixed(0)}MB，'
           '图片缓存剩 ${(cache.currentSizeBytes / (1024 * 1024)).toStringAsFixed(1)}MB）',
         );
       }
