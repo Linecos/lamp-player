@@ -87,8 +87,12 @@ class CoverSpin {
     }
   }
 
-  /// 诊断用：是否正以 60fps 推进相位（`LAMP_MEM_LOG` 会打出来）
-  static bool get debugTicking => _ticking;
+  /// 诊断用：是否正以 60fps 推进相位（`LAMP_MEM_LOG` 会打出来）。
+  ///
+  /// 还得看时钟是不是被停表了（隐藏 / 最小化 / 失焦静默）：那种情况下
+  /// 监听还在、`_ticking` 也还是 true，但根本没有节拍在推它——只报 `_ticking`
+  /// 会让日志一直写着「60fps」，排查时反而误导。
+  static bool get debugTicking => _ticking && !UiClock.isPaused;
 
   /// 诊断用：登记的来源数 / 其中要求转的数量
   static String get debugOwners {
