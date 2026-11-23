@@ -168,7 +168,8 @@ class LibraryManageView extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         return SmoothListView(
-          padding: EdgeInsets.only(top: 4, right: 12, bottom: bottomPadding),
+          // 与设置页一致：不给滚动条留槽，否则左右内边距差 12
+          padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
           children: <Widget>[
             Row(
               children: <Widget>[

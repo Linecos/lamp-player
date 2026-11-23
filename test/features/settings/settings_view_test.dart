@@ -1220,7 +1220,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final ListView list = tester.widget<ListView>(find.byType(ListView).first);
-    expect(list.padding, const EdgeInsets.only(top: 4, right: 12, bottom: 116));
+    // 右侧不留滚动条槽：桌面滚动条浮在视口右缘，留空会让整页左右不对称
+    expect(list.padding, const EdgeInsets.only(top: 4, bottom: 116));
 
     // 滚到底：最后一块「关于」要落在播放岛上方，而不是被压住
     await tester.drag(find.byType(ListView).first, const Offset(0, -4000));
