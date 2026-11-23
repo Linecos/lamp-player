@@ -244,6 +244,20 @@ const double _activeLyricScale = 28 / _lyricFontSize;
 /// 当前行放大的过渡：600ms 缓出。再快就还是「啪」地变大，再慢会拖到下一句都开唱了
 const Duration _activeScaleDuration = Duration(milliseconds: 600);
 
+/// 译文块顶部到第一行文字的固定内缩（`SizedBox` 3 + 上方 1px 内边距）
+const double _translationInset = 4;
+
+/// 当前行放大后，正文块与译文块之间的间距被吃掉多少，要补回多大一块。
+///
+/// 两块各以自身中心放大 `s` 倍：正文底边下移 `(s-1)/2 × 正文高`，译文顶边上移
+/// `(s-1)/2 × 译文高` 再被块内那点固定内缩抵掉一截（内缩本身也跟着放大），
+/// 间距被夹掉这么多。补在译文块内部的 `a` 经放大后视觉上是 `a × (s+1) / 2`
+/// （块长高、中心又下移了一半），所以
+/// `a = (s-1)/(s+1) × (正文高 + 译文高 − 2 × 内缩)`。行数越多、放大越明显，
+/// 吃掉的越多：折成两行的正文加上一行译文，原来的 4px 间距只剩 2px。
+const double _emphasisGapRatio =
+    (_activeLyricScale - 1) / (_activeLyricScale + 1);
+
 /// 一次性大跳（点歌词跳转、切歌定位）用的时长与曲线。
 ///
 /// 那种场景位移动辄几百像素，弹簧反而显得拖；短促地滑过去更干脆。
@@ -266,7 +280,47 @@ const double _linePaddingX = 12;
 /// 640 在 28px 字号下约 22 个汉字 / 45 个西文字符，绝大多数歌词一行装得下；
 /// 三种对齐都只在这个块里进行，块本身居中——直接对齐到歌词区两边的话，整首
 /// 歌词会贴到一侧，另一侧空一大片。
+///
+/// 实际用的块宽还要过一遍 [_emphasisSafeTextWidth]：窗口窄下来时得给当前行的
+/// 放大留余量，否则文字按块宽折好、再放大 1.27 倍就超出歌词视口，两头被裁掉。
 const double _lyricBlockWidth = 640;
+
+/// 当前行放大 [_activeLyricScale] 倍之后，一行文字最多能折多宽。
+///
+/// 放大是绘制变换（`AnimatedScale`），不参与布局：文字按 [band] 折好行，放大后
+/// 左右各多出一截，块贴着视口边缘时就被裁掉（窗口越小裁得越多，截图上就是长句
+/// 两头各少半个词）。这里从「放大后要落在 [available] 里」反推折行宽度，让长句
+/// 在放大之前就折成两行，而不是放大后被切掉两头。
+///
+/// 只压文字、不压整块：块宽还决定左 / 右对齐时文字的落点，压窄了短句也会跟着
+/// 往里挪。
+///
+/// - 居中：以块中心为锚点往两边长，`文字宽 × scale ≤ available`
+/// - 左 / 右：锚点在一侧，多出来的宽度全压在那一侧。块本身是居中的（见
+///   [_lyricBlockWidth]），能借到的只有「块边界到视口边界」那 `(available - band) / 2`
+///   加上放大前文字外侧的内边距
+double _emphasisSafeTextWidth({
+  required double band,
+  required double available,
+  required LyricAlignment alignment,
+}) {
+  final double inner = math.max(0, band - _linePaddingX * 2);
+  if (available <= 0 || inner <= 0) {
+    return 0;
+  }
+  const double scale = _activeLyricScale;
+  final double safe = alignment == LyricAlignment.center
+      ? available / scale
+      : (available / 2 + band / 2 - _linePaddingX) / scale;
+  // 留 1px：放大后正好贴到视口边缘的话，抗锯齿那一列会被裁出一道淡边
+  return math.min(inner, math.max(0, safe - 1));
+}
+
+/// 取某个 key 当前排版高度；还没挂载或没布局时给 0
+double _renderHeight(GlobalKey key) {
+  final RenderObject? object = key.currentContext?.findRenderObject();
+  return object is RenderBox && object.hasSize ? object.size.height : 0;
+}
 
 class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   final SmoothScrollController _scroll = SmoothScrollController();
@@ -764,6 +818,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     if (next == _active) {
       return;
     }
+    final int oldActive = _active;
     // 跨了一行以上 = 拖进度条 / 点歌词 / 切歌，不是自然换行
     final bool multiLine = (_active - next).abs() > 1;
     _activeNotifier.value = next; // 只更新 notifier，不 setState
@@ -799,19 +854,40 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       }
       return;
     }
+    // 上一行还是当前行时带着「正文与译文之间的间距补偿」，这一帧它不再是当前行、
+    // 补偿收回去，整列会在它下面少掉这一截。跳转目标算的是旧布局，得先把这段
+    // 高差减掉，否则落位之后再补一下就是一次回弹（[_emphasisGapAt]）。
+    final double shrink = _emphasisGapAt(oldActive);
     if (_playing) {
-      _jumpToActive(multiLine: multiLine);
+      _jumpToActive(multiLine: multiLine, shrink: shrink);
     } else {
       // 暂停时没有 tick，点歌词 / 拖进度条换行只能一次性滑过去
-      _scrollToActive();
+      _scrollToActive(shrink: shrink);
     }
+  }
+
+  /// 第 [index] 行此刻带着的间距补偿（量它的两块排版高度反推）。
+  ///
+  /// 只有「当前行」带补偿，换行时上一行那段会收回去，见 [_updateActive]。
+  double _emphasisGapAt(int index) {
+    if (index < 0 || index >= _keys.length) {
+      return 0;
+    }
+    final double main = _renderHeight(_keys[index]);
+    final double block = _renderHeight(_translationKeys[index]);
+    if (main <= 0 || block <= 0) {
+      return 0;
+    }
+    // block 里已经含着补偿量 a：a = ratio × (main + block − a − 2 × 内缩)
+    final double ratio = _emphasisGapRatio;
+    return ratio * (main + block - 2 * _translationInset) / (1 + ratio);
   }
 
   /// 二分找最后一条 `time <= position` 的歌词
   int _indexAt(double seconds) => lyricIndexAt(widget.lines, seconds);
 
   /// 换行：整列瞬间归位，再让每一行自己弹回来（见 [_SpringLyricLine]）。
-  void _jumpToActive({bool multiLine = false}) {
+  void _jumpToActive({bool multiLine = false, double shrink = 0}) {
     if (_active < 0 || _active >= _keys.length || !_scroll.hasClients) {
       return;
     }
@@ -829,7 +905,8 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _guessScrollToActive();
       return;
     }
-    final double clamped = target.clamp(
+    final double desired = target - shrink;
+    final double clamped = desired.clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
     );
@@ -946,7 +1023,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     return offset;
   }
 
-  void _scrollToActive({bool animate = true}) {
+  void _scrollToActive({bool animate = true, double shrink = 0}) {
     if (_active < 0 || _active >= _keys.length || !_scroll.hasClients) {
       return;
     }
@@ -959,7 +1036,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _guessScrollToActive();
       return;
     }
-    final double clamped = target.clamp(
+    final double clamped = (target - shrink).clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
     );
@@ -1152,10 +1229,17 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
               constraints.maxHeight * (1 - widget.revealAlignment),
             );
             // 左右对齐只在这个固定宽度的「块」里进行，块本身仍然居中：直接贴到
-            // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片
-            final double band = math.min(
-              _lyricBlockWidth,
-              math.max(0, constraints.maxWidth - _scrollPaddingX * 2),
+            // 歌词区两边的话，整首歌词会跑到一侧，另一侧空一大片。
+            // 块里的文字还要按放大后的样子再收一道（见 [_emphasisSafeTextWidth]）。
+            final double available = math.max(
+              0,
+              constraints.maxWidth - _scrollPaddingX * 2,
+            );
+            final double band = math.min(_lyricBlockWidth, available);
+            final double textWidth = _emphasisSafeTextWidth(
+              band: band,
+              available: available,
+              alignment: widget.alignment,
             );
             // 上下边界改成「按行给 alpha」（见 [_refreshRowOpacity]）：以前这里是
             // 整片歌词套一张 `ShaderMask`，那层是全宽的离屏图层，Impeller 每帧
@@ -1212,6 +1296,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                             position: _smooth,
                             textTheme: _lyricTheme(theme.textTheme),
                             alignment: widget.alignment,
+                            textWidth: textWidth,
                             translation: _translation,
                             userScrolling: _userScrolling,
                             blurEnabled: widget.blurEnabled,
@@ -1464,6 +1549,7 @@ class _LyricLineWrapper extends StatelessWidget {
     required this.position,
     required this.textTheme,
     required this.alignment,
+    required this.textWidth,
     required this.translation,
     required this.userScrolling,
     required this.blurEnabled,
@@ -1481,6 +1567,9 @@ class _LyricLineWrapper extends StatelessWidget {
   final ValueNotifier<double> position;
   final TextTheme textTheme;
   final LyricAlignment alignment;
+
+  /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
+  final double textWidth;
   final Animation<double> translation;
   final bool userScrolling;
 
@@ -1510,6 +1599,7 @@ class _LyricLineWrapper extends StatelessWidget {
           position: position,
           textTheme: textTheme,
           alignment: alignment,
+          textWidth: textWidth,
           translation: translation,
           blur: blurEnabled && !userScrolling,
           edgeOpacity: edgeOpacity,
@@ -1538,6 +1628,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.position,
     required this.textTheme,
     required this.alignment,
+    required this.textWidth,
     required this.translation,
     required this.blur,
     required this.edgeOpacity,
@@ -1562,6 +1653,9 @@ class _SpringLyricLine extends StatefulWidget {
   final ValueListenable<double> position;
   final TextTheme textTheme;
   final LyricAlignment alignment;
+
+  /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
+  final double textWidth;
 
   /// 译文的展开进度（1 = 展开，0 = 收起）
   final ValueListenable<double> translation;
@@ -1589,10 +1683,54 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
   int _trigger = 0;
   Timer? _delay;
 
+  /// 当前行放大后被「吃掉的」正文与译文之间的间距，补在两者中间。
+  ///
+  /// 正文块与译文块各缩各的（见 [_LyricLineView.emphasise]），都以自身中心为锚点
+  /// 放大 [_activeLyricScale] 倍：正文往下长出 `(scale-1)/2 × 正文高`，译文往上
+  /// 长出 `(scale-1)/2 × 译文高`，两块之间那 4px 间距根本不够吃——一行正文时还
+  /// 剩一点，折成两行就直接贴上（实测墨迹只剩 2px）。这里把两块自然高度量出来，
+  /// 把被吃掉的量补回去，当前行的译文间距就与不放大时一致。
+  ///
+  /// 只有当前行需要，所以是**布局**高度、只在 active 时生效：其余行保持原来的
+  /// 紧凑间距；当前行的锚点在它上方，本行长高不会把它自己顶偏（但它上面那一行
+  /// 收回间距会把当前行整体上移，由 [_updateActive] 把这段高差算进跳转目标）。
+  double _emphasisGap = 0;
+
+  /// 上一帧真正用在布局里的间距：量高度时要把它扣掉
+  double _appliedGap = 0;
+
   @override
   void initState() {
     super.initState();
     widget.jump.addListener(_onJump);
+  }
+
+  /// 量出正文块 / 译文块的布局高度（不受放大影响），算出该补多少间距。
+  ///
+  /// 只在布局之后量（构建期读不到子级的 RenderObject），量到的值存下来给下一次
+  /// 构建用。两块高度只跟文字、折行宽度有关，与当前行无关，所以「上一帧的值」
+  /// 就是这个值；而行变成当前行时一定会重建一次，那时取到的已经是对的。
+  void _measureEmphasisGap() {
+    if (!mounted) {
+      return;
+    }
+    final double main = _renderHeight(widget.anchorKey);
+    // 量到的译文块高度里已经含着上一次补的间距，先扣掉才是它的自然高度
+    final double translation = math.max(
+      0,
+      _renderHeight(widget.translationKey) - _appliedGap,
+    );
+    if (main <= 0 || translation <= 0) {
+      return;
+    }
+    // 块顶到第一行文字那点内缩放大后也会多出一截（`s × 内缩`），把侵蚀抵掉
+    // 一点，所以是「正文 + 译文 − 2 倍内缩」而不是两者之和。
+    final double gap =
+        _emphasisGapRatio * (main + translation - 2 * _translationInset);
+    if ((gap - _emphasisGap).abs() < 0.5) {
+      return;
+    }
+    setState(() => _emphasisGap = gap);
   }
 
   @override
@@ -1680,6 +1818,10 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
 
   @override
   Widget build(BuildContext context) {
+    // 间距只给当前行，且换行那一帧就要用上：取上一次布局后量好的值（两块高度
+    // 与当前行无关，所以它一直是对的），帧末再把下一帧要用的量出来。
+    _appliedGap = widget.active ? _emphasisGap : 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureEmphasisGap());
     // 每行一层 RepaintBoundary：弹动只挪图层，不重新光栅化文字
     return ValueListenableBuilder<double>(
       valueListenable: widget.edgeOpacity,
@@ -1694,6 +1836,8 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
             position: widget.position,
             textTheme: widget.textTheme,
             alignment: widget.alignment,
+            textWidth: widget.textWidth,
+            emphasisGap: _appliedGap,
             translation: widget.translation,
             blur: widget.blur,
             edgeOpacity: edge,
@@ -1731,6 +1875,8 @@ class _LyricLineView extends StatelessWidget {
     required this.position,
     required this.textTheme,
     required this.alignment,
+    required this.textWidth,
+    required this.emphasisGap,
     required this.translation,
     required this.blur,
     required this.edgeOpacity,
@@ -1752,6 +1898,12 @@ class _LyricLineView extends StatelessWidget {
 
   /// 水平对齐方式：正文、译文、逐字染色层必须一致，否则当前行会歪
   final LyricAlignment alignment;
+
+  /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
+  final double textWidth;
+
+  /// 当前行放大后要补回的正文 / 译文间距（见 [_SpringLyricLineState._emphasisGap]）
+  final double emphasisGap;
 
   /// 译文的展开进度（1 = 展开，0 = 收起），由整列共用同一个弹簧
   final ValueListenable<double> translation;
@@ -1872,8 +2024,17 @@ class _LyricLineView extends StatelessWidget {
 
     // 整块按对齐方式推到位。只改 TextAlign 不够：短行时 Text 的宽度就是文字
     // 自身宽度，它在 Column 里本来就贴着中线摆，文字对齐方式无从发挥
-    Widget place(Widget child) =>
-        Align(alignment: alignment.blockAlignment, child: child);
+    //
+    // 折行宽度由 [textWidth] 再收一道（当前行放大后不能超出歌词视口）：`Align`
+    // 只给松约束，套一层 `ConstrainedBox` 就能把「文字按多宽折行」和「整块摆哪」
+    // 分开——`Align` 自己仍然是整列的宽，左右对齐的落点不跟着变。
+    Widget place(Widget child) => Align(
+      alignment: alignment.blockAlignment,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: textWidth),
+        child: child,
+      ),
+    );
 
     // 当前行的「放大」：缩放整行文字，不是改字号（见 [_lyricFontSize]）。
     //
@@ -1914,7 +2075,10 @@ class _LyricLineView extends StatelessWidget {
                     key: translationKey,
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const SizedBox(height: 3),
+                      // 间距跟着译文一起收起，也一起被放大（见 [_emphasisGapRatio]）。
+                      // 这里的 3 + 下面那 1px 内边距之和 = [_translationInset]，
+                      // 改这两个数要顺手改那个常量。
+                      SizedBox(height: 3 + emphasisGap),
                       for (final String extra in extras)
                         Padding(
                           padding: const EdgeInsets.only(top: 1),
