@@ -43,8 +43,9 @@ Future<void> _pump(
   bool blur = true,
   bool spring = true,
   String? fontFamily,
+  double viewWidth = 900,
 }) async {
-  tester.view.physicalSize = const Size(900, 700);
+  tester.view.physicalSize = Size(viewWidth, 700);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -217,6 +218,57 @@ void main() {
     );
   });
 
+  testWidgets('关掉弹性滚动后，平移落位不会再回弹一下', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(6.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    // 上一行折行 + 带译文 → 它当当前行时给正文与译文补了一段间距；换到下一行时
+    // 这段间距收回去，整列在它下面少一截。跳转目标若不把这段减掉，动画落位之后
+    // 还要再补一下，看着就是「平移结束回弹一下」。
+    final List<LyricLine> lines = <LyricLine>[
+      _line(start: 0, end: 5000, text: 'intro'),
+      _line(
+        start: 5000,
+        end: 10000,
+        text: 'This is a fairly long lyric line that has to wrap',
+        translation: '这一行会折成两行，还带译文',
+      ),
+      _line(start: 10000, end: 15000, text: 'outro'),
+    ];
+
+    await _pump(
+      tester,
+      lines: lines,
+      position: position,
+      playing: playing,
+      spring: false,
+    );
+    for (int i = 0; i < 30; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    position.value = 11.0;
+    await tester.pump();
+    // 走完 420ms 的平移，再停几帧看它会不会被再挪一下
+    for (int i = 0; i < 26; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final double landed = tester.getRect(find.text('outro')).center.dy;
+    for (int i = 0; i < 6; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final double settled = tester.getRect(find.text('outro')).center.dy;
+
+    expect(
+      landed,
+      closeTo(tester.view.physicalSize.height / 2, 1),
+      reason: '平移结束应当正落在对齐线上',
+    );
+    expect(settled, closeTo(landed, 0.5), reason: '落位之后不该再被挪一下（看着就是回弹）');
+  });
+
   testWidgets('对齐方式把整行推到左 / 中 / 右', (WidgetTester tester) async {
     final ValueNotifier<double> position = ValueNotifier<double>(12.5);
     final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
@@ -253,6 +305,95 @@ void main() {
       closeTo((left.left + right.right) / 2, 0.5),
       reason: '三种对齐都绕同一个列中线，切换时整块不该往一侧跑',
     );
+  });
+
+  testWidgets('窄窗口下当前行放大后不越出歌词区，长句改折行', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(1.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    // 真实窗口缩到 1080 宽时，封面右边剩下的歌词区差不多就这么宽
+    const double narrow = 586;
+    const String long = "And I'm aware that you were lying in the gutter";
+    final List<LyricLine> lines = <LyricLine>[
+      _line(start: 0, end: 5000, text: long),
+      _line(start: 5000, end: 10000, text: '第二行'),
+    ];
+
+    for (final LyricAlignment value in LyricAlignment.values) {
+      await _pump(
+        tester,
+        lines: lines,
+        position: position,
+        playing: playing,
+        lyricAlign: value,
+        viewWidth: narrow,
+      );
+      // 等放大跑完（600ms）
+      for (int i = 0; i < 45; i += 1) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final Rect active = tester.getRect(find.text(long));
+      expect(
+        active.left,
+        greaterThanOrEqualTo(-0.5),
+        reason: '${value.name}：左半边被裁掉了',
+      );
+      expect(
+        active.right,
+        lessThanOrEqualTo(narrow + 0.5),
+        reason: '${value.name}：右半边被裁掉了',
+      );
+      expect(
+        active.height,
+        greaterThan(60),
+        reason: '${value.name}：长句应该折成两行，而不是一行撑出视口',
+      );
+    }
+  });
+
+  testWidgets('当前行放大后，正文与译文的间距不会被吃掉', (WidgetTester tester) async {
+    // 当前行会让正文和译文各以自身中心放大 1.27 倍：正文往下长、译文往上长，
+    // 两块之间那几像素间距会被两头一起吃掉（折成两行的正文最明显，实测只剩 2px）。
+    // 这里量「最后一行正文的底」到「译文顶」的距离，当前行必须与不放大时一致。
+    const String text = 'This is a fairly long lyric line that has to wrap';
+    // 一行译文与两行译文各测一次：补的量按两块高度算，两者吃掉的并不一样多
+    for (final String trans in <String>[
+      '这是一句需要折行的长歌词',
+      '这是一句需要折行的长歌词\n折成两行时吃得更多',
+    ]) {
+      final List<LyricLine> lines = <LyricLine>[
+        _line(start: 0, end: 5000, text: 'intro'),
+        _line(start: 5000, end: 10000, text: text, translation: trans),
+        _line(start: 10000, end: 15000, text: 'outro'),
+      ];
+      final List<String> parts = trans.split('\n');
+
+      Future<double> gapAt(double seconds) async {
+        final ValueNotifier<double> position = ValueNotifier<double>(seconds);
+        final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+        addTearDown(position.dispose);
+        addTearDown(playing.dispose);
+        await _pump(tester, lines: lines, position: position, playing: playing);
+        // 等放大跑完（600ms）
+        for (int i = 0; i < 45; i += 1) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        return tester.getRect(find.text(parts.first)).top -
+            tester.getRect(find.text(text)).bottom;
+      }
+
+      final double inactive = await gapAt(1.0);
+      final double active = await gapAt(6.0);
+      expect(
+        active,
+        closeTo(inactive, 1),
+        reason:
+            '当前行放大后，正文最后一行的底到译文的距离应当与不放大时一致'
+            '（译文 ${parts.length} 行）',
+      );
+    }
   });
 
   testWidgets('当前行放大后，与上下两行的间距仍然相等', (WidgetTester tester) async {
