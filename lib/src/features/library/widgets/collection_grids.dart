@@ -122,15 +122,16 @@ class _ArtistCardState extends State<_ArtistCard> {
                         height: size,
                         child: CoverFlightTarget(
                           hidden: hidden,
-                          // 网格里的小头像按 0.75 档解码：圆外全被裁掉，显示又
-                          // 只有一两百逻辑像素，满档解码是纯浪费（位图 + GPU
-                          // 纹理各按 0.75² ≈ 0.56 算，两边各省近一半）
+                          // 满档解码：圆形只裁掉四个角，圆内那部分像素密度一点
+                          // 没省下来——按 0.75 解，实际是把 192px 的位图铺到
+                          // 240 物理像素上（150% 缩放），比旁边专辑卡（256 铺
+                          // 255）一眼就糊。一张多占约 100KB，一屏十几张也就
+                          // 一两 MB。
                           child: artistAvatar(
                             context,
                             artist.name,
                             size,
                             coverPath: artist.coverPath,
-                            decodeScale: 0.75,
                           ),
                         ),
                       ),
