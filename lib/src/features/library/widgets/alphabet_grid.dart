@@ -7,17 +7,36 @@ import '../alphabet_index.dart';
 import 'library_rail.dart';
 
 /// 从窗口边缘到网格可用宽度的固定损耗：侧栏与内容卡的间隙、内容卡的左右
-/// 内边距、滚动条的呼吸位。侧栏宽度另算（见 [LibraryRail.expandedWidth]）。
+/// 内边距、字母导轨的车道。侧栏宽度另算（见 [LibraryRail.expandedWidth]）。
+/// 只用来粗估「两种侧栏状态下列数会不会变」，差几像素无妨。
 const double _windowChrome = 68;
 
-/// 字母导航条与卡片之间预留的宽度：导航条 + 与滚动条的间隙 + 一点呼吸位。
+/// 字母导航条与卡片之间预留的宽度：导航条 + 右侧边距 + 与卡片的间隙。
 ///
-/// 「与滚轮保持距离」是硬要求：桌面端的滚动条贴在视口最右边，导航条贴着它
-/// 会互相压住，鼠标划过时也不知道点到谁。所以导航条整体往左让 [railInset]，
-/// 卡片再往左让出整条 [gridRightReserve]，谁都不重叠。
+/// 这个页面**不画滚动条**（见 [_NoScrollbar]）：右边已经有字母导航条可以
+/// 快速跳段，再挂一条滚动条只会跟导航条抢那点地方，还让右侧留白白多一截。
+/// 所以 [railInset] 只剩一点呼吸位，不再需要给滚动条让宽度。
+///
+/// 历史上是 20（怕压到滚动条，其实滚动条只有 8 宽），后收到 10；去掉滚动条后
+/// 再收到 4——字母中心离视口右缘 15px，与左侧卡片 20px 基本对齐。
 const double railWidth = 22;
-const double railInset = 20;
+const double railInset = 4;
 const double gridRightReserve = railWidth + railInset + 12;
+
+/// 网格页专用的滚动行为：只画内容，不挂滚动条。
+///
+/// `MaterialScrollBehavior.buildScrollbar` 会套一层 `Scrollbar`（桌面端浮在
+/// 视口右缘）。这一页有字母导航条负责跳转，滚动条纯多余。
+class _NoScrollbar extends MaterialScrollBehavior {
+  const _NoScrollbar();
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
+}
 
 /// 每段标题占的高度（含上下空隙）
 const double alphabetHeaderExtent = 34;
@@ -494,49 +513,55 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
 
             final Widget scroller = NotificationListener<ScrollNotification>(
               onNotification: _handleScroll,
-              child: CustomScrollView(
-                key: widget.storageKey,
-                controller: _controller,
-                slivers: <Widget>[
-                  SliverPadding(
-                    padding: EdgeInsets.only(top: widget.topPadding),
-                  ),
-                  for (int i = 0; i < buckets.length; i += 1) ...<Widget>[
-                    SliverToBoxAdapter(
-                      child: _SectionHeader(
-                        key: ValueKey<String>(
-                          'alphabet-header-${buckets[i].letter}',
-                        ),
-                        letter: buckets[i].letter,
-                        count: buckets[i].length,
-                      ),
-                    ),
+              // 这个页面不挂滚动条：右边有字母导航条，滚动条只是抢占
+              // 右侧那点宽度、还跟导航条抢鼠标
+              child: ScrollConfiguration(
+                behavior: const _NoScrollbar(),
+                child: CustomScrollView(
+                  key: widget.storageKey,
+                  controller: _controller,
+                  slivers: <Widget>[
                     SliverPadding(
-                      padding: const EdgeInsets.only(
-                        left: alphabetGridLeftInset,
-                        right: gridRightReserve,
-                      ),
-                      sliver: SliverGrid(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: metrics.crossAxisCount,
-                          mainAxisSpacing: widget.mainAxisSpacing,
-                          crossAxisSpacing: widget.crossAxisSpacing,
-                          mainAxisExtent: metrics.childMainAxisExtent,
+                      padding: EdgeInsets.only(top: widget.topPadding),
+                    ),
+                    for (int i = 0; i < buckets.length; i += 1) ...<Widget>[
+                      SliverToBoxAdapter(
+                        child: _SectionHeader(
+                          key: ValueKey<String>(
+                            'alphabet-header-${buckets[i].letter}',
+                          ),
+                          letter: buckets[i].letter,
+                          count: buckets[i].length,
                         ),
-                        delegate: SliverChildBuilderDelegate((
-                          BuildContext context,
-                          int index,
-                        ) {
-                          final T item = buckets[i].items[index];
-                          return widget.itemBuilder(context, item, index);
-                        }, childCount: buckets[i].length),
                       ),
+                      SliverPadding(
+                        padding: const EdgeInsets.only(
+                          left: alphabetGridLeftInset,
+                          right: gridRightReserve,
+                        ),
+                        sliver: SliverGrid(
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: metrics.crossAxisCount,
+                                mainAxisSpacing: widget.mainAxisSpacing,
+                                crossAxisSpacing: widget.crossAxisSpacing,
+                                mainAxisExtent: metrics.childMainAxisExtent,
+                              ),
+                          delegate: SliverChildBuilderDelegate((
+                            BuildContext context,
+                            int index,
+                          ) {
+                            final T item = buckets[i].items[index];
+                            return widget.itemBuilder(context, item, index);
+                          }, childCount: buckets[i].length),
+                        ),
+                      ),
+                    ],
+                    SliverPadding(
+                      padding: EdgeInsets.only(bottom: widget.bottomPadding),
                     ),
                   ],
-                  SliverPadding(
-                    padding: EdgeInsets.only(bottom: widget.bottomPadding),
-                  ),
-                ],
+                ),
               ),
             );
 

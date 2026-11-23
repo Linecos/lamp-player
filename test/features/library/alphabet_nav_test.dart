@@ -333,7 +333,7 @@ void main() {
     );
   });
 
-  testWidgets('字母导航贴最右侧但与滚动条保持距离', (WidgetTester tester) async {
+  testWidgets('字母导航贴着右侧，这一页不画滚动条', (WidgetTester tester) async {
     await _pump(
       tester,
       ArtistGridView(artists: manyArtists, onSelect: (_, _, _) {}),
@@ -344,10 +344,13 @@ void main() {
     );
     final Rect viewport = tester.getRect(find.byType(CustomScrollView));
 
-    // 导航条右缘离视口右缘还有一段距离（滚动条就贴在视口边上）
-    expect(viewport.right - rail.right, greaterThanOrEqualTo(16));
+    // 只留一点呼吸位：右边有字母导航条可以跳段，滚动条不画了，不用再给它让宽度
+    expect(viewport.right - rail.right, closeTo(railInset, 0.01));
     // 而且不能跑到视口外面
     expect(rail.right, lessThanOrEqualTo(viewport.right));
+
+    // 滚动条确实没了：默认的 MaterialScrollBehavior 会套一层 Scrollbar
+    expect(find.byType(Scrollbar), findsNothing);
   });
 
   testWidgets('专辑按专辑名首字母分段', (WidgetTester tester) async {
