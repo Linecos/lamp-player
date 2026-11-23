@@ -404,10 +404,15 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
       for (final AlphabetBucket<T> bucket in buckets) bucket.letter,
     ];
 
-    // 侧栏开关是 220ms 的宽度动画，内容区每一帧都在变宽变窄。列数要是跟着
-    // 每一帧的宽度走，动画中途总有一帧会多挤出一列、卡片又重新均分一次，
-    // 看着就是「抽一下」。所以这里按**终态**宽度排布：侧栏状态一变就切到
-    // 目标几何，动画期间多出来的宽度留白、不够的部分裁掉，等动画走完正好对上。
+    // 侧栏开关是 180ms 的宽度动画，内容区每一帧都在变宽变窄，网格怎么跟这段
+    // 动画走，分两种情况：
+    //
+    // - **列数不变**：让网格按当前宽度实排。卡片只是被连续拉宽 / 收窄，没有
+    //   重排，看着就是随侧栏一起长大缩小。
+    // - **列数会变**（比如 5 → 6）：按**终态**宽度排布，状态一变就切到目标几何，
+    //   动画期间多出来的宽度留白、不够的部分裁掉。跟随时换列发生在动画中途，
+    //   卡片会一次性缩掉二十多像素（实测 170.8 → 140.9），比在起始那一帧换上
+    //   终态（152.8 → 146）难看得多；起始那一帧只缩几个像素，眼睛还在侧栏上。
     return ValueListenableBuilder<bool>(
       valueListenable: LibraryRail.expandedNotifier,
       builder: (BuildContext context, bool railExpanded, Widget? _) {
@@ -428,11 +433,11 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                           : LibraryRail.collapsedWidth) -
                       _windowChrome
                 : constraints.maxWidth;
-            final AlphabetGridMetrics metrics = AlphabetGridMetrics(
+            AlphabetGridMetrics metricsOf(double width) => AlphabetGridMetrics(
               // 卡片不许跑到导航条底下，横向先把它让出来。
               // 左侧那 10 只作为 SliverPadding 的缩进，不参与列数换算 ——
               // 列数一变，每段行数跟着变，侧栏开关时的锚点也全都要重算
-              viewportWidth: math.max(0, planWidth - gridRightReserve),
+              viewportWidth: math.max(0, width - gridRightReserve),
               tileWidth: widget.tileWidth,
               crossAxisSpacing: widget.crossAxisSpacing,
               mainAxisSpacing: widget.mainAxisSpacing,
@@ -440,6 +445,26 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
               headerExtent: alphabetHeaderExtent,
               topPadding: widget.topPadding,
             );
+            // 判据看的是「展开 / 收起两个终态的列数是否一致」，而不是「当前宽度
+            // 与终态的列数」：后者在动画中途会短暂相等，于是排布一会儿跟随、
+            // 一会儿按终态，卡片宽度反而来回跳（实测 146 → 140.9 → 146）。
+            // 两个终态一致与否只跟窗口宽度有关，整个动画期间答案不变。
+            final double windowWidth = MediaQuery.sizeOf(context).width;
+            final bool columnsStay =
+                metricsOf(
+                  windowWidth - LibraryRail.expandedWidth - _windowChrome,
+                ).crossAxisCount ==
+                metricsOf(
+                  windowWidth - LibraryRail.collapsedWidth - _windowChrome,
+                ).crossAxisCount;
+            final bool followNow = inPageShell && columnsStay;
+            final AlphabetGridMetrics metrics = metricsOf(
+              followNow ? constraints.maxWidth : planWidth,
+            );
+            // 实排用的宽度：跟随时就是当前宽度，否则是终态宽度
+            final double layoutWidth = followNow
+                ? constraints.maxWidth
+                : planWidth;
             final List<int> counts = <int>[
               for (final AlphabetBucket<T> bucket in buckets) bucket.length,
             ];
@@ -518,7 +543,7 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
             return Stack(
               children: <Widget>[
                 _fitToPlan(
-                  width: planWidth,
+                  width: layoutWidth,
                   constraints: constraints,
                   child: scroller,
                 ),
