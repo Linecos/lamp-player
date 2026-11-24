@@ -8,6 +8,7 @@ use super::wasapi;
 use super::{Device, Loudness, Progress, State};
 use anyhow::{anyhow, bail, Result};
 use std::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use super::api::{ansi_text, dll_dir, last_error, wide, Api, BassDeviceInfo};
@@ -1737,6 +1738,18 @@ impl Engine {
     }
 }
 
+/// 兜底释放：线程正常退出会先走 `shutdown()`，但 panic / 提前 return
+/// 不会 —— 没有这一层，泄漏的流句柄会让下一次 `BASS_Init` 返回 ALREADY，
+/// 整个进程再也出不了声。三步都幂等（`stream == 0` / `!session` /
+/// `!bass_ready` 时直接跳过），可以重复调用。
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.release_track();
+        self.teardown_session();
+        self.free_bass();
+    }
+}
+
 struct Shared {
     tx: Sender<Queued>,
 }
@@ -1850,7 +1863,7 @@ fn run(mut engine: Engine, rx: Receiver<Queued>) {
             Ok(queued) => {
                 if queued.discarded() {
                     queued.cmd.reply_discarded();
-                } else if dispatch(&mut engine, queued.cmd) {
+                } else if dispatch_guarded(&mut engine, queued.cmd) {
                     return;
                 }
             }
@@ -1860,7 +1873,63 @@ fn run(mut engine: Engine, rx: Receiver<Queued>) {
                 return;
             }
         }
-        engine.refresh();
+        if refresh_guarded(&mut engine) {
+            return;
+        }
+    }
+}
+
+/// 在引擎线程上执行一条命令。
+///
+/// panic 不隔离的话，一次未预期的越界 / 断言就会让这条线程当场结束：
+/// 旧会话的 BASS 句柄没人释放，之后 `BASS_Init` 一直返回 ALREADY，
+/// 进程不重启就永远没声音。现在一条命令炸了只丢这一次会话：
+/// 直接退出线程（`Engine::drop` 兜底释放），单例清掉，下一条命令重建。
+fn dispatch_guarded(engine: &mut Engine, cmd: Cmd) -> bool {
+    match catch_unwind(AssertUnwindSafe(|| dispatch(engine, cmd))) {
+        Ok(stop) => stop,
+        Err(payload) => {
+            eprintln!(
+                "[引擎] 命令执行 panic：{}；销毁会话，下一条命令重建",
+                panic_text(&payload)
+            );
+            retire(engine);
+            true
+        }
+    }
+}
+
+/// 每拍一次的刷新同样要隔离：它跑在同一个线程上，panic 的后果一样
+fn refresh_guarded(engine: &mut Engine) -> bool {
+    match catch_unwind(AssertUnwindSafe(|| engine.refresh())) {
+        Ok(()) => false,
+        Err(payload) => {
+            eprintln!(
+                "[引擎] 状态刷新 panic：{}；销毁会话，下一条命令重建",
+                panic_text(&payload)
+            );
+            retire(engine);
+            true
+        }
+    }
+}
+
+/// panic 之后的收尾：先尽力把句柄还给系统，再清单例。
+///
+/// 顺序不能反 —— 先清单例的话，别的线程可能立刻拉起新引擎，
+/// 而新引擎的 `BASS_Init` 会和这边还没执行的 `BASS_Free` 撞车。
+fn retire(engine: &mut Engine) {
+    let _ = catch_unwind(AssertUnwindSafe(|| engine.shutdown()));
+    drop_engine();
+}
+
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "未知 panic".to_string()
     }
 }
 
@@ -2048,7 +2117,10 @@ pub fn set_replay_gain(gain_db: f64) -> Result<()> {
 /// 共用这一套对数分频与高频提升。
 fn bands_from(fft: &[f32], bands: &mut [f32]) {
     let bins = fft.len();
-    if bins == 0 {
+    // 1 个 bin 分不出 24 段，也没有「上界」可言：直接留空。
+    // 这里不收 `bins == 1`，因为 `spectrum_edge` 里的 `clamp(1, bins - 1)`
+    // 会变成 `clamp(1, 0)` → panic，而这条调用点在**引擎线程**上。
+    if bins < 2 {
         return;
     }
     for (index, band) in bands.iter_mut().enumerate() {
@@ -2064,6 +2136,11 @@ fn bands_from(fft: &[f32], bands: &mut [f32]) {
 }
 
 fn spectrum_edge(index: usize, bins: usize) -> usize {
+    // `bins <= 1` 时没有合法区间：`1..=bins - 1` 是空的，`clamp` 会 panic。
+    // 纯函数，成本为零，不该让一个边界判断去掐死引擎线程。
+    if bins <= 1 {
+        return 0;
+    }
     let ratio = index as f32 / SPECTRUM_BANDS as f32;
     ((bins as f32).powf(ratio) as usize).clamp(1, bins - 1)
 }
@@ -2281,5 +2358,34 @@ mod tests {
         drop_engine();
         assert!(lock_engine().is_none());
         assert!(!AVAILABLE.load(Ordering::SeqCst));
+    }
+
+    /// `bins == 1` 曾经能在 `clamp(1, 0)` 上 panic —— 而这条路径跑在引擎线程里，
+    /// 一次 panic 就是整个播放会话永久失声。纯函数边界必须钉住。
+    #[test]
+    fn spectrum_edge_never_exceeds_bins() {
+        for bins in [0usize, 1, 2, 3, 16, 512] {
+            for index in 0..=SPECTRUM_BANDS {
+                let edge = spectrum_edge(index, bins);
+                assert!(
+                    edge <= bins.saturating_sub(1) || bins <= 1,
+                    "bins={bins} index={index} edge={edge} 越界"
+                );
+            }
+        }
+        assert_eq!(spectrum_edge(0, 1), 0, "退化输入不该 panic");
+    }
+
+    #[test]
+    fn bands_from_tolerates_degenerate_fft() {
+        for bins in [0usize, 1, 2, 3] {
+            let fft = vec![0.5f32; bins];
+            let mut bands = vec![0.0f32; SPECTRUM_BANDS];
+            bands_from(&fft, &mut bands);
+            assert!(
+                bands.iter().all(|value| value.is_finite()),
+                "bins={bins} 输出出现了非有限值"
+            );
+        }
     }
 }

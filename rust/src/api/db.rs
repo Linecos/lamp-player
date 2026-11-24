@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 11;
+const SCHEMA_VERSION: i32 = 12;
 
 struct Database {
     path: String,
@@ -159,12 +159,28 @@ pub(crate) fn covers_dir() -> anyhow::Result<PathBuf> {
 /// [`prune_unused_covers`]，新封面会被当成残留删掉，扫描完就显示不出封面。
 static SCANNING: AtomicUsize = AtomicUsize::new(0);
 
-/// 在扫描期间执行 [`f`]，期间暂停封面回收；无论成功失败都会恢复。
+/// 在扫描期间执行 [`f`]，期间暂停封面回收；无论是正常返回、报错还是 panic，
+/// 计数都会归位（见 [`ScanGuard`]）。
 pub(crate) fn with_scanning<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    SCANNING.fetch_add(1, Ordering::SeqCst);
-    let result = f();
-    SCANNING.fetch_sub(1, Ordering::SeqCst);
-    result
+    let _guard = ScanGuard::enter();
+    f()
+}
+
+/// 「扫描中」计数的作用域守卫：panic 展开时 `Drop` 仍会跑，
+/// 不会把 `SCANNING` 永久留在 +1 上（那会让封面回收在本进程内永久停摆）。
+struct ScanGuard;
+
+impl ScanGuard {
+    fn enter() -> Self {
+        SCANNING.fetch_add(1, Ordering::SeqCst);
+        ScanGuard
+    }
+}
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        SCANNING.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// 清掉没有被任何曲目引用的封面文件（换封面、删曲目后的残留）。
@@ -237,7 +253,7 @@ CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
     VALUES ('delete', old.id, old.title, old.artist, old.album);
 END;
 
-CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
+CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE OF title, artist, album ON tracks BEGIN
     INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
     VALUES ('delete', old.id, old.title, old.artist, old.album);
     INSERT INTO tracks_fts(rowid, title, artist, album)
@@ -517,6 +533,29 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
             }
         }
         tx.pragma_update(None, "user_version", 11)?;
+    }
+
+    if version < 12 {
+        // v12：FTS 同步触发器从「任何列变了都重写」收窄到「只有索引列变了才重写」。
+        //
+        // `AFTER UPDATE` 不区分列，而 `hidden` / `hidden_at` / 响度测量值 /
+        // 指纹这些列都不在索引里（过滤在查询侧 `WHERE t.hidden = 0`）：
+        // 批量隐藏 N 首、全库补算 ReplayGain 都会白删白写 N 次全文索引。
+        //
+        // 触发器是 `CREATE TRIGGER IF NOT EXISTS` 建的，改定义不会自动生效，
+        // 必须先 DROP 再按新的列谓词重建。
+        tx.execute_batch(
+            r#"
+            DROP TRIGGER IF EXISTS tracks_au;
+            CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album ON tracks BEGIN
+                INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+                VALUES ('delete', old.id, old.title, old.artist, old.album);
+                INSERT INTO tracks_fts(rowid, title, artist, album)
+                VALUES (new.id, new.title, new.artist, new.album);
+            END;
+            "#,
+        )?;
+        tx.pragma_update(None, "user_version", 12)?;
     }
 
     tx.commit()?;
@@ -1730,6 +1769,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// panic 展开也必须把「扫描中」归位：一旦漏掉，封面回收在本进程内永久停摆
+    #[test]
+    fn scanning_flag_recovers_after_panic() {
+        use std::sync::atomic::Ordering;
+        let before = super::SCANNING.load(Ordering::SeqCst);
+        let result =
+            std::panic::catch_unwind(|| super::with_scanning::<()>(|| panic!("模拟扫描崩溃")));
+        assert!(result.is_err(), "闭包里的 panic 应被 catch_unwind 接住");
+        assert_eq!(
+            super::SCANNING.load(Ordering::SeqCst),
+            before,
+            "panic 之后计数必须归位，否则封面回收永久停摆"
+        );
+    }
+
     /// 曲库是进程级单例：凡是要 `init_db` 的用例必须串行跑
     static DB_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -1788,6 +1842,64 @@ mod tests {
             .expect("曲目数");
         assert_eq!(count, 1, "数据应已合并进主库");
         drop(conn);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// 触发器收窄后：改标题这类索引列仍要同步 FTS，改 hidden 之类的列不该碰索引
+    #[test]
+    fn fts_trigger_watches_only_index_columns() {
+        use super::{close_db, init_db, search_tracks, with_conn};
+
+        let _guard = db_guard();
+        let path = temp_path("fts_trigger");
+        init_db(path.to_string_lossy().into_owned()).expect("初始化曲库");
+        with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO tracks (path, title, artist) VALUES ('/m/a.mp3', '夜航', '某人')",
+                [],
+            )?;
+            let sql: String = conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'tracks_au'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(
+                sql.contains("UPDATE OF title, artist, album"),
+                "触发器应只监听索引列，实际是：{sql}"
+            );
+            Ok(())
+        })
+        .expect("写入曲目并读触发器定义");
+
+        assert!(
+            !search_tracks("夜航".to_string(), 10)
+                .expect("搜原名字")
+                .is_empty(),
+            "入库后应能搜到"
+        );
+
+        with_conn(|conn| {
+            conn.execute(
+                "UPDATE tracks SET title = '灯下' WHERE path = '/m/a.mp3'",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("改标题");
+        assert!(
+            search_tracks("夜航".to_string(), 10)
+                .expect("搜旧名字")
+                .is_empty(),
+            "改名后旧标题应从索引里消失"
+        );
+        assert!(
+            !search_tracks("灯下".to_string(), 10)
+                .expect("搜新名字")
+                .is_empty(),
+            "改名后新标题应立刻能搜到"
+        );
+
+        close_db().expect("关闭曲库");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

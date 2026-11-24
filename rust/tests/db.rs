@@ -339,7 +339,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         .expect("读取版本");
     // 版本号跟着 SCHEMA_VERSION 走：每加一次迁移都要改这里，
     // 忘了改就等于没验证「升级后写入的是当前版本」
-    assert_eq!(version, 11, "升级后应写入当前结构版本");
+    assert_eq!(version, 12, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
