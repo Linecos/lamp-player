@@ -57,6 +57,8 @@ class SessionSnapshot {
     this.desktopLyricLocked = false,
     this.desktopLyricX,
     this.desktopLyricY,
+    this.desktopLyricTwoLines = false,
+    this.desktopLyricTranslation = false,
     this.lyricAlignment = LyricAlignment.center,
     this.showTranslation = true,
     this.lyricBlur = true,
@@ -177,6 +179,14 @@ class SessionSnapshot {
   final int? desktopLyricX;
   final int? desktopLyricY;
 
+  /// 桌面歌词是否分两行：第二行放下一句（或译文），默认关（与只有一行的观感一致）
+  final bool desktopLyricTwoLines;
+
+  /// 桌面歌词第二行是放本句译文而不是下一句（默认关）
+  ///
+  /// 只在 [desktopLyricTwoLines] 打开时生效；当前句没有译文时仍退回下一句。
+  final bool desktopLyricTranslation;
+
   /// 正在播放页歌词的水平对齐方式
   final LyricAlignment lyricAlignment;
 
@@ -267,6 +277,9 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
   static const String desktopLyricXKey = 'ui_desktop_lyric_x';
   static const String desktopLyricYKey = 'ui_desktop_lyric_y';
+  static const String desktopLyricTwoLinesKey = 'ui_desktop_lyric_two_lines';
+  static const String desktopLyricTranslationKey =
+      'ui_desktop_lyric_translation';
   static const String lyricAlignmentKey = 'ui_lyric_alignment';
   static const String showTranslationKey = 'ui_lyric_translation';
 
@@ -367,6 +380,9 @@ class PrefsSessionStore implements SessionStore {
         desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
         desktopLyricX: prefs.getInt(desktopLyricXKey),
         desktopLyricY: prefs.getInt(desktopLyricYKey),
+        desktopLyricTwoLines: prefs.getBool(desktopLyricTwoLinesKey) ?? false,
+        desktopLyricTranslation:
+            prefs.getBool(desktopLyricTranslationKey) ?? false,
         lyricAlignment: LyricAlignment.parse(
           prefs.getString(lyricAlignmentKey),
         ),
@@ -476,6 +492,14 @@ class PrefsSessionStore implements SessionStore {
       );
       await prefs.setString(lyricFontFamilyKey, snapshot.lyricFontFamily);
       await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
+      await prefs.setBool(
+        desktopLyricTwoLinesKey,
+        snapshot.desktopLyricTwoLines,
+      );
+      await prefs.setBool(
+        desktopLyricTranslationKey,
+        snapshot.desktopLyricTranslation,
+      );
       final int? x = snapshot.desktopLyricX;
       final int? y = snapshot.desktopLyricY;
       if (x == null || y == null) {

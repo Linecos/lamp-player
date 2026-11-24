@@ -685,12 +685,17 @@ fn wire__crate__api__desktop_lyrics__desktop_lyrics_set_line_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_line = <String>::sse_decode(&mut deserializer);
+            let api_second = <String>::sse_decode(&mut deserializer);
+            let api_two_lines = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok =
-                            crate::api::desktop_lyrics::desktop_lyrics_set_line(api_line)?;
+                        let output_ok = crate::api::desktop_lyrics::desktop_lyrics_set_line(
+                            api_line,
+                            api_second,
+                            api_two_lines,
+                        )?;
                         std::result::Result::Ok(output_ok)
                     })(),
                 )

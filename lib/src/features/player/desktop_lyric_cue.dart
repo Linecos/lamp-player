@@ -34,6 +34,45 @@ int? nextDesktopLineStart(TrackLyrics lyrics, int positionMs) {
   return null;
 }
 
+/// 歌词行里第一段非空译文。
+///
+/// 同一时间戳的其他行（罗马音 / 翻译）用 `\n` 拼在一起，桌面歌词只有一行位置，
+/// 所以只取第一段：罗马音排在前时优先显示罗马音，这与文件本身的组织顺序一致。
+String desktopTranslationOf(LyricLine line) {
+  for (final String part in line.translation.split('\n')) {
+    final String trimmed = part.trim();
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+/// 双行模式下的第二行文本。
+///
+/// 开了「显示译文」且当前句确实有译文时才放译文；否则（没开、没译文）放下一句——
+/// 第二行永远是有内容的，不会变成空括号一样的空白。
+/// 还没到第一句时第二行就是第一句；唱到最后一句之后没有下一句，返回空串
+/// （Rust 侧遇到空串就不画第二行）。
+String desktopSecondLineAt(
+  TrackLyrics lyrics,
+  int positionMs, {
+  required bool showTranslation,
+}) {
+  final int index = desktopLineIndexAt(lyrics, positionMs);
+  if (showTranslation && index >= 0) {
+    final String translated = desktopTranslationOf(lyrics.lines[index]);
+    if (translated.isNotEmpty) {
+      return translated;
+    }
+  }
+  final int next = index + 1;
+  if (next >= lyrics.lines.length) {
+    return '';
+  }
+  return lyrics.lines[next].text;
+}
+
 /// 本行已经唱到整行宽度的多少（0..1），用来给桌面歌词做逐字裁切。
 ///
 /// 和正在播放页同一个算法：每个字占 `weights[i]` 的宽度，字内按「到下一个字的

@@ -36,6 +36,10 @@ extension _SettingsSection on _LibraryPageState {
             lyricFont: _lyricFontFamily,
             onLyricFontChanged: (String family) =>
                 unawaited(_setLyricFontFamily(family)),
+            desktopLyricTwoLines: _desktopLyricTwoLines,
+            onDesktopLyricTwoLinesChanged: _setDesktopLyricTwoLines,
+            desktopLyricTranslation: _desktopLyricTranslation,
+            onDesktopLyricTranslationChanged: _setDesktopLyricTranslation,
             lyricBlur: _lyricBlur,
             onLyricBlurChanged: _setLyricBlur,
             lyricSpring: _lyricSpring,

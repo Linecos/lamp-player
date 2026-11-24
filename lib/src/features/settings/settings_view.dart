@@ -40,6 +40,10 @@ class SettingsView extends StatelessWidget {
     this.devices = const <rust.PlayerDevice>[],
     this.lyricFont = '',
     this.onLyricFontChanged,
+    this.desktopLyricTwoLines = false,
+    this.onDesktopLyricTwoLinesChanged,
+    this.desktopLyricTranslation = false,
+    this.onDesktopLyricTranslationChanged,
     this.lyricBlur = true,
     this.onLyricBlurChanged,
     this.lyricSpring = true,
@@ -132,6 +136,18 @@ class SettingsView extends StatelessWidget {
 
   /// 换歌词字体；为空表示不可操作
   final ValueChanged<String>? onLyricFontChanged;
+
+  /// 桌面歌词是否分两行（第二行放下一句 / 译文）
+  final bool desktopLyricTwoLines;
+
+  /// 切换桌面歌词双行；为空表示不可操作
+  final ValueChanged<bool>? onDesktopLyricTwoLinesChanged;
+
+  /// 桌面歌词第二行是否放译文（关着时放下一句）；只在双行打开时可用
+  final bool desktopLyricTranslation;
+
+  /// 切换桌面歌词译文；为空表示不可操作
+  final ValueChanged<bool>? onDesktopLyricTranslationChanged;
 
   /// 歌词远处的行是否糊开（默认开）；关掉只剩透明度层次
   final bool lyricBlur;
@@ -360,6 +376,26 @@ class SettingsView extends StatelessWidget {
       const _AccentColorRow(),
       _InterfaceFontRow(onChanged: onInterfaceFontChanged),
       _LyricFontRow(value: lyricFont, onChanged: onLyricFontChanged),
+      _SwitchRow(
+        icon: Icons.subject_rounded,
+        title: '桌面歌词双行',
+        switchKey: const ValueKey<String>('settings-desktop-lyric-two-lines'),
+        subtitle: '主行下方再显示一行下一句；窗口会随之变高',
+        value: desktopLyricTwoLines,
+        onChanged: onDesktopLyricTwoLinesChanged,
+      ),
+      _SwitchRow(
+        icon: Icons.translate_rounded,
+        title: '桌面歌词显示译文',
+        switchKey: const ValueKey<String>('settings-desktop-lyric-translation'),
+        subtitle: desktopLyricTwoLines
+            ? '第二行放本句译文；这句没有译文时显示下一句'
+            : '打开上方双行显示后生效',
+        value: desktopLyricTranslation,
+        onChanged: desktopLyricTwoLines
+            ? onDesktopLyricTranslationChanged
+            : null,
+      ),
       _LyricSourceOrderRow(
         order: lyricSourceOrder,
         onChanged: onLyricSourceOrderChanged,

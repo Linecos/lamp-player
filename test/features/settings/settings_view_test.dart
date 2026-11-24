@@ -226,6 +226,7 @@ void main() {
       const ValueKey<String>('settings-flow-background-switch'),
     );
     await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
     await tester.tap(toggle);
     await tester.pumpAndSettle();
 
@@ -254,6 +255,7 @@ void main() {
       const ValueKey<String>('settings-circular-cover-switch'),
     );
     await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
     await tester.tap(toggle);
     await tester.pumpAndSettle();
 
@@ -300,6 +302,70 @@ void main() {
 
     expect(find.text('歌词模糊'), findsOneWidget);
     expect(find.text('歌词弹性滚动'), findsOneWidget);
+  });
+
+  testWidgets('桌面歌词双行打开之前译文开关不可点', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<bool> twoLineChanges = <bool>[];
+    final List<bool> translationChanges = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            onDesktopLyricTwoLinesChanged: twoLineChanges.add,
+            onDesktopLyricTranslationChanged: translationChanges.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder twoLines = find.byKey(
+      const ValueKey<String>('settings-desktop-lyric-two-lines'),
+    );
+    final Finder translation = find.byKey(
+      const ValueKey<String>('settings-desktop-lyric-translation'),
+    );
+    await tester.ensureVisible(twoLines);
+    expect(find.text('桌面歌词双行'), findsOneWidget);
+    expect(
+      tester.widget<Switch>(translation).onChanged,
+      isNull,
+      reason: '双行关着时译文没有意义',
+    );
+
+    await tester.tap(twoLines);
+    await tester.pumpAndSettle();
+    expect(twoLineChanges, <bool>[true]);
+
+    // 真实页面里父级收到回调后会按新状态重建；这里直接给打开后的状态
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            desktopLyricTwoLines: true,
+            onDesktopLyricTwoLinesChanged: twoLineChanges.add,
+            onDesktopLyricTranslationChanged: translationChanges.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(translation);
+    expect(
+      tester.widget<Switch>(translation).onChanged,
+      isNotNull,
+      reason: '双行打开后译文开关才能点',
+    );
+    await tester.tap(translation);
+    await tester.pumpAndSettle();
+    expect(translationChanges, <bool>[true], reason: '默认关，点一下应回调打开');
   });
 
   testWidgets('歌词来源优先级：点开弹窗用六点抓手拖动排序', (WidgetTester tester) async {

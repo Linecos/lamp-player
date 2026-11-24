@@ -33,9 +33,19 @@ Future<void> desktopLyricsShow() =>
 Future<void> desktopLyricsHide() =>
     RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsHide();
 
-/// 更新桌面歌词显示的那一行
-Future<void> desktopLyricsSetLine({required String line}) =>
-    RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSetLine(line: line);
+/// 更新桌面歌词显示的那一行。
+///
+/// `second` 是双行模式下的第二行（译文或下一句），`two_lines` 为假时忽略它；
+/// 三者一起传是为了只排一次版——分两次调用会让窗口高度闪一下。
+Future<void> desktopLyricsSetLine({
+  required String line,
+  required String second,
+  required bool twoLines,
+}) => RustLib.instance.api.crateApiDesktopLyricsDesktopLyricsSetLine(
+  line: line,
+  second: second,
+  twoLines: twoLines,
+);
 
 /// 恢复窗口位置：窗口还没建也先记着，下次显示直接用它
 void desktopLyricsSetPosition({required int x, required int y}) => RustLib

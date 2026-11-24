@@ -67,9 +67,12 @@ pub fn desktop_lyrics_hide() -> Result<()> {
     desktop_lyrics::hide()
 }
 
-/// 更新桌面歌词显示的那一行
-pub fn desktop_lyrics_set_line(line: String) -> Result<()> {
-    desktop_lyrics::set_line(&line)
+/// 更新桌面歌词显示的那一行。
+///
+/// `second` 是双行模式下的第二行（译文或下一句），`two_lines` 为假时忽略它；
+/// 三者一起传是为了只排一次版——分两次调用会让窗口高度闪一下。
+pub fn desktop_lyrics_set_line(line: String, second: String, two_lines: bool) -> Result<()> {
+    desktop_lyrics::set_line(&line, &second, two_lines)
 }
 
 /// 桌面歌词窗口的位置（屏幕坐标，左上角）

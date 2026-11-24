@@ -67,6 +67,10 @@ pub fn font_size_change(current: i32, target: i32) -> Option<i32> {
 
 struct LyricState {
     text: String,
+    /// 双行模式的第二行：译文，或下一句
+    second: String,
+    /// 是否显示第二行（与第二行是否有内容无关：关掉时窗口不留那一行的高度）
+    two_lines: bool,
     visible: bool,
     playing: bool,
     font_size: i32,
@@ -107,6 +111,8 @@ fn state() -> MutexGuard<'static, LyricState> {
         .get_or_init(|| {
             Mutex::new(LyricState {
                 text: String::new(),
+                second: String::new(),
+                two_lines: false,
                 visible: false,
                 playing: false,
                 font_size: DEFAULT_FONT_SIZE,
@@ -164,6 +170,8 @@ fn emit(command: Command) {
 #[cfg(windows)]
 struct PaintState {
     text: String,
+    second: String,
+    two_lines: bool,
     playing: bool,
     font_size: i32,
     locked: bool,
@@ -178,6 +186,8 @@ fn snapshot() -> PaintState {
     let guard = state();
     PaintState {
         text: guard.text.clone(),
+        second: guard.second.clone(),
+        two_lines: guard.two_lines,
         playing: guard.playing,
         font_size: guard.font_size,
         locked: guard.locked,
@@ -248,23 +258,27 @@ pub fn hide() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 更新显示的一行歌词；没打开窗口时只记文本，打开后立即生效
-pub fn set_line(line: &str) -> anyhow::Result<()> {
+/// 更新显示的一行歌词（以及双行模式下的第二行）；没打开窗口时只记文本，打开后立即生效
+pub fn set_line(line: &str, second: &str, two_lines: bool) -> anyhow::Result<()> {
     let changed = {
         let mut guard = state();
-        if guard.text == line {
+        if guard.text == line && guard.second == second && guard.two_lines == two_lines {
             false
         } else {
+            // 换行只跟主行有关：第二行从「下一句」切成「译文」时，
+            // 这一行的逐字进度不该被打回去
+            if guard.text != line {
+                guard.progress = 0.0;
+            }
             guard.text = line.to_string();
-            // 新的一行还没开口：进度归零，等 Dart 按逐字时间轴推上来。
-            // 没有逐字数据时 Dart 会立刻推 1（整行亮），所以这里不用担心闪
-            guard.progress = 0.0;
+            guard.second = second.to_string();
+            guard.two_lines = two_lines;
             true
         }
     };
     if changed {
         // 走 apply 而不是单纯重绘：换行之后折行数可能变了（一句长、一句短），
-        // 窗口高度得跟着改，否则长句的第三行会被切掉、短句又会留一片空白
+        // 双行开关也会改变窗口高度，否则长句的第三行会被切掉、短句又会留一片空白
         request_apply();
     }
     Ok(())
@@ -570,6 +584,8 @@ mod imp {
     /// 760 宽的窗口减去内边距是 732，默认字号 27 时一行约 27 个汉字——三行已经
     /// 八十多个字，超过这个长度再折下去窗口会比歌词本身还高，反而碍事。
     const MAX_LINES: i32 = 3;
+    /// 双行模式下第二行相对主行的字号比例（0.84 = 小一号，不喧宾夺主）
+    const SECOND_SCALE: f32 = 0.84;
     /// 悬停背景：深灰、约 70% 不透明
     const BACKDROP: u32 = argb(180, 30, 30, 32);
     /// GDI+ 的 32 位预乘 ARGB 像素格式（`gdipluspixelformats.h` 的 PixelFormat32bppPARGB，
@@ -757,7 +773,7 @@ mod imp {
             let dpi = GetDpiForSystem();
             let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
             // 窗口刚建出来还没有歌词，先按单行高度落地；第一句进来时 apply 会重算
-            let layout = Layout::new(scale, super::DEFAULT_FONT_SIZE, 1);
+            let layout = Layout::new(scale, super::DEFAULT_FONT_SIZE, 1, false);
             let title = wide("Lamp Player 桌面歌词");
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -956,7 +972,7 @@ mod imp {
         let layout = {
             let guard = super::state();
             // 命中测试只用到按钮区，行数传 1 即可
-            Layout::new(scale, guard.font_size, 1)
+            Layout::new(scale, guard.font_size, 1, false)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -1000,7 +1016,7 @@ mod imp {
         let layout = {
             let guard = super::state();
             // 命中测试只用到按钮区，行数传 1 即可
-            Layout::new(scale, guard.font_size, 1)
+            Layout::new(scale, guard.font_size, 1, false)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -1026,7 +1042,7 @@ mod imp {
         let layout = {
             let guard = super::state();
             // 命中测试只用到按钮区，行数传 1 即可
-            Layout::new(scale, guard.font_size, 1)
+            Layout::new(scale, guard.font_size, 1, false)
         };
         let x = loword(lparam) as f32;
         let y = hiword(lparam) as f32;
@@ -1087,7 +1103,7 @@ mod imp {
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
         // 长句折行：窗口高度要按实际行数算，否则第三行会被切掉
         let lines = line_count(&state.text, scale, state.font_size as f32 * scale);
-        let layout = Layout::new(scale, state.font_size, lines);
+        let layout = Layout::new(scale, state.font_size, lines, state.two_lines);
 
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
@@ -1133,7 +1149,7 @@ mod imp {
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
         let lines = line_count(&state.text, scale, state.font_size as f32 * scale);
-        let layout = Layout::new(scale, state.font_size, lines);
+        let layout = Layout::new(scale, state.font_size, lines, state.two_lines);
         let width = layout.width;
         let height = layout.height;
         if width <= 0 || height <= 0 {
@@ -1193,6 +1209,7 @@ mod imp {
                 graphics,
                 &layout,
                 &state.text,
+                &state.second,
                 state.playing,
                 state.hovered && !state.locked,
                 state.hovered_button,
@@ -1255,6 +1272,7 @@ mod imp {
         graphics: *mut GpGraphics,
         layout: &Layout,
         text: &str,
+        second: &str,
         playing: bool,
         chrome: bool,
         hovered_button: Option<Button>,
@@ -1375,6 +1393,40 @@ mod imp {
                             let _ = GdipResetClip(graphics);
                         }
                     }
+                }
+                let _ = GdipDeleteStringFormat(format);
+            }
+
+            // 双行模式的第二行：只画、不参与逐字裁切（它不是这一句的一部分）。
+            // 单行不折、超出用省略号——译文 / 下一句都是辅助信息，不值得再撑高窗口
+            if let (Some(rect), Some(ui), Ok(format)) =
+                (layout.second, ui, make_format(true, false))
+            {
+                if !second.is_empty() {
+                    let shadow = RectF {
+                        X: rect.X,
+                        Y: rect.Y + 2.0 * layout.scale,
+                        Width: rect.Width,
+                        Height: rect.Height,
+                    };
+                    draw_text(
+                        graphics,
+                        second,
+                        ui,
+                        layout.second_font_px,
+                        argb(110, 0, 0, 0),
+                        &shadow,
+                        format,
+                    );
+                    draw_text(
+                        graphics,
+                        second,
+                        ui,
+                        layout.second_font_px,
+                        argb(150, 238, 238, 238),
+                        &rect,
+                        format,
+                    );
                 }
                 let _ = GdipDeleteStringFormat(format);
             }
@@ -1867,6 +1919,10 @@ mod imp {
         button_size: f32,
         /// 这段歌词折成了几行：多行时不做逐字裁切（见 [Layout::single_line]）
         lines: i32,
+        /// 双行模式第二行的字号；没有第二行时也保留分母，方便测试
+        second_font_px: f32,
+        /// 第二行的文字区；双行关闭时为 `None`
+        second: Option<RectF>,
         buttons: Vec<(Button, RectF)>,
         text: RectF,
     }
@@ -1877,7 +1933,7 @@ mod imp {
             self.lines <= 1
         }
 
-        fn new(scale: f32, font_size: i32, lines: i32) -> Self {
+        fn new(scale: f32, font_size: i32, lines: i32, two_lines: bool) -> Self {
             const ORDER: [Button; 8] = [
                 Button::FontDown,
                 Button::FontUp,
@@ -1899,8 +1955,23 @@ mod imp {
             let lines = lines.clamp(1, MAX_LINES);
             let line_height = (font_size as f32 * 1.45).max(38.0) * scale;
             let text_height = line_height * lines as f32;
-            let height =
-                (top + button_size + 6.0 * scale + text_height + 8.0 * scale).round() as i32;
+            // 第二行比主行小一号、也压暗：它是「辅助信息」（下一句 / 译文），
+            // 和主行同等分量会抢视线
+            let second_font_px = font_px * SECOND_SCALE;
+            let second_height = if two_lines {
+                (font_size as f32 * SECOND_SCALE * 1.4).max(30.0) * scale
+            } else {
+                0.0
+            };
+            let second_gap = if two_lines { 2.0 * scale } else { 0.0 };
+            let height = (top
+                + button_size
+                + 6.0 * scale
+                + text_height
+                + second_gap
+                + second_height
+                + 8.0 * scale)
+                .round() as i32;
 
             let gaps = [gap, gap, group, gap, gap, group, gap];
             let total = button_size * ORDER.len() as f32 + gaps.iter().sum::<f32>();
@@ -1927,6 +1998,12 @@ mod imp {
                 Width: width as f32 - 2.0 * pad,
                 Height: text_height,
             };
+            let second = two_lines.then_some(RectF {
+                X: text.X,
+                Y: text.Y + text_height + second_gap,
+                Width: text.Width,
+                Height: second_height,
+            });
 
             Self {
                 scale,
@@ -1936,6 +2013,8 @@ mod imp {
                 font_px,
                 button_size,
                 lines,
+                second_font_px,
+                second,
                 buttons,
                 text,
             }
@@ -1968,7 +2047,7 @@ mod imp {
             for scale in [1.0f32, 1.25, 1.5, 2.0] {
                 // 一到三行都要检查：窗口高度随折行数长，文字区不能越出底边
                 for lines in 1..=MAX_LINES {
-                    let layout = Layout::new(scale, 27, lines);
+                    let layout = Layout::new(scale, 27, lines, false);
                     for (_, rect) in &layout.buttons {
                         assert!(rect.X >= 0.0, "按钮左边界越界：{scale}");
                         assert!(rect.Y >= 0.0, "按钮上边界越界：{scale}");
@@ -1991,9 +2070,9 @@ mod imp {
 
         #[test]
         fn more_lines_make_the_window_taller_by_one_line_each() {
-            let one = Layout::new(1.0, 27, 1);
-            let two = Layout::new(1.0, 27, 2);
-            let three = Layout::new(1.0, 27, 3);
+            let one = Layout::new(1.0, 27, 1, false);
+            let two = Layout::new(1.0, 27, 2, false);
+            let three = Layout::new(1.0, 27, 3, false);
             let line = one.text.Height;
             assert!((two.text.Height - line * 2.0).abs() < 0.01);
             assert!((three.text.Height - line * 3.0).abs() < 0.01);
@@ -2006,14 +2085,36 @@ mod imp {
         fn line_count_is_capped() {
             // 行数为 0 / 负数也当一行：窗口不能被压没
             assert_eq!(
-                Layout::new(1.0, 27, 0).text.Height,
-                Layout::new(1.0, 27, 1).text.Height
+                Layout::new(1.0, 27, 0, false).text.Height,
+                Layout::new(1.0, 27, 1, false).text.Height
             );
             // 超过上限按上限算
             assert_eq!(
-                Layout::new(1.0, 27, 99).text.Height,
-                Layout::new(1.0, 27, MAX_LINES).text.Height
+                Layout::new(1.0, 27, 99, false).text.Height,
+                Layout::new(1.0, 27, MAX_LINES, false).text.Height
             );
+        }
+
+        #[test]
+        fn two_lines_add_a_shorter_second_row_below_the_main_text() {
+            let single = Layout::new(1.0, 27, 1, false);
+            let double = Layout::new(1.0, 27, 1, true);
+            assert!(single.second.is_none(), "关掉双行时不占第二行的高度");
+            let second = double.second.expect("双行模式要有第二行文字区");
+            assert!(
+                second.Y >= single.text.Y + single.text.Height,
+                "第二行必须排在主行下方"
+            );
+            assert!(
+                second.Height < single.text.Height,
+                "第二行是小一号的辅助信息，不能和主行等高"
+            );
+            assert!(
+                double.second_font_px < double.font_px,
+                "第二行字号应小于主行"
+            );
+            assert!(double.height > single.height, "多一行，窗口必须跟着变高");
+            assert_eq!(double.width, single.width, "只长高，不变宽");
         }
 
         #[test]
@@ -2043,7 +2144,7 @@ mod imp {
 
         #[test]
         fn buttons_do_not_overlap() {
-            let layout = Layout::new(1.0, 27, 1);
+            let layout = Layout::new(1.0, 27, 1, false);
             for pair in layout.buttons.windows(2) {
                 assert!(
                     pair[0].1.X + pair[0].1.Width <= pair[1].1.X + 0.01,
@@ -2056,15 +2157,15 @@ mod imp {
 
         #[test]
         fn taller_font_grows_the_window_without_widening_it() {
-            let small = Layout::new(1.0, MIN_FONT_SIZE, 1);
-            let large = Layout::new(1.0, MAX_FONT_SIZE, 1);
+            let small = Layout::new(1.0, MIN_FONT_SIZE, 1, false);
+            let large = Layout::new(1.0, MAX_FONT_SIZE, 1, false);
             assert!(large.height > small.height);
             assert_eq!(large.width, small.width);
         }
 
         #[test]
         fn buttons_are_in_the_expected_order() {
-            let layout = Layout::new(1.0, 27, 1);
+            let layout = Layout::new(1.0, 27, 1, false);
             let order: Vec<Button> = layout.buttons.iter().map(|(button, _)| *button).collect();
             assert_eq!(
                 order,
@@ -2084,7 +2185,7 @@ mod imp {
 
         #[test]
         fn reset_button_is_hittable() {
-            let layout = Layout::new(1.0, 27, 1);
+            let layout = Layout::new(1.0, 27, 1, false);
             let (_, rect) = layout
                 .buttons
                 .iter()
@@ -2116,7 +2217,21 @@ mod imp {
             playing: bool,
             progress: f32,
         ) -> (i32, i32, Vec<u8>) {
-            let layout = Layout::new(1.0, 27, line_count(text, 1.0, 27.0));
+            let (width, height, alphas, _) =
+                render_lines(text, "", chrome, playing, progress, false);
+            (width, height, alphas)
+        }
+
+        /// 渲染一次，返回整帧像素、以及双行模式下的第二行文字区（单行时为空矩形）
+        fn render_lines(
+            text: &str,
+            second: &str,
+            chrome: bool,
+            playing: bool,
+            progress: f32,
+            two_lines: bool,
+        ) -> (i32, i32, Vec<u8>, RectF) {
+            let layout = Layout::new(1.0, 27, line_count(text, 1.0, 27.0), two_lines);
             let width = layout.width;
             let height = layout.height;
             unsafe {
@@ -2163,6 +2278,7 @@ mod imp {
                     graphics,
                     &layout,
                     text,
+                    second,
                     playing,
                     chrome,
                     Some(Button::PlayPause),
@@ -2180,7 +2296,13 @@ mod imp {
                 let _ = DeleteObject(HGDIOBJ(dib.0));
                 let _ = DeleteDC(mem);
                 ReleaseDC(None, screen);
-                (width, height, alphas)
+                let second_rect = layout.second.unwrap_or(RectF {
+                    X: 0.0,
+                    Y: 0.0,
+                    Width: 0.0,
+                    Height: 0.0,
+                });
+                (width, height, alphas, second_rect)
             }
         }
 
@@ -2243,7 +2365,38 @@ mod imp {
             );
         }
 
-        /// GDI+ 是进程级单次初始化：多个用例共用一个 token，跑完不关
+        /// 某个矩形范围内有多少个不透明像素
+        fn painted_in(frame: &(i32, i32, Vec<u8>, RectF), rect: RectF) -> usize {
+            let (width, height, alphas, _) = frame;
+            let top = rect.Y.round().max(0.0) as i32;
+            let bottom = ((rect.Y + rect.Height).ceil() as i32).min(*height);
+            let mut hits = 0;
+            for y in top..bottom {
+                for x in 0..*width {
+                    if alphas[(y * width + x) as usize] > 0 {
+                        hits += 1;
+                    }
+                }
+            }
+            hits
+        }
+
+        #[test]
+        fn second_line_paints_only_when_there_is_text() {
+            let _guard = gdiplus();
+            let filled = render_lines("夜航", "下一句", false, true, 1.0, true);
+            let empty = render_lines("夜航", "", false, true, 1.0, true);
+            assert!(filled.3.Height > 0.0, "双行模式必须留出第二行的位置");
+            assert!(painted_in(&filled, filled.3) > 200, "第二行文字没画出来");
+            // 最后一句没有下一句：那块留白，窗口高度仍然不变（换行时不会上下跳）
+            assert_eq!(
+                painted_in(&empty, empty.3),
+                0,
+                "没有第二行文字时那块该是空的"
+            );
+            assert_eq!(filled.1, empty.1, "第二行有没有内容都不该改变窗口高度");
+        }
+
         fn gdiplus() -> std::sync::MutexGuard<'static, ()> {
             use std::sync::OnceLock;
             static GUARD: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
