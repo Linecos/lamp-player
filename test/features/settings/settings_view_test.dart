@@ -13,6 +13,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/fake_library.dart';
 
+/// 设置页现在是分很多块的懒加载长列表：目标行可能还没建出来，也可能被前一步
+/// 的滚动甩到视口上方。先回到顶部再往下滚，两个方向都能找到，直接
+/// `ensureVisible` 对不存在的元素会抛 No element。
+Future<void> reveal(WidgetTester tester, Finder finder) async {
+  for (int i = 0; i < 3; i += 1) {
+    await tester.drag(find.byType(SettingsView), const Offset(0, 1500));
+    await tester.pumpAndSettle();
+  }
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+  }
+  await tester.ensureVisible(finder.first);
+  await tester.pumpAndSettle();
+}
+
 Widget _harness({ThemeController? controller}) {
   final Widget view = Scaffold(body: SettingsView());
   return controller == null
@@ -225,7 +244,7 @@ void main() {
     final Finder toggle = find.byKey(
       const ValueKey<String>('settings-flow-background-switch'),
     );
-    await tester.ensureVisible(toggle);
+    await reveal(tester, toggle);
     await tester.pumpAndSettle();
     await tester.tap(toggle);
     await tester.pumpAndSettle();
@@ -254,7 +273,7 @@ void main() {
     final Finder toggle = find.byKey(
       const ValueKey<String>('settings-circular-cover-switch'),
     );
-    await tester.ensureVisible(toggle);
+    await reveal(tester, toggle);
     await tester.pumpAndSettle();
     await tester.tap(toggle);
     await tester.pumpAndSettle();
@@ -287,7 +306,7 @@ void main() {
     final Finder blurToggle = find.byKey(
       const ValueKey<String>('settings-lyric-blur-switch'),
     );
-    await tester.ensureVisible(blurToggle);
+    await reveal(tester, blurToggle);
     await tester.tap(blurToggle);
     await tester.pumpAndSettle();
     expect(blurChanges, <bool>[false], reason: '默认开，点一下应回调关闭');
@@ -295,7 +314,7 @@ void main() {
     final Finder springToggle = find.byKey(
       const ValueKey<String>('settings-lyric-spring-switch'),
     );
-    await tester.ensureVisible(springToggle);
+    await reveal(tester, springToggle);
     await tester.tap(springToggle);
     await tester.pumpAndSettle();
     expect(springChanges, <bool>[false], reason: '默认开，点一下应回调关闭');
@@ -331,7 +350,12 @@ void main() {
     final Finder translation = find.byKey(
       const ValueKey<String>('settings-desktop-lyric-translation'),
     );
-    await tester.ensureVisible(twoLines);
+    await tester.scrollUntilVisible(
+      twoLines,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(find.text('桌面歌词双行'), findsOneWidget);
     expect(
       tester.widget<Switch>(translation).onChanged,
@@ -357,7 +381,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(translation);
+    await tester.scrollUntilVisible(
+      translation,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(
       tester.widget<Switch>(translation).onChanged,
       isNotNull,
@@ -386,7 +415,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final Finder row = find.text('歌词来源优先级');
-    await tester.ensureVisible(row);
+    await reveal(tester, row);
     await tester.pumpAndSettle();
     expect(find.text('先用同名旁载歌词，没有才用内嵌'), findsOneWidget, reason: '默认旁载优先');
 
@@ -569,7 +598,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
@@ -644,7 +673,7 @@ void main() {
     expect(find.text('已由动态主题色接管'), findsOneWidget);
 
     // 配色弹窗里没有「跟随封面」卡：开关不在弹窗里
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('seed-card-cover')), findsNothing);
@@ -695,7 +724,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
@@ -765,7 +794,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
@@ -801,7 +830,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
@@ -845,7 +874,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
@@ -935,7 +964,7 @@ void main() {
     final Finder deviceRow = find.byKey(
       const ValueKey<String>('settings-output-device'),
     );
-    await tester.ensureVisible(deviceRow);
+    await reveal(tester, deviceRow);
     await tester.pumpAndSettle();
     await tester.tap(deviceRow);
     await tester.pumpAndSettle();
@@ -947,7 +976,7 @@ void main() {
     final Finder gainSwitch = find.byKey(
       const ValueKey<String>('settings-replay-gain-switch'),
     );
-    await tester.ensureVisible(gainSwitch);
+    await reveal(tester, gainSwitch);
     await tester.pumpAndSettle();
     await tester.tap(gainSwitch);
     await tester.pumpAndSettle();
@@ -957,7 +986,7 @@ void main() {
     final Finder fadeSlider = find.byKey(
       const ValueKey<String>('settings-crossfade'),
     );
-    await tester.ensureVisible(fadeSlider);
+    await reveal(tester, fadeSlider);
     final Slider slider = tester.widget<Slider>(fadeSlider);
     expect(slider.min, 1);
     expect(slider.max, 8);
@@ -973,7 +1002,7 @@ void main() {
     final Finder fadeSwitch = find.byKey(
       const ValueKey<String>('settings-crossfade-switch'),
     );
-    await tester.ensureVisible(fadeSwitch);
+    await reveal(tester, fadeSwitch);
     await tester.pumpAndSettle();
     await tester.tap(fadeSwitch);
     await tester.pumpAndSettle();
@@ -983,7 +1012,7 @@ void main() {
     final Finder volumeFadeSwitch = find.byKey(
       const ValueKey<String>('settings-volume-fade-switch'),
     );
-    await tester.ensureVisible(volumeFadeSwitch);
+    await reveal(tester, volumeFadeSwitch);
     await tester.pumpAndSettle();
     await tester.tap(volumeFadeSwitch);
     await tester.pumpAndSettle();
@@ -1018,7 +1047,7 @@ void main() {
     final Finder referenceRow = find.byKey(
       const ValueKey<String>('settings-replay-gain-reference'),
     );
-    await tester.ensureVisible(referenceRow);
+    await reveal(tester, referenceRow);
     expect(tester.widget<DropdownButton<double>>(referenceRow).value, -18.0);
     await tester.tap(referenceRow);
     await tester.pumpAndSettle();
@@ -1030,7 +1059,7 @@ void main() {
     final Finder peakRow = find.byKey(
       const ValueKey<String>('settings-replay-gain-peak'),
     );
-    await tester.ensureVisible(peakRow);
+    await reveal(tester, peakRow);
     expect(tester.widget<DropdownButton<bool>>(peakRow).value, isFalse);
     await tester.tap(peakRow);
     await tester.pumpAndSettle();
@@ -1062,7 +1091,7 @@ void main() {
     final Finder referenceRow = find.byKey(
       const ValueKey<String>('settings-replay-gain-reference'),
     );
-    await tester.ensureVisible(referenceRow);
+    await reveal(tester, referenceRow);
     expect(
       tester.widget<DropdownButton<double>>(referenceRow).onChanged,
       isNull,
@@ -1091,7 +1120,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
@@ -1155,7 +1184,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
@@ -1242,7 +1271,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    await reveal(tester, find.text('强调色'));
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
@@ -1324,7 +1353,7 @@ void main() {
     final Finder row = find.byKey(
       const ValueKey<String>('settings-lyric-font'),
     );
-    await tester.ensureVisible(row);
+    await reveal(tester, row);
     await tester.pumpAndSettle();
     // 当前值显示成中文名，不是字体族名
     expect(find.text('宋体'), findsWidgets);
@@ -1371,7 +1400,7 @@ void main() {
     final Finder row = find.byKey(
       const ValueKey<String>('settings-lyric-font'),
     );
-    await tester.ensureVisible(row);
+    await reveal(tester, row);
     await tester.pumpAndSettle();
 
     // 选中随包字体时，胶囊写字体名，副标题只讲影响范围（出处放「关于」弹窗）
@@ -1423,7 +1452,7 @@ void main() {
     final Finder row = find.byKey(
       const ValueKey<String>('settings-lyric-font'),
     );
-    await tester.ensureVisible(row);
+    await reveal(tester, row);
     await tester.pumpAndSettle();
     // 旧字重别名不该让行里冒出一个对不上的英文家族名
     expect(find.text('MiSans Bold'), findsNothing);
@@ -1502,7 +1531,7 @@ void main() {
     final Finder row = find.byKey(
       const ValueKey<String>('settings-interface-font'),
     );
-    await tester.ensureVisible(row);
+    await reveal(tester, row);
     await tester.pumpAndSettle();
     expect(find.text('默认（微软雅黑 Light）'), findsWidgets);
 

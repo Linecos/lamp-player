@@ -65,10 +65,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('强调色'));
+    // 设置页分成多块后「强调色」不在首屏，先滚到它出现
+    await tester.scrollUntilVisible(
+      find.text('强调色'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('强调色').first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('强调色'));
     await tester.pumpAndSettle();
 
-    _expectAllSlidersScoped(tester, '强调色弹窗');
+    expect(find.text('配色'), findsOneWidget, reason: '配色弹窗要打开');
+
+    // 色相滑块在「自定义颜色」二级弹窗里，配色弹窗只有色卡
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
+    await tester.pumpAndSettle();
+    expect(find.text('自定义颜色'), findsOneWidget, reason: '自定义颜色弹窗要打开');
+
+    _expectAllSlidersScoped(tester, '色相滑块弹窗');
   });
 }

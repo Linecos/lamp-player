@@ -15,6 +15,17 @@ import 'package:lamp_player/src/features/settings/settings_view.dart';
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
 
+/// 设置页分成很多块后是一张懒加载长列表：目标行可能还没建出来，
+/// 先往下滚到它出现，再做点击 / 断言（`ensureVisible` 对不存在的元素会抛错）
+Future<void> revealSettings(WidgetTester tester, Finder finder) async {
+  for (int i = 0; i < 12 && finder.evaluate().isEmpty; i += 1) {
+    await tester.drag(find.byType(SettingsView), const Offset(0, -260));
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(finder.first);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('音乐库分区展示真实曲库统计', (WidgetTester tester) async {
     await pumpLibrary(tester, tracks: twoTracks());
@@ -506,8 +517,7 @@ void main() {
     final Finder blurToggle = find.byKey(
       const ValueKey<String>('settings-lyric-blur-switch'),
     );
-    await tester.ensureVisible(blurToggle);
-    await tester.pumpAndSettle();
+    await revealSettings(tester, blurToggle);
     await tester.tap(blurToggle);
     await tester.pumpAndSettle();
     expect(session.snapshot.lyricBlur, isFalse);
@@ -515,8 +525,7 @@ void main() {
     final Finder springToggle = find.byKey(
       const ValueKey<String>('settings-lyric-spring-switch'),
     );
-    await tester.ensureVisible(springToggle);
-    await tester.pumpAndSettle();
+    await revealSettings(tester, springToggle);
     await tester.tap(springToggle);
     await tester.pumpAndSettle();
     expect(session.snapshot.lyricSpring, isFalse);
@@ -538,8 +547,7 @@ void main() {
     ], reason: '默认旁载优先');
 
     final Finder row = find.text('歌词来源优先级');
-    await tester.ensureVisible(row);
-    await tester.pumpAndSettle();
+    await revealSettings(tester, row);
     await tester.tap(row);
     await tester.pumpAndSettle();
     expect(
@@ -668,8 +676,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('快捷键'));
-    await tester.pumpAndSettle();
+    await revealSettings(tester, find.text('快捷键'));
     await tester.tap(find.text('快捷键'));
     await tester.pumpAndSettle();
 
@@ -704,8 +711,7 @@ void main() {
     expect(playback.pauseCalls, 0);
 
     await openSettings(tester);
-    await tester.ensureVisible(find.text('快捷键'));
-    await tester.pumpAndSettle();
+    await revealSettings(tester, find.text('快捷键'));
     await tester.tap(find.text('快捷键'));
     await tester.pumpAndSettle();
 
