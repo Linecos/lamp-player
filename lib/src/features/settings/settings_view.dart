@@ -251,19 +251,66 @@ class SettingsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String query = this.query.trim();
-    final List<Widget> children = <Widget>[];
+    final List<Widget> children = _sectionOf(_sections(context), query);
 
-    // 一组设置 = 分区标题 + 卡片；整组都没命中就一起收起来
-    void section(String label, List<Widget> rows) {
+    if (children.isEmpty) {
+      return EmptyState(
+        icon: Icons.search_off,
+        title: '没有匹配的设置项',
+        message: '试试「主题」「输出设备」「均衡器」这类词，或清除搜索看全部设置。',
+        action: onClearSearch == null
+            ? null
+            : TextButton(onPressed: onClearSearch, child: const Text('清除搜索')),
+      );
+    }
+
+    return SmoothScroll(
+      builder: (BuildContext context, ScrollController controller) => ListView(
+        controller: controller,
+        // 右侧不留滚动条槽：桌面滚动条本来就浮在视口右缘，留空只会让整页
+        // 左边 16、右边 28，看着偏。让它压在卡片边上就行
+        padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
+        children: children,
+      ),
+    );
+  }
+
+  /// 一组设置 = 分区标题 + 卡片；整组都没命中就一起收起来
+  List<Widget> _sectionOf(List<(String, List<Widget>)> sections, String query) {
+    final List<Widget> children = <Widget>[];
+    for (final (String label, List<Widget> rows) in sections) {
       final List<Widget> kept = _filterRows(rows, query);
       if (kept.isEmpty) {
-        return;
+        continue;
       }
       children.add(SettingsSectionLabel(label));
       children.add(SettingsCard(children: kept));
     }
+    return children;
+  }
 
-    section('播放', <Widget>[
+  /// 五个分区：常规 / 外观 / 歌词 / 桌面歌词 / 关于
+  List<(String, List<Widget>)> _sections(BuildContext context) {
+    return <(String, List<Widget>)>[
+      (
+        '常规',
+        <Widget>[
+          ..._outputRows(),
+          ..._transitionRows(),
+          ..._loudnessRows(context),
+          ..._systemRows(),
+        ],
+      ),
+      ('外观', <Widget>[..._themeRows(), ..._interfaceRows()]),
+      ('歌词', _lyricRows()),
+      ('桌面歌词', _desktopLyricRows()),
+      ('关于', _aboutRows(context)),
+    ];
+  }
+
+  /// 常规 · 输出
+  List<Widget> _outputRows() {
+    return <Widget>[
       _ChoiceRow<int>(
         icon: Icons.speaker_outlined,
         title: '输出设备',
@@ -288,6 +335,12 @@ class SettingsView extends StatelessWidget {
         busy: switchingOutput,
         onChanged: onExclusiveChanged,
       ),
+    ];
+  }
+
+  /// 常规 · 切歌与过渡
+  List<Widget> _transitionRows() {
+    return <Widget>[
       _SwitchRow(
         icon: Icons.compare_arrows,
         title: '换曲淡入淡出',
@@ -308,6 +361,20 @@ class SettingsView extends StatelessWidget {
         onChanged: crossfadeEnabled ? onCrossfadeChanged : null,
         sliderKey: const ValueKey<String>('settings-crossfade'),
       ),
+      _SwitchRow(
+        icon: Icons.volume_down_outlined,
+        title: '音量过渡',
+        switchKey: const ValueKey<String>('settings-volume-fade-switch'),
+        subtitle: '起播淡入，暂停淡出',
+        value: volumeFade,
+        onChanged: onVolumeFadeChanged,
+      ),
+    ];
+  }
+
+  /// 常规 · 响度与均衡
+  List<Widget> _loudnessRows(BuildContext context) {
+    return <Widget>[
       _SwitchRow(
         icon: Icons.balance,
         title: 'ReplayGain 响度归一',
@@ -337,14 +404,6 @@ class SettingsView extends StatelessWidget {
         onChanged: replayGain ? onReplayGainTruePeakChanged : null,
         choiceKey: const ValueKey<String>('settings-replay-gain-peak'),
       ),
-      _SwitchRow(
-        icon: Icons.volume_down_outlined,
-        title: '音量过渡',
-        switchKey: const ValueKey<String>('settings-volume-fade-switch'),
-        subtitle: '起播淡入，暂停淡出',
-        value: volumeFade,
-        onChanged: onVolumeFadeChanged,
-      ),
       SettingsActionRow(
         icon: Icons.equalizer,
         title: '均衡器',
@@ -355,6 +414,12 @@ class SettingsView extends StatelessWidget {
             ? null
             : () => _openEqualizer(context),
       ),
+    ];
+  }
+
+  /// 常规 · 系统
+  List<Widget> _systemRows() {
+    return <Widget>[
       SettingsActionRow(
         icon: Icons.keyboard_outlined,
         title: '快捷键',
@@ -369,33 +434,46 @@ class SettingsView extends StatelessWidget {
         value: closeToTray,
         onChanged: onCloseToTrayChanged,
       ),
-    ]);
-    section('外观', <Widget>[
+    ];
+  }
+
+  /// 外观 · 主题
+  List<Widget> _themeRows() {
+    return <Widget>[
       const _ThemeRow(),
       const _DynamicThemeRow(),
       const _AccentColorRow(),
+    ];
+  }
+
+  /// 外观 · 界面
+  List<Widget> _interfaceRows() {
+    return <Widget>[
       _InterfaceFontRow(onChanged: onInterfaceFontChanged),
+      // 两行字体挨着：界面字体与歌词字体是一对，分开放会让人来回找
       _LyricFontRow(value: lyricFont, onChanged: onLyricFontChanged),
       _SwitchRow(
-        icon: Icons.subject_rounded,
-        title: '桌面歌词双行',
-        switchKey: const ValueKey<String>('settings-desktop-lyric-two-lines'),
-        subtitle: '主行下方再显示一行下一句；窗口会随之变高',
-        value: desktopLyricTwoLines,
-        onChanged: onDesktopLyricTwoLinesChanged,
+        icon: Icons.auto_awesome,
+        title: '动态流光背景',
+        switchKey: const ValueKey<String>('settings-flow-background-switch'),
+        subtitle: '随封面颜色缓慢流动',
+        value: flowBackground,
+        onChanged: onFlowBackgroundChanged,
       ),
       _SwitchRow(
-        icon: Icons.translate_rounded,
-        title: '桌面歌词显示译文',
-        switchKey: const ValueKey<String>('settings-desktop-lyric-translation'),
-        subtitle: desktopLyricTwoLines
-            ? '第二行放本句译文；这句没有译文时显示下一句'
-            : '打开上方双行显示后生效',
-        value: desktopLyricTranslation,
-        onChanged: desktopLyricTwoLines
-            ? onDesktopLyricTranslationChanged
-            : null,
+        icon: Icons.circle_outlined,
+        title: '圆形封面',
+        switchKey: const ValueKey<String>('settings-circular-cover-switch'),
+        subtitle: '播放岛与正在播放页用正圆',
+        value: circularCovers,
+        onChanged: onCircularCoversChanged,
       ),
+    ];
+  }
+
+  /// 歌词：来源、模糊与滚动效果
+  List<Widget> _lyricRows() {
+    return <Widget>[
       _LyricSourceOrderRow(
         order: lyricSourceOrder,
         onChanged: onLyricSourceOrderChanged,
@@ -416,24 +494,45 @@ class SettingsView extends StatelessWidget {
         value: lyricSpring,
         onChanged: onLyricSpringChanged,
       ),
+    ];
+  }
+
+  /// 桌面歌词：几行、第二行放什么
+  List<Widget> _desktopLyricRows() {
+    return <Widget>[
       _SwitchRow(
-        icon: Icons.auto_awesome,
-        title: '动态流光背景',
-        switchKey: const ValueKey<String>('settings-flow-background-switch'),
-        subtitle: '随封面颜色缓慢流动',
-        value: flowBackground,
-        onChanged: onFlowBackgroundChanged,
+        icon: Icons.subject_rounded,
+        title: '桌面歌词双行',
+        switchKey: const ValueKey<String>('settings-desktop-lyric-two-lines'),
+        subtitle: '主行下方再显示一行下一句；窗口会随之变高',
+        value: desktopLyricTwoLines,
+        onChanged: onDesktopLyricTwoLinesChanged,
       ),
       _SwitchRow(
-        icon: Icons.circle_outlined,
-        title: '圆形封面',
-        switchKey: const ValueKey<String>('settings-circular-cover-switch'),
-        subtitle: '播放岛与正在播放页用正圆',
-        value: circularCovers,
-        onChanged: onCircularCoversChanged,
+        icon: Icons.translate_rounded,
+        title: '桌面歌词显示译文',
+        switchKey: const ValueKey<String>('settings-desktop-lyric-translation'),
+        subtitle: desktopLyricTwoLines
+            ? '第二行放本句译文；这句没有译文时显示下一句'
+            : '打开上方双行显示后生效',
+        value: desktopLyricTranslation,
+        onChanged: desktopLyricTwoLines
+            ? onDesktopLyricTranslationChanged
+            : null,
       ),
-    ]);
-    section('关于', <Widget>[
+    ];
+  }
+
+  /// 关于：版本与更新
+  List<Widget> _aboutRows(BuildContext context) {
+    return <Widget>[
+      SettingsInfoRow(
+        icon: Icons.info_outline,
+        title: 'Lamp Player',
+        subtitle: 'Flutter + Rust + BASS',
+        value: appVersion,
+        onTap: () => unawaited(showAppAboutDialog(context)),
+      ),
       SettingsActionRow(
         icon: Icons.system_update_alt,
         title: '检查更新',
@@ -469,35 +568,7 @@ class SettingsView extends StatelessWidget {
         onChanged: autoUpdateCheck ? onUpdateCheckPeriodChanged : null,
         choiceKey: const ValueKey<String>('settings-update-period'),
       ),
-      SettingsInfoRow(
-        icon: Icons.info_outline,
-        title: 'Lamp Player',
-        subtitle: 'Flutter + Rust + BASS',
-        value: appVersion,
-        onTap: () => unawaited(showAppAboutDialog(context)),
-      ),
-    ]);
-
-    if (children.isEmpty) {
-      return EmptyState(
-        icon: Icons.search_off,
-        title: '没有匹配的设置项',
-        message: '试试「主题」「输出设备」「均衡器」这类词，或清除搜索看全部设置。',
-        action: onClearSearch == null
-            ? null
-            : TextButton(onPressed: onClearSearch, child: const Text('清除搜索')),
-      );
-    }
-
-    return SmoothScroll(
-      builder: (BuildContext context, ScrollController controller) => ListView(
-        controller: controller,
-        // 右侧不留滚动条槽：桌面滚动条本来就浮在视口右缘，留空只会让整页
-        // 左边 16、右边 28，看着偏。让它压在卡片边上就行
-        padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
-        children: children,
-      ),
-    );
+    ];
   }
 
   /// 搜索时只留命中的行；没命中的行（含状态类小组件）一起收起来
