@@ -52,6 +52,59 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
+  testWidgets('歌词与桌面歌词的字号 / 字重都能逐格调', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<int> lyricSizes = <int>[];
+    final List<int> lyricWeights = <int>[];
+    final List<int> desktopSizes = <int>[];
+    final List<int> desktopWeights = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(AppTheme.defaultSeed),
+        home: Scaffold(
+          body: SettingsView(
+            lyricFontSize: 24,
+            onLyricFontSizeChanged: lyricSizes.add,
+            lyricFontWeight: 500,
+            onLyricFontWeightChanged: lyricWeights.add,
+            desktopLyricFontSize: 30,
+            onDesktopLyricFontSizeChanged: desktopSizes.add,
+            desktopLyricFontWeight: 400,
+            onDesktopLyricFontWeightChanged: desktopWeights.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // − / + 点一下就提交，不必拖滑块（鼠标拖滑块在窄量程里很难对准一格）
+    Future<void> bump(String key) async {
+      final Finder slider = find.byKey(ValueKey<String>(key));
+      await reveal(tester, slider);
+      final Finder row = find
+          .ancestor(of: slider, matching: find.byType(Row))
+          .last;
+      await tester.tap(
+        find.descendant(of: row, matching: find.byTooltip('增大')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await bump('settings-lyric-font-size');
+    expect(lyricSizes, <int>[25], reason: '字号一格 1 px');
+    await bump('settings-lyric-font-weight');
+    expect(lyricWeights, <int>[600], reason: '字重一格 100');
+    await bump('settings-desktop-lyric-font-size');
+    expect(desktopSizes, <int>[33], reason: '桌面歌词字号一格 3 px');
+    await bump('settings-desktop-lyric-font-weight');
+    expect(desktopWeights, <int>[500], reason: '桌面歌词字重一格 100');
+  });
+
   testWidgets('没有 ThemeScope 时主题分段控件为只读', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
@@ -982,21 +1035,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(gainPicks, <bool>[true]);
 
-    // 淡变时长：滑块 1–8 秒
+    // 淡变时长：滑块 0.2–8 秒，一格 0.1 秒
     final Finder fadeSlider = find.byKey(
       const ValueKey<String>('settings-crossfade'),
     );
     await reveal(tester, fadeSlider);
     final Slider slider = tester.widget<Slider>(fadeSlider);
-    expect(slider.min, 1);
+    expect(slider.min, 0.2);
     expect(slider.max, 8);
+    expect(slider.divisions, isNull, reason: '格子太多时不画刻度点');
     // 拖动只更新本地预览，松手才回调
     slider.onChanged!(3.4);
     await tester.pumpAndSettle();
     expect(fades, isEmpty, reason: '拖动过程中不下发');
     slider.onChangeEnd!(3.4);
     await tester.pumpAndSettle();
-    expect(fades, <double>[3], reason: '松手吸附到整秒');
+    expect(fades, <double>[3.4], reason: '松手吸附到 0.1 秒的格点');
 
     // 淡变开关（默认开，这里点一下关掉）
     final Finder fadeSwitch = find.byKey(

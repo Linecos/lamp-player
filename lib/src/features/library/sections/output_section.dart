@@ -631,11 +631,75 @@ extension _OutputSection on _LibraryPageState {
 
   Future<void> _pushDesktopLyricSettings() async {
     await desktop_lyrics.desktopLyricsSetFontSize(size: _desktopLyricFontSize);
+    await desktop_lyrics.desktopLyricsSetFontWeight(
+      weight: _desktopLyricFontWeight,
+    );
     await desktop_lyrics.desktopLyricsSetFontFamily(
       family: _desktopLyricFontFamily,
     );
     await desktop_lyrics.desktopLyricsSetLocked(locked: _desktopLyricLocked);
     await desktop_lyrics.desktopLyricsSetPlaying(playing: _isPlaying);
+  }
+
+  /// 桌面歌词字号：窗口与设置页共用一份，拖动时即时生效
+  Future<void> _setDesktopLyricFontSize(int size) async {
+    final int next = size.clamp(
+      PrefsSessionStore.desktopLyricFontSizeMin,
+      PrefsSessionStore.desktopLyricFontSizeMax,
+    );
+    if (next == _desktopLyricFontSize) {
+      return;
+    }
+    _update(() => _desktopLyricFontSize = next);
+    _saveSessionNow();
+    try {
+      await desktop_lyrics.desktopLyricsSetFontSize(size: next);
+    } catch (error) {
+      debugPrint('同步桌面歌词字号失败：$error');
+    }
+  }
+
+  /// 桌面歌词字重：GDI+ 只有常规 / 粗体两档，>= 600 取粗体
+  Future<void> _setDesktopLyricFontWeight(int weight) async {
+    final int next = weight.clamp(
+      PrefsSessionStore.lyricFontWeightMin,
+      PrefsSessionStore.lyricFontWeightMax,
+    );
+    if (next == _desktopLyricFontWeight) {
+      return;
+    }
+    _update(() => _desktopLyricFontWeight = next);
+    _saveSessionNow();
+    try {
+      await desktop_lyrics.desktopLyricsSetFontWeight(weight: next);
+    } catch (error) {
+      debugPrint('同步桌面歌词字重失败：$error');
+    }
+  }
+
+  /// 主界面歌词字号 / 字重：只在 Dart 侧，正在播放页重建时按新值排版
+  void _setLyricFontSize(int size) {
+    final int next = size.clamp(
+      PrefsSessionStore.lyricFontSizeMin,
+      PrefsSessionStore.lyricFontSizeMax,
+    );
+    if (next == _lyricFontSize) {
+      return;
+    }
+    _update(() => _lyricFontSize = next);
+    _saveSessionNow();
+  }
+
+  void _setLyricFontWeight(int weight) {
+    final int next = weight.clamp(
+      PrefsSessionStore.lyricFontWeightMin,
+      PrefsSessionStore.lyricFontWeightMax,
+    );
+    if (next == _lyricFontWeight) {
+      return;
+    }
+    _update(() => _lyricFontWeight = next);
+    _saveSessionNow();
   }
 
   /// 换歌词字体：两处歌词共用一份设置——主界面歌词页在下一帧按新字体重建，

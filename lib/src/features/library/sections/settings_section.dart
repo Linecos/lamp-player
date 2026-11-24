@@ -36,6 +36,16 @@ extension _SettingsSection on _LibraryPageState {
             lyricFont: _lyricFontFamily,
             onLyricFontChanged: (String family) =>
                 unawaited(_setLyricFontFamily(family)),
+            lyricFontSize: _lyricFontSize,
+            onLyricFontSizeChanged: _setLyricFontSize,
+            lyricFontWeight: _lyricFontWeight,
+            onLyricFontWeightChanged: _setLyricFontWeight,
+            desktopLyricFontSize: _desktopLyricFontSize,
+            onDesktopLyricFontSizeChanged: (int size) =>
+                unawaited(_setDesktopLyricFontSize(size)),
+            desktopLyricFontWeight: _desktopLyricFontWeight,
+            onDesktopLyricFontWeightChanged: (int weight) =>
+                unawaited(_setDesktopLyricFontWeight(weight)),
             desktopLyricTwoLines: _desktopLyricTwoLines,
             onDesktopLyricTwoLinesChanged: _setDesktopLyricTwoLines,
             desktopLyricTranslation: _desktopLyricTranslation,

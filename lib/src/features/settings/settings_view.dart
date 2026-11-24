@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_version.dart';
+import '../../app/session_store.dart';
 import '../../app/update_check.dart';
 import '../../common/common.dart';
 import '../../rust/api/player.dart' as rust;
@@ -40,6 +41,14 @@ class SettingsView extends StatelessWidget {
     this.devices = const <rust.PlayerDevice>[],
     this.lyricFont = '',
     this.onLyricFontChanged,
+    this.lyricFontSize = 22,
+    this.onLyricFontSizeChanged,
+    this.lyricFontWeight = 400,
+    this.onLyricFontWeightChanged,
+    this.desktopLyricFontSize = 27,
+    this.onDesktopLyricFontSizeChanged,
+    this.desktopLyricFontWeight = 700,
+    this.onDesktopLyricFontWeightChanged,
     this.desktopLyricTwoLines = false,
     this.onDesktopLyricTwoLinesChanged,
     this.desktopLyricTranslation = false,
@@ -136,6 +145,18 @@ class SettingsView extends StatelessWidget {
 
   /// 换歌词字体；为空表示不可操作
   final ValueChanged<String>? onLyricFontChanged;
+
+  /// 主界面歌词字号（18–34）与字重（100–900）
+  final int lyricFontSize;
+  final ValueChanged<int>? onLyricFontSizeChanged;
+  final int lyricFontWeight;
+  final ValueChanged<int>? onLyricFontWeightChanged;
+
+  /// 桌面歌词字号（16–56）与字重（100–900）
+  final int desktopLyricFontSize;
+  final ValueChanged<int>? onDesktopLyricFontSizeChanged;
+  final int desktopLyricFontWeight;
+  final ValueChanged<int>? onDesktopLyricFontWeightChanged;
 
   /// 桌面歌词是否分两行（第二行放下一句 / 译文）
   final bool desktopLyricTwoLines;
@@ -354,10 +375,10 @@ class SettingsView extends StatelessWidget {
         title: '淡变时长',
         subtitle: crossfadeEnabled ? null : '打开开关后生效',
         value: crossfadeSeconds,
-        min: 1,
+        min: 0.2,
         max: 8,
-        divisions: 7,
         unit: ' 秒',
+        step: 0.1,
         onChanged: crossfadeEnabled ? onCrossfadeChanged : null,
         sliderKey: const ValueKey<String>('settings-crossfade'),
       ),
@@ -474,6 +495,33 @@ class SettingsView extends StatelessWidget {
   /// 歌词：来源、模糊与滚动效果
   List<Widget> _lyricRows() {
     return <Widget>[
+      _SliderRow(
+        icon: Icons.format_size,
+        title: '字号',
+        sliderKey: const ValueKey<String>('settings-lyric-font-size'),
+        value: lyricFontSize.toDouble(),
+        min: PrefsSessionStore.lyricFontSizeMin.toDouble(),
+        max: PrefsSessionStore.lyricFontSizeMax.toDouble(),
+        step: 1,
+        unit: ' px',
+        subtitle: '当前唱到的那句再大 6 px',
+        onChanged: onLyricFontSizeChanged == null
+            ? null
+            : (double value) => onLyricFontSizeChanged!(value.round()),
+      ),
+      _SliderRow(
+        icon: Icons.format_bold,
+        title: '字重',
+        sliderKey: const ValueKey<String>('settings-lyric-font-weight'),
+        value: lyricFontWeight.toDouble(),
+        min: PrefsSessionStore.lyricFontWeightMin.toDouble(),
+        max: PrefsSessionStore.lyricFontWeightMax.toDouble(),
+        step: 100,
+        subtitle: '当前唱到的那句再重一档',
+        onChanged: onLyricFontWeightChanged == null
+            ? null
+            : (double value) => onLyricFontWeightChanged!(value.round()),
+      ),
       _LyricSourceOrderRow(
         order: lyricSourceOrder,
         onChanged: onLyricSourceOrderChanged,
@@ -497,9 +545,36 @@ class SettingsView extends StatelessWidget {
     ];
   }
 
-  /// 桌面歌词：几行、第二行放什么
+  /// 桌面歌词：字号、字重、几行、第二行放什么
   List<Widget> _desktopLyricRows() {
     return <Widget>[
+      _SliderRow(
+        icon: Icons.format_size,
+        title: '字号',
+        sliderKey: const ValueKey<String>('settings-desktop-lyric-font-size'),
+        value: desktopLyricFontSize.toDouble(),
+        min: PrefsSessionStore.desktopLyricFontSizeMin.toDouble(),
+        max: PrefsSessionStore.desktopLyricFontSizeMax.toDouble(),
+        step: PrefsSessionStore.desktopLyricFontSizeStep.toDouble(),
+        unit: ' px',
+        subtitle: '窗口上的 A- / A+ 与这里同一份设置',
+        onChanged: onDesktopLyricFontSizeChanged == null
+            ? null
+            : (double value) => onDesktopLyricFontSizeChanged!(value.round()),
+      ),
+      _SliderRow(
+        icon: Icons.format_bold,
+        title: '字重',
+        sliderKey: const ValueKey<String>('settings-desktop-lyric-font-weight'),
+        value: desktopLyricFontWeight.toDouble(),
+        min: PrefsSessionStore.lyricFontWeightMin.toDouble(),
+        max: PrefsSessionStore.lyricFontWeightMax.toDouble(),
+        step: 100,
+        subtitle: '窗口只有常规 / 粗体两档，600 及以上取粗体',
+        onChanged: onDesktopLyricFontWeightChanged == null
+            ? null
+            : (double value) => onDesktopLyricFontWeightChanged!(value.round()),
+      ),
       _SwitchRow(
         icon: Icons.subject_rounded,
         title: '桌面歌词双行',
@@ -757,7 +832,10 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
   }
 }
 
-/// 一行「标题 + 滑块」：用于淡变时长这类连续取值。
+/// 一行「标题 + − 滑块 + + 值」：用于淡变时长、字号、字重这类按格取值。
+///
+/// 滑块不画刻度点、两侧各一颗 − / +，松手吸附到格点（见 [step]）：量程里格子
+/// 一多，刻度点连成一排碎点，反而看不出当前值在哪儿。
 ///
 /// 拖动只改本地预览、松手才回调：若每次 onChanged 都写会话并下发引擎，
 /// 整页会跟着重建，手感发涩（与取色弹窗里的滑杆同一套做法）。
@@ -771,8 +849,8 @@ class _SliderRow extends StatefulWidget implements SettingsSearchable {
     required this.onChanged,
     this.subtitle,
     this.unit = '',
-    this.divisions,
     this.sliderKey,
+    this.step = 1,
   });
 
   final IconData icon;
@@ -783,8 +861,13 @@ class _SliderRow extends StatefulWidget implements SettingsSearchable {
   final double max;
   final String unit;
   final ValueChanged<double>? onChanged;
-  final int? divisions;
   final Key? sliderKey;
+
+  /// 步进值：滑块两侧各一颗 − / + 一次走一格，拖动松手也吸附到格点上。
+  ///
+  /// 滑块本身**不画刻度点**：字号、字重这类量程有十几格，画出来就是一排碎点，
+  /// 反而看不清当前值；步进靠拖动吸附 + 两侧按钮，跟参考项目一样。
+  final double step;
 
   @override
   String get searchText => '$title ${subtitle ?? ''}';
@@ -852,8 +935,10 @@ class _SliderRowState extends State<_SliderRow> {
             ),
           ),
           const SizedBox(width: 12),
+          _stepButton(Icons.remove, -1),
+          const SizedBox(width: 2),
           SizedBox(
-            width: 200,
+            width: 160,
             child: ValueListenableBuilder<double>(
               valueListenable: _preview,
               builder: (BuildContext context, double value, Widget? child) =>
@@ -865,21 +950,22 @@ class _SliderRowState extends State<_SliderRow> {
                       value: value.clamp(widget.min, widget.max),
                       min: widget.min,
                       max: widget.max,
-                      divisions: widget.divisions,
-                      label: '${value.round()}${widget.unit}',
+                      label: _format(value),
                       onChanged: enabled ? _onDrag : null,
                       onChangeEnd: enabled ? _onRelease : null,
                     ),
                   ),
             ),
           ),
+          const SizedBox(width: 2),
+          _stepButton(Icons.add, 1),
           SizedBox(
             width: 48,
             child: ValueListenableBuilder<double>(
               valueListenable: _preview,
               builder: (BuildContext context, double value, Widget? child) =>
                   Text(
-                    '${value.round()}${widget.unit}',
+                    _format(value),
                     textAlign: TextAlign.end,
                     style: theme.textTheme.bodyMedium,
                   ),
@@ -894,11 +980,64 @@ class _SliderRowState extends State<_SliderRow> {
     _preview.value = next;
   }
 
+  /// − / + 一格：直接提交，不必等拖动松手
+  Widget _stepButton(IconData icon, int direction) {
+    final bool enabled = widget.onChanged != null;
+    return IconButton(
+      onPressed: enabled ? () => _onStep(direction) : null,
+      icon: Icon(icon, size: 18),
+      visualDensity: VisualDensity.compact,
+      tooltip: direction < 0 ? '减小' : '增大',
+    );
+  }
+
+  void _onStep(int direction) {
+    final double next = _snap(
+      (_preview.value + direction * widget.step).clamp(widget.min, widget.max),
+    );
+    if (next == _preview.value) {
+      return;
+    }
+    _preview.value = next;
+    widget.onChanged!(next);
+  }
+
   void _onRelease(double next) {
-    // 松手吸附到整秒：预览先对齐，外部值再跟进，避免回跳两次
-    final double snapped = next.roundToDouble();
+    // 松手吸附到格点（以 min 为基准）：预览先对齐，外部值再跟进，避免回跳两次
+    final double snapped = _snap(next);
     _preview.value = snapped;
     widget.onChanged!(snapped);
+  }
+
+  /// 步长小于 1 时显示小数（淡变时长 0.1 秒一格）；整数格点不拖个「.0」尾巴
+  String _format(double value) {
+    final int decimals = _decimals;
+    final String text = (decimals > 0 && value == value.roundToDouble())
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(decimals);
+    return '$text${widget.unit}';
+  }
+
+  int get _decimals {
+    final double step = widget.step;
+    if (step >= 1) {
+      return 0;
+    }
+    return step >= 0.1 ? 1 : 2;
+  }
+
+  /// 吸附到 step 的整数倍（以 0 为基准：桌面歌词字号是 16 起、步 3，默认 27
+  /// 就落在 27 上；按 min 对齐会把它挤到 28 / 25），再夹回量程
+  double _snap(double raw) {
+    final double step = widget.step;
+    final double snapped = ((raw / step).roundToDouble() * step).clamp(
+      widget.min,
+      widget.max,
+    );
+    // 0.1 这类步长转二进制会带出 1.9000000000000001，按显示精度收一次
+    return _decimals == 0
+        ? snapped.roundToDouble()
+        : double.parse(snapped.toStringAsFixed(_decimals));
   }
 }
 

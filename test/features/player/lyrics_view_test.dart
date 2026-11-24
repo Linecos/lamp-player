@@ -43,6 +43,8 @@ Future<void> _pump(
   bool blur = true,
   bool spring = true,
   String? fontFamily,
+  double fontSize = 22,
+  int fontWeight = 400,
   double viewWidth = 900,
 }) async {
   tester.view.physicalSize = Size(viewWidth, 700);
@@ -66,6 +68,8 @@ Future<void> _pump(
           blurEnabled: blur,
           springScroll: spring,
           fontFamily: fontFamily,
+          fontSize: fontSize,
+          fontWeight: fontWeight,
         ),
       ),
     ),
@@ -2279,5 +2283,33 @@ void main() {
       AppTheme.fontFamily,
       reason: '空设置 = 跟随主题的雅黑 Light',
     );
+  });
+
+  testWidgets('字号与字重按设置渲染，当前行各加一档', (WidgetTester tester) async {
+    final ValueNotifier<double> position = ValueNotifier<double>(2.0);
+    final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
+    addTearDown(position.dispose);
+    addTearDown(playing.dispose);
+
+    await _pump(
+      tester,
+      lines: <LyricLine>[
+        _line(start: 0, end: 10000, text: '大字号的第一句'),
+        _line(start: 10000, end: 20000, text: '还没唱到的下一句'),
+      ],
+      position: position,
+      playing: playing,
+      fontSize: 30,
+      fontWeight: 500,
+    );
+
+    final Text idle = tester.widget<Text>(find.text('还没唱到的下一句').first);
+    expect(idle.style?.fontSize, 30, reason: '非当前行就是设置的字号');
+    expect(idle.style?.fontWeight, FontWeight.w500, reason: '非当前行就是设置的字重');
+
+    final Text active = tester.widget<Text>(find.text('大字号的第一句').first);
+    // 字号仍是 30：当前行的「变大」是外层缩放，改了字号会触发重新折行
+    expect(active.style?.fontSize, 30);
+    expect(active.style?.fontWeight, FontWeight.w700, reason: '当前行比设置重一档');
   });
 }

@@ -110,6 +110,20 @@ pub fn desktop_lyrics_set_font_size(size: i32) {
     desktop_lyrics::set_font_size(size);
 }
 
+/// 设置字重（100–900，与 Flutter 的 `FontWeight` 数值一致）
+///
+/// 窗口用 GDI+ 画字，只有常规 / 粗体两档字形：>= 600 按粗体，其余按常规，
+/// 也就是「字体没有该字重时取最接近的一档」。
+pub fn desktop_lyrics_set_font_weight(weight: i32) {
+    desktop_lyrics::set_font_weight(weight);
+}
+
+/// 当前字重（100–900）
+#[flutter_rust_bridge::frb(sync)]
+pub fn desktop_lyrics_font_weight() -> i32 {
+    desktop_lyrics::font_weight()
+}
+
 /// 设置歌词字体族：系统已安装的字体名（如 `Microsoft YaHei Light`），或随包
 /// MiSans 的别名（`MiSans`、`MiSans Light`…；各字重在字体文件里同属 `MiSans`）。
 ///

@@ -755,6 +755,13 @@ class _LibraryPageState extends State<LibraryPage>
   /// 桌面歌词字号（96 DPI 逻辑像素）与锁定状态；跟着会话存档走
   int _desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault;
 
+  /// 桌面歌词字重（100–900）；GDI+ 按 >= 600 取粗体
+  int _desktopLyricFontWeight = PrefsSessionStore.desktopLyricFontWeightDefault;
+
+  /// 主界面歌词字号与字重
+  int _lyricFontSize = PrefsSessionStore.lyricFontSizeDefault;
+  int _lyricFontWeight = PrefsSessionStore.lyricFontWeightDefault;
+
   /// 歌词字体族名（空串 = 跟随界面字体）。主界面歌词与桌面歌词共用同一项设置。
   String _lyricFontFamily = '';
   bool _desktopLyricLocked = false;
@@ -1363,6 +1370,9 @@ class _LibraryPageState extends State<LibraryPage>
       _volumeFade = snapshot.volumeFade;
       _desktopLyrics = snapshot.desktopLyrics;
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
+      _desktopLyricFontWeight = snapshot.desktopLyricFontWeight;
+      _lyricFontSize = snapshot.lyricFontSize;
+      _lyricFontWeight = snapshot.lyricFontWeight;
       _lyricFontFamily = snapshot.lyricFontFamily;
       _desktopLyricLocked = snapshot.desktopLyricLocked;
       _desktopLyricTwoLines = snapshot.desktopLyricTwoLines;
@@ -1601,6 +1611,9 @@ class _LibraryPageState extends State<LibraryPage>
       volumeFade: _volumeFade,
       desktopLyrics: _desktopLyrics,
       desktopLyricFontSize: _desktopLyricFontSize,
+      desktopLyricFontWeight: _desktopLyricFontWeight,
+      lyricFontSize: _lyricFontSize,
+      lyricFontWeight: _lyricFontWeight,
       lyricFontFamily: _lyricFontFamily,
       desktopLyricLocked: _desktopLyricLocked,
       desktopLyricX: lyricPosition?.$1,

@@ -1,8 +1,14 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.27（2026-11-24）**
+> **当前版本：v0.28（2026-11-24）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.28 变更（**纯新增，Dart 侧已同步**）：桌面歌词加字重设置
+> `desktop_lyrics_set_font_weight(weight: i32)` 与同步读取 `desktop_lyrics_font_weight()`，
+> 取值 100–900，与 Flutter 的 `FontWeight` 数值一致。GDI+ 只有常规 / 粗体两档字形，
+> 所以 **>= 600 按粗体建、其余按常规**（等于「字体没有该字重时取最接近的一档」），
+> 见 §15。
 >
 > v0.27 变更（**破坏性，Dart 侧已同步**）：`desktop_lyrics_set_line` 由
 > `(line)` 改为 `(line, second, two_lines)`——桌面歌词要能分两行显示（第二行放下一句
@@ -658,6 +664,8 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 | `desktop_lyrics_set_playing(playing: bool)` | `Future<void> desktopLyricsSetPlaying({required bool playing})` | 否 | **已实现** |
 | `desktop_lyrics_set_font_size(size: i32)` | `Future<void> desktopLyricsSetFontSize({required int size})` | 否 | **已实现** |
 | `desktop_lyrics_font_size() -> i32` | `int desktopLyricsFontSize()` | 是 | **已实现** |
+| `desktop_lyrics_set_font_weight(weight: i32)` | `Future<void> desktopLyricsSetFontWeight({required int weight})` | 否 | **已实现**（v0.28） |
+| `desktop_lyrics_font_weight() -> i32` | `int desktopLyricsFontWeight()` | 是 | **已实现**（v0.28） |
 | `desktop_lyrics_set_font_family(family: String)` | `Future<void> desktopLyricsSetFontFamily({required String family})` | 否 | **已实现**（v0.22） |
 | `desktop_lyrics_font_family() -> String` | `String desktopLyricsFontFamily()` | 是 | **已实现**（v0.22） |
 | `desktop_lyrics_set_locked(locked: bool)` | `Future<void> desktopLyricsSetLocked({required bool locked})` | 否 | **已实现** |
@@ -677,11 +685,15 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   `GdipCreateFontFamilyFromName` 拿不到未安装字体）；② 随安装包分发的 MiSans
   （`MiSans`）。后者由私有字体集合提供，字体文件里的家族名就是 `MiSans`；早先
   随包发过四个字重时的旧别名（`MiSans Light` 等）也会归一成这个名字。GDI+ 这边
-  只有「常规 / 粗体」两档：随包 MiSans 用常规字形，系统字体用粗体字形。
+  只有「常规 / 粗体」两档：随包 MiSans 用常规字形，系统字体按 `<weight>` 取档。
   空串 = 内置默认链：`Microsoft YaHei UI` → `Segoe UI`；取不到时按同一链降级，
   不会出现空白窗口。
 - **换字号 / 换字体都要重排窗口**：折行数按当前字体测量，长句可能从两行变三行，
   窗口高度随之变化；因此这两个 setter 走 `request_apply()` 而不是单纯重绘。
+- **字重（v0.28）**范围 100–900，Rust 侧夹取并取整到「常规 / 粗体」两档：
+  **>= 600 按粗体建，其余按常规**，随包 MiSans 恒为常规（字体文件只有一个字重）。
+  字重会改字宽，长句折行跟着变，所以同样走 `request_apply()`；量行数的缓存键
+  也带上粗体标记，换字重后不会读到旧行数。默认 700，与加设置之前一致。
 - 位置是屏幕坐标、由 Rust 夹到当前显示器工作区内；Dart 只负责记到会话存档里，
   下次启动原样推回去。
 - **双行（v0.27）**：`two_lines` 为真时窗口在主行下方再排一行，字号是主行的

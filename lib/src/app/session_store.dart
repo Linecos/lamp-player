@@ -54,6 +54,10 @@ class SessionSnapshot {
     this.desktopLyrics = false,
     this.desktopLyricFontSize = PrefsSessionStore.desktopLyricFontSizeDefault,
     this.lyricFontFamily = '',
+    this.lyricFontSize = PrefsSessionStore.lyricFontSizeDefault,
+    this.lyricFontWeight = PrefsSessionStore.lyricFontWeightDefault,
+    this.desktopLyricFontWeight =
+        PrefsSessionStore.desktopLyricFontWeightDefault,
     this.desktopLyricLocked = false,
     this.desktopLyricX,
     this.desktopLyricY,
@@ -172,6 +176,17 @@ class SessionSnapshot {
   /// Rust 的 GDI+ 侧。只认系统已安装的字体，取不到时那边会自动降级。
   final String lyricFontFamily;
 
+  /// 主界面歌词字号（逻辑像素）；默认 22，与加这个设置之前一致
+  final int lyricFontSize;
+
+  /// 主界面歌词字重（100–900，与 `FontWeight` 数值一致）；默认为常规的 400
+  final int lyricFontWeight;
+
+  /// 桌面歌词字重（100–900）；默认 700，即加这个设置前的粗体观感
+  ///
+  /// GDI+ 只有常规 / 粗体两档：>= 600 按粗体建，其余按常规。
+  final int desktopLyricFontWeight;
+
   /// 桌面歌词是否锁定（锁定 = 鼠标穿透）
   final bool desktopLyricLocked;
 
@@ -274,6 +289,12 @@ class PrefsSessionStore implements SessionStore {
   static const String desktopLyricsKey = 'ui_desktop_lyrics';
   static const String desktopLyricFontSizeKey = 'ui_desktop_lyric_font';
   static const String lyricFontFamilyKey = 'ui_lyric_font';
+
+  /// 主界面歌词的字号与字重；桌面歌词字重共用同一套数值
+  static const String lyricFontSizeKey = 'ui_lyric_font_size';
+  static const String lyricFontWeightKey = 'ui_lyric_font_weight';
+  static const String desktopLyricFontWeightKey =
+      'ui_desktop_lyric_font_weight';
   static const String desktopLyricLockedKey = 'ui_desktop_lyric_locked';
   static const String desktopLyricXKey = 'ui_desktop_lyric_x';
   static const String desktopLyricYKey = 'ui_desktop_lyric_y';
@@ -296,6 +317,20 @@ class PrefsSessionStore implements SessionStore {
   static const int desktopLyricFontSizeMin = 16;
   static const int desktopLyricFontSizeMax = 56;
   static const int desktopLyricFontSizeStep = 3;
+
+  /// 主界面歌词字号的范围（当前行放大是「字号 + 6」，见 `lyrics_view.dart`）
+  static const int lyricFontSizeDefault = 22;
+  static const int lyricFontSizeMin = 18;
+  static const int lyricFontSizeMax = 34;
+
+  /// 字重范围：100（最细）–900（最粗），步进 100
+  static const int lyricFontWeightDefault = 400;
+  static const int lyricFontWeightMin = 100;
+  static const int lyricFontWeightMax = 900;
+  static const int lyricFontWeightStep = 100;
+
+  /// 桌面歌词字重默认 700：GDI+ 按粗体建，与加设置前一样
+  static const int desktopLyricFontWeightDefault = 700;
   static const String sortKey = 'ui_sort';
   static const String sortAscendingKey = 'ui_sort_ascending';
   static const String detailSortKey = 'ui_detail_sort';
@@ -377,6 +412,17 @@ class PrefsSessionStore implements SessionStore {
         lyricFontFamily: normalizeLyricFontFamily(
           prefs.getString(lyricFontFamilyKey) ?? '',
         ),
+        lyricFontSize: (prefs.getInt(lyricFontSizeKey) ?? lyricFontSizeDefault)
+            .clamp(lyricFontSizeMin, lyricFontSizeMax),
+        lyricFontWeight:
+            (prefs.getInt(lyricFontWeightKey) ?? lyricFontWeightDefault).clamp(
+              lyricFontWeightMin,
+              lyricFontWeightMax,
+            ),
+        desktopLyricFontWeight:
+            (prefs.getInt(desktopLyricFontWeightKey) ??
+                    desktopLyricFontWeightDefault)
+                .clamp(lyricFontWeightMin, lyricFontWeightMax),
         desktopLyricLocked: prefs.getBool(desktopLyricLockedKey) ?? false,
         desktopLyricX: prefs.getInt(desktopLyricXKey),
         desktopLyricY: prefs.getInt(desktopLyricYKey),
@@ -491,6 +537,21 @@ class PrefsSessionStore implements SessionStore {
         ),
       );
       await prefs.setString(lyricFontFamilyKey, snapshot.lyricFontFamily);
+      await prefs.setInt(
+        lyricFontSizeKey,
+        snapshot.lyricFontSize.clamp(lyricFontSizeMin, lyricFontSizeMax),
+      );
+      await prefs.setInt(
+        lyricFontWeightKey,
+        snapshot.lyricFontWeight.clamp(lyricFontWeightMin, lyricFontWeightMax),
+      );
+      await prefs.setInt(
+        desktopLyricFontWeightKey,
+        snapshot.desktopLyricFontWeight.clamp(
+          lyricFontWeightMin,
+          lyricFontWeightMax,
+        ),
+      );
       await prefs.setBool(desktopLyricLockedKey, snapshot.desktopLyricLocked);
       await prefs.setBool(
         desktopLyricTwoLinesKey,

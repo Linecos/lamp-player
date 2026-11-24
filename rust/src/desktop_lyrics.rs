@@ -54,6 +54,26 @@ pub const MAX_FONT_SIZE: i32 = 56;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub const FONT_STEP: i32 = 3;
 pub const DEFAULT_FONT_SIZE: i32 = 27;
+/// 字重范围（100–900，与 Flutter 的 `FontWeight` 数值一致）
+pub const MIN_FONT_WEIGHT: i32 = 100;
+pub const MAX_FONT_WEIGHT: i32 = 900;
+/// GDI+ 的字体对象只有「常规 / 粗体」两档，字重到这个值以上按粗体建
+pub const BOLD_WEIGHT_THRESHOLD: i32 = 600;
+/// 默认字重：系统字体照旧用粗体，与加字重设置之前一模一样
+pub const DEFAULT_FONT_WEIGHT: i32 = 700;
+
+/// 目标字重与当前值不同时返回目标（先夹到范围内），相同返回 `None`
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn font_weight_change(current: i32, target: i32) -> Option<i32> {
+    let target = target.clamp(MIN_FONT_WEIGHT, MAX_FONT_WEIGHT);
+    (target != current).then_some(target)
+}
+
+/// 数值字重落在哪一档字形：GDI+ 建不出中间字重，只能取最接近的常规或粗体
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn weight_is_bold(weight: i32) -> bool {
+    weight >= BOLD_WEIGHT_THRESHOLD
+}
 
 /// 目标字号与当前值不同时返回目标（先夹到范围内），相同返回 `None`。
 ///
@@ -74,6 +94,8 @@ struct LyricState {
     visible: bool,
     playing: bool,
     font_size: i32,
+    /// 字重（100–900）：GDI+ 只有常规 / 粗体，>= 600 按粗体建
+    font_weight: i32,
     /// 歌词字体族名（系统字体）；空串 = 用内置默认链（雅黑 UI → Segoe UI）
     font_family: String,
     /// 本行已经唱到的比例（0..=1）。
@@ -116,6 +138,7 @@ fn state() -> MutexGuard<'static, LyricState> {
                 visible: false,
                 playing: false,
                 font_size: DEFAULT_FONT_SIZE,
+                font_weight: DEFAULT_FONT_WEIGHT,
                 font_family: String::new(),
                 progress: 1.0,
                 locked: false,
@@ -335,6 +358,25 @@ pub fn set_font_size(size: i32) {
     if changed {
         request_apply();
     }
+}
+
+/// 设置字重（100–900）。只有「常规 / 粗体」两档字形，取最接近的一档。
+///
+/// 走 apply 而不是 repaint：字重会改字宽，长句的折行与窗口高度要重新量。
+pub fn set_font_weight(weight: i32) {
+    let Some(next) = font_weight_change(font_weight(), weight) else {
+        return;
+    };
+    {
+        let mut guard = state();
+        guard.font_weight = next;
+    }
+    request_apply();
+}
+
+/// 当前字重（100–900）
+pub fn font_weight() -> i32 {
+    state().font_weight
 }
 
 /// 随安装包分发的字体在运行时的位置（相对 exe）。
@@ -1482,22 +1524,28 @@ mod imp {
         }
     }
 
-    /// 当前设置的字重偏好（见 `super::prefers_regular_weight`）
-    fn prefer_regular() -> bool {
-        super::prefers_regular_weight(&super::font_family())
+    /// 当前该不该用粗体字形。
+    ///
+    /// 名字里带 light / regular / thin 的字体（含随包 MiSans）只有常规一款，
+    /// 直接按常规建；其余按用户设的字重取最接近的一档（见 `super::weight_is_bold`）。
+    fn bold_style() -> bool {
+        if super::prefers_regular_weight(&super::font_family()) {
+            return false;
+        }
+        super::weight_is_bold(super::font_weight())
     }
 
     /// 按字体族建一个字体对象。
     ///
-    /// 先按用户选的字重偏好转（见 `prefers_regular_weight`），取不到再退另一档：
-    /// 随包 MiSans 的 family 来自私有字体集合，文件里只有一个字重，GDI+ 未必按
-    /// 请求的样式建得出来——万一取不到想要的样式，原来那句 `GdipCreateFont` 失败
-    /// 就直接不画，整个窗口会变成空白。
-    fn create_font(family: *const GpFontFamily, size: f32, prefer_regular: bool) -> *mut GpFont {
-        let order = if prefer_regular {
-            [FontStyleRegular.0, FontStyleBold.0]
-        } else {
+    /// 先按 [`bold_style`] 的偏好试，取不到再退另一档：随包 MiSans 的 family
+    /// 来自私有字体集合，文件里只有一个字重，GDI+ 未必按请求的样式建得出来——
+    /// 万一取不到想要的样式，原来那句 `GdipCreateFont` 失败就直接不画，整个窗口
+    /// 会变成空白。
+    fn create_font(family: *const GpFontFamily, size: f32, bold: bool) -> *mut GpFont {
+        let order = if bold {
             [FontStyleBold.0, FontStyleRegular.0]
+        } else {
+            [FontStyleRegular.0, FontStyleBold.0]
         };
         for style in order {
             let mut font: *mut GpFont = null_mut();
@@ -1519,7 +1567,7 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) {
-        let font: *mut GpFont = create_font(family, size, prefer_regular());
+        let font: *mut GpFont = create_font(family, size, bold_style());
         if font.is_null() {
             return;
         }
@@ -1583,7 +1631,7 @@ mod imp {
         rect: &RectF,
         format: *const GpStringFormat,
     ) -> Option<RectF> {
-        let font: *mut GpFont = create_font(family, size, prefer_regular());
+        let font: *mut GpFont = create_font(family, size, bold_style());
         if font.is_null() {
             return None;
         }
@@ -1646,13 +1694,14 @@ mod imp {
     /// （`GdipMeasureString` 只用它的渲染设置，换行宽度由 rect 决定），用带折行的
     /// format 量一次，取 `lines` 输出。
     ///
-    /// 结果按 (文字, 宽度, 字号) 缓存一份：`paint` 每帧都会问「这一行几行高」，
-    /// 而同一行歌词要唱完才换，实际只有换行时才真的花时间量。
+    /// 结果按 (文字, 宽度, 字号, 粗体) 缓存一份：`paint` 每帧都会问「这一行几行
+    /// 高」，而同一行歌词要唱完才换，实际只有换行时才真的花时间量。粗体也算进
+    /// 缓存键：字重一变字宽就变，折行跟着变。
     fn line_count(text: &str, scale: f32, font_px: f32) -> i32 {
         use std::sync::Mutex;
 
-        /// 缓存项：(文字, 文字区宽度, 字号 ×100) → 行数
-        type Cache = Mutex<Option<((String, i32, i32), i32)>>;
+        /// 缓存项：(文字, 文字区宽度, 字号 ×100, 是否粗体) → 行数
+        type Cache = Mutex<Option<((String, i32, i32, bool), i32)>>;
         static CACHE: Cache = Mutex::new(None);
 
         if text.is_empty() {
@@ -1660,11 +1709,15 @@ mod imp {
         }
         let width = text_area_width(scale).round() as i32;
         let font_key = (font_px * 100.0).round() as i32;
+        let bold = bold_style();
         // 命中缓存时只比对借用值，不分配：paint 每帧都会问一次
         if let Ok(cache) = CACHE.lock() {
-            if let Some(((cached_text, cached_width, cached_font), lines)) = cache.as_ref() {
+            if let Some(((cached_text, cached_width, cached_font, cached_bold), lines)) =
+                cache.as_ref()
+            {
                 if *cached_width == width
                     && *cached_font == font_key
+                    && *cached_bold == bold
                     && cached_text.as_str() == text
                 {
                     return *lines;
@@ -1674,7 +1727,7 @@ mod imp {
 
         let measured = measure_line_count(text, width as f32, font_px).clamp(1, MAX_LINES);
         if let Ok(mut cache) = CACHE.lock() {
-            *cache = Some(((text.to_string(), width, font_key), measured));
+            *cache = Some(((text.to_string(), width, font_key, bold), measured));
         }
         measured
     }
@@ -1694,7 +1747,7 @@ mod imp {
                 && GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics).0 == 0
             {
                 if let Ok(format) = make_format(true, true) {
-                    let font: *mut GpFont = create_font(family, font_px, prefer_regular());
+                    let font: *mut GpFont = create_font(family, font_px, bold_style());
                     if !font.is_null() {
                         let rect = RectF {
                             X: 0.0,
@@ -2443,9 +2496,35 @@ mod imp {
 #[cfg(test)]
 mod font_tests {
     use super::{
-        font_candidates, font_size_change, prefers_regular_weight, DEFAULT_FONT_SIZE,
-        MAX_FONT_SIZE, MIN_FONT_SIZE,
+        font_candidates, font_size_change, font_weight_change, prefers_regular_weight,
+        weight_is_bold, DEFAULT_FONT_SIZE, DEFAULT_FONT_WEIGHT, MAX_FONT_SIZE, MAX_FONT_WEIGHT,
+        MIN_FONT_SIZE, MIN_FONT_WEIGHT,
     };
+
+    #[test]
+    fn weight_maps_to_the_two_available_styles() {
+        // GDI+ 只有常规 / 粗体：600 及以上算粗体，其余取常规
+        assert!(!weight_is_bold(100));
+        assert!(!weight_is_bold(400));
+        assert!(weight_is_bold(600));
+        assert!(weight_is_bold(900));
+        // 默认字重按粗体，与加这个设置之前一样
+        assert!(weight_is_bold(DEFAULT_FONT_WEIGHT));
+    }
+
+    #[test]
+    fn weight_change_clamps_and_skips_unchanged() {
+        assert_eq!(font_weight_change(400, 700), Some(700));
+        assert_eq!(font_weight_change(400, 400), None);
+        assert_eq!(
+            font_weight_change(400, MAX_FONT_WEIGHT + 200),
+            Some(MAX_FONT_WEIGHT)
+        );
+        assert_eq!(
+            font_weight_change(400, MIN_FONT_WEIGHT - 100),
+            Some(MIN_FONT_WEIGHT)
+        );
+    }
 
     #[test]
     fn bundled_font_lookup_tries_the_flutter_asset_layout() {
