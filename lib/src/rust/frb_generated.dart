@@ -148,6 +148,8 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiDesktopLyricsDesktopLyricsSetLine({
     required String line,
+    required String second,
+    required bool twoLines,
   });
 
   Future<void> crateApiDesktopLyricsDesktopLyricsSetLocked({
@@ -933,12 +935,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<void> crateApiDesktopLyricsDesktopLyricsSetLine({
     required String line,
+    required String second,
+    required bool twoLines,
   }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(line, serializer);
+          sse_encode_String(second, serializer);
+          sse_encode_bool(twoLines, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -951,7 +957,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiDesktopLyricsDesktopLyricsSetLineConstMeta,
-        argValues: [line],
+        argValues: [line, second, twoLines],
         apiImpl: this,
       ),
     );
@@ -960,7 +966,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDesktopLyricsDesktopLyricsSetLineConstMeta =>
       const TaskConstMeta(
         debugName: "desktop_lyrics_set_line",
-        argNames: ["line"],
+        argNames: ["line", "second", "twoLines"],
       );
 
   @override

@@ -19,6 +19,26 @@ TrackLyrics _lyrics(List<int> starts) {
   );
 }
 
+TrackLyrics _lyricsWithTranslations(
+  List<int> starts,
+  List<String> translations,
+) {
+  return TrackLyrics(
+    lines: <LyricLine>[
+      for (int i = 0; i < starts.length; i += 1)
+        LyricLine(
+          timeMs: starts[i],
+          endMs: starts[i] + 900,
+          text: 'line ${starts[i]}',
+          words: const <LyricWord>[],
+          translation: i < translations.length ? translations[i] : '',
+        ),
+    ],
+    plain: '',
+    source: 'sidecar',
+  );
+}
+
 void main() {
   test('当前行取最近一条已过的时间戳', () {
     final TrackLyrics lyrics = _lyrics(<int>[0, 1000, 2500]);
@@ -119,5 +139,77 @@ void main() {
     );
     expect(desktopLineAt(empty, 500), isNull);
     expect(nextDesktopLineStart(empty, 500), isNull);
+    expect(
+      desktopSecondLineAt(empty, 500, showTranslation: true),
+      '',
+      reason: '没有歌词时第二行就是空的，窗口那边不画',
+    );
+  });
+
+  group('双行第二行', () {
+    final TrackLyrics lyrics = _lyricsWithTranslations(
+      <int>[0, 1000, 2500],
+      <String>['第一句译文', '', '第三句译文\n罗马音'],
+    );
+
+    test('没开译文时第二行是下一句', () {
+      expect(
+        desktopSecondLineAt(lyrics, 0, showTranslation: false),
+        'line 1000',
+      );
+      expect(
+        desktopSecondLineAt(lyrics, 1200, showTranslation: false),
+        'line 2500',
+      );
+    });
+
+    test('开了译文且有译文时第二行是译文', () {
+      expect(desktopSecondLineAt(lyrics, 0, showTranslation: true), '第一句译文');
+      expect(desktopSecondLineAt(lyrics, 3600, showTranslation: true), '第三句译文');
+    });
+
+    test('本句没有译文时退回下一句', () {
+      expect(
+        desktopSecondLineAt(lyrics, 1200, showTranslation: true),
+        'line 2500',
+        reason: '这一句没有译文，第二行不能空着',
+      );
+    });
+
+    test('第一句之前第二行就是第一句', () {
+      final TrackLyrics later = _lyricsWithTranslations(
+        <int>[2000, 4000],
+        <String>['译文一', '译文二'],
+      );
+      expect(
+        desktopSecondLineAt(later, 0, showTranslation: false),
+        'line 2000',
+      );
+      expect(
+        desktopSecondLineAt(later, 0, showTranslation: true),
+        'line 2000',
+        reason: '还没到第一句，没有「本句译文」可显示',
+      );
+    });
+
+    test('最后一句之后没有下一句', () {
+      expect(desktopSecondLineAt(lyrics, 9000, showTranslation: false), '');
+      expect(
+        desktopSecondLineAt(lyrics, 9000, showTranslation: true),
+        '第三句译文',
+        reason: '人还停在最后一句上（歌词没掐点结束），译文照旧显示',
+      );
+    });
+
+    test('多段译文只取第一段非空的', () {
+      const LyricLine line = LyricLine(
+        timeMs: 0,
+        endMs: 1000,
+        text: 'text',
+        words: <LyricWord>[],
+        translation: '\n  罗马音  \n译文',
+      );
+      expect(desktopTranslationOf(line), '罗马音');
+    });
   });
 }

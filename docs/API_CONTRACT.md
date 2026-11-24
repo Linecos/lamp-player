@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.26（2026-11-24）**
+> **当前版本：v0.27（2026-11-24）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.27 变更（**破坏性，Dart 侧已同步**）：`desktop_lyrics_set_line` 由
+> `(line)` 改为 `(line, second, two_lines)`——桌面歌词要能分两行显示（第二行放下一句
+> 或译文）。三者一起下发是为了只排一次版，分两次调用窗口高度会闪一下，见 §15。
 >
 > v0.26 变更（**仅曲库结构**，接口签名不变）：曲库升到 **v12**，FTS 同步触发器
 > `tracks_au` 收窄为 `AFTER UPDATE OF title, artist, album`（批量隐藏 / 回写响度
@@ -649,7 +653,7 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
 | `desktop_lyrics_supported() -> bool` | `bool desktopLyricsSupported()` | 是 | **已实现** |
 | `desktop_lyrics_show() -> Result<()>` | `Future<void> desktopLyricsShow()` | 否 | **已实现** |
 | `desktop_lyrics_hide() -> Result<()>` | `Future<void> desktopLyricsHide()` | 否 | **已实现** |
-| `desktop_lyrics_set_line(line: String) -> Result<()>` | `Future<void> desktopLyricsSetLine({required String line})` | 否 | **已实现** |
+| `desktop_lyrics_set_line(line: String, second: String, two_lines: bool) -> Result<()>` | `Future<void> desktopLyricsSetLine({required String line, required String second, required bool twoLines})` | 否 | **已实现**（v0.27） |
 | `desktop_lyrics_set_progress(ratio: f32)` | `void desktopLyricsSetProgress({required double ratio})` | 是 | **已实现** |
 | `desktop_lyrics_set_playing(playing: bool)` | `Future<void> desktopLyricsSetPlaying({required bool playing})` | 否 | **已实现** |
 | `desktop_lyrics_set_font_size(size: i32)` | `Future<void> desktopLyricsSetFontSize({required int size})` | 否 | **已实现** |
@@ -680,6 +684,11 @@ Windows 系统媒体控制（SMTC）、全局媒体键（`RegisterHotKey`）与�
   窗口高度随之变化；因此这两个 setter 走 `request_apply()` 而不是单纯重绘。
 - 位置是屏幕坐标、由 Rust 夹到当前显示器工作区内；Dart 只负责记到会话存档里，
   下次启动原样推回去。
+- **双行（v0.27）**：`two_lines` 为真时窗口在主行下方再排一行，字号是主行的
+  `0.84`、颜色压暗，**单行不折、超出用省略号**；`second` 为空时那一行留白，窗口高度
+  不变（换行时不会上下跳）。`two_lines` 为假时 `second` 被忽略，窗口只剩主行，与
+  加这个能力之前完全一样。第二行不参与逐字裁切——它不是主行的一部分。
+  主行高度仍按实际折行数算（最多 3 行），所以开着双行时长句会让窗口更高。
 
 ## 16. 字体枚举 `api::fonts`
 

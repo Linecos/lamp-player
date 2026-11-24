@@ -268,6 +268,30 @@ void main() {
     expect((await store.load()).desktopLyricY, isNull);
   });
 
+  test('桌面歌词双行与译文开关可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    final SessionSnapshot fresh = await store.load();
+    expect(fresh.desktopLyricTwoLines, isFalse, reason: '默认一行，与加功能前一致');
+    expect(fresh.desktopLyricTranslation, isFalse, reason: '默认不显示译文');
+
+    await store.save(
+      const SessionSnapshot(
+        desktopLyricTwoLines: true,
+        desktopLyricTranslation: true,
+      ),
+    );
+    final SessionSnapshot loaded = await store.load();
+    expect(loaded.desktopLyricTwoLines, isTrue);
+    expect(loaded.desktopLyricTranslation, isTrue);
+
+    await store.save(const SessionSnapshot());
+    final SessionSnapshot cleared = await store.load();
+    expect(cleared.desktopLyricTwoLines, isFalse);
+    expect(cleared.desktopLyricTranslation, isFalse);
+  });
+
   test('译文显示开关可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();

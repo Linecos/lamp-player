@@ -191,7 +191,7 @@ extension _OutputSection on _LibraryPageState {
     }
     _lyricsPath = path;
     _lyrics = null;
-    _desktopLine = '';
+    _resetDesktopLine();
     try {
       final lyrics_api.TrackLyrics loaded = await lyrics_api.lyricsLoad(
         path: path,
@@ -297,29 +297,57 @@ extension _OutputSection on _LibraryPageState {
     });
   }
 
-  /// 把当前行推给桌面歌词窗口；窗口没开就什么都不做
+  /// 清掉「已推送」缓存：窗口刚显示 / 换曲时那边是空的，本地也得跟着清，
+  /// 否则下次推送会以为「还是这一行」而跳过
+  void _resetDesktopLine() {
+    _desktopLine = '';
+    _desktopSecond = '';
+    _desktopTwoLines = false;
+  }
+
+  /// 把当前行（双行模式下还有第二行）推给桌面歌词窗口；窗口没开就什么都不做
   void _pushDesktopLyric() {
     if (!_desktopLyrics) {
       return;
     }
     String line = _currentLyricLine();
+    String second = '';
+    final lyrics_api.TrackLyrics? lyrics = _lyrics;
     if (line.isEmpty) {
       // 没歌词（或还没读到）时别留一条空白黑框：显示曲名撑住信息
       final Track? track = _currentTrack;
       line = track == null ? '♪' : '♪ ${track.title}';
+    } else if (_desktopLyricTwoLines && lyrics != null) {
+      second = desktopSecondLineAt(
+        lyrics,
+        (_desktopLyricPosition() * 1000).round(),
+        showTranslation: _desktopLyricTranslation,
+      );
     }
-    if (line == _desktopLine) {
+    final bool lineChanged = line != _desktopLine;
+    if (!lineChanged &&
+        second == _desktopSecond &&
+        _desktopTwoLines == _desktopLyricTwoLines) {
       _syncDesktopKaraoke();
       return;
     }
     _desktopLine = line;
+    _desktopSecond = second;
+    _desktopTwoLines = _desktopLyricTwoLines;
     // 换行时窗口那边会把逐字进度归零，所以要等这次 set_line 落地之后再推进度：
-    // 否则新行会暗着一直到下一次轮询（没有逐字的行会暗整整 500ms）
-    _stopKaraoke();
+    // 否则新行会暗着一直到下一次轮询（没有逐字的行会暗整整 500ms）。
+    // 只改第二行（切双行 / 切译文）时主行没变，进度不该被打回去
+    if (lineChanged) {
+      _stopKaraoke();
+    }
     final String target = line;
     unawaited(
       desktop_lyrics
-          .desktopLyricsSetLine(line: target)
+          .desktopLyricsSetLine(
+            line: target,
+            second: second,
+            twoLines: _desktopLyricTwoLines,
+          )
           .then((_) {
             if (mounted && _desktopLine == target) {
               _syncDesktopKaraoke();
@@ -493,7 +521,7 @@ extension _OutputSection on _LibraryPageState {
         await _pushDesktopLyricSettings();
         _restoreDesktopLyricPosition();
         await desktop_lyrics.desktopLyricsShow();
-        _desktopLine = '';
+        _resetDesktopLine();
         _pushDesktopLyric();
         _scheduleDesktopLyricSwitch();
       } else {
@@ -529,6 +557,33 @@ extension _OutputSection on _LibraryPageState {
     if (locked && mounted) {
       _showMessage('桌面歌词已锁定：鼠标点击会穿透到下层窗口，解锁请在托盘菜单或正在播放页取消锁定');
     }
+  }
+
+  /// 切换桌面歌词是否分两行。
+  ///
+  /// 第二行由窗口那边排版（小一号、压暗、单行不折），窗口高度随之变高；
+  /// 关掉就退回一行，和加这个功能之前完全一样。
+  void _setDesktopLyricTwoLines(bool enabled) {
+    if (enabled == _desktopLyricTwoLines) {
+      return;
+    }
+    hangMark('桌面歌词双行：${enabled ? '开' : '关'}');
+    _update(() => _desktopLyricTwoLines = enabled);
+    _saveSessionNow();
+    _publishProgress();
+    _pushDesktopLyric();
+  }
+
+  /// 切换桌面歌词第二行放译文还是下一句；只在双行打开时有意义
+  void _setDesktopLyricTranslation(bool enabled) {
+    if (enabled == _desktopLyricTranslation) {
+      return;
+    }
+    hangMark('桌面歌词译文：${enabled ? '开' : '关'}');
+    _update(() => _desktopLyricTranslation = enabled);
+    _saveSessionNow();
+    _publishProgress();
+    _pushDesktopLyric();
   }
 
   /// 把字号、锁定、播放状态先推给窗口，再显示：否则首帧会按默认字号排版，
@@ -635,7 +690,7 @@ extension _OutputSection on _LibraryPageState {
       await _pushDesktopLyricSettings();
       _restoreDesktopLyricPosition();
       await desktop_lyrics.desktopLyricsShow();
-      _desktopLine = '';
+      _resetDesktopLine();
       _pushDesktopLyric();
       _scheduleDesktopLyricSwitch();
     } catch (error) {

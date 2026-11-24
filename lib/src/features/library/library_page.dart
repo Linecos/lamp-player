@@ -759,6 +759,12 @@ class _LibraryPageState extends State<LibraryPage>
   String _lyricFontFamily = '';
   bool _desktopLyricLocked = false;
 
+  /// 桌面歌词是否分两行（第二行 = 下一句 / 译文）
+  bool _desktopLyricTwoLines = false;
+
+  /// 桌面歌词第二行放译文而不是下一句；只在 [_desktopLyricTwoLines] 打开时生效
+  bool _desktopLyricTranslation = false;
+
   /// 桌面歌词窗口上次的位置（屏幕坐标）；从没显示过时是 null
   (int, int)? _desktopLyricWindow;
 
@@ -769,6 +775,10 @@ class _LibraryPageState extends State<LibraryPage>
   lyrics_api.TrackLyrics? _lyrics;
   String? _lyricsPath;
   String _desktopLine = '';
+
+  /// 已经推给窗口的第二行（以及当时的双行开关）：只要三者都没变就不必重发
+  String _desktopSecond = '';
+  bool _desktopTwoLines = false;
 
   /// 桌面歌词的换行调度。
   ///
@@ -1355,6 +1365,8 @@ class _LibraryPageState extends State<LibraryPage>
       _desktopLyricFontSize = snapshot.desktopLyricFontSize;
       _lyricFontFamily = snapshot.lyricFontFamily;
       _desktopLyricLocked = snapshot.desktopLyricLocked;
+      _desktopLyricTwoLines = snapshot.desktopLyricTwoLines;
+      _desktopLyricTranslation = snapshot.desktopLyricTranslation;
       if (snapshot.desktopLyricX != null && snapshot.desktopLyricY != null) {
         _desktopLyricWindow = (
           snapshot.desktopLyricX!,
@@ -1593,6 +1605,8 @@ class _LibraryPageState extends State<LibraryPage>
       desktopLyricLocked: _desktopLyricLocked,
       desktopLyricX: lyricPosition?.$1,
       desktopLyricY: lyricPosition?.$2,
+      desktopLyricTwoLines: _desktopLyricTwoLines,
+      desktopLyricTranslation: _desktopLyricTranslation,
       flowBackground: _flowBackground,
       circularCovers: _circularCovers,
       autoUpdateCheck: _autoUpdateCheck,
