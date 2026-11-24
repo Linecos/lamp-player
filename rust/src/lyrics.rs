@@ -208,8 +208,9 @@ pub fn parse(text: &str) -> Lyrics {
             continue;
         }
         for stamp in stamps {
-            let start = stamp + offset;
-            let (line_text, words) = split_words(rest, start);
+            // 与 `shift_timestamps` 对齐：offset 把时间推成负数时夹到 0
+            let start = (stamp + offset).max(0);
+            let (line_text, words) = split_words(rest, start, offset);
             raw_lines.push(RawLine {
                 time_ms: start,
                 text: line_text,
@@ -292,8 +293,10 @@ fn parse_offset(text: &str) -> i64 {
 /// 把行内时间标签拆成逐字片段。
 ///
 /// `content` 已经去掉了行首的行级时间戳；第一个片段沿用行起始时间。
+/// `line_start` 是**已经加过 `offset`** 的行首时间，而行内标签里的是文件里的
+/// 绝对时间，必须同样叠加 `offset` 才能和行首落在同一条时间轴上。
 /// 返回（去掉标签后的纯文本，逐字片段）。
-fn split_words(content: &str, line_start: i64) -> (String, Vec<LyricWord>) {
+fn split_words(content: &str, line_start: i64, offset: i64) -> (String, Vec<LyricWord>) {
     let mut text = String::new();
     let mut words: Vec<LyricWord> = Vec::new();
     let mut pending = line_start;
@@ -319,7 +322,9 @@ fn split_words(content: &str, line_start: i64) -> (String, Vec<LyricWord>) {
         let consumed = inner_start + end + close.len_utf8();
         match parse_timestamp(inner) {
             Some(ms) => {
-                pending = ms;
+                // 行内标签同样是文件里的绝对时间：和行首一样叠加 offset，
+                // 否则 `[offset:]` 只平移了行级轴，逐字高亮整体错位
+                pending = (ms + offset).max(0);
                 rest = &after[consumed..];
             }
             None => {
@@ -699,6 +704,40 @@ mod tests {
         let text = "[offset:-500]\n[00:02.00]第一行\n";
         let lyrics = parse(text);
         assert_eq!(lyrics.lines[0].time_ms, 1_500);
+    }
+
+    /// `[offset:]` 是「整体」平移：行内逐字标签也要跟着走，
+    /// 否则行首对上了、逐字高亮还慢半拍
+    #[test]
+    fn offset_also_shifts_inline_word_tags() {
+        let text = "[offset:-500]\n[00:02.00]<00:02.00>Hel<00:02.50>lo\n";
+        let lyrics = parse(text);
+        let line = &lyrics.lines[0];
+        assert_eq!(line.time_ms, 1_500);
+        assert_eq!(line.words.len(), 2);
+        assert_eq!(line.words[0].time_ms, 1_500, "首字应与行首对齐");
+        assert_eq!(line.words[1].time_ms, 2_000, "行内标签同样叠加 offset");
+    }
+
+    /// 一行多个行级时间戳（重复合唱句）：每个片段的逐字轴以**自己的**行首为基准
+    #[test]
+    fn offset_shifts_each_line_stamp_before_word_tags() {
+        let text = "[offset:-500]\n[00:05.00][00:09.00]<00:05.00>Hi<00:05.50>ya\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines.len(), 2);
+        assert_eq!(lyrics.lines[0].time_ms, 4_500);
+        assert_eq!(lyrics.lines[0].words[0].time_ms, 4_500);
+        assert_eq!(lyrics.lines[1].time_ms, 8_500);
+        assert_eq!(lyrics.lines[1].words[0].time_ms, 4_500);
+    }
+
+    /// offset 把时间推成负数时夹到 0，和 `shift_timestamps` 的 `max(0)` 一致
+    #[test]
+    fn offset_clamps_negative_timestamps() {
+        let text = "[offset:-9000]\n[00:02.00]<00:02.00>Hi<00:02.50>ya\n";
+        let lyrics = parse(text);
+        assert_eq!(lyrics.lines[0].time_ms, 0);
+        assert_eq!(lyrics.lines[0].words[0].time_ms, 0);
     }
 
     #[test]

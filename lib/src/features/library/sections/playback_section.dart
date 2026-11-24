@@ -6,6 +6,27 @@ part of '../library_page.dart';
 /// 读标签慢到这个程度才铺占位；快的时候直接进界面，免得闪一下
 const Duration _metadataLoadingDelay = Duration(milliseconds: 120);
 
+/// 两次枚举出来的输出设备列表是否等价。
+///
+/// 三个字段都要比：只比 `index` 的话，蓝牙耳机改名、系统里换默认设备之后
+/// 轮询判定「没变化」，设置页会一直显示旧名字 / 旧默认标记。
+bool samePlayerDevices(
+  List<rust.PlayerDevice> next,
+  List<rust.PlayerDevice> old,
+) {
+  if (next.length != old.length) {
+    return false;
+  }
+  for (int i = 0; i < next.length; i += 1) {
+    final rust.PlayerDevice a = next[i];
+    final rust.PlayerDevice b = old[i];
+    if (a.index != b.index || a.name != b.name || a.isDefault != b.isDefault) {
+      return false;
+    }
+  }
+  return true;
+}
+
 extension _PlaybackSection on _LibraryPageState {
   /* ---------------------------------------------------------------- 播放 */
 
@@ -1554,14 +1575,9 @@ extension _PlaybackSection on _LibraryPageState {
       if (!mounted) {
         return;
       }
-      // 列表没变就不 setState：轮询每 3 秒一次，白重建设置页没意义
-      final bool same =
-          devices.length == _devices.length &&
-          <int>[for (final rust.PlayerDevice device in devices) device.index]
-                  .join(',') ==
-              <int>[
-                for (final rust.PlayerDevice device in _devices) device.index,
-              ].join(',');
+      // 列表没变就不 setState：轮询每 3 秒一次，白重建设置页没意义。
+      // 三个字段都要比：只比 index 的话，蓝牙耳机改名、系统换默认设备都不会刷新
+      final bool same = samePlayerDevices(devices, _devices);
       if (same) {
         return;
       }

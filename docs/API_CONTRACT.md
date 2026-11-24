@@ -1,8 +1,12 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.25（2026-11-23）**
+> **当前版本：v0.26（2026-11-24）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.26 变更（**仅曲库结构**，接口签名不变）：曲库升到 **v12**，FTS 同步触发器
+> `tracks_au` 收窄为 `AFTER UPDATE OF title, artist, album`（批量隐藏 / 回写响度
+> 不再重写全文索引）。老库打开时自动迁移，查询结果与升级前一致，见 §4。
 >
 > v0.25 变更（**破坏性，Dart 侧已同步**）：`lyrics_load(path)` 加
 > `embedded_first: bool`——「歌词来源优先级」设置（默认旁载优先）要能反过来。
@@ -206,7 +210,9 @@
 - `init_db` 幂等：**同一路径**重复调用复用已有连接；换成别的路径会返回错误，
   必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
 - 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
-  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v11**：`tracks` 增加
+  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v12**：FTS 同步触发器
+  `tracks_au` 收窄为 `AFTER UPDATE OF title, artist, album`（改 `hidden` / 响度测量值 /
+  文件指纹不再重写全文索引，行为对查询结果无影响）；v11 增加的
   `loudness_lufs` / `sample_peak` / `true_peak`（ReplayGain 的测量值，0 = 未知），
   v10 增加的 `file_size` / `audio_bitrate` / `sample_rate` / `bit_depth` 也在其中
   （v10 升级时老行的 `file_mtime` / `file_size` 清零，下次扫描重新解析）。
