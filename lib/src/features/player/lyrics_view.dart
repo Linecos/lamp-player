@@ -32,6 +32,8 @@ class LyricsView extends StatefulWidget {
     this.blurEnabled = true,
     this.springScroll = true,
     this.fontFamily,
+    this.fontSize = _defaultLyricFontSize,
+    this.fontWeight = 400,
   });
 
   final List<lyrics_api.LyricLine> lines;
@@ -81,6 +83,12 @@ class LyricsView extends StatefulWidget {
   /// 只作用于歌词正文，不动界面其余部分——想换的往往就是「歌词难看」，
   /// 不是整个应用的字体。
   final String? fontFamily;
+
+  /// 歌词字号（逻辑像素，18–34）；当前行在此基础上放大 [_activeLyricSizeDelta]
+  final double fontSize;
+
+  /// 歌词字重（100–900）；当前行再加 [_activeWeightStep]，封顶 w900
+  final int fontWeight;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -227,19 +235,60 @@ const Tolerance _springTolerance = Tolerance(distance: 0.5, velocity: 0.1);
 double _springStiffness(double ratio) => 175 - 20 * ratio;
 double _springDamping(double ratio) => 0.86 - 0.08 * ratio;
 
-/// 歌词在**布局**里的字号：恒定，等于非当前行的字号。
+/// 歌词在**布局**里的字号默认值（设置里可改，18–34）。
 ///
 /// 换行时千万不能改字号——字号一变，长句的折行会跟着变（22px 一行装得下、
 /// 28px 要折成两行），整列的高度就重排了。而换行时每行的弹簧补偿只是一个
 /// **统一的位移**：重排带来的位移它补不掉，画面上就是「整列瞬间跳一下」
 /// （实测折行那句能把下面每行顶下去 41px）。
 ///
-/// 当前行的放大改走 [_activeLyricScale] 的 `Transform` 缩放：纯绘制变换，
-/// 布局一点不动，补偿才补得准。
-const double _lyricFontSize = 22;
+/// 当前行的放大改走 [_activeLyricSizeDelta] 换算出的 `Transform` 缩放：纯绘制
+/// 变换，布局一点不动，补偿才补得准。
+const double _defaultLyricFontSize = 22;
 
-/// 当前行的视觉放大倍数：22 → 28 的效果，由一个 `AnimatedScale` 渐变过去
-const double _activeLyricScale = 28 / _lyricFontSize;
+/// 当前行比正文大出多少像素（22 → 28 的效果），配一个 `AnimatedScale` 渐变
+const double _activeLyricSizeDelta = 6;
+
+/// 当前行比正文重多少（w400 → w600 的效果），封顶 w900
+const int _activeWeightStep = 200;
+
+/// 字号 + 字重：整列共用，从这里算出缩放倍数与间距补偿比例
+class _LyricType {
+  const _LyricType({required this.fontSize, required this.weight});
+
+  final double fontSize;
+
+  /// 100–900，与 `FontWeight` 的数值一致
+  final int weight;
+
+  /// 当前行的视觉放大倍数：字号大 6 px 对应的倍数
+  double get scale => (fontSize + _activeLyricSizeDelta) / fontSize;
+
+  /// 当前行放大后被吃掉的间距比例（见 [_emphasisGapRatioOf]）
+  double get emphasisGapRatio => _emphasisGapRatioOf(scale);
+
+  FontWeight get baseWeight => _fontWeightOf(weight);
+
+  FontWeight get activeWeight => _fontWeightOf(weight + _activeWeightStep);
+
+  /// 正文样式；译文按 0.82 / 0.77 倍字号另行给出
+  TextStyle styleOf(TextTheme theme, {required bool active}) =>
+      (theme.bodyLarge ?? const TextStyle()).copyWith(
+        fontSize: fontSize,
+        height: 1.45,
+        fontWeight: active ? activeWeight : baseWeight,
+        letterSpacing: 0.2,
+      );
+}
+
+/// 数值字重 → `FontWeight`（100–900 落在 w100–w900 九档上，越界夹回）
+FontWeight _fontWeightOf(int weight) {
+  final int index = ((weight - 100) / 100).round().clamp(0, 8);
+  return FontWeight.values[index];
+}
+
+/// 当前行放大 `scale` 倍后被「吃掉的」正文与译文间距比例
+double _emphasisGapRatioOf(double scale) => (scale - 1) / (scale + 1);
 
 /// 当前行放大的过渡：600ms 缓出。再快就还是「啪」地变大，再慢会拖到下一句都开唱了
 const Duration _activeScaleDuration = Duration(milliseconds: 600);
@@ -255,8 +304,8 @@ const double _translationInset = 4;
 /// （块长高、中心又下移了一半），所以
 /// `a = (s-1)/(s+1) × (正文高 + 译文高 − 2 × 内缩)`。行数越多、放大越明显，
 /// 吃掉的越多：折成两行的正文加上一行译文，原来的 4px 间距只剩 2px。
-const double _emphasisGapRatio =
-    (_activeLyricScale - 1) / (_activeLyricScale + 1);
+///
+/// 具体倍数由字号决定（见 [_LyricType.emphasisGapRatio]）。
 
 /// 一次性大跳（点歌词跳转、切歌定位）用的时长与曲线。
 ///
@@ -285,7 +334,7 @@ const double _linePaddingX = 12;
 /// 放大留余量，否则文字按块宽折好、再放大 1.27 倍就超出歌词视口，两头被裁掉。
 const double _lyricBlockWidth = 640;
 
-/// 当前行放大 [_activeLyricScale] 倍之后，一行文字最多能折多宽。
+/// 当前行放大 `scale` 倍之后，一行文字最多能折多宽。
 ///
 /// 放大是绘制变换（`AnimatedScale`），不参与布局：文字按 [band] 折好行，放大后
 /// 左右各多出一截，块贴着视口边缘时就被裁掉（窗口越小裁得越多，截图上就是长句
@@ -303,12 +352,12 @@ double _emphasisSafeTextWidth({
   required double band,
   required double available,
   required LyricAlignment alignment,
+  required double scale,
 }) {
   final double inner = math.max(0, band - _linePaddingX * 2);
   if (available <= 0 || inner <= 0) {
     return 0;
   }
-  const double scale = _activeLyricScale;
   final double safe = alignment == LyricAlignment.center
       ? available / scale
       : (available / 2 + band / 2 - _linePaddingX) / scale;
@@ -324,6 +373,10 @@ double _renderHeight(GlobalKey key) {
 
 class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   final SmoothScrollController _scroll = SmoothScrollController();
+
+  /// 当前的字号 / 字重（设置里可改）：缩放倍数、间距补偿都从它算
+  _LyricType get _type =>
+      _LyricType(fontSize: widget.fontSize, weight: widget.fontWeight);
 
   /// 译文的展开进度：1 = 展开、0 = 收起。
   ///
@@ -879,7 +932,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       return 0;
     }
     // block 里已经含着补偿量 a：a = ratio × (main + block − a − 2 × 内缩)
-    final double ratio = _emphasisGapRatio;
+    final double ratio = _type.emphasisGapRatio;
     return ratio * (main + block - 2 * _translationInset) / (1 + ratio);
   }
 
@@ -1240,6 +1293,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
               band: band,
               available: available,
               alignment: widget.alignment,
+              scale: _type.scale,
             );
             // 上下边界改成「按行给 alpha」（见 [_refreshRowOpacity]）：以前这里是
             // 整片歌词套一张 `ShaderMask`，那层是全宽的离屏图层，Impeller 每帧
@@ -1297,6 +1351,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                             textTheme: _lyricTheme(theme.textTheme),
                             alignment: widget.alignment,
                             textWidth: textWidth,
+                            type: _type,
                             translation: _translation,
                             userScrolling: _userScrolling,
                             blurEnabled: widget.blurEnabled,
@@ -1550,6 +1605,7 @@ class _LyricLineWrapper extends StatelessWidget {
     required this.textTheme,
     required this.alignment,
     required this.textWidth,
+    required this.type,
     required this.translation,
     required this.userScrolling,
     required this.blurEnabled,
@@ -1567,6 +1623,7 @@ class _LyricLineWrapper extends StatelessWidget {
   final ValueNotifier<double> position;
   final TextTheme textTheme;
   final LyricAlignment alignment;
+  final _LyricType type;
 
   /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
   final double textWidth;
@@ -1600,6 +1657,7 @@ class _LyricLineWrapper extends StatelessWidget {
           textTheme: textTheme,
           alignment: alignment,
           textWidth: textWidth,
+          type: type,
           translation: translation,
           blur: blurEnabled && !userScrolling,
           edgeOpacity: edgeOpacity,
@@ -1629,6 +1687,7 @@ class _SpringLyricLine extends StatefulWidget {
     required this.textTheme,
     required this.alignment,
     required this.textWidth,
+    required this.type,
     required this.translation,
     required this.blur,
     required this.edgeOpacity,
@@ -1656,6 +1715,9 @@ class _SpringLyricLine extends StatefulWidget {
 
   /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
   final double textWidth;
+
+  /// 字号 / 字重（整列共用）
+  final _LyricType type;
 
   /// 译文的展开进度（1 = 展开，0 = 收起）
   final ValueListenable<double> translation;
@@ -1686,8 +1748,8 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
   /// 当前行放大后被「吃掉的」正文与译文之间的间距，补在两者中间。
   ///
   /// 正文块与译文块各缩各的（见 [_LyricLineView.emphasise]），都以自身中心为锚点
-  /// 放大 [_activeLyricScale] 倍：正文往下长出 `(scale-1)/2 × 正文高`，译文往上
-  /// 长出 `(scale-1)/2 × 译文高`，两块之间那 4px 间距根本不够吃——一行正文时还
+  /// 放大 `scale` 倍（见 [_LyricType.scale]）：正文往下长出 `(scale-1)/2 × 正文高`，
+  /// 译文往上长出 `(scale-1)/2 × 译文高`，两块之间那 4px 间距根本不够吃——一行正文时还
   /// 剩一点，折成两行就直接贴上（实测墨迹只剩 2px）。这里把两块自然高度量出来，
   /// 把被吃掉的量补回去，当前行的译文间距就与不放大时一致。
   ///
@@ -1726,7 +1788,8 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
     // 块顶到第一行文字那点内缩放大后也会多出一截（`s × 内缩`），把侵蚀抵掉
     // 一点，所以是「正文 + 译文 − 2 倍内缩」而不是两者之和。
     final double gap =
-        _emphasisGapRatio * (main + translation - 2 * _translationInset);
+        widget.type.emphasisGapRatio *
+        (main + translation - 2 * _translationInset);
     if ((gap - _emphasisGap).abs() < 0.5) {
       return;
     }
@@ -1837,6 +1900,7 @@ class _SpringLyricLineState extends State<_SpringLyricLine>
             textTheme: widget.textTheme,
             alignment: widget.alignment,
             textWidth: widget.textWidth,
+            type: widget.type,
             emphasisGap: _appliedGap,
             translation: widget.translation,
             blur: widget.blur,
@@ -1876,6 +1940,7 @@ class _LyricLineView extends StatelessWidget {
     required this.textTheme,
     required this.alignment,
     required this.textWidth,
+    required this.type,
     required this.emphasisGap,
     required this.translation,
     required this.blur,
@@ -1902,6 +1967,9 @@ class _LyricLineView extends StatelessWidget {
   /// 一行文字最多折多宽（含当前行放大的余量，见 [_emphasisSafeTextWidth]）
   final double textWidth;
 
+  /// 字号 / 字重（整列共用）
+  final _LyricType type;
+
   /// 当前行放大后要补回的正文 / 译文间距（见 [_SpringLyricLineState._emphasisGap]）
   final double emphasisGap;
 
@@ -1919,16 +1987,10 @@ class _LyricLineView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool interlude = line.text.trim().isEmpty;
-    // 字号恒定（见 [_lyricFontSize]）：当前行的放大是外层 `AnimatedScale` 干的，
-    // 这里只能改颜色 / 字重这类「怎么画」而不管「占多大地方」的属性
-    final TextStyle style = (textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      fontSize: _lyricFontSize,
-      height: 1.45,
-      // 字重会改字宽，长句理论上还是可能重新折行；中文假名的字宽是等宽的
-      // （em 宽），实际不受影响，所以这一档强调保留
-      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-      letterSpacing: 0.2,
-    );
+    // 字号由设置给定、整列恒定：当前行的放大是外层 `AnimatedScale` 干的，这里
+    // 只能改颜色 / 字重这类「怎么画」而不管「占多大地方」的属性。当前行再加一档
+    // 字重（见 [_LyricType.activeWeight]），默认就是原来的 w400 / w600
+    final TextStyle style = type.styleOf(textTheme, active: active);
 
     // 歌词固定使用白色系，不跟随主题色；当前行最实，上下按距离淡出。
     // 有了模糊之后不再一味压低透明度：远处那几行靠「糊」退出焦点，
@@ -1960,7 +2022,7 @@ class _LyricLineView extends StatelessWidget {
         textAlign: alignment.textAlign,
         style: style.copyWith(
           color: active ? activeColor : dim,
-          fontSize: _lyricFontSize * 0.82,
+          fontSize: type.fontSize * 0.82,
         ),
       );
     } else if (karaokeEnabled && active && line.words.length >= 2) {
@@ -2036,15 +2098,15 @@ class _LyricLineView extends StatelessWidget {
       ),
     );
 
-    // 当前行的「放大」：缩放整行文字，不是改字号（见 [_lyricFontSize]）。
+    // 当前行的「放大」：缩放整行文字，不是改字号（见 [_LyricType.scale]）。
     //
     // 锚点用 [LyricAlignment.blockAlignment]：横向跟着对齐方式（左对齐时左缘不动），
-    // **竖直取中点**——放大出来的 8.7px 上下各溢出一半，刚好被上下那 9px 内边距
-    // 吃掉，当前行与上下两行的间距才会一样。贴顶的话上面多 8.7、下面少 8.7。
+    // **竖直取中点**——放大出来的那点高度上下各溢出一半，刚好被上下那 9px 内边距
+    // 吃掉，当前行与上下两行的间距才会一样。贴顶的话上面多一截、下面少一截。
     Widget emphasise(Widget child) => !active
         ? child
         : AnimatedScale(
-            scale: _activeLyricScale,
+            scale: type.scale,
             duration: _activeScaleDuration,
             curve: Curves.easeOutCubic,
             alignment: alignment.blockAlignment,
@@ -2075,7 +2137,7 @@ class _LyricLineView extends StatelessWidget {
                     key: translationKey,
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      // 间距跟着译文一起收起，也一起被放大（见 [_emphasisGapRatio]）。
+                      // 间距跟着译文一起收起，也一起被放大（见 [_LyricType.emphasisGapRatio]）。
                       // 这里的 3 + 下面那 1px 内边距之和 = [_translationInset]，
                       // 改这两个数要顺手改那个常量。
                       SizedBox(height: 3 + emphasisGap),
@@ -2090,8 +2152,11 @@ class _LyricLineView extends StatelessWidget {
                                 style: TextStyle(
                                   // 译文只比正文略小，避免层级断层；字号同样恒定，
                                   // 当前行靠外层那个缩放大一档
-                                  fontSize: _hasCjk(extra) ? 18 : 17,
+                                  fontSize:
+                                      type.fontSize *
+                                      (_hasCjk(extra) ? 0.82 : 0.77),
                                   height: 1.4,
+                                  fontWeight: type.baseWeight,
                                   color: fade(
                                     Colors.white.withValues(
                                       alpha: active

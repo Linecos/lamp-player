@@ -292,6 +292,36 @@ void main() {
     expect(cleared.desktopLyricTranslation, isFalse);
   });
 
+  test('歌词字号与字重可以存取', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    const PrefsSessionStore store = PrefsSessionStore();
+
+    final SessionSnapshot fresh = await store.load();
+    expect(fresh.lyricFontSize, 22, reason: '默认字号与加设置前一致');
+    expect(fresh.lyricFontWeight, 400, reason: '默认字重是常规');
+    expect(fresh.desktopLyricFontWeight, 700, reason: '桌面歌词默认粗体');
+
+    await store.save(
+      const SessionSnapshot(
+        lyricFontSize: 30,
+        lyricFontWeight: 700,
+        desktopLyricFontWeight: 400,
+      ),
+    );
+    final SessionSnapshot loaded = await store.load();
+    expect(loaded.lyricFontSize, 30);
+    expect(loaded.lyricFontWeight, 700);
+    expect(loaded.desktopLyricFontWeight, 400);
+
+    // 越界的存档读回来要夹进范围
+    await store.save(
+      const SessionSnapshot(lyricFontSize: 99, lyricFontWeight: 1200),
+    );
+    final SessionSnapshot clamped = await store.load();
+    expect(clamped.lyricFontSize, PrefsSessionStore.lyricFontSizeMax);
+    expect(clamped.lyricFontWeight, PrefsSessionStore.lyricFontWeightMax);
+  });
+
   test('译文显示开关可以存取', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     const PrefsSessionStore store = PrefsSessionStore();

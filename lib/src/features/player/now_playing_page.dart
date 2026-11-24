@@ -114,6 +114,8 @@ class NowPlayingPage extends StatefulWidget {
     this.immersive = false,
     this.onImmersiveChanged,
     this.lyricFontFamily,
+    this.lyricFontSize = 22,
+    this.lyricFontWeight = 400,
     this.lyricBlur = true,
     this.lyricSpring = true,
     this.lyricEmbeddedFirst = false,
@@ -175,6 +177,10 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 歌词字体族（系统字体名）；null / 空串 = 跟随主题字体
   final String? lyricFontFamily;
+
+  /// 歌词字号（18–34）与字重（100–900）；当前行在字号上再加 6px、字重再加一档
+  final double lyricFontSize;
+  final int lyricFontWeight;
 
   /// 背景流光开关；默认关闭，生产入口显式开启，测试 / golden 保持静态。
   final bool animateBackground;
@@ -1449,6 +1455,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       alignment: alignment,
       showTranslation: showTranslation,
       fontFamily: widget.lyricFontFamily,
+      fontSize: widget.lyricFontSize,
+      fontWeight: widget.lyricFontWeight,
       blurEnabled: widget.lyricBlur,
       springScroll: widget.lyricSpring,
     );

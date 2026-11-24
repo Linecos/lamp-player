@@ -490,6 +490,8 @@ extension _PlaybackSection on _LibraryPageState {
               immersive: _immersive,
               onImmersiveChanged: _setImmersive,
               lyricFontFamily: _lyricFontFamily,
+              lyricFontSize: _lyricFontSize.toDouble(),
+              lyricFontWeight: _lyricFontWeight,
               lyricBlur: _lyricBlur,
               lyricSpring: _lyricSpring,
               lyricEmbeddedFirst: embeddedFirstIn(_lyricSourceOrder),
