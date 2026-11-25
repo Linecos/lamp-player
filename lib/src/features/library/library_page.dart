@@ -516,11 +516,17 @@ class _LibraryPageState extends State<LibraryPage>
   /// 命中数超过单次上限（500）时为 true，避免把「只显示前 500 首」说成正好 500 首
   bool _searchTruncated = false;
   bool _scanning = false;
+
+  /// 扫描超过一小段时间才把「正在扫描」画出来。
+  ///
+  /// 增量扫描常常几十毫秒就结束，副标题「125 首 → 正在扫描… → 125 首」
+  /// 一闪而过，看着像页面在抖。短扫描干脆什么都不显示。
+  bool _scanSlow = false;
+  Timer? _scanSlowTimer;
   bool _backfillingCovers = false;
   bool _coverBackfillAttempted = false;
   String? _lastScanFolder;
   List<String> _folders = const <String>[];
-  scan.ScanReport? _scanReport;
   Object? _scanError;
   Object? _error;
   Object? _searchError;
@@ -1213,6 +1219,7 @@ class _LibraryPageState extends State<LibraryPage>
     _nowPlayingDeviceTimer?.cancel();
     _coverSeedTimer?.cancel();
     _metadataOpenTimer?.cancel();
+    _scanSlowTimer?.cancel();
     _metadataFade.dispose();
     libraryRevision.removeListener(_onLibraryChanged);
     _theme?.removeListener(_onThemeChanged);

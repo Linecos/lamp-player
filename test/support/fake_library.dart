@@ -107,9 +107,15 @@ class FakeLibraryRepository implements LibraryRepository {
         .toList();
   }
 
+  /// 让扫描「慢」一点，用于验证「正在扫描」只在长扫描时出现
+  Duration scanDelay = Duration.zero;
+
   @override
   Future<ScanReport> scanFolder(String folder) async {
     scannedFolders.add(folder);
+    if (scanDelay > Duration.zero) {
+      await Future<void>.delayed(scanDelay);
+    }
     return const ScanReport(
       scanned: 0,
       unchanged: 0,
@@ -476,6 +482,7 @@ class FakeLibraryRepository implements LibraryRepository {
   Future<List<Track>> loadRecentTracks({int limit = 100}) async =>
       _tracksByPaths(_history.take(limit.clamp(1, 500)));
 
+  /// 与后端一致：清时间线（`_history`），但 `playCounts` 保留给排行
   @override
   Future<void> clearHistory() async => _history.clear();
 

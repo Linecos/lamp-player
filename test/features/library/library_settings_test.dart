@@ -250,6 +250,79 @@ void main() {
     expect(find.text('还没有音乐目录'), findsOneWidget);
   });
 
+  testWidgets('顶部指标卡点一下跳到对应分区', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(title: '夜航', album: '第一张', artist: '林间电台'),
+        sampleTrack(title: '灯下', album: '第二张', artist: '海岸线'),
+      ],
+    );
+    await openLibrarySettings(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-count-albums')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('albums-list')),
+      findsOneWidget,
+      reason: '点「专辑」进专辑分区',
+    );
+
+    // 回音乐库再点下一张
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐库')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-count-artists')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const PageStorageKey<String>('grid:artists')),
+      findsOneWidget,
+      reason: '点「艺术家」进艺术家分区',
+    );
+
+    await tester.tap(
+      find.descendant(of: find.byType(LibraryRail), matching: find.text('音乐库')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-count-tracks')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('播放全部'), findsOneWidget, reason: '点「曲目」进音乐分区');
+  });
+
+  testWidgets('短扫描不闪「正在扫描」，超过 400ms 才出现', (WidgetTester tester) async {
+    final FakeLibraryRepository repo = await pumpLibrary(
+      tester,
+      tracks: twoTracks(),
+      folderStore: FakeMusicFolderStore(folders: <String>[r'D://Music']),
+    );
+    repo.scanDelay = const Duration(milliseconds: 700);
+    await openLibrarySettings(tester);
+
+    await tester.tap(find.byTooltip('更多操作').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重新扫描'));
+    await tester.pump();
+
+    // 前 400ms 什么都不显示：短扫描就是靠这一点避免副标题闪一下
+    expect(find.textContaining('正在扫描…'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('正在扫描…'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('正在扫描…'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正在扫描…'), findsNothing);
+  });
+
   testWidgets('添加目录的入口在「音乐目录」块右上角的加号', (WidgetTester tester) async {
     int picks = 0;
     await pumpLibrary(

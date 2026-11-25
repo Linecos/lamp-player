@@ -560,6 +560,11 @@ void main() {
     expect(repository.scannedFolders, <String>['/music']);
     expect(repository.loadCalls, 2, reason: '扫描后应重新读取曲库');
     expect(find.textContaining('扫描完成'), findsOneWidget);
+
+    // 一次性反馈：停留一会儿就自己消失，不再像以前那样占着一条常驻 banner
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('扫描完成'), findsNothing);
   });
 
   testWidgets('读取失败展示错误态，重试后恢复', (WidgetTester tester) async {

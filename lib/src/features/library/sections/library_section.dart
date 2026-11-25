@@ -58,16 +58,20 @@ extension _LibrarySection on _LibraryPageState {
           child: LibraryManageView(
             tracks: _tracks,
             onOpenStats: () => _update(() => _libraryStatsOpen = true),
-            scanning: _scanning,
+            // 只有慢扫描才画「正在扫描」：短扫描的那一帧副标题会闪
+            scanning: _scanSlow,
             folders: _folders,
             onAddFolder: _scanning ? null : () => unawaited(_addMusicFolder()),
             onOpenFolder: (String folder) => _openFolderDetail(folder),
+            // 指标卡当入口用：点「曲目 / 专辑 / 艺术家」直接切分区
+            onOpenTracks: () => _selectSection(LibrarySection.music),
+            onOpenAlbums: () => _selectSection(LibrarySection.albums),
+            onOpenArtists: () => _selectSection(LibrarySection.artists),
             onRescanFolder: _scanning
                 ? null
                 : (String folder) => unawaited(_rescanFolder(folder)),
             onRemoveFolder: _scanning ? null : _removeFolder,
             scanFolder: _lastScanFolder,
-            scanReport: _scanReport,
             scanError: _scanError,
             onRetry: _scanning || _lastScanFolder == null
                 ? null
