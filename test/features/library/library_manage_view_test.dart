@@ -4,20 +4,9 @@ import 'package:lamp_player/src/features/library/library_revision.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/library/views/library_manage_view.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
-import 'package:lamp_player/src/rust/api/scan.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
 import '../../support/fake_library.dart';
-
-const ScanReport _sampleReport = ScanReport(
-  scanned: 5,
-  unchanged: 2,
-  upserted: 3,
-  failed: 1,
-  walkErrors: 0,
-  pruned: 1,
-  elapsedMs: 1500,
-);
 
 List<Track> _tracksInFolder() {
   return <Track>[
@@ -32,7 +21,6 @@ Future<void> _pumpManage(
   List<String> folders = const <String>[r'D:\Music'],
   bool scanning = false,
   String? folder,
-  ScanReport? report,
   Object? error,
   bool pruningMissing = false,
   int? prunedCount,
@@ -60,7 +48,6 @@ Future<void> _pumpManage(
           folders: folders,
           scanning: scanning,
           scanFolder: folder,
-          scanReport: report,
           scanError: error,
           pruningMissing: pruningMissing,
           prunedMissingCount: prunedCount,
@@ -334,18 +321,16 @@ void main() {
       onRescanFolder: (String _) {},
     );
 
+    // 扫描中只改文字、不换控件：行高不变，目录块里就不会跳
     expect(find.textContaining('正在扫描…'), findsOneWidget);
-    expect(find.text(r'正在扫描 D:\Music'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
-  });
-
-  testWidgets('扫描完成展示统计', (WidgetTester tester) async {
-    await _pumpManage(tester, folder: r'D:\Music', report: _sampleReport);
-
-    expect(find.text('扫描完成'), findsOneWidget);
-    expect(find.textContaining('入库 3 首'), findsOneWidget);
-    expect(find.textContaining('失败 1 个'), findsOneWidget);
-    expect(find.textContaining('耗时 1.5 秒'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      tester
+          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
+          .enabled,
+      isFalse,
+      reason: '扫描中「更多」菜单要禁用，避免并发的第二次扫描',
+    );
   });
 
   testWidgets('扫描失败展示重试', (WidgetTester tester) async {

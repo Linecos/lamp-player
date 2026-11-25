@@ -4,9 +4,9 @@ part of '../library_page.dart';
 ///
 /// 从 `_LibraryPageState` 拆出，仍直接读写页面状态：这一轮只做文件切分。
 extension _DirectorySection on _LibraryPageState {
-  /// 当前分区自带扫描进度 / 结果面板：这两处不必再弹 toast，拖放导入
-  /// 也要先把用户带回有曲目列表的分区。
-  bool get _showsScanReport =>
+  /// 当前分区自带扫描进度与失败重试面板：这类情况下失败提示不必再弹一遍，
+  /// 拖放导入也要先把用户带回有曲目列表的分区。
+  bool get _showsScanFeedback =>
       _section == LibrarySection.settings || _section == LibrarySection.library;
 
   /* ------------------------------------------------------------ 音乐目录 */
@@ -110,7 +110,6 @@ extension _DirectorySection on _LibraryPageState {
       _folders = next;
       if (_lastScanFolder?.toLowerCase() == key) {
         _lastScanFolder = null;
-        _scanReport = null;
         _scanError = null;
       }
     });
@@ -174,14 +173,23 @@ extension _DirectorySection on _LibraryPageState {
       _showMessage('没有可导入的音频文件或文件夹');
       return;
     }
-    if (_showsScanReport) {
+    if (_showsScanFeedback) {
       _selectSection(LibrarySection.music);
     }
 
     int imported = 0;
+    int upserted = 0;
+    int failed = 0;
     for (final String folder in folders) {
       _rememberFolder(folder);
-      final bool ok = await _scanDirectory(folder, notify: false);
+      final bool ok = await _scanDirectory(
+        folder,
+        notify: false,
+        onScanned: (scan.ScanReport report) {
+          upserted += report.upserted;
+          failed += report.failed;
+        },
+      );
       if (!mounted) {
         return;
       }
@@ -197,16 +205,37 @@ extension _DirectorySection on _LibraryPageState {
     if (!mounted) {
       return;
     }
-    final scan.ScanReport? report = _scanReport;
     _showMessage(
-      report == null
-          ? '已导入 $imported 个目录'
-          : '导入完成：$imported 个目录，更新 ${report.upserted} 首，'
-                '失败 ${report.failed} 首',
+      '导入完成：$imported 个目录 · 入库 $upserted 首'
+      '${failed > 0 ? ' · 失败 $failed 个' : ''}',
     );
   }
 
-  /// 扫描指定目录；设置页展示结果，空曲库时用 SnackBar 提示。
+  /// 扫描结束：清掉「慢扫描」标志，延迟计时器一并取消
+  void _endScan() {
+    _scanSlowTimer?.cancel();
+    _scanSlowTimer = null;
+    _update(() {
+      _scanning = false;
+      _scanSlow = false;
+    });
+  }
+
+  /// 扫描结果的单行摘要：提示条就这么长，只留用户关心的四类数字
+  String _scanSummary(scan.ScanReport report) {
+    final List<String> parts = <String>[
+      // upserted 是「入库或更新」的条数，不是纯新增
+      '入库 ${report.upserted} 首',
+      if (report.unchanged > 0) '跳过 ${report.unchanged} 首',
+      if (report.pruned > 0) '清理 ${report.pruned} 条',
+      if (report.failed > 0) '失败 ${report.failed} 个',
+      if (report.walkErrors > 0) '无法读取 ${report.walkErrors} 个',
+    ];
+    return '扫描完成 · ${parts.join(' · ')} · '
+        '耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒';
+  }
+
+  /// 扫描指定目录；结果用提示条给一次性反馈，失败才留重试入口。
   ///
   /// 自动补扫时传 `notify: false`，避免多个目录各弹一次提示。
   ///
@@ -217,6 +246,7 @@ extension _DirectorySection on _LibraryPageState {
     String folder, {
     bool notify = true,
     bool reload = true,
+    void Function(scan.ScanReport report)? onScanned,
   }) async {
     if (_scanning) {
       return false;
@@ -225,8 +255,14 @@ extension _DirectorySection on _LibraryPageState {
     _update(() {
       _scanning = true;
       _lastScanFolder = folder;
-      _scanReport = null;
       _scanError = null;
+    });
+    // 增量扫描常在几十毫秒内结束：先不显示「正在扫描」，免得副标题闪一下
+    _scanSlowTimer?.cancel();
+    _scanSlowTimer = Timer(const Duration(milliseconds: 400), () {
+      if (mounted && _scanning) {
+        _update(() => _scanSlow = true);
+      }
     });
     try {
       final scan.ScanReport report = await _repository.scanFolder(folder);
@@ -236,19 +272,14 @@ extension _DirectorySection on _LibraryPageState {
       if (!mounted) {
         return false;
       }
-      _update(() {
-        _scanning = false;
-        _scanReport = report;
-      });
+      _endScan();
+      onScanned?.call(report);
       if (!_backfillingCovers) {
         _coverBackfillAttempted = true;
         unawaited(_saveSession());
       }
-      if (notify && !_showsScanReport) {
-        _showMessage(
-          '扫描完成：更新 ${report.upserted} 首，失败 ${report.failed} 首，'
-          '清理 ${report.pruned} 首',
-        );
+      if (notify) {
+        _showMessage(_scanSummary(report));
       }
       return true;
     } catch (error) {
@@ -257,13 +288,15 @@ extension _DirectorySection on _LibraryPageState {
       }
       _update(() {
         _scanning = false;
+        _scanSlow = false;
         _scanError = error;
       });
+      _scanSlowTimer?.cancel();
       if (!_backfillingCovers) {
         _coverBackfillAttempted = true;
         unawaited(_saveSession());
       }
-      if (notify && !_showsScanReport) {
+      if (notify && !_showsScanFeedback) {
         _showMessage('扫描失败：${ErrorRetry.describe(error)}');
       }
       return false;

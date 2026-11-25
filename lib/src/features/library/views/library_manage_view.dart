@@ -7,7 +7,6 @@ import '../../../app/app_toast.dart';
 import '../../../common/common.dart';
 import '../../../rust/api/db.dart' as db;
 import '../../../rust/api/model.dart' show Track;
-import '../../../rust/api/scan.dart';
 import '../library_revision.dart';
 import '../library_sort.dart';
 import '../widgets/quality_ring.dart';
@@ -29,10 +28,12 @@ class LibraryManageView extends StatelessWidget {
     this.folders = const <String>[],
     this.onAddFolder,
     this.onOpenFolder,
+    this.onOpenTracks,
+    this.onOpenAlbums,
+    this.onOpenArtists,
     this.onRescanFolder,
     this.onRemoveFolder,
     this.scanFolder,
-    this.scanReport,
     this.scanError,
     this.onRetry,
     this.pruningMissing = false,
@@ -61,6 +62,8 @@ class LibraryManageView extends StatelessWidget {
   /// 打开「听歌统计」子页
   final VoidCallback? onOpenStats;
 
+  /// 慢扫描才为真：短扫描不显示「正在扫描」，否则副标题一闪而过；
+  /// 真正的并发保护在各操作自己的 `_scanning` 判断里
   final bool scanning;
 
   /// 已添加的音乐目录（按添加顺序）
@@ -71,6 +74,11 @@ class LibraryManageView extends StatelessWidget {
   /// 点某个目录：进这个目录的曲目子页
   final ValueChanged<String>? onOpenFolder;
 
+  /// 点顶部指标卡：跳到对应分区
+  final VoidCallback? onOpenTracks;
+  final VoidCallback? onOpenAlbums;
+  final VoidCallback? onOpenArtists;
+
   /// 重新扫描某个目录；为空表示当前不可操作（例如正在扫描）
   final ValueChanged<String>? onRescanFolder;
 
@@ -79,9 +87,6 @@ class LibraryManageView extends StatelessWidget {
 
   /// 当前（或最近一次）扫描的目录
   final String? scanFolder;
-
-  /// 本次扫描结果；为 null 表示还没有成功扫描过
-  final ScanReport? scanReport;
 
   /// 本次扫描失败原因
   final Object? scanError;
@@ -175,6 +180,7 @@ class LibraryManageView extends StatelessWidget {
               children: <Widget>[
                 _Metric(
                   icon: Icons.music_note,
+                  onTap: onOpenTracks,
                   label: '曲目',
                   value: '${tracks.length}',
                   valueKey: const ValueKey<String>('library-count-tracks'),
@@ -182,6 +188,7 @@ class LibraryManageView extends StatelessWidget {
                 const SizedBox(width: 10),
                 _Metric(
                   icon: Icons.album_outlined,
+                  onTap: onOpenAlbums,
                   label: '专辑',
                   value: '${_albumCount(tracks)}',
                   valueKey: const ValueKey<String>('library-count-albums'),
@@ -189,6 +196,7 @@ class LibraryManageView extends StatelessWidget {
                 const SizedBox(width: 10),
                 _Metric(
                   icon: Icons.person_outline,
+                  onTap: onOpenArtists,
                   label: '艺术家',
                   value: '${_artistCount(tracks)}',
                   valueKey: const ValueKey<String>('library-count-artists'),
@@ -252,19 +260,11 @@ class LibraryManageView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // 扫描过程 / 结果：贴在目录块下面，做成一条 banner
-            if (scanning && scanFolder != null) ...<Widget>[
-              _ScanProgress(folder: scanFolder!),
-              const SizedBox(height: 10),
-            ],
+            // 扫描进度只画在目录行里（那一行本来就在）：以前这里插一条
+            // 进度 banner，页面高度一变，音质卡与两块面板按 maxHeight 算的
+            // 高度跟着变，点一下「重新扫描」整页就缩一下再弹回来，看着像闪。
             if (!scanning && scanError != null && onRetry != null) ...<Widget>[
               ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-              const SizedBox(height: 10),
-            ],
-            if (!scanning &&
-                scanError == null &&
-                scanReport != null) ...<Widget>[
-              _ScanSummary(report: scanReport!, folder: scanFolder ?? ''),
               const SizedBox(height: 10),
             ],
 
@@ -421,6 +421,7 @@ class _Metric extends StatelessWidget {
     required this.value,
     this.unit,
     this.valueKey,
+    this.onTap,
   });
 
   final IconData icon;
@@ -429,62 +430,70 @@ class _Metric extends StatelessWidget {
   final String? unit;
   final Key? valueKey;
 
+  /// 点了跳到对应分区；为空表示这张卡只是数字
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-        decoration: BoxDecoration(
-          // 层级：页面 surfaceContainerLow → 面板 High → 指标 Highest。
-          // MD3 的卡片要么填充、要么描边，两样都上只会显得板
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
+      child: Material(
+        // 层级：页面 surfaceContainerLow → 面板 High → 指标 Highest。
+        // MD3 的卡片要么填充、要么描边，两样都上只会显得板
+        color: scheme.surfaceContainerHighest,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          hoverColor: scheme.onSurface.withValues(alpha: 0.06),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(icon, size: 14, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    // 次要文字用 onSurfaceVariant：outline 是描边色，
-                    // 铺在 12px 小字上会灰到看不清
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                Row(
+                  children: <Widget>[
+                    Icon(icon, size: 14, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        // 次要文字用 onSurfaceVariant：outline 是描边色，
+                        // 铺在 12px 小字上会灰到看不清
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    children: <InlineSpan>[
+                      TextSpan(text: value),
+                      if (unit != null)
+                        TextSpan(
+                          text: ' $unit',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                  key: valueKey,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text.rich(
-              TextSpan(
-                children: <InlineSpan>[
-                  TextSpan(text: value),
-                  if (unit != null)
-                    TextSpan(
-                      text: ' $unit',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                ],
-              ),
-              key: valueKey,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -729,42 +738,34 @@ class _FolderRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (scanning)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              else
-                PopupMenuButton<String>(
-                  tooltip: '更多操作',
-                  icon: Icon(
-                    Icons.more_vert,
-                    size: 18,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  onSelected: (String action) {
-                    if (action == 'rescan') {
-                      onRescan?.call();
-                    } else if (action == 'remove') {
-                      unawaited(_confirmRemove(context));
-                    }
-                  },
-                  itemBuilder: (BuildContext context) =>
-                      <PopupMenuEntry<String>>[
-                        const PopupMenuItem<String>(
-                          value: 'rescan',
-                          child: Text('重新扫描'),
-                        ),
-                        const PopupMenuItem<String>(
-                          value: 'remove',
-                          child: Text('移除目录…'),
-                        ),
-                      ],
+              // 扫描中不换控件、只禁用：以前这里换成一个小转圈，那个转圈
+              // 比「更多」按钮矮一截，行高跟着变，目录块里就闪一下
+              PopupMenuButton<String>(
+                tooltip: '更多操作',
+                enabled: !scanning,
+                icon: Icon(
+                  Icons.more_vert,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
                 ),
+                onSelected: (String action) {
+                  if (action == 'rescan') {
+                    onRescan?.call();
+                  } else if (action == 'remove') {
+                    unawaited(_confirmRemove(context));
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'rescan',
+                    child: Text('重新扫描'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'remove',
+                    child: Text('移除目录…'),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -1085,121 +1086,6 @@ class _ActionTileState extends State<_ActionTile> {
   }
 }
 
-class _ScanProgress extends StatelessWidget {
-  const _ScanProgress({required this.folder});
-
-  final String folder;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '正在扫描 $folder',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScanSummary extends StatelessWidget {
-  const _ScanSummary({required this.report, required this.folder});
-
-  final ScanReport report;
-  final String folder;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final List<String> parts = <String>[
-      // upserted 是「入库或更新」的条数，不是纯新增
-      '入库 ${report.upserted} 首',
-      if (report.unchanged > 0) '跳过 ${report.unchanged} 首',
-      if (report.pruned > 0) '清理 ${report.pruned} 条',
-      if (report.failed > 0) '失败 ${report.failed} 个',
-      if (report.walkErrors > 0) '无法读取 ${report.walkErrors} 个',
-    ];
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        // 一次性反馈：用带上色的容器，和「可操作」的卡片区分开
-        color: scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(
-            Icons.check_circle_outline,
-            size: 18,
-            color: scheme.onSecondaryContainer,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '扫描完成',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: scheme.onSecondaryContainer,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  parts.join(' · '),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSecondaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$folder · 耗时 ${(report.elapsedMs.toInt() / 1000).toStringAsFixed(1)} 秒',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSecondaryContainer.withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 音质分布：左边环形图，右边四档图例（可点，与扇形同一效果）。
-///
-/// 图例做成按钮而不是纯文字：扇区很窄时不好点，图例是稳妥的入口；
-/// 选中态下扇区变淡、图例加底色，两边指向同一个 [selected]。
 class _QualityPanel extends StatelessWidget {
   const _QualityPanel({
     required this.extent,
