@@ -381,6 +381,16 @@ fn history_dedupes_plays_and_sorts_by_recent() {
 
     collections::clear_history().expect("清空历史");
     assert!(collections::recent_tracks(10).expect("最近播放").is_empty());
+
+    // 只清时间线：播放次数还在，常听排行不能跟着空
+    let top = collections::top_tracks(10).expect("排行榜");
+    assert_eq!(
+        top.iter()
+            .map(|stat| stat.track.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["A", "B"],
+        "清空历史不该带走播放次数"
+    );
 }
 
 #[test]

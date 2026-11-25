@@ -482,6 +482,7 @@ class FakeLibraryRepository implements LibraryRepository {
   Future<List<Track>> loadRecentTracks({int limit = 100}) async =>
       _tracksByPaths(_history.take(limit.clamp(1, 500)));
 
+  /// 与后端一致：清时间线（`_history`），但 `playCounts` 保留给排行
   @override
   Future<void> clearHistory() async => _history.clear();
 
