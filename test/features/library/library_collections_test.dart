@@ -1328,7 +1328,7 @@ void main() {
   });
 
   testWidgets('清空历史需确认，确认后回到空态', (WidgetTester tester) async {
-    await pumpLibrary(
+    final FakeLibraryRepository repository = await pumpLibrary(
       tester,
       tracks: twoTracks(),
       seed: (FakeLibraryRepository repo) async {
@@ -1346,6 +1346,10 @@ void main() {
 
     expect(find.text('0 条播放记录'), findsOneWidget);
     expect(find.text('还没有播放记录'), findsOneWidget);
+
+    // 时间线清空、播放次数保留：常听排行要靠它
+    expect(await repository.loadRecentTracks(), isEmpty);
+    expect(repository.playCounts['/music/夜航.mp3'], 1, reason: '播放次数不能被清空历史带走');
   });
 
   testWidgets('正在播放页点歌手，退出播放页并进艺术家详情', (WidgetTester tester) async {
