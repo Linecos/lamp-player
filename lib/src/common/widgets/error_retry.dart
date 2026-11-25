@@ -15,10 +15,33 @@ class ErrorRetry extends StatelessWidget {
   final VoidCallback onRetry;
   final String title;
 
-  /// 去掉 `Exception: ` / `Error: ` 前缀，空值返回「未知错误」。
-  static String describe(Object error) {
+  /// 把异常整理成一句人话：剥掉 FRB 的 `AnyhowException(…)` 外壳、丢掉
+  /// `Stack backtrace:` 那一段、换行压成空格，过长的截断。
+  ///
+  /// Rust 侧的 anyhow 错误经 frb 包上一层 `AnyhowException`，`toString()` 里还
+  /// 挂着十几行 `0: <unknown>` 的栈；原样塞进提示会把胶囊撑成一大团。
+  static String describe(Object error, {int maxLength = 160}) {
     const List<String> prefixes = <String>['Exception: ', 'Error: '];
+    const List<String> wrappers = <String>[
+      'AnyhowException(',
+      'PanicException(',
+    ];
     String text = error.toString().trim();
+    // 先砍栈，再剥外壳：栈尾巴上的 `)`（`  10: RustThreadStart)`）会让
+    // `endsWith(')')` 误判成「外壳的收尾括号」，剥完就残留一个 `)`
+    final RegExp tail = RegExp(r'\r?\n(?:\s*\r?\n|\s*Stack backtrace:)');
+    final RegExpMatch? cut = tail.firstMatch(text);
+    if (cut != null) {
+      text = text.substring(0, cut.start);
+    }
+    // 内文自己也可能带括号（`BASS 错误 2 (无法打开文件)`），所以只去掉最外层那一对
+    for (final String wrapper in wrappers) {
+      if (text.startsWith(wrapper) && text.endsWith(')')) {
+        text = text.substring(wrapper.length, text.length - 1).trim();
+        break;
+      }
+    }
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     for (final String prefix in prefixes) {
       if (text.startsWith(prefix)) {
         text = text.substring(prefix.length).trim();
@@ -27,6 +50,9 @@ class ErrorRetry extends StatelessWidget {
     }
     if (text.isEmpty || text == 'Exception' || text == 'Error') {
       return '未知错误';
+    }
+    if (text.length > maxLength) {
+      text = '${text.substring(0, maxLength).trimRight()}…';
     }
     return text;
   }

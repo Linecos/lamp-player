@@ -44,6 +44,10 @@ class ToastPill extends StatelessWidget {
         ),
         child: Text(
           message,
+          // 最多两行：异常原文再长也不能把胶囊撑成一团（半径是 pill，
+          // 高度一大就变成椭圆）
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: scheme.onInverseSurface,
           ),

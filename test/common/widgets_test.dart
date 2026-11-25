@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/common.dart';
+import 'package:lamp_player/src/common/widgets/toast_pill.dart';
 
 // 组件测试：只验证渲染与回调，不触碰 Rust 接口。
 Future<void> _pumpInScaffold(WidgetTester tester, Widget child) async {
@@ -534,6 +535,26 @@ void main() {
       expect(ErrorRetry.describe(Exception()), '未知错误');
       expect(ErrorRetry.describe(''), '未知错误');
     });
+
+    test('describe 剥掉 AnyhowException 外壳与 Stack backtrace', () {
+      // frb 把 Rust 的 anyhow 错误包成 `AnyhowException(内文)`，toString 里还
+      // 挂着十几行栈；原文塞进提示会把胶囊撑成一大团（见 2026-11-25 的截图）
+      const String raw =
+          'AnyhowException(无法打开音频文件: BASS 错误 2 (无法打开文件))\n'
+          '\n'
+          'Stack backtrace:\n'
+          '   0: <unknown>\n'
+          '   1: <unknown>\n'
+          '  10: RustThreadStart)';
+      expect(ErrorRetry.describe(raw), '无法打开音频文件: BASS 错误 2 (无法打开文件)');
+      // 换行压成空格、过长截断
+      expect(ErrorRetry.describe('第一行\n第二行'), '第一行 第二行');
+      expect(
+        ErrorRetry.describe('长' * 200),
+        '${'长' * 160}…',
+        reason: '超长错误要截断，不能整个塞进提示',
+      );
+    });
   });
 
   group('AlbumCover 圆形裁剪', () {
@@ -665,6 +686,39 @@ void main() {
       expect(find.text('林'), findsNothing);
       // 圆形走 ClipOval：飞行层把图塞进任意尺寸的紧约束时也不会变圆角方块
       expect(find.byType(ClipOval), findsOneWidget);
+    });
+  });
+
+  group('ToastPill', () {
+    testWidgets('异常原文再长也只占两行，不会撑成一团', (WidgetTester tester) async {
+      // 半径是 pill：高度一大就变成椭圆，所以文本必须封在两行
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: ToastPill(
+                message: List<String>.filled(
+                  6,
+                  'AnyhowException(无法打开音频文件)',
+                ).join('\n'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final Text text = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(ToastPill),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(text.maxLines, 2);
+      expect(
+        tester.getSize(find.byType(ToastPill)).height,
+        lessThanOrEqualTo(80),
+        reason: '两行文字 + 上下 12 内边距，超过就说明又开始按内容长了',
+      );
     });
   });
 }

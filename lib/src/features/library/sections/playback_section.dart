@@ -102,7 +102,7 @@ extension _PlaybackSection on _LibraryPageState {
       _updatePlayer(() => _isPlaying = false);
       _publishProgress();
       if (!silent) {
-        _showMessage('播放失败：${ErrorRetry.describe(error)}');
+        _showMessage(_playFailureText(error, track.path));
       }
       return false;
     }
@@ -1822,6 +1822,15 @@ extension _PlaybackSection on _LibraryPageState {
     }
     _engineNoticeShown = true;
     _showMessage('播放引擎不可用（缺少 BASS DLL 或初始化失败）：现在可以浏览曲目，暂时不能出声。');
+  }
+
+  /// 播放失败的提示文案：文件本身不在了就直说，别再让人去读 BASS 错误码
+  /// （`无法打开文件` 是「被删掉 / 改名 / 移走」的常见表现）
+  String _playFailureText(Object error, String path) {
+    if (!File(path).existsSync()) {
+      return '播放失败：找不到这首文件了，可能已被删除或移走';
+    }
+    return '播放失败：${ErrorRetry.describe(error)}';
   }
 
   void _showMessage(

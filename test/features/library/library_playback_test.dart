@@ -1341,6 +1341,36 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('点播不存在的文件：提示只说文件没了，不贴异常原文和栈', (WidgetTester tester) async {
+    // frb 把 Rust 的 anyhow 错误包成 `AnyhowException(…)`，toString 里还挂着栈；
+    // 原样贴进提示会把胶囊撑成一团（2026-11-25 用户截图）
+    const String raw =
+        'AnyhowException(无法打开音频文件: BASS 错误 2 (无法打开文件))\n'
+        '\n'
+        'Stack backtrace:\n'
+        '   0: <unknown>\n'
+        '  10: RustThreadStart)';
+    final FakePlaybackService playback = FakePlaybackService(
+      isAvailable: true,
+      durationSecs: 180,
+    );
+    await pumpLibrary(tester, tracks: twoTracks(), playback: playback);
+
+    // 灌错误放在起播前：曲目路径是假的，一失败就该说「文件没了」
+    playback.playError = raw;
+    await tester.tap(find.text('夜航'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.textContaining('找不到这首文件了'), findsOneWidget);
+    expect(find.textContaining('AnyhowException'), findsNothing);
+    expect(find.textContaining('Stack backtrace'), findsNothing);
+    expect(playback.playedPaths, isEmpty);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('听过四分之一之后才开始累计听歌时长，暂停时写库', (WidgetTester tester) async {
     final FakePlaybackService playback = FakePlaybackService(
       isAvailable: true,
