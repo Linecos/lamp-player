@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_version.dart';
 import '../../app/update_check.dart';
 import '../../common/external_link.dart';
+import '../../common/text/mini_markdown.dart';
 import '../../theme/tokens.dart';
 
 /// 有新版本时的弹窗：版本号 + 发布说明 + 「前往下载」。
@@ -78,9 +79,10 @@ class UpdateAvailableDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(Radii.sm),
                 ),
                 child: SingleChildScrollView(
-                  child: Text(
-                    notes,
+                  child: MiniMarkdown(
+                    data: notes,
                     style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+                    onOpenLink: (String url) => unawaited(openUrl(url)),
                   ),
                 ),
               ),

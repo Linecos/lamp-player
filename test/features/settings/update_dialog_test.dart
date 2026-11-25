@@ -46,7 +46,13 @@ void main() {
 
     expect(find.text('发现新版本 v0.2.0'), findsOneWidget);
     expect(find.textContaining('当前版本'), findsOneWidget);
-    expect(find.textContaining('修某处'), findsOneWidget);
+    expect(find.textContaining('修某处', findRichText: true), findsOneWidget);
+    expect(
+      find.textContaining('###', findRichText: true),
+      findsNothing,
+      reason: '发布说明按 Markdown 渲染，不该把井号露出来',
+    );
+    expect(find.text('修复', findRichText: true), findsOneWidget);
 
     await tester.tap(find.text('前往下载'));
     await tester.pumpAndSettle();
