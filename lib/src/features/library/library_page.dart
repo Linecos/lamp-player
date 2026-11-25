@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../../app/memory_guard.dart';
 import '../../app/app_toast.dart';
 import '../../app/session_store.dart';
+import '../../app/taskbar_thumbnail.dart';
 import '../../app/update_check.dart';
 import '../../app/title_bar.dart';
 import '../../app/window_controls.dart';
@@ -239,6 +240,9 @@ class _LibraryPageState extends State<LibraryPage>
     onRepeatChanged: _mediaRepeatChanged,
     onShuffleChanged: _mediaShuffleChanged,
   );
+
+  /// 上一次推给任务栏悬停预览的封面路径：同一首的播放 / 暂停不必重读文件
+  String? _taskbarCoverPath;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -1145,6 +1149,8 @@ class _LibraryPageState extends State<LibraryPage>
     // start 完再把播放模式推过去：此时 SMTC 会话才存在，Windows 也才会
     // 点亮浮层里的循环 / 随机按钮（启动恢复的模式不能等到切歌才同步）
     unawaited(_media.start().then((_) => _publishPlayMode()));
+    // 任务栏缩略图工具栏：悬停任务栏图标出现的那三枚按钮，动作与托盘 / 媒体键同一套
+    TaskbarThumbnail.init(onButtonClick: _handleTaskbarButton);
     _listenDesktopLyricCommands();
     widget.appLifecycle
       ?..addListener(_onLifecycleChanged)
@@ -1189,6 +1195,21 @@ class _LibraryPageState extends State<LibraryPage>
           _desktopLyricFontSize = desktop_lyrics.desktopLyricsFontSize();
         });
         _saveSessionNow();
+    }
+  }
+
+  /// 任务栏缩略图工具栏上的按钮：播放控制复用播放条那套实现
+  void _handleTaskbarButton(TaskbarButtonAction action) {
+    if (!mounted) {
+      return;
+    }
+    switch (action) {
+      case TaskbarButtonAction.prev:
+        unawaited(_previous());
+      case TaskbarButtonAction.toggle:
+        unawaited(_togglePlayback());
+      case TaskbarButtonAction.next:
+        unawaited(_next());
     }
   }
 

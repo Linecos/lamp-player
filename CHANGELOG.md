@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **悬停任务栏图标就能切歌**：把鼠标停在任务栏图标上，预览缩略图底部多出一排 上一首 / 播放暂停 / 下一首 三枚按钮。播放中中间那枚画暂停字形，点了与播放条上的同名按钮完全同一套行为（含队列为空、连续失败跳过这些判断）；还没播放任何曲目时三枚一起收起，不留一排点不动的按钮。走 Windows 的 `ITaskbarList3`（`windows/runner/taskbar_manager.cpp` + `lamp_player/taskbar` 通道），Explorer 重启后会自动重新注册。只在 Windows 生效
+
+- **悬停预览换成方形封面**：任务栏悬停弹出的缩略图改成一张方形封面 —— 交给系统的位图本身就是正方形（源图按中心裁成正方、铺满整块，不拉伸），卡片按方图排版，图片两侧不会空出没用的底色。点开 / 悬停放大到 AeroPeek 大预览时仍然显示窗口真实画面（`PrintWindow` + `PW_RENDERFULLCONTENT`，按 DWM 可见边界裁边），只有窗口最小化、抓不到画面时才退回方封面居中。封面文件读不出来、曲目没有封面时整体退回原来的窗口截图，不影响播放。由 DWM 的 iconic 预览实现（`WM_DWMSENDICONICTHUMBNAIL` / `WM_DWMSENDICONICLIVEPREVIEWBITMAP`）。排查时可用环境变量 `LAMP_TASKBAR_LOG=1` 把预览收发记到 `%TEMP%\lamp_taskbar.log`
+
 ### 修复
 
 - **播放被删掉 / 移走的歌不再弹出整段异常栈**：文件不在了直接说「播放失败：找不到这首文件了，可能已被删除或移走」；其余播放错误也只留一句人话——剥掉 `AnyhowException(…)` 外壳、丢掉 `Stack backtrace:` 那十几行、换行压成空格。提示本身最多两行，再长的异常文本也不会把胶囊撑成一团盖住半屏

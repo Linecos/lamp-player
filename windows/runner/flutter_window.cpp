@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "taskbar_manager.h"
 
 namespace {
 
@@ -76,6 +77,10 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
 
+  // 任务栏缩略图工具栏：按钮点击通过 MethodChannel 回 Dart，播放状态由 Dart 推回
+  TaskbarManager::GetInstance().Init(GetHandle(),
+                                     flutter_controller_->engine()->messenger());
+
   return true;
 }
 
@@ -94,6 +99,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (message == WM_GETOBJECT && !A11yEnabled()) {
     return 0;
+  }
+  // 任务栏工具栏优先：WM_COMMAND 里的 THBN_CLICKED 要先于 Flutter 的派发被接住
+  std::optional<LRESULT> taskbar_result =
+      TaskbarManager::GetInstance().HandleWindowMessage(hwnd, message, wparam,
+                                                        lparam);
+  if (taskbar_result.has_value()) {
+    return taskbar_result.value();
   }
   if (flutter_controller_) {
     std::optional<LRESULT> result =

@@ -348,6 +348,15 @@ extension _PlaybackSection on _LibraryPageState {
     // 桌面歌词工具栏的播放 / 暂停字形
     _syncDesktopLyricPlaying();
     final Track? track = _currentTrack;
+    // 任务栏缩略图工具栏：字形跟播放状态走，没曲目时整排收起
+    unawaited(
+      TaskbarThumbnail.setButtons(
+        isPlaying: track != null && !stopped && _isPlaying,
+        visible: track != null,
+      ),
+    );
+    // 悬停预览换成方形封面（没封面就退回窗口截图）
+    _syncTaskbarCover(track);
     // 托盘菜单同步：无曲目时播放项禁用，播放中显示「暂停」
     unawaited(
       widget.trayController?.updatePlayback(
@@ -386,6 +395,30 @@ extension _PlaybackSection on _LibraryPageState {
         _isPlaying ? MediaSessionState.playing : MediaSessionState.paused,
       ),
     );
+  }
+
+  /// 把当前曲目的封面推给任务栏悬停预览（方形封面）。
+  ///
+  /// 只在换曲时读文件：同一首的暂停 / 播放靠路径比对挡掉，不重复 IO。
+  /// 用同步读是因为封面只有几百 KB，换曲那一下读完更省事 —— 异步读会给
+  /// 文件开一个短暂句柄，切歌 / 删封面时容易撞上「另一个程序正在使用」。
+  void _syncTaskbarCover(Track? track) {
+    final String? path = track?.coverPath;
+    if (path == _taskbarCoverPath) {
+      return;
+    }
+    _taskbarCoverPath = path;
+    if (path == null || !File(path).existsSync()) {
+      unawaited(TaskbarThumbnail.clearCover());
+      return;
+    }
+    try {
+      unawaited(TaskbarThumbnail.setCover(File(path).readAsBytesSync()));
+    } catch (error) {
+      // 封面文件读不动：悬停退回窗口截图，不影响播放
+      unawaited(TaskbarThumbnail.clearCover());
+      debugPrint('任务栏封面读取失败：$error');
+    }
   }
 
   /// 系统「播放」：暂停时继续，播完时从头开始；已经在播则忽略
