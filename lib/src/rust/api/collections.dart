@@ -158,6 +158,10 @@ Future<List<Track>> recentTracks({required int limit}) =>
     RustLib.instance.api.crateApiCollectionsRecentTracks(limit: limit);
 
 /// 清空播放历史。
+///
+/// 只把「最近播放时间」清零，让时间线列表空掉；`play_count` 原样保留，
+/// 常听歌曲 / 常听艺术家排行与累计播放次数因此不受影响。按天累计的听歌时长
+/// 存在 `play_sessions`，本来就不在这条路径上。
 Future<void> clearHistory() =>
     RustLib.instance.api.crateApiCollectionsClearHistory();
 
