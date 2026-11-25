@@ -1,8 +1,14 @@
 # 接口契约（Rust ↔ Dart）
 
-> **当前版本：v0.28（2026-11-24）**
+> **当前版本：v0.29（2026-11-25）**
 >
 > 本文档是 Flutter 与 Rust 之间的唯一约定。签名与本文不一致的 PR 不会合并。
+>
+> v0.29 变更（**仅曲库结构**，接口签名不变）：曲库升到 **v13**，播放历史与终身统计拆表。
+> `play_history` 收缩成「最近播放列表」，只留最近 100 首（`recent_tracks` 的 `limit`
+> 也截断到 `1..=100`）；累计次数搬到 `play_totals(track_path, plays, last_played_at)`。
+> `clear_history` 改为直接删列表行，**不再影响** `play_stats`、`top_tracks`、`top_artists`
+> 与 `play_sessions` 时长。老库打开时自动迁移：先搬次数、再裁历史，见 §4。
 >
 > v0.28 变更（**纯新增，Dart 侧已同步**）：桌面歌词加字重设置
 > `desktop_lyrics_set_font_weight(weight: i32)` 与同步读取 `desktop_lyrics_font_weight()`，
@@ -220,7 +226,9 @@
 - `init_db` 幂等：**同一路径**重复调用复用已有连接；换成别的路径会返回错误，
   必须先 `close_db()`。未初始化就调用其它 db 函数会返回错误而不是 panic。
 - 曲库结构带版本号（`PRAGMA user_version`）：打开旧库时自动升级并重建 FTS 索引；
-  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v12**：FTS 同步触发器
+  库版本高于程序支持的版本时报错，提示升级。当前结构版本 **v13**：`play_history`
+  收缩为「最近 100 首」列表，累计次数搬进 `play_totals`（老库升级时先搬次数、再裁历史，
+  `last_played_at = 0` 的残留行一并丢掉）；v12 起 FTS 同步触发器
   `tracks_au` 收窄为 `AFTER UPDATE OF title, artist, album`（改 `hidden` / 响度测量值 /
   文件指纹不再重写全文索引，行为对查询结果无影响）；v11 增加的
   `loudness_lufs` / `sample_peak` / `true_peak`（ReplayGain 的测量值，0 = 未知），
@@ -299,12 +307,16 @@
   一次性拉取后做成员判断，避免逐曲调 `is_favorite`。
 - `set_favorites` 是批量版：收藏时逐条校验曲目存在、任一失败整体回滚；取消收藏不校验
   （删库后的残留路径也能清掉）。重复路径幂等，返回真正改变的条数。
-- **历史**：按曲目去重，每首歌一行；`record_play` 更新最近播放时间并累加 `play_count`，
-  `recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=500`。
+- **历史（v13 起）**：`play_history` 只记「最近听过的歌」，按曲目去重、最多 100 行，
+  `last_played_at` 决定顺序，超出部分在每次写入后裁掉。**累计次数不在这张表**：终身次数
+  在 `play_totals(track_path, plays, last_played_at)`，`record_play` 同时写两处。
+  `recent_tracks` 按最近播放倒序，`limit` 截断到 `1..=100`。
+- **清空历史（v13 起重定义）**：`clear_history` 直接删 `play_history` 行，只清列表；
+  `play_totals` 与 `play_sessions` 不动，所以总次数、曲目数、排行榜、热力图都原样保留。
 - **记录时机（v0.20 起拆成两拍）**：`player_play` 成功后 Dart 侧先调
   `touch_play_history`（只刷新时间，历史立刻出现）；之后这一轮真正听过的秒数到全曲
-  一半时才调 `record_play` 累加次数。`touch_play_history` 建的新行 `play_count = 0`，
-  排行榜、`play_stats.total_plays` 都按 `play_count > 0` 过滤，所以只听了一半以前的
+  一半时才调 `record_play`。`touch_play_history` 建的行 `plays = 0`，
+  排行榜、`play_stats.total_plays` 都按 `plays > 0` 过滤，所以只听了一半以前的
   曲目只会出现在历史里，不会进任何计数。播放层不反向依赖曲库，避免两层耦合。
 - 时间戳一律 Unix 秒。
 - 曲库从 v1 升级到 v2 时自动建表，无需手动迁移；v1 程序打开 v2 库会报版本过高。
@@ -314,9 +326,10 @@
 - **听歌时长（v4）**：新增 `play_sessions(track_path, day, seconds)`，主键 `(track_path, day)`，
   `day` 是本地日期整数（`20261026`）而非时间戳——热力图按天聚合，直接比大小即可。
   `record_play_time` 累加同一个 `(曲目, 天)` 的秒数，`seconds <= 0` 静默忽略；
-  `play_stats` 的 `total_seconds` 只统计 v4 之后的记录，`total_plays` 沿用 `play_history.play_count`
-  （包含更早历史，两者口径不同，页面会说明）。
-  `top_tracks` 按 `play_count` 倒序、`limit` 截断到 `1..=100`；`daily_playtime` 只返回有记录的
+  `play_stats` 的 `total_seconds` 只统计 v4 之后的记录，`total_plays` 取自
+  `play_totals.plays` 的合计（v13 起；v13 之前沿用 `play_history.play_count`，迁移时全量搬过去，
+  两者口径依旧不同，页面会说明）。
+  `top_tracks` 按 `plays` 倒序、`limit` 截断到 `1..=100`；`daily_playtime` 只返回有记录的
   天，不补零，补零是展示层的事。时长也通过外键 `ON DELETE CASCADE` 跟着曲目清理。
   `top_artists` 按标签原样（`t.artist`）分组聚合，`limit` 同样截断到 `1..=100`；合唱标签
   `A/B` 会单独占一行，**拆分与按人合并交给展示层**（`splitArtistTag`），拆法只有一份。
@@ -324,8 +337,8 @@
 - **时长上报时机**：Dart 侧按轮询增量累计（只认 0 < delta < 3 秒，seek 跳变与切歌跨度不计入），
   攒到 15 秒或遇到暂停 / 切歌 / 播完 / 停止 / 退出时写库，不逐拍写。
 - **路径合并**（`merge_track_path`）：同一文件的不同字面路径（大小写 / 分隔符）合并时，
-  收藏、歌单、播放历史、听歌时长都要迁到新路径；历史按曲目合并次数并保留较新的时间，
-  时长按 `(曲目, 天)` 逐日**相加**（`ON CONFLICT ... seconds + excluded.seconds`），
+  收藏、歌单、播放历史、终身次数、听歌时长都要迁到新路径；历史按曲目保留较新的时间、
+  次数按 `play_totals.plays` **相加**，时长按 `(曲目, 天)` 逐日**相加**（`ON CONFLICT ... seconds + excluded.seconds`），
   不是二选一——否则合并一次就把旧路径那一截时长连同热力图一起删掉。
 - **歌单排序**（`move_playlist_track`）：下标按**界面可见顺序**给；隐藏曲目也在歌单里，
   实现按「槽位」处理——可见曲目按拖拽结果依次填回原来的可见槽位，隐藏条目留在自己的槽位，

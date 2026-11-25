@@ -394,6 +394,53 @@ fn history_dedupes_plays_and_sorts_by_recent() {
 }
 
 #[test]
+fn history_keeps_last_hundred_while_stats_keep_counting() {
+    let (_lock, dir) = begin("history-cap");
+    let owned: Vec<(String, String)> = (0..105)
+        .map(|index| (format!("/music/t{index:03}.mp3"), format!("T{index:03}")))
+        .collect();
+    let pairs: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(path, title)| (path.as_str(), title.as_str()))
+        .collect();
+    seed(&dir, &pairs);
+
+    for (path, _) in &owned {
+        collections::record_play(path.clone()).expect("记录播放");
+    }
+
+    // 列表只留最近 100 首（时间戳同秒时按插入顺序裁掉最旧的 5 首）
+    let recent = collections::recent_tracks(100).expect("最近播放");
+    assert_eq!(recent.len(), 100, "历史表最多 100 行");
+    assert!(
+        !recent.iter().any(|t| t.title == "T000"),
+        "最旧的那几首应该已经被裁掉"
+    );
+    assert!(
+        recent.iter().any(|t| t.title == "T104"),
+        "最新的那首要在列表里"
+    );
+
+    // 统计走 play_totals，裁历史不影响总次数与排行
+    let stats = collections::play_stats().expect("总览");
+    assert_eq!(stats.total_plays, 105, "裁历史不该丢次数");
+    assert_eq!(stats.track_count, 105, "听过曲目数也不该变小");
+
+    collections::clear_history().expect("清空历史");
+    assert!(collections::recent_tracks(100)
+        .expect("最近播放")
+        .is_empty());
+    let stats = collections::play_stats().expect("总览");
+    assert_eq!(stats.total_plays, 105, "清空历史后总次数仍在");
+    assert_eq!(stats.track_count, 105, "清空历史后听过曲目数仍在");
+    assert_eq!(
+        collections::top_tracks(100).expect("排行榜").len(),
+        100,
+        "排行榜照旧按 play_totals 出数"
+    );
+}
+
+#[test]
 fn touch_play_history_marks_recent_without_counting() {
     let (_lock, dir) = begin("touch-history");
     seed(&dir, &[("/music/a.mp3", "A"), ("/music/b.mp3", "B")]);

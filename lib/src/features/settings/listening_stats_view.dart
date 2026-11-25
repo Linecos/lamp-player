@@ -10,7 +10,7 @@ import 'listening_stats_repository.dart';
 /// 听歌统计：累计时长、播放次数排行、每日热力图。
 ///
 /// 时长与热力图只统计有 `play_sessions` 记录的部分（schema v4 之后），
-/// 次数沿用 `play_history.play_count`，包含更早的历史。
+/// 次数沿用 `play_totals.plays`（schema v13 起），包含更早的历史。
 ///
 /// 这是**设置分区里的子界面**，不是独立路由：左侧栏和底部播放岛都还在。
 /// 打开时才创建（关闭即销毁）；但结果会缓存（见 [_statsCache]），重新进来

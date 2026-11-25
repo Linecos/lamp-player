@@ -535,32 +535,79 @@ pub fn set_favorites(paths: Vec<String>, favorite: bool) -> anyhow::Result<i32> 
 // 播放历史
 // ---------------------------------------------------------------------------
 
+/// 历史列表上限：只记最近听过的 100 首（按曲目去重）。
+const HISTORY_LIMIT: i64 = 100;
+
+/// 把历史裁到最近 [`HISTORY_LIMIT`] 首。
+///
+/// 每次起播 / 计次后跑一次：表最多 101 行，代价可以忽略；
+/// 累计次数在 `play_totals`，裁行不会让统计变小。
+fn prune_history(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute(
+        r#"
+        DELETE FROM play_history
+         WHERE rowid NOT IN (
+            SELECT rowid FROM play_history
+             ORDER BY last_played_at DESC, rowid DESC
+             LIMIT ?1
+         )
+        "#,
+        params![HISTORY_LIMIT],
+    )?;
+    Ok(())
+}
+
 /// 只更新「最近播放时间」，不增加播放次数（起播时用）。
 ///
 /// 历史列表按这个时间排，所以「最近播放」跟点击走；次数另算一次——
-/// 听过一半才由 `record_play` 累加。新行以 `play_count = 0` 落地，
-/// 排行榜与总次数都按 `play_count > 0` 过滤，不会把它算进去。
+/// 听过一半才由 `record_play` 累加。`play_totals` 以 `plays = 0` 落地，
+/// 排行榜与总次数只数 `plays > 0`，不会把它算进去。
 pub fn touch_play_history(path: String) -> anyhow::Result<()> {
     with_conn(|conn| {
         track_exists(conn, &path)?;
-        conn.execute(
+        let now = now_secs();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             r#"
             INSERT INTO play_history (track_path, last_played_at, play_count)
             VALUES (?1, ?2, 0)
             ON CONFLICT(track_path) DO UPDATE SET
                 last_played_at = excluded.last_played_at
             "#,
-            params![path, now_secs()],
+            params![path, now],
         )?;
+        tx.execute(
+            r#"
+            INSERT INTO play_totals (track_path, plays, last_played_at)
+            VALUES (?1, 0, ?2)
+            ON CONFLICT(track_path) DO UPDATE SET
+                last_played_at = excluded.last_played_at
+            "#,
+            params![path, now],
+        )?;
+        prune_history(&tx)?;
+        tx.commit()?;
         Ok(())
     })
 }
 
-/// 记录一次播放：同曲目只保留一行，更新时间并累加次数。
+/// 记录一次播放：终身次数写 `play_totals`，同时刷新最近播放时间。
 pub fn record_play(path: String) -> anyhow::Result<()> {
     with_conn(|conn| {
         track_exists(conn, &path)?;
-        conn.execute(
+        let now = now_secs();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            r#"
+            INSERT INTO play_totals (track_path, plays, last_played_at)
+            VALUES (?1, 1, ?2)
+            ON CONFLICT(track_path) DO UPDATE SET
+                plays          = play_totals.plays + 1,
+                last_played_at = excluded.last_played_at
+            "#,
+            params![path, now],
+        )?;
+        tx.execute(
             r#"
             INSERT INTO play_history (track_path, last_played_at, play_count)
             VALUES (?1, ?2, 1)
@@ -568,13 +615,15 @@ pub fn record_play(path: String) -> anyhow::Result<()> {
                 last_played_at = excluded.last_played_at,
                 play_count     = play_history.play_count + 1
             "#,
-            params![path, now_secs()],
+            params![path, now],
         )?;
+        prune_history(&tx)?;
+        tx.commit()?;
         Ok(())
     })
 }
 
-/// 最近播放的曲目（按曲目去重），`limit` 截断到 `1..=500`。
+/// 最近播放的曲目（按曲目去重），`limit` 截断到 `1..=100`。
 pub fn recent_tracks(limit: i32) -> anyhow::Result<Vec<Track>> {
     with_conn(|conn| {
         let mut stmt = conn.prepare_cached(
@@ -582,25 +631,23 @@ pub fn recent_tracks(limit: i32) -> anyhow::Result<Vec<Track>> {
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain, t.file_size, t.audio_bitrate, t.sample_rate, t.bit_depth, t.loudness_lufs, t.sample_peak, t.true_peak
             FROM play_history h
             JOIN tracks t ON t.path = h.track_path
-            -- last_played_at 被清空（置 0）的行不再进历史列表，但播放次数仍留给排行
-            WHERE t.hidden = 0 AND h.last_played_at > 0
+            WHERE t.hidden = 0
             ORDER BY h.last_played_at DESC, t.id
             LIMIT ?1
             "#,
         )?;
-        let rows = stmt.query_map([limit.clamp(1, 500)], row_to_track)?;
+        let rows = stmt.query_map([limit.clamp(1, 100)], row_to_track)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })
 }
 
-/// 清空播放历史。
+/// 清空播放历史：只删「最近播放列表」。
 ///
-/// 只把「最近播放时间」清零，让时间线列表空掉；`play_count` 原样保留，
-/// 常听歌曲 / 常听艺术家排行与累计播放次数因此不受影响。按天累计的听歌时长
-/// 存在 `play_sessions`，本来就不在这条路径上。
+/// 累计次数在 `play_totals`、听歌时长在 `play_sessions`，都不在这条路径上，
+/// 所以清空历史后排行、总次数、热力图原样保留。
 pub fn clear_history() -> anyhow::Result<()> {
     with_conn(|conn| {
-        conn.execute("UPDATE play_history SET last_played_at = 0", [])
+        conn.execute("DELETE FROM play_history", [])
             .context("清空播放历史失败")?;
         Ok(())
     })
@@ -644,9 +691,9 @@ pub fn play_stats() -> anyhow::Result<PlayStats> {
             r#"
             SELECT
                 (SELECT COALESCE(SUM(seconds), 0) FROM play_sessions),
-                -- 「听过曲目」只数真正计过次的：起播时 touch 出来的行 play_count 还是 0
-                (SELECT COALESCE(SUM(play_count), 0) FROM play_history),
-                (SELECT COUNT(*) FROM play_history WHERE play_count > 0),
+                -- 「听过曲目」只数真正计过次的：起播时 touch 出来的行 plays 还是 0
+                (SELECT COALESCE(SUM(plays), 0) FROM play_totals),
+                (SELECT COUNT(*) FROM play_totals WHERE plays > 0),
                 (SELECT COUNT(DISTINCT day) FROM play_sessions WHERE seconds > 0)
             "#,
             [],
@@ -674,18 +721,18 @@ pub fn top_tracks(limit: i32) -> anyhow::Result<Vec<TrackPlayStat>> {
         let mut stmt = conn.prepare_cached(
             r#"
             SELECT t.path, t.title, t.artist, t.album, t.duration_secs, t.track_num, t.added_at, t.cover_path, t.replay_gain, t.file_size, t.audio_bitrate, t.sample_rate, t.bit_depth, t.loudness_lufs, t.sample_peak, t.true_peak,
-                   h.play_count
-            FROM play_history h
-            JOIN tracks t ON t.path = h.track_path
-            WHERE h.play_count > 0 AND t.hidden = 0
-            ORDER BY h.play_count DESC, h.last_played_at DESC, t.id
+                   p.plays
+            FROM play_totals p
+            JOIN tracks t ON t.path = p.track_path
+            WHERE p.plays > 0 AND t.hidden = 0
+            ORDER BY p.plays DESC, p.last_played_at DESC, t.id
             LIMIT ?1
             "#,
         )?;
         let rows = stmt.query_map([limit.clamp(1, 100)], |row| {
             Ok(TrackPlayStat {
                 track: row_to_track(row)?,
-                // 曲目字段占 0..=15（含 ReplayGain 三列测量值），play_count 紧随其后
+                // 曲目字段占 0..=15（含 ReplayGain 三列测量值），plays 紧随其后
                 plays: row.get(16)?,
             })
         })?;
@@ -702,23 +749,23 @@ pub fn top_artists(limit: i32) -> anyhow::Result<Vec<ArtistPlayStat>> {
         let mut stmt = conn.prepare_cached(
             r#"
             SELECT COALESCE(t.artist, '') AS artist_name,
-                   SUM(h.play_count) AS plays,
+                   SUM(p.plays) AS plays,
                    COUNT(*) AS tracks,
                    (SELECT t2.cover_path
-                      FROM play_history h2
-                      JOIN tracks t2 ON t2.path = h2.track_path
+                      FROM play_totals p2
+                      JOIN tracks t2 ON t2.path = p2.track_path
                      WHERE t2.artist IS t.artist
-                       AND h2.play_count > 0
+                       AND p2.plays > 0
                        AND t2.hidden = 0
                        AND t2.cover_path IS NOT NULL
                        AND t2.cover_path <> ''
-                     ORDER BY h2.play_count DESC
+                     ORDER BY p2.plays DESC
                      LIMIT 1) AS cover_path
-            FROM play_history h
-            JOIN tracks t ON t.path = h.track_path
-            WHERE h.play_count > 0 AND t.hidden = 0
+            FROM play_totals p
+            JOIN tracks t ON t.path = p.track_path
+            WHERE p.plays > 0 AND t.hidden = 0
             GROUP BY t.artist
-            ORDER BY plays DESC, MAX(h.last_played_at) DESC
+            ORDER BY plays DESC, MAX(p.last_played_at) DESC
             LIMIT ?1
             "#,
         )?;

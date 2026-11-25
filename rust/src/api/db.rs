@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 曲库结构版本。每次改表结构 +1，并在 [`migrate`] 里补升级逻辑。
-const SCHEMA_VERSION: i32 = 12;
+const SCHEMA_VERSION: i32 = 13;
 
 struct Database {
     path: String,
@@ -354,6 +354,20 @@ CREATE TABLE IF NOT EXISTS cover_overrides (
 );
 "#;
 
+/// schema v13：播放历史与终身统计拆开。
+///
+/// `play_history` 从「曲目累积表」收缩成「最近播放列表」，只留最近 100 首；
+/// 累计播放次数搬到 `play_totals`——删历史只影响列表，排行榜与总览不受牵连。
+const SCHEMA_V13: &str = r#"
+CREATE TABLE IF NOT EXISTS play_totals (
+    track_path     TEXT    NOT NULL PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+    plays          INTEGER NOT NULL DEFAULT 0,
+    last_played_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS play_totals_plays ON play_totals(plays DESC);
+"#;
+
 /// 依版本号升级库结构。老库（`user_version = 0`）可能已有表，需要逐列补。
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -556,6 +570,34 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
             "#,
         )?;
         tx.pragma_update(None, "user_version", 12)?;
+    }
+
+    if version < 13 {
+        // v13：统计与历史拆表（见 SCHEMA_V13）。老库的 `play_history` 是唯一的
+        // 次数来源，先把次数搬进 `play_totals`，再把历史裁到最近 100 首；
+        // `last_played_at = 0` 的行是旧版「清空历史」留下的，也在这里丢掉。
+        tx.execute_batch(SCHEMA_V13)?;
+        if table_exists(&tx, "play_history")? {
+            tx.execute(
+                r#"
+                INSERT OR IGNORE INTO play_totals (track_path, plays, last_played_at)
+                SELECT track_path, play_count, last_played_at FROM play_history
+                "#,
+                [],
+            )?;
+            tx.execute_batch(
+                r#"
+                DELETE FROM play_history
+                 WHERE rowid NOT IN (
+                    SELECT rowid FROM play_history
+                     WHERE last_played_at > 0
+                     ORDER BY last_played_at DESC, rowid DESC
+                     LIMIT 100
+                 );
+                "#,
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 13)?;
     }
 
     tx.commit()?;
@@ -1197,7 +1239,7 @@ fn merge_track_path(
         [old_path],
     )?;
 
-    // 历史：按曲目去重，合并播放次数并保留较新的播放时间。
+    // 历史：按曲目去重，保留较新的播放时间（次数已搬到 play_totals）。
     tx.execute(
         r#"
         INSERT INTO play_history (track_path, last_played_at, play_count)
@@ -1209,6 +1251,19 @@ fn merge_track_path(
         params![target_path, old_path],
     )?;
     tx.execute("DELETE FROM play_history WHERE track_path = ?1", [old_path])?;
+
+    // 终身次数：与历史分开，合并时要相加而不是二选一。
+    tx.execute(
+        r#"
+        INSERT INTO play_totals (track_path, plays, last_played_at)
+        SELECT ?1, plays, last_played_at FROM play_totals WHERE track_path = ?2
+        ON CONFLICT(track_path) DO UPDATE SET
+            plays          = play_totals.plays + excluded.plays,
+            last_played_at = max(play_totals.last_played_at, excluded.last_played_at)
+        "#,
+        params![target_path, old_path],
+    )?;
+    tx.execute("DELETE FROM play_totals WHERE track_path = ?1", [old_path])?;
 
     // 听歌时长：按「曲目 × 日」聚合，同一天两边都有记录时要相加而不是二选一。
     // 漏了这张表，合并一次就把旧路径那一截时长连同热力图一起级联删掉。
@@ -1569,6 +1624,11 @@ mod tests {
                 last_played_at INTEGER NOT NULL,
                 play_count     INTEGER NOT NULL DEFAULT 1
             );
+            CREATE TABLE play_totals (
+                track_path     TEXT PRIMARY KEY REFERENCES tracks(path) ON DELETE CASCADE,
+                plays          INTEGER NOT NULL DEFAULT 0,
+                last_played_at INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE play_sessions (
                 track_path TEXT    NOT NULL REFERENCES tracks(path) ON DELETE CASCADE,
                 day        INTEGER NOT NULL,
@@ -1608,6 +1668,11 @@ mod tests {
             [],
         )
         .expect("历史");
+        conn.execute(
+            "INSERT INTO play_totals VALUES ('/music/Old.mp3', 2, 100)",
+            [],
+        )
+        .expect("终身次数");
 
         let tx = conn.transaction().expect("事务");
         merge_track_path(&tx, "/music/Old.mp3", "/music/new.mp3").expect("合并路径");
@@ -1665,6 +1730,15 @@ mod tests {
             )
             .expect("历史");
         assert_eq!(history, (100, 2));
+
+        let totals: (i64, i64) = conn
+            .query_row(
+                "SELECT plays, last_played_at FROM play_totals WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("终身次数");
+        assert_eq!(totals, (2, 100), "终身次数也要跟着换路径");
     }
 
     #[test]
@@ -1681,6 +1755,8 @@ mod tests {
                 ('/music/Old.mp3', 10), ('/music/new.mp3', 20);
             INSERT INTO play_history VALUES
                 ('/music/Old.mp3', 100, 2), ('/music/new.mp3', 200, 3);
+            INSERT INTO play_totals VALUES
+                ('/music/Old.mp3', 2, 100), ('/music/new.mp3', 3, 200);
             "#,
         )
         .expect("准备数据");
@@ -1712,6 +1788,15 @@ mod tests {
             .expect("历史");
         assert_eq!(last, 200, "保留较新的播放时间");
         assert_eq!(plays, 5, "播放次数应累加");
+
+        let totals: (i64, i64) = conn
+            .query_row(
+                "SELECT plays, last_played_at FROM play_totals WHERE track_path = ?1",
+                ["/music/new.mp3"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("终身次数");
+        assert_eq!(totals, (5, 200), "终身次数相加、时间取较新的");
     }
 
     #[test]

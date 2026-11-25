@@ -339,7 +339,7 @@ fn migrate_old_database_adds_columns_and_rebuilds_index() {
         .expect("读取版本");
     // 版本号跟着 SCHEMA_VERSION 走：每加一次迁移都要改这里，
     // 忘了改就等于没验证「升级后写入的是当前版本」
-    assert_eq!(version, 12, "升级后应写入当前结构版本");
+    assert_eq!(version, 13, "升级后应写入当前结构版本");
 
     let mut columns = Vec::new();
     {
@@ -934,6 +934,69 @@ fn merge_track_path_keeps_play_sessions() {
             "收藏也要迁移到新路径"
         );
     }
+}
+
+/// v12 → v13：把老库的次数搬进 `play_totals`，历史裁到最近 100 首。
+#[test]
+fn migrate_v13_splits_history_from_totals() {
+    let (_lock, dir) = begin("migrate_v13");
+    let path = dir.db_path();
+    db::init_db(path.clone()).expect("建新库");
+    db::close_db().expect("关库再改结构");
+
+    // 造回 v12 形态：没有 play_totals，历史里 120 条正常 + 1 条清空过的
+    {
+        let conn = rusqlite::Connection::open(&path).expect("直连曲库");
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")
+            .expect("超时");
+        conn.execute_batch("DROP TABLE play_totals; PRAGMA user_version = 12;")
+            .expect("降回 v12");
+        for index in 0..120 {
+            conn.execute(
+                "INSERT INTO tracks (path, title, duration_secs, added_at) VALUES (?1, ?2, 1.5, 1)",
+                rusqlite::params![format!("/music/m{index:03}.mp3"), format!("M{index:03}")],
+            )
+            .expect("造曲目");
+            conn.execute(
+                "INSERT INTO play_history (track_path, last_played_at, play_count) VALUES (?1, ?2, ?3)",
+                rusqlite::params![
+                    format!("/music/m{index:03}.mp3"),
+                    index as i64 + 1,
+                    (index % 5) as i64 + 1
+                ],
+            )
+            .expect("造历史");
+        }
+        conn.execute(
+            "INSERT INTO tracks (path, title, duration_secs, added_at) VALUES ('/music/cleared.mp3', '清空过的', 1.5, 1)",
+            [],
+        )
+        .expect("造曲目");
+        conn.execute(
+            "INSERT INTO play_history (track_path, last_played_at, play_count) VALUES ('/music/cleared.mp3', 0, 3)",
+            [],
+        )
+        .expect("造清空行");
+    }
+
+    db::init_db(path.clone()).expect("升级到 v13");
+
+    // 次数全部搬过去了（含清空过的那条：0..120 每 5 条一轮 1+2+3+4+5 = 360，再加 3）
+    let stats = collections::play_stats().expect("统计");
+    assert_eq!(stats.total_plays, 363, "老库的次数要全量搬进 play_totals");
+    assert_eq!(stats.track_count, 121, "听过曲目数按 plays > 0 计");
+
+    // 历史只留最近 100 首，清空过的行被丢掉
+    let recent = collections::recent_tracks(100).expect("最近播放");
+    assert_eq!(recent.len(), 100, "历史应裁到 100 行");
+    assert!(
+        !recent.iter().any(|t| t.title == "清空过的"),
+        "last_played_at = 0 的行不该留在历史里"
+    );
+    assert!(
+        recent.iter().any(|t| t.title == "M119"),
+        "最新的那首要在列表里"
+    );
 }
 
 /// 隐藏时路径大小写 / 分隔符不同也要能命中（走归一化兜底那一支）。

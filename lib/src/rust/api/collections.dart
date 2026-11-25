@@ -8,7 +8,7 @@ import 'model.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `clean_name`, `name_taken`, `now_secs`, `playlist_by_id`, `playlist_exists`, `read_slots`, `row_to_playlist`, `track_exists`, `visible_of`, `write_visible_order`
+// These functions are ignored because they are not marked as `pub`: `clean_name`, `name_taken`, `now_secs`, `playlist_by_id`, `playlist_exists`, `prune_history`, `read_slots`, `row_to_playlist`, `track_exists`, `visible_of`, `write_visible_order`
 
 /// 歌单列表，按名称排序，附带曲目数。
 Future<List<Playlist>> listPlaylists() =>
@@ -144,24 +144,23 @@ Future<int> setFavorites({
 /// 只更新「最近播放时间」，不增加播放次数（起播时用）。
 ///
 /// 历史列表按这个时间排，所以「最近播放」跟点击走；次数另算一次——
-/// 听过一半才由 `record_play` 累加。新行以 `play_count = 0` 落地，
-/// 排行榜与总次数都按 `play_count > 0` 过滤，不会把它算进去。
+/// 听过一半才由 `record_play` 累加。`play_totals` 以 `plays = 0` 落地，
+/// 排行榜与总次数只数 `plays > 0`，不会把它算进去。
 Future<void> touchPlayHistory({required String path}) =>
     RustLib.instance.api.crateApiCollectionsTouchPlayHistory(path: path);
 
-/// 记录一次播放：同曲目只保留一行，更新时间并累加次数。
+/// 记录一次播放：终身次数写 `play_totals`，同时刷新最近播放时间。
 Future<void> recordPlay({required String path}) =>
     RustLib.instance.api.crateApiCollectionsRecordPlay(path: path);
 
-/// 最近播放的曲目（按曲目去重），`limit` 截断到 `1..=500`。
+/// 最近播放的曲目（按曲目去重），`limit` 截断到 `1..=100`。
 Future<List<Track>> recentTracks({required int limit}) =>
     RustLib.instance.api.crateApiCollectionsRecentTracks(limit: limit);
 
-/// 清空播放历史。
+/// 清空播放历史：只删「最近播放列表」。
 ///
-/// 只把「最近播放时间」清零，让时间线列表空掉；`play_count` 原样保留，
-/// 常听歌曲 / 常听艺术家排行与累计播放次数因此不受影响。按天累计的听歌时长
-/// 存在 `play_sessions`，本来就不在这条路径上。
+/// 累计次数在 `play_totals`、听歌时长在 `play_sessions`，都不在这条路径上，
+/// 所以清空历史后排行、总次数、热力图原样保留。
 Future<void> clearHistory() =>
     RustLib.instance.api.crateApiCollectionsClearHistory();
 

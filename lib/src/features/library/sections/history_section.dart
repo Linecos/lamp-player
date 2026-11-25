@@ -40,7 +40,7 @@ extension _HistorySection on _LibraryPageState {
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('清空播放历史？'),
-        content: const Text('只清空播放记录（最近播放时间）。'),
+        content: const Text('只清空「最近播放」列表；听歌统计与常听排行不受影响。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -61,7 +61,8 @@ extension _HistorySection on _LibraryPageState {
       return;
     }
     try {
-      // 后端只把 last_played_at 清零：列表空了，play_count 仍留给排行
+      // 后端只删最近播放列表：次数在 play_totals、时长在 play_sessions，
+      // 排行与统计不会跟着变小
       await _repository.clearHistory();
       if (!mounted) {
         return;
