@@ -107,9 +107,15 @@ class FakeLibraryRepository implements LibraryRepository {
         .toList();
   }
 
+  /// 让扫描「慢」一点，用于验证「正在扫描」只在长扫描时出现
+  Duration scanDelay = Duration.zero;
+
   @override
   Future<ScanReport> scanFolder(String folder) async {
     scannedFolders.add(folder);
+    if (scanDelay > Duration.zero) {
+      await Future<void>.delayed(scanDelay);
+    }
     return const ScanReport(
       scanned: 0,
       unchanged: 0,

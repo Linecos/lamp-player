@@ -75,7 +75,7 @@ extension _MusicSection on _LibraryPageState {
               child: const LinearProgressIndicator(minHeight: 2),
             ),
           ),
-        if (_scanning)
+        if (_scanSlow)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(
