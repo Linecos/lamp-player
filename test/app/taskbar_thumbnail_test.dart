@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/app/taskbar_thumbnail.dart';
@@ -11,6 +13,18 @@ void main() {
   const StandardMethodCodec codec = StandardMethodCodec();
 
   final List<MethodCall> calls = <MethodCall>[];
+
+  setUp(() {
+    // CI 跑在 Linux 上。这里验的是通道两头，不是平台分支，所以先把门禁打开；
+    // 「平台不支持就什么都不做」另有单独用例。
+    TaskbarThumbnail.isSupported = () => true;
+    TaskbarThumbnail.resetForTesting();
+  });
+
+  tearDown(() {
+    TaskbarThumbnail.isSupported = () => Platform.isWindows;
+    TaskbarThumbnail.resetForTesting();
+  });
 
   void installChannel() {
     calls.clear();
@@ -39,6 +53,18 @@ void main() {
     installChannel();
     await TaskbarThumbnail.setButtons(isPlaying: false, visible: false);
     expect(calls, isEmpty, reason: '测试宿主里没有原生侧，连调用都不该发');
+  });
+
+  test('平台不支持时连注册都不做', () async {
+    installChannel();
+    TaskbarThumbnail.isSupported = () => false;
+
+    TaskbarThumbnail.init(onButtonClick: (TaskbarButtonAction _) {});
+    await TaskbarThumbnail.setButtons(isPlaying: true);
+    await TaskbarThumbnail.setCover(Uint8List.fromList(<int>[1, 2, 3]));
+    await TaskbarThumbnail.clearCover();
+
+    expect(calls, isEmpty, reason: '非 Windows 上不该往通道里发任何东西');
   });
 
   test('注册后把播放状态推给原生侧', () async {

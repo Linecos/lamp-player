@@ -22,11 +22,22 @@ class TaskbarThumbnail {
   /// `MissingPluginException`
   static bool _installed = false;
 
+  /// 平台门禁。默认按平台判断；单元测试跑在 Linux / macOS 上，用它把门禁
+  /// 打开才验得了通道两头（原生侧在不在由 `MissingPluginException` 兜底）。
+  @visibleForTesting
+  static bool Function() isSupported = () => Platform.isWindows;
+
+  /// 清掉「已注册」状态，让测试之间互不影响。
+  @visibleForTesting
+  static void resetForTesting() {
+    _installed = false;
+  }
+
   /// 注册点击回调；重复调用无副作用（后注册的覆盖前一个）。
   static void init({
     required void Function(TaskbarButtonAction action) onButtonClick,
   }) {
-    if (!Platform.isWindows) {
+    if (!isSupported()) {
       return;
     }
     _installed = true;
@@ -53,7 +64,7 @@ class TaskbarThumbnail {
     required bool isPlaying,
     bool visible = true,
   }) async {
-    if (!Platform.isWindows || !_installed) {
+    if (!isSupported() || !_installed) {
       return;
     }
     try {
@@ -71,7 +82,7 @@ class TaskbarThumbnail {
   ///
   /// 传封面文件的原始字节，解码交给原生侧（GDI+）；解不出来就保持上一张。
   static Future<void> setCover(Uint8List bytes) async {
-    if (!Platform.isWindows || !_installed || bytes.isEmpty) {
+    if (!isSupported() || !_installed || bytes.isEmpty) {
       return;
     }
     try {
@@ -85,7 +96,7 @@ class TaskbarThumbnail {
 
   /// 没有封面（或还没播放）时撤回自定义预览，悬停回到系统截图
   static Future<void> clearCover() async {
-    if (!Platform.isWindows || !_installed) {
+    if (!isSupported() || !_installed) {
       return;
     }
     try {
