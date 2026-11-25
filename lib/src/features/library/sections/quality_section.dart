@@ -70,7 +70,7 @@ extension _QualitySection on _LibraryPageState {
               icon: const Icon(Icons.arrow_back),
               visualDensity: VisualDensity.compact,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: Spacing.xxs),
             Container(
               width: 10,
               height: 10,
@@ -79,7 +79,7 @@ extension _QualitySection on _LibraryPageState {
                 shape: BoxShape.circle,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             Text(
               '${qualityLabel(quality)} · ${qualityCaption(quality)}',
               style: theme.textTheme.headlineSmall?.copyWith(
@@ -95,7 +95,7 @@ extension _QualitySection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _buildSelectionToggle(context),
           ],
         ),
@@ -108,7 +108,7 @@ extension _QualitySection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(
           child: tracks.isEmpty
               ? EmptyState(

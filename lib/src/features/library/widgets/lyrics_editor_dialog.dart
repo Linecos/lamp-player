@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show FilteringTextInputFormatter, TextInputFormatter;
 
+import '../../../theme/tokens.dart';
+
 /// 歌词编辑子窗：改文本 + 整体平移时间戳。
 ///
 /// 从「编辑音频信息」界面里点「编辑歌词…」进来。单独一个窗，是因为歌词
@@ -134,14 +136,19 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
           children: <Widget>[
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.lg,
+                  Spacing.lg,
+                  Spacing.lg,
+                  0,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     Row(
                       children: <Widget>[
                         Text('编辑歌词', style: theme.textTheme.titleMedium),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: Spacing.xs),
                         _sourceChip(theme, scheme),
                         const Spacer(),
                         Text(
@@ -152,7 +159,7 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: Spacing.sm),
                     Expanded(
                       child: TextField(
                         key: const ValueKey<String>('lyrics-editor'),
@@ -169,11 +176,11 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
                         decoration: const InputDecoration(
                           hintText: '还没有歌词。可以直接粘贴 LRC 文本…',
                           border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.all(12),
+                          contentPadding: EdgeInsets.all(Spacing.sm),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: Spacing.sm),
                     _buildOffsetRow(theme, scheme),
                   ],
                 ),
@@ -197,10 +204,13 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
     return Tooltip(
       message: tip,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: 2,
+        ),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(Radii.sm),
         ),
         child: Text(
           label,
@@ -217,11 +227,11 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
     return Row(
       children: <Widget>[
         Text('整体偏移', style: theme.textTheme.labelLarge),
-        const SizedBox(width: 10),
+        const SizedBox(width: Spacing.sm),
         SizedBox(width: 64, child: _numberField(_offsetSeconds, '秒')),
-        const SizedBox(width: 8),
+        const SizedBox(width: Spacing.xs),
         SizedBox(width: 84, child: _numberField(_offsetMillis, '毫秒')),
-        const SizedBox(width: 12),
+        const SizedBox(width: Spacing.sm),
         SegmentedButton<bool>(
           showSelectedIcon: false,
           style: const ButtonStyle(
@@ -236,7 +246,7 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
           onSelectionChanged: (Set<bool> value) =>
               setState(() => _delay = value.first),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: Spacing.sm),
         OutlinedButton.icon(
           onPressed: _shifting ? null : _applyOffset,
           icon: const Icon(Icons.fast_rewind, size: 18),
@@ -257,7 +267,10 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
         labelText: label,
         isDense: true,
         border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
       ),
       style: Theme.of(context).textTheme.bodyMedium,
     );
@@ -265,7 +278,12 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
 
   Widget _buildFooter(ThemeData theme, ColorScheme scheme) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.sm,
+        Spacing.lg,
+        Spacing.md,
+      ),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -278,12 +296,12 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: Spacing.sm),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('取消'),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Spacing.xs),
           FilledButton(
             onPressed: _shifting
                 ? null

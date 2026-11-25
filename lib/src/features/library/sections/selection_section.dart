@@ -196,7 +196,7 @@ extension _SelectionSection on _LibraryPageState {
     final ThemeData theme = Theme.of(context);
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         child: Align(
           alignment: Alignment.centerLeft,
           child: Text(
@@ -329,7 +329,7 @@ extension _SelectionSection on _LibraryPageState {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     LinearProgressIndicator(value: ratio),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: Spacing.sm),
                     Text(
                       '${value.done}/${value.total}：${value.title}',
                       maxLines: 1,

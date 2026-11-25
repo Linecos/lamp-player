@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/scroll/smooth_scroll.dart';
 import '../../common/widgets/artist_avatar.dart';
+import '../../theme/tokens.dart';
 
 /// 多艺术家选择弹窗。
 ///
@@ -38,12 +39,17 @@ class _ArtistPickerDialog extends StatelessWidget {
       key: const ValueKey<String>('artist-picker-dialog'),
       // 子节点不允许画到 28px 圆角外面（与其它弹窗一致）
       clipBehavior: Clip.antiAlias,
-      titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
-      contentPadding: const EdgeInsets.only(bottom: 8),
+      titlePadding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.md,
+        Spacing.sm,
+        Spacing.xs,
+      ),
+      contentPadding: const EdgeInsets.only(bottom: Spacing.xs),
       title: Row(
         children: <Widget>[
           const Icon(Icons.person_outline, size: 22),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           const Expanded(child: Text('选择艺术家')),
           IconButton(
             tooltip: '关闭',
@@ -61,7 +67,12 @@ class _ArtistPickerDialog extends StatelessWidget {
             type: MaterialType.transparency,
             child: SmoothListView(
               shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.xs,
+                Spacing.xxs,
+                Spacing.xs,
+                Spacing.xxs,
+              ),
               children: <Widget>[
                 for (final String artist in artists)
                   _ArtistRow(
@@ -92,11 +103,11 @@ class _ArtistRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
         type: MaterialType.transparency,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.md),
         child: ListTile(
           key: ValueKey<String>('artist-picker-$name'),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(Radii.md),
           ),
           // 与艺术家卡片 / 详情头部同一个组件：圆形裁切、有封面用封面
           leading: artistAvatar(context, name, 36, coverPath: coverPath),

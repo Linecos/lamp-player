@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../common/scroll/smooth_scroll.dart';
+import '../../../theme/tokens.dart';
 
 /// 封面编辑窗：封面在左，右边是说明与两个动作。
 ///
@@ -151,12 +152,17 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      insetPadding: const EdgeInsets.all(24),
+      insetPadding: const EdgeInsets.all(Spacing.lg),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: SingleChildScrollView(
           controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(24, 16, 12, 20),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.lg,
+            Spacing.md,
+            Spacing.sm,
+            Spacing.lg,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -197,17 +203,17 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: Spacing.md),
               if (stacked) ...<Widget>[
                 Center(child: cover),
-                const SizedBox(height: 16),
+                const SizedBox(height: Spacing.md),
                 actions,
               ] else
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     cover,
-                    const SizedBox(width: 20),
+                    const SizedBox(width: Spacing.md),
                     Expanded(child: actions),
                   ],
                 ),
@@ -239,13 +245,13 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: Spacing.md),
             FilledButton.icon(
               onPressed: _busy ? null : _pick,
               icon: const Icon(Icons.image_outlined, size: 18),
               label: const Text('更换封面…'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: Spacing.xs),
             OutlinedButton.icon(
               // 没有自定义封面时无事可恢复，禁用比点了没反应更清楚
               onPressed: _busy || !_hasCustom ? null : _reset,
@@ -253,7 +259,7 @@ class _CoverEditorDialogState extends State<CoverEditorDialog> {
               label: const Text('恢复默认'),
             ),
             if (_hasCustom) ...<Widget>[
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Text(
                 '当前使用的是自定义封面',
                 style: theme.textTheme.bodySmall?.copyWith(

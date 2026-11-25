@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 /// 错误态：标题 + 错误摘要 + 重试按钮。
 class ErrorRetry extends StatelessWidget {
   const ErrorRetry({
@@ -38,18 +40,18 @@ class ErrorRetry extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Spacing.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Icon(Icons.error_outline, size: 56, color: scheme.error),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Text(
                 title,
                 style: theme.textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Spacing.xs),
               Text(
                 describe(error),
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -59,7 +61,7 @@ class ErrorRetry extends StatelessWidget {
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: Spacing.md),
               FilledButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),

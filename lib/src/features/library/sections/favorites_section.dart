@@ -156,9 +156,9 @@ extension _FavoritesSection on _LibraryPageState {
               // 搜索时放的是命中结果
               label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _buildSelectionToggle(context),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             // 排序放在多选右边：和歌曲页同一套控件，多一个「原序」（恢复收藏先后）
             _SortButton(
               mode: _manualSort,
@@ -179,7 +179,7 @@ extension _FavoritesSection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(child: _buildFavoritesBody(context, visible)),
       ],
     );

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 /// 加载中：转圈 +（可选）文案。
 class LoadingState extends StatelessWidget {
   const LoadingState({super.key, this.message, this.size = 32});
@@ -15,7 +17,7 @@ class LoadingState extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Spacing.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -25,7 +27,7 @@ class LoadingState extends StatelessWidget {
                 child: const CircularProgressIndicator(strokeWidth: 3),
               ),
               if (message != null) ...<Widget>[
-                const SizedBox(height: 16),
+                const SizedBox(height: Spacing.md),
                 Text(
                   message!,
                   style: theme.textTheme.bodyMedium?.copyWith(

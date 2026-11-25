@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../player/shortcuts.dart';
 import '../../common/scroll/smooth_scroll.dart';
+import '../../theme/tokens.dart';
 
 /// 快捷键弹窗：点一行 → 按下想要的组合键 → 立即生效并保存。
 ///
@@ -72,7 +73,9 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
       key: const ValueKey<String>('shortcuts-dialog'),
       backgroundColor: scheme.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: SizedBox(
@@ -81,11 +84,16 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.lg,
+                  Spacing.md,
+                  Spacing.sm,
+                  Spacing.xxs,
+                ),
                 child: Row(
                   children: <Widget>[
                     const Icon(Icons.keyboard_outlined, size: 22),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: Spacing.sm),
                     Expanded(
                       child: Text('快捷键', style: theme.textTheme.titleLarge),
                     ),
@@ -104,7 +112,12 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.lg,
+                  0,
+                  Spacing.lg,
+                  Spacing.xs,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -120,7 +133,7 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
                     ),
                     if (_error != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.only(top: Spacing.xxs),
                         child: Text(
                           _error!,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -139,7 +152,12 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
                   child: ListView(
                     controller: _scroll,
                     shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    padding: const EdgeInsets.fromLTRB(
+                      Spacing.sm,
+                      0,
+                      Spacing.sm,
+                      Spacing.md,
+                    ),
                     children: <Widget>[
                       for (final ShortcutBinding binding in _bindings)
                         _ShortcutRow(
@@ -148,9 +166,11 @@ class _ShortcutsDialogState extends State<ShortcutsDialog> {
                           recording: _recording == binding.action,
                           onTap: () => _startRecording(binding.action),
                         ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: Spacing.sm),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.xs,
+                        ),
                         child: Text(
                           '只在本应用窗口聚焦时生效，媒体键由系统转发。'
                           '单个字母 / 数字键需配合 Ctrl、Alt、Shift。',
@@ -305,17 +325,20 @@ class _ShortcutRow extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(Radii.md),
       onTap: onTap,
       child: Padding(
         // 13 行要尽量在一屏里排下，上下留 10 就够点了
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
         child: Row(
           children: <Widget>[
             Expanded(
               child: Text(action.label, style: theme.textTheme.bodyLarge),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             if (recording)
               Text(
                 '按下组合键…',
@@ -326,12 +349,12 @@ class _ShortcutRow extends StatelessWidget {
             else
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
+                  horizontal: Spacing.sm,
+                  vertical: Spacing.xxs,
                 ),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(Radii.xs),
                   border: Border.all(color: scheme.outlineVariant),
                 ),
                 child: Text(
@@ -341,7 +364,7 @@ class _ShortcutRow extends StatelessWidget {
                   ),
                 ),
               ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             Icon(
               recording ? Icons.keyboard : Icons.edit_outlined,
               size: 18,

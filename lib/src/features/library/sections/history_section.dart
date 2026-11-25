@@ -102,12 +102,12 @@ extension _HistorySection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: const Text('播放全部'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _buildSelectionToggle(context),
             // 三颗按钮统一 8，与其它分区标题行同一个节奏；「清空历史」是破坏性
             // 操作，靠红色文字区分。也不能再塞弹性占位——标题行里未多选时已经
             // 有一个，两个弹性段会把按钮组平分成居中
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             OutlinedButton.icon(
               style: _headerButtonStyle().copyWith(
                 foregroundColor: WidgetStatePropertyAll<Color>(scheme.error),
@@ -129,7 +129,7 @@ extension _HistorySection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(child: _buildHistoryBody(context, visible)),
       ],
     );

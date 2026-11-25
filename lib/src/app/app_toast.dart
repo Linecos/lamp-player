@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../common/widgets/toast_pill.dart';
 import '../features/library/widgets/library_rail.dart';
 import '../features/player/player_bar.dart';
+import '../theme/tokens.dart';
 
 /// 应用内轻提示：浮在播放岛上方居中的胶囊，几秒后自己淡出。
 ///
@@ -167,7 +168,7 @@ class _ToastLayerState extends State<_ToastLayer>
                     CurvedAnimation(parent: _fade, curve: Curves.easeOutCubic),
                   ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
                 child: ToastPill(
                   message: widget.message,
                   actionLabel: widget.actionLabel,

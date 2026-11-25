@@ -500,7 +500,7 @@ extension _PlaylistsSection on _LibraryPageState {
               icon: const Icon(Icons.file_open_outlined),
               label: const Text('导入歌单'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             FilledButton.icon(
               style: _headerButtonStyle(),
               onPressed: () => unawaited(_createPlaylist()),
@@ -518,7 +518,7 @@ extension _PlaylistsSection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(child: _buildPlaylistsBody(context, visible)),
       ],
     );
@@ -590,7 +590,9 @@ extension _PlaylistsSection on _LibraryPageState {
         maximumSize: const Size.square(_headerControlHeight),
         padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.sm),
+        ),
         backgroundColor: tonal ? scheme.secondaryContainer : null,
         foregroundColor:
             color ??
@@ -639,8 +641,8 @@ extension _PlaylistsSection on _LibraryPageState {
                 Padding(
                   padding: const EdgeInsets.only(
                     left: _detailHeaderInset,
-                    top: 8,
-                    bottom: 8,
+                    top: Spacing.xs,
+                    bottom: Spacing.xs,
                   ),
                   child: Row(
                     // 与专辑 / 艺术家详情一致：文字与按钮贴住封面底边
@@ -663,7 +665,7 @@ extension _PlaylistsSection on _LibraryPageState {
                                 height: detailCoverSize,
                                 decoration: BoxDecoration(
                                   color: scheme.secondaryContainer,
-                                  borderRadius: BorderRadius.circular(32),
+                                  borderRadius: BorderRadius.circular(Radii.xl),
                                 ),
                                 child: Icon(
                                   Icons.queue_music,
@@ -672,7 +674,7 @@ extension _PlaylistsSection on _LibraryPageState {
                                 ),
                               ),
                       ),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: Spacing.lg),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -683,7 +685,7 @@ extension _PlaylistsSection on _LibraryPageState {
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.headlineSmall,
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: Spacing.xs),
                             Text(
                               '${playlist.trackCount} 首 · 更新于 '
                               '${formatPlaylistUpdated(playlist.updatedAt)}',
@@ -691,7 +693,7 @@ extension _PlaylistsSection on _LibraryPageState {
                                 color: scheme.onSurfaceVariant,
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: Spacing.md),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
@@ -763,7 +765,7 @@ extension _PlaylistsSection on _LibraryPageState {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(child: _buildPlaylistTracksBody(context, playlist)),
       ],
     );

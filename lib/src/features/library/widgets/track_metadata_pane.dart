@@ -10,6 +10,7 @@ import '../../../rust/api/metadata.dart';
 import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
 import 'lyrics_editor_dialog.dart';
+import '../../../theme/tokens.dart';
 
 /// 「编辑音频信息」区块：占据曲库页右侧整块内容区（与历史 / 专辑分区同级），
 /// 不是弹窗。左上角返回箭头回到进入前的分区。
@@ -298,12 +299,14 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
             controller: _scroll,
             // 底部留出播放岛的高度：滚到底时最后一张卡片停在岛上方，不被压住。
             // 保存 / 取消在标题行（不随内容滚动），所以这里不用再给按钮让位
-            padding: EdgeInsets.only(bottom: PlayerBar.occupiedHeight + 8),
+            padding: EdgeInsets.only(
+              bottom: PlayerBar.occupiedHeight + Spacing.xs,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 _buildCard(theme, scheme),
-                const SizedBox(height: 12),
+                const SizedBox(height: Spacing.sm),
                 _buildInfoCards(theme, scheme),
               ],
             ),
@@ -324,7 +327,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
   /// 标题同一档），返回箭头纵向居中于两行文字而不是贴着标题。
   Widget _buildHeader(ThemeData theme, ColorScheme scheme) {
     return Padding(
-      padding: const EdgeInsets.only(top: 2, bottom: 16),
+      padding: const EdgeInsets.only(top: 2, bottom: Spacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -336,7 +339,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                 tooltip: '返回',
                 visualDensity: VisualDensity.compact,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: Spacing.xs),
               Expanded(
                 flex: 2,
                 child: Column(
@@ -350,7 +353,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: Spacing.xs),
                     Tooltip(
                       message: widget.filePath,
                       waitDuration: const Duration(milliseconds: 400),
@@ -361,7 +364,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                             size: 14,
                             color: scheme.onSurfaceVariant,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: Spacing.xs),
                           Flexible(
                             child: Text(
                               // 显式用 `p.windows`：路径风格是**数据**的属性，
@@ -386,7 +389,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
               // 保存失败 / 标题空这类提示紧挨着按钮：它跟按钮在同一个视线里，
               // 不用滚到底才发现没保存成功
               if (_error != null) ...<Widget>[
-                const SizedBox(width: 12),
+                const SizedBox(width: Spacing.sm),
                 Flexible(
                   child: Text(
                     _error!,
@@ -399,12 +402,12 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                   ),
                 ),
               ],
-              const SizedBox(width: 12),
+              const SizedBox(width: Spacing.sm),
               TextButton(
                 onPressed: _saving ? null : widget.onClose,
                 child: const Text('取消'),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
               FilledButton(
                 onPressed: _saving ? null : _save,
                 child: Text(_saving ? '保存中…' : '保存'),
@@ -427,18 +430,18 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
           math.min(_coverMaxSide, constraints.maxWidth * 0.26),
         );
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Spacing.lg),
           decoration: BoxDecoration(
             // 内容区底色是 surfaceContainerLow，卡片要更亮一层才有「一张板」的感觉
             color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(Radii.sm),
             border: Border.all(color: scheme.outlineVariant),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               _buildCoverColumn(theme, scheme, coverSide),
-              const SizedBox(width: 24),
+              const SizedBox(width: Spacing.lg),
               Expanded(
                 child: LayoutBuilder(
                   builder: (BuildContext context, BoxConstraints form) {
@@ -462,7 +465,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _coverBox(scheme, side, picked),
-          const SizedBox(height: 10),
+          const SizedBox(height: Spacing.sm),
           Text(
             picked == null ? '点击封面可以换一张' : '保存后生效',
             textAlign: TextAlign.center,
@@ -494,7 +497,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
       child: Tooltip(
         message: '点击更换封面',
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.sm),
           child: Stack(
             children: <Widget>[
               image,
@@ -575,9 +578,9 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
           _field(_lyricist, '作词家', Icons.edit_note),
         ], perRow),
         _field(_comment, '注释', Icons.notes, lines: 2),
-        const SizedBox(height: 4),
+        const SizedBox(height: Spacing.xxs),
         _buildLyricsEntry(theme, scheme),
-        const SizedBox(height: 6),
+        const SizedBox(height: Spacing.xs),
         Text(
           '留空表示清掉这个标签。',
           style: theme.textTheme.bodySmall?.copyWith(
@@ -629,7 +632,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: Spacing.md),
       child: TextField(
         key: ValueKey<String>('metadata-field-$label'),
         controller: controller,
@@ -649,8 +652,8 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
             minHeight: 44,
           ),
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 14,
+            horizontal: Spacing.sm,
+            vertical: Spacing.md,
           ),
           border: fieldBorder(scheme.outline),
           enabledBorder: fieldBorder(scheme.outline),
@@ -673,12 +676,17 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
       _ => '暂无歌词',
     };
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: Spacing.xs),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        padding: const EdgeInsets.fromLTRB(
+          Spacing.sm,
+          Spacing.sm,
+          Spacing.sm,
+          Spacing.sm,
+        ),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(Radii.xs),
           border: Border.all(color: scheme.outlineVariant),
         ),
         child: Column(
@@ -691,9 +699,9 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                   size: 18,
                   color: scheme.onSurfaceVariant,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: Spacing.xs),
                 Text('歌词', style: theme.textTheme.labelLarge),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 Expanded(
                   child: Text(
                     lines == 0
@@ -708,7 +716,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: Spacing.sm),
             // 分段按钮不做成「撑满整行」：两个选项各占半屏会显得像两条工具条，
             // 而且它本身只需要两百多像素。用 Wrap 让「编辑歌词…」贴右边，
             // 窄到放不下时自动换行，不会把按钮挤出台面。
@@ -842,10 +850,15 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
   ) {
     return Container(
       key: ValueKey<String>('metadata-info-$title'),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.md,
+        Spacing.md,
+        Spacing.md,
+        Spacing.xs,
+      ),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(Radii.sm),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
@@ -854,7 +867,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
           Row(
             children: <Widget>[
               Icon(icon, size: 16, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 6),
+              const SizedBox(width: Spacing.xs),
               Text(
                 title,
                 style: theme.textTheme.labelLarge?.copyWith(
@@ -871,7 +884,7 @@ class TrackMetadataPaneState extends State<TrackMetadataPane> {
                 color: scheme.outlineVariant.withValues(alpha: 0.5),
               ),
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[

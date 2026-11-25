@@ -168,7 +168,7 @@ void main() {
     );
     expect(
       label.left - pill.left,
-      closeTo(14, 2),
+      closeTo(16, 2),
       reason: '文字到胶囊左端应当只有内边距的距离，不留给空占位',
     );
 

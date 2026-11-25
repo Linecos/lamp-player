@@ -74,6 +74,7 @@ import 'widgets/playlist_grid.dart';
 import 'widgets/quality_ring.dart';
 import 'views/library_manage_view.dart';
 import 'widgets/track_list_view.dart';
+import '../../theme/tokens.dart';
 
 part 'sections/output_section.dart';
 part 'sections/data_section.dart';
@@ -2618,7 +2619,7 @@ class _LibraryPageState extends State<LibraryPage>
             // 右侧不留额外空隙：放大镜的槽位紧挨着最小化按钮，
             // 四个按钮的中心距才是同一个数（46）
             padding: const EdgeInsets.only(
-              left: 16,
+              left: Spacing.md,
               right: LampTitleBar.controlsWidth,
             ),
             child: LayoutBuilder(
@@ -2676,7 +2677,12 @@ class _LibraryPageState extends State<LibraryPage>
               fit: StackFit.expand,
               children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    Spacing.md,
+                    Spacing.sm,
+                    Spacing.md,
+                    0,
+                  ),
                   child: FadeTransition(
                     key: const ValueKey<String>('section-fade'),
                     // 只做淡入：交叉淡变会让两份全屏列表同时布局 + 逐帧重绘，
@@ -2777,7 +2783,7 @@ class _LibraryPageState extends State<LibraryPage>
     final ColorScheme scheme = theme.colorScheme;
     // 胶囊：半径给足，RRect 会按短边自动夹到高度的一半，改高度也不会变形
     final OutlineInputBorder border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(Radii.pill),
       borderSide: BorderSide.none,
     );
 
@@ -2801,13 +2807,13 @@ class _LibraryPageState extends State<LibraryPage>
         border: border,
         enabledBorder: border,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(Radii.pill),
           borderSide: BorderSide(color: scheme.primary, width: 1.6),
         ),
         // 与收起态那个放大镜同一支笔：图标字体在 Release 增量构建里可能
         // 缺字形（见 [_buildSearchToggle]），这里也自绘
         prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: 8),
+          padding: const EdgeInsets.only(left: Spacing.xs),
           child: Center(
             widthFactor: 1,
             heightFactor: 1,
@@ -2831,7 +2837,7 @@ class _LibraryPageState extends State<LibraryPage>
                 iconSize: 18,
                 icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
               ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(vertical: Spacing.xs),
       ),
     );
   }
@@ -3325,7 +3331,7 @@ class _SortButton extends StatelessWidget {
       // 两段的墨迹都要贴着胶囊圆角裁掉
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(Radii.pill),
         border: Border.all(color: scheme.outline),
       ),
       // InkWell 的墨迹画在**最近一层 Material** 上：不在这里垫一个透明的，
@@ -3353,7 +3359,7 @@ class _SortButton extends StatelessWidget {
                                   ? scheme.primary
                                   : scheme.onSurfaceVariant,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: Spacing.sm),
                             Text(
                               '自定义',
                               style: theme.textTheme.bodyMedium?.copyWith(
@@ -3375,7 +3381,7 @@ class _SortButton extends StatelessWidget {
                                   ? scheme.primary
                                   : scheme.onSurfaceVariant,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: Spacing.sm),
                             Text(
                               item.label,
                               style: theme.textTheme.bodyMedium?.copyWith(
@@ -3392,7 +3398,10 @@ class _SortButton extends StatelessWidget {
                 height: _headerControlHeight,
                 // 没放前导图标：文字块从这里就开始，左段不至于头重脚轻
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 14, right: 6),
+                  padding: const EdgeInsets.only(
+                    left: Spacing.md,
+                    right: Spacing.xs,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -3459,7 +3468,7 @@ class _DetailBar extends StatelessWidget {
           tooltip: '返回',
           icon: const Icon(Icons.arrow_back),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: Spacing.xxs),
         Text(
           label,
           style: theme.textTheme.bodyMedium?.copyWith(
@@ -3499,10 +3508,13 @@ class _DropOverlay extends StatelessWidget {
         color: scheme.scrim.withValues(alpha: 0.32),
         child: Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 40,
+              vertical: Spacing.xl,
+            ),
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(32),
+              borderRadius: BorderRadius.circular(Radii.xl),
               border: Border.all(color: scheme.primary, width: 2),
             ),
             child: Column(
@@ -3513,9 +3525,9 @@ class _DropOverlay extends StatelessWidget {
                   size: 48,
                   color: scheme.primary,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: Spacing.sm),
                 Text('松开即可导入音乐', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
+                const SizedBox(height: Spacing.xxs),
                 Text(
                   '文件夹会整个扫描，单个音频文件按所在目录导入',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -3574,7 +3586,7 @@ ButtonStyle _headerButtonStyle() {
     visualDensity: VisualDensity.standard,
     minimumSize: WidgetStatePropertyAll<Size>(Size(0, _headerControlHeight)),
     padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
-      EdgeInsets.symmetric(horizontal: 16),
+      EdgeInsets.symmetric(horizontal: Spacing.md),
     ),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
   );
@@ -3618,7 +3630,7 @@ class _TopBarBrand extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               mark,
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 140),
                 child: Text(

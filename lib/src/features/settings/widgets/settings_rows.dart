@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../theme/tokens.dart';
+
 /// 设置类页面的行索引：顶部常驻搜索框按 [searchText] 就地过滤。
 ///
 /// 索引直接取行自己展示的标题 / 副标题，改文案时不会漏更新。
@@ -17,7 +19,7 @@ class SettingsSectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+      padding: const EdgeInsets.fromLTRB(0, Spacing.md, 0, Spacing.xs),
       child: Text(
         text,
         style: theme.textTheme.labelLarge?.copyWith(
@@ -41,12 +43,15 @@ class SettingsCard extends StatelessWidget {
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.xxs,
+        ),
         child: Column(
           children: <Widget>[
             for (int i = 0; i < children.length; i += 1) ...<Widget>[
@@ -91,11 +96,14 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
     final ColorScheme scheme = theme.colorScheme;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(Radii.lg),
       hoverColor: scheme.surfaceContainerHigh,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
         child: Row(
           children: <Widget>[
             Container(
@@ -107,7 +115,7 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
               ),
               child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,7 +131,7 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             if (trailing != null)
               trailing!
             else if (onTap != null)
@@ -163,11 +171,14 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
     final ColorScheme scheme = theme.colorScheme;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(Radii.lg),
       hoverColor: scheme.surfaceContainerHigh,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
         child: Row(
           children: <Widget>[
             Container(
@@ -179,7 +190,7 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
               ),
               child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,7 +208,7 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             Text(
               value,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -205,7 +216,7 @@ class SettingsInfoRow extends StatelessWidget implements SettingsSearchable {
               ),
             ),
             if (onTap != null) ...<Widget>[
-              const SizedBox(width: 4),
+              const SizedBox(width: Spacing.xxs),
               Icon(Icons.chevron_right, size: 20, color: scheme.outline),
             ],
           ],

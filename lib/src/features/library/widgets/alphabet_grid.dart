@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../common/scroll/smooth_scroll.dart';
 import '../alphabet_index.dart';
 import 'library_rail.dart';
+import '../../../theme/tokens.dart';
 
 /// 从窗口边缘到网格可用宽度的固定损耗：侧栏与内容卡的间隙、内容卡的左右
 /// 内边距、字母导轨的车道。侧栏宽度另算（见 [LibraryRail.expandedWidth]）。
@@ -616,7 +617,7 @@ class _SectionHeader extends StatelessWidget {
       child: Align(
         alignment: Alignment.centerLeft,
         child: Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 6),
+          padding: const EdgeInsets.only(left: 2, bottom: Spacing.xs),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -630,7 +631,7 @@ class _SectionHeader extends StatelessWidget {
                   letterSpacing: 1,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
               Text(
                 '$count',
                 style: theme.textTheme.labelSmall?.copyWith(

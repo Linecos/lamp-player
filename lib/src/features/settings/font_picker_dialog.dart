@@ -6,6 +6,7 @@ import '../../common/text/bundled_fonts.dart';
 import '../../common/text/lyric_font.dart';
 import '../../common/text/system_fonts.dart';
 import 'widgets/settings_rows.dart';
+import '../../theme/tokens.dart';
 
 /// 打开「选择字体」弹窗，返回选中的字体族名；`null` = 用户取消。
 ///
@@ -76,7 +77,10 @@ class FontSettingRow extends StatelessWidget implements SettingsSearchable {
 
     return Padding(
       // 与 _SwitchRow / _ChoiceRow 同一套版式：40 圆形底 + 16 间距
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.xs,
+        vertical: Spacing.xs,
+      ),
       child: Row(
         children: <Widget>[
           Container(
@@ -88,7 +92,7 @@ class FontSettingRow extends StatelessWidget implements SettingsSearchable {
             ),
             child: Icon(icon, size: 20, color: scheme.onSurfaceVariant),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: Spacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,7 +111,7 @@ class FontSettingRow extends StatelessWidget implements SettingsSearchable {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: Spacing.sm),
           // 字体名可能很长（"Source Han Sans SC Medium"）：限宽 + 截断，
           // 不让它把这一行撑破
           ConstrainedBox(
@@ -116,14 +120,19 @@ class FontSettingRow extends StatelessWidget implements SettingsSearchable {
               type: MaterialType.transparency,
               child: InkWell(
                 key: pillKey,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(Radii.pill),
                 onTap: onChanged == null
                     ? null
                     : () => unawaited(_pick(context)),
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 7, 14, 7),
+                  padding: const EdgeInsets.fromLTRB(
+                    Spacing.sm,
+                    Spacing.xs,
+                    Spacing.md,
+                    Spacing.xs,
+                  ),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(Radii.pill),
                     border: Border.all(color: scheme.outlineVariant),
                   ),
                   child: Row(
@@ -138,7 +147,7 @@ class FontSettingRow extends StatelessWidget implements SettingsSearchable {
                           letterSpacing: 0.5,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: Spacing.xs),
                       Flexible(
                         child: Text(
                           display,
@@ -283,12 +292,22 @@ class _FontPickerDialogState extends State<_FontPickerDialog> {
     return AlertDialog(
       key: const ValueKey<String>('font-picker-dialog'),
       clipBehavior: Clip.antiAlias,
-      titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
-      contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      titlePadding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.md,
+        Spacing.sm,
+        Spacing.xs,
+      ),
+      contentPadding: const EdgeInsets.fromLTRB(
+        Spacing.md,
+        0,
+        Spacing.md,
+        Spacing.md,
+      ),
       title: Row(
         children: <Widget>[
           Icon(Icons.text_fields, size: 22, color: scheme.primary),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           const Expanded(child: Text('选择字体')),
           IconButton(
             tooltip: '关闭',
@@ -327,12 +346,12 @@ class _FontPickerDialogState extends State<_FontPickerDialog> {
                 fillColor: scheme.surfaceContainerHighest,
                 // 弹窗底与搜索框同色系，光填充分不出边界，补一圈描边
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   borderSide: BorderSide(color: scheme.outlineVariant),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Spacing.sm),
             Expanded(
               child: loading
                   ? const Center(
@@ -398,17 +417,17 @@ class _FontRow extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: active ? scheme.primary.withValues(alpha: 0.12) : null,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.sm),
         ),
         // 高亮底由 DecoratedBox 画，InkWell 的水波纹要落在它上层
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
             key: ValueKey<String>('font-choice-${choice.value}'),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(Radii.sm),
             onTap: onTap,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
               child: Row(
                 children: <Widget>[
                   Expanded(

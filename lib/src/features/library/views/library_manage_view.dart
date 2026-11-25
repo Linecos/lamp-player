@@ -10,6 +10,7 @@ import '../../../rust/api/model.dart' show Track;
 import '../library_revision.dart';
 import '../library_sort.dart';
 import '../widgets/quality_ring.dart';
+import '../../../theme/tokens.dart';
 
 /// 音乐库分区的主体。
 ///
@@ -174,7 +175,7 @@ class LibraryManageView extends StatelessWidget {
       builder: (BuildContext context, BoxConstraints constraints) {
         return SmoothListView(
           // 与设置页一致：不给滚动条留槽，否则左右内边距差 12
-          padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
+          padding: EdgeInsets.only(top: Spacing.xxs, bottom: bottomPadding),
           children: <Widget>[
             Row(
               children: <Widget>[
@@ -185,7 +186,7 @@ class LibraryManageView extends StatelessWidget {
                   value: '${tracks.length}',
                   valueKey: const ValueKey<String>('library-count-tracks'),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 _Metric(
                   icon: Icons.album_outlined,
                   onTap: onOpenAlbums,
@@ -193,7 +194,7 @@ class LibraryManageView extends StatelessWidget {
                   value: '${_albumCount(tracks)}',
                   valueKey: const ValueKey<String>('library-count-albums'),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 _Metric(
                   icon: Icons.person_outline,
                   onTap: onOpenArtists,
@@ -201,7 +202,7 @@ class LibraryManageView extends StatelessWidget {
                   value: '${_artistCount(tracks)}',
                   valueKey: const ValueKey<String>('library-count-artists'),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 _Metric(
                   icon: Icons.schedule,
                   label: '总时长',
@@ -211,7 +212,7 @@ class LibraryManageView extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: Spacing.md),
 
             // 音质分布：环形图点扇区 = 音乐分区只看这一档
             SizedBox(
@@ -223,7 +224,7 @@ class LibraryManageView extends StatelessWidget {
                 onSelect: onSelectQuality,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Spacing.sm),
             SizedBox(
               // 两块等高：里面各自滚，页面不让它们撑长
               height: panelHeightFor(
@@ -248,7 +249,7 @@ class LibraryManageView extends StatelessWidget {
                       child: _buildFolders(context, visible),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Spacing.sm),
                   Expanded(
                     child: KeyedSubtree(
                       key: const ValueKey<String>('library-panel-hidden'),
@@ -258,14 +259,14 @@ class LibraryManageView extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: Spacing.md),
 
             // 扫描进度只画在目录行里（那一行本来就在）：以前这里插一条
             // 进度 banner，页面高度一变，音质卡与两块面板按 maxHeight 算的
             // 高度跟着变，点一下「重新扫描」整页就缩一下再弹回来，看着像闪。
             if (!scanning && scanError != null && onRetry != null) ...<Widget>[
               ErrorRetry(title: '扫描失败', error: scanError!, onRetry: onRetry!),
-              const SizedBox(height: 10),
+              const SizedBox(height: Spacing.sm),
             ],
 
             // 与上面那 16 是同一个间距：入口瓷贴不该比别人离得远（原来这里是
@@ -283,7 +284,7 @@ class LibraryManageView extends StatelessWidget {
               caption: '累计时长与次数排行',
               onTap: onOpenStats,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: Spacing.sm),
             _ActionTile(
               key: const ValueKey<String>('library-prune-missing'),
               icon: Icon(
@@ -308,7 +309,7 @@ class LibraryManageView extends StatelessWidget {
             if (!pruningMissing &&
                 pruneMissingError != null &&
                 onPruneMissing != null) ...<Widget>[
-              const SizedBox(height: 10),
+              const SizedBox(height: Spacing.sm),
               ErrorRetry(
                 title: '清理失败',
                 error: pruneMissingError!,
@@ -442,20 +443,27 @@ class _Metric extends StatelessWidget {
         // 层级：页面 surfaceContainerLow → 面板 High → 指标 Highest。
         // MD3 的卡片要么填充、要么描边，两样都上只会显得板
         color: scheme.surfaceContainerHighest,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           hoverColor: scheme.onSurface.withValues(alpha: 0.06),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.md,
+              Spacing.sm,
+              Spacing.md,
+              Spacing.md,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Row(
                   children: <Widget>[
                     Icon(icon, size: 14, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: Spacing.xs),
                     Expanded(
                       child: Text(
                         label,
@@ -470,7 +478,7 @@ class _Metric extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: Spacing.xs),
                 Text.rich(
                   TextSpan(
                     children: <InlineSpan>[
@@ -521,19 +529,27 @@ class _Panel extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.md,
+        Spacing.sm,
+        Spacing.sm,
+        Spacing.sm,
+      ),
       decoration: BoxDecoration(
         // 比页面底色（surfaceContainerLow）再上一档。以前用 surface，
         // 那比页面还暗，整块看着像挖下去的坑，和凸起的指标卡方向正好相反；
         // 用 container 又只差两个色阶，浅色下几乎看不出边界
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.md),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.only(right: 4, bottom: 8),
+            padding: const EdgeInsets.only(
+              right: Spacing.xxs,
+              bottom: Spacing.xs,
+            ),
             child: Row(
               children: <Widget>[
                 Text(
@@ -543,15 +559,15 @@ class _Panel extends StatelessWidget {
                   ),
                 ),
                 if (count != null) ...<Widget>[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: Spacing.xs),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: Spacing.xs,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
                       color: scheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(Radii.sm),
                     ),
                     child: Text(
                       count!,
@@ -598,7 +614,7 @@ class _PanelEmpty extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         return SmoothSingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               minHeight: math.max(0, constraints.maxHeight - 16),
@@ -608,7 +624,7 @@ class _PanelEmpty extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Icon(icon, size: 26, color: scheme.onSurfaceVariant),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: Spacing.sm),
                   Text(
                     title,
                     textAlign: TextAlign.center,
@@ -625,7 +641,7 @@ class _PanelEmpty extends StatelessWidget {
                     ),
                   ),
                   if (action != null) ...<Widget>[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: Spacing.sm),
                     action!,
                   ],
                 ],
@@ -692,13 +708,20 @@ class _FolderRow extends StatelessWidget {
     // 整行可点：点开是这个目录的曲目子页；右侧「更多」菜单仍是独立热区
     return Material(
       color: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onOpen,
         hoverColor: scheme.surfaceContainerHighest,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.xxs,
+            Spacing.xxs,
+            Spacing.xxs,
+            Spacing.xxs,
+          ),
           child: Row(
             children: <Widget>[
               Container(
@@ -706,7 +729,7 @@ class _FolderRow extends StatelessWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                 ),
                 child: Icon(
                   Icons.folder_outlined,
@@ -714,7 +737,7 @@ class _FolderRow extends StatelessWidget {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -908,12 +931,12 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
         itemBuilder: (BuildContext context, int index) {
           final db.HiddenTrack track = items[index];
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
             child: Row(
               children: <Widget>[
                 // 隐藏记录同样带着封面：只画一个音符图标，光看歌名认不出是哪首
                 AlbumCover(path: track.coverPath, size: 36, radius: 12),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -937,7 +960,7 @@ class _HiddenTracksPanelState extends State<_HiddenTracksPanel> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: Spacing.xs),
                 IconButton.filledTonal(
                   onPressed: () => unawaited(_restore(track)),
                   tooltip: '恢复',
@@ -1011,14 +1034,19 @@ class _ActionTileState extends State<_ActionTile> {
 
     return Material(
       color: lit ? scheme.surfaceContainerHighest : scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(Radii.md),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: active ? widget.onTap : null,
         onHover: (bool value) => setState(() => _hovered = value),
         onFocusChange: (bool value) => setState(() => _focused = value),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.md,
+            Spacing.sm,
+            Spacing.md,
+            Spacing.sm,
+          ),
           child: Row(
             children: <Widget>[
               Container(
@@ -1030,7 +1058,7 @@ class _ActionTileState extends State<_ActionTile> {
                 ),
                 child: widget.icon,
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: Spacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1054,7 +1082,7 @@ class _ActionTileState extends State<_ActionTile> {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Spacing.sm),
               if (action)
                 widget.busy
                     ? const SizedBox(
@@ -1067,7 +1095,9 @@ class _ActionTileState extends State<_ActionTile> {
                         onPressed: widget.onRun,
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(64, 40),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Spacing.md,
+                          ),
                           visualDensity: VisualDensity.compact,
                         ),
                         child: const Text('运行'),
@@ -1108,10 +1138,15 @@ class _QualityPanel extends StatelessWidget {
     final bool empty = breakdown.total == 0;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.md,
+        Spacing.sm,
+        Spacing.sm,
+        Spacing.sm,
+      ),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.md),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1126,7 +1161,7 @@ class _QualityPanel extends StatelessWidget {
               size: extent - 24,
             ),
           ),
-          const SizedBox(width: 18),
+          const SizedBox(width: Spacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1150,7 +1185,7 @@ class _QualityPanel extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: Spacing.xs),
                 Expanded(
                   child: LayoutBuilder(
                     builder:
@@ -1230,12 +1265,12 @@ class _QualityLegendRow extends StatelessWidget {
 
     return Material(
       color: selected ? scheme.secondaryContainer : Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(Radii.sm),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(Radii.sm),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
           child: Row(
             children: <Widget>[
               Container(
@@ -1270,7 +1305,7 @@ class _QualityLegendRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: Spacing.sm),
                 // 占比条把这个宽窗口里的大片空白用起来，长度 = 占比
                 Expanded(
                   child: _ShareBar(
@@ -1281,7 +1316,7 @@ class _QualityLegendRow extends StatelessWidget {
                         : scheme.surfaceContainerHighest,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: Spacing.sm),
               ],
               SizedBox(
                 width: 34,
@@ -1296,7 +1331,7 @@ class _QualityLegendRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
               SizedBox(
                 width: 46,
                 child: Text(
@@ -1339,7 +1374,7 @@ class _ShareBar extends StatelessWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               color: track,
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(Radii.pill),
             ),
           ),
           Align(
@@ -1349,7 +1384,7 @@ class _ShareBar extends StatelessWidget {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: color,
-                  borderRadius: BorderRadius.circular(3),
+                  borderRadius: BorderRadius.circular(Radii.pill),
                 ),
                 child: const SizedBox(height: 6),
               ),

@@ -38,6 +38,7 @@ import 'sleep_timer.dart';
 import 'sleep_timer_dialog.dart';
 import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
+import '../../theme/tokens.dart';
 
 /// 正在播放页的实时快照。
 ///
@@ -854,7 +855,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         ),
                       ),
                       _controls(context),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: Spacing.sm),
                     ],
                   ),
                 ),
@@ -871,7 +872,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       key: const ValueKey<String>('now-playing-header'),
       // 贴住窗口顶端，中心 y≈24；右边不留白，让三个按钮和全局那层的位置
       // 逐像素对齐，转场时看着是「同一组按钮跟着页面走」
-      padding: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.only(left: Spacing.xs),
       child: SizedBox(
         height: 48,
         child: AnimatedBuilder(
@@ -1016,7 +1017,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         );
         if (wide) {
           return Padding(
-            padding: EdgeInsets.fromLTRB(32, topPadding, 32, 0),
+            padding: EdgeInsets.fromLTRB(Spacing.xl, topPadding, Spacing.xl, 0),
             child: Align(
               alignment: Alignment.topCenter,
               child: SizedBox(
@@ -1035,7 +1036,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         child: SizedBox(width: coverSize, child: info),
                       ),
                     ),
-                    const SizedBox(width: 32),
+                    const SizedBox(width: Spacing.xl),
                     Expanded(child: lyric),
                   ],
                 ),
@@ -1044,7 +1045,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           );
         }
         return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+          padding: const EdgeInsets.fromLTRB(Spacing.lg, 0, Spacing.lg, 0),
           child: Column(
             children: <Widget>[
               // 窄屏封面和歌词上下排：封面最多占「高度 - 歌词最小高度」，
@@ -1056,7 +1057,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                 ),
                 child: info,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Expanded(child: lyric),
             ],
           ),
@@ -1411,14 +1412,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(Icons.lyrics_outlined, size: 28, color: scheme.outline),
-            const SizedBox(height: 8),
+            const SizedBox(height: Spacing.xs),
             Text(
               '暂无歌词',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: Spacing.xxs),
             Text(
               '把同名 .lrc 放到歌曲旁边即可显示',
               style: theme.textTheme.bodySmall?.copyWith(
@@ -1433,7 +1434,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       // 无时间轴：整段展示，不跟随进度
       return SingleChildScrollView(
         controller: _plainLyricsScroll,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        padding: const EdgeInsets.symmetric(
+          vertical: Spacing.md,
+          horizontal: Spacing.md,
+        ),
         child: Text(
           lyrics.plain,
           textAlign: alignment.textAlign,
@@ -1556,7 +1560,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         final double total = data.duration > 0 ? data.duration : 0;
 
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.xl),
           child: Column(
             children: <Widget>[
               // 沉浸模式连进度条一起收起，只留三个控制键
@@ -1631,7 +1635,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   Padding(
                                     // 12 与上面滑块的 overlay 半径对齐，时间才落在轨道两端内侧
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: Spacing.sm,
                                     ),
                                     child: Row(
                                       mainAxisAlignment:
@@ -1664,7 +1668,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: Padding(
-                          padding: const EdgeInsets.only(right: 24),
+                          padding: const EdgeInsets.only(right: Spacing.lg),
                           child: _volumeControl(context, data, ready),
                         ),
                       ),
@@ -1681,7 +1685,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             : null,
                         icon: const Icon(Icons.skip_previous),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: Spacing.sm),
                       Tooltip(
                         // manual：长按要留给沉浸模式，别让 Tooltip 抢走手势
                         triggerMode: TooltipTriggerMode.manual,
@@ -1695,7 +1699,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             child: IconButton.filled(
                               key: const ValueKey<String>('now-playing-toggle'),
                               iconSize: 34,
-                              padding: const EdgeInsets.all(14),
+                              padding: const EdgeInsets.all(Spacing.md),
                               onPressed: ready
                                   ? () => unawaited(widget.onTogglePlay())
                                   : null,
@@ -1706,7 +1710,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: Spacing.sm),
                       IconButton(
                         key: const ValueKey<String>('now-playing-next'),
                         iconSize: 30,
@@ -1725,7 +1729,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Padding(
-                          padding: const EdgeInsets.only(left: 24),
+                          padding: const EdgeInsets.only(left: Spacing.lg),
                           // 这一串图标加起来会顶出窄窗口的可用宽度（900 宽、桌面歌词
                           // 打开时实测溢出 33px）。整串等比缩一点，比裁掉按钮好
                           child: FittedBox(
@@ -1902,7 +1906,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: Spacing.xxs),
               Text(
                 data.isAvailable ? '' : '播放引擎不可用',
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.error),

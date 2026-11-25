@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 /// 空态：图标 + 标题 +（可选）说明与按钮，用于「没数据但不是错误」。
 class EmptyState extends StatelessWidget {
   const EmptyState({
@@ -24,19 +26,19 @@ class EmptyState extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Spacing.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Icon(icon, size: 56, color: scheme.outline),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Text(
                 title,
                 style: theme.textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
               if (message != null) ...<Widget>[
-                const SizedBox(height: 8),
+                const SizedBox(height: Spacing.xs),
                 Text(
                   message!,
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -46,7 +48,7 @@ class EmptyState extends StatelessWidget {
                 ),
               ],
               if (action != null) ...<Widget>[
-                const SizedBox(height: 20),
+                const SizedBox(height: Spacing.md),
                 action!,
               ],
             ],

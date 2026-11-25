@@ -5,6 +5,7 @@ import '../../../common/scroll/smooth_scroll.dart';
 import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
+import '../../../theme/tokens.dart';
 
 /// 歌单卡片上的操作。
 enum PlaylistAction { rename, delete }
@@ -39,7 +40,7 @@ class PlaylistGridView extends StatelessWidget {
             key: storageKey,
             controller: controller,
             padding: const EdgeInsets.only(
-              top: 8,
+              top: Spacing.xs,
               // 同上：滚到底时最后一行停在播放岛上方
               bottom: PlayerBar.occupiedHeight + 8,
             ),
@@ -88,14 +89,19 @@ class _PlaylistCard extends StatelessWidget {
       color: scheme.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
         onTap: onOpen,
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.sm,
+            Spacing.sm,
+            Spacing.xs,
+            Spacing.sm,
+          ),
           child: Row(
             children: <Widget>[
               // 歌单自己没有封面图：拿最新加入那首歌的（由仓储一次查出来），
@@ -109,14 +115,14 @@ class _PlaylistCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: scheme.secondaryContainer,
                     // 32 外框 - 12 内边距 = 20，内外圆角才平行
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(Radii.md),
                   ),
                   child: Icon(
                     Icons.queue_music,
                     color: scheme.onSecondaryContainer,
                   ),
                 ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,

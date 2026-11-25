@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'cover_shape.dart';
+import '../../theme/tokens.dart';
 
 /// 不跟随「圆形封面」设置的实例用它：永远方形，也不会因为设置变化重建
 const ValueListenable<bool> _alwaysSquare = AlwaysStoppedAnimation<bool>(false);
@@ -19,8 +20,8 @@ const String coverHeroTag = 'now-playing-cover';
 /// [coverFlightShuttle]）；两边各写一份数字，改一处就错一处。
 const double playerBarCoverSize = 56;
 
-/// 与同为 56 的歌单卡片缩略图统一 20：同尺寸的封面圆角不该有两种。
-const double playerBarCoverRadius = 20;
+/// 与同为 56 的歌单卡片缩略图统一到卡片档：同尺寸的封面圆角不该有两种。
+const double playerBarCoverRadius = Radii.md;
 
 /// 解码宽度的档位（设备像素）：相邻两档差约 12%，肉眼看不出差别。
 ///

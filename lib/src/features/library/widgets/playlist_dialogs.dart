@@ -4,6 +4,7 @@ import '../../../app/app_toast.dart';
 import '../../../common/common.dart';
 import '../../../rust/api/model.dart';
 import '../library_sort.dart';
+import '../../../theme/tokens.dart';
 
 /// 歌单命名对话框（新建 / 重命名共用）。
 ///
@@ -135,7 +136,7 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
           child: playlists.isEmpty
               ? Center(
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(Spacing.lg),
                     child: Text(
                       '还没有歌单，点右下角新建一个。',
                       textAlign: TextAlign.center,
@@ -157,7 +158,7 @@ Future<PlaylistPick?> showPlaylistPickerDialog(
                                 // 悬停 / 水波纹是画在最近 Material 上的墨迹，不给 shape 就是直角
                                 shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.all(
-                                    Radius.circular(16),
+                                    Radius.circular(Radii.md),
                                   ),
                                 ),
                                 leading: const Icon(Icons.queue_music),
@@ -309,12 +310,12 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
                 prefixIcon: Icon(Icons.search),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: Spacing.xs),
             Expanded(
               child: candidates.isEmpty
                   ? Center(
                       child: Padding(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(Spacing.lg),
                         child: Text(
                           !hasAnyCandidate ? '曲库里的曲目都已经在这个歌单里了' : '没有匹配的曲目',
                           textAlign: TextAlign.center,
@@ -336,17 +337,19 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
                         final bool busy = _busy.contains(track.path);
                         return ListTile(
                           shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(16)),
+                            borderRadius: BorderRadius.all(
+                              Radius.circular(Radii.md),
+                            ),
                           ),
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 4,
+                            horizontal: Spacing.xxs,
                           ),
                           leading: Container(
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
                               color: scheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(Radii.sm),
                             ),
                             child: Icon(
                               Icons.music_note,

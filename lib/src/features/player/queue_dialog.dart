@@ -8,6 +8,7 @@ import '../../common/widgets/album_cover.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
 import 'playback_queue.dart';
+import '../../theme/tokens.dart';
 
 /// 播放队列面板：查看即将播放的曲目，直接跳播。打开时自动定位到当前曲目。
 ///
@@ -155,12 +156,17 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
       key: const ValueKey<String>('queue-dialog'),
       // 子节点不允许画到 28px 圆角外面（主题里也统一设了，这里显式写明意图）
       clipBehavior: Clip.antiAlias,
-      titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
-      contentPadding: const EdgeInsets.only(bottom: 8),
+      titlePadding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.md,
+        Spacing.sm,
+        Spacing.xs,
+      ),
+      contentPadding: const EdgeInsets.only(bottom: Spacing.xs),
       title: Row(
         children: <Widget>[
           const Icon(Icons.queue_music, size: 22),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           const Expanded(child: Text('播放队列')),
           IconButton(
             tooltip: '清空队列',
@@ -217,7 +223,7 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                           Animation<double> animation,
                         ) => Material(
                           color: scheme.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(Radii.md),
                           child: child,
                         ),
                     itemBuilder: (BuildContext context, int index) {
@@ -238,7 +244,7 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                                   )
                                 : null,
                             // 与其它列表行一致：通栏直角色块在圆角弹窗里很扎眼
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(Radii.md),
                           ),
                           child: ListTile(
                             key: ValueKey<String>('queue-item-$index'),
@@ -247,12 +253,12 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                             // 而下面那层选中色（DecoratedBox）反而是圆的
                             shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.all(
-                                Radius.circular(16),
+                                Radius.circular(Radii.md),
                               ),
                             ),
                             contentPadding: const EdgeInsets.only(
-                              left: 12,
-                              right: 12,
+                              left: Spacing.sm,
+                              right: Spacing.sm,
                             ),
                             // 左内边距收紧后，标题与封面之间留 12 就够，再大就白空
                             horizontalTitleGap: 12,
@@ -318,15 +324,15 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                                   ),
                                 ),
                                 // 时长、拖拽柄、删除三者各自留出空隙：贴着看像一坨
-                                const SizedBox(width: 12),
+                                const SizedBox(width: Spacing.sm),
                                 ReorderableDragStartListener(
                                   index: index,
                                   child: MouseRegion(
                                     cursor: SystemMouseCursors.grab,
                                     child: Padding(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 6,
+                                        horizontal: Spacing.xs,
+                                        vertical: Spacing.xs,
                                       ),
                                       child: Icon(
                                         Icons.drag_indicator,

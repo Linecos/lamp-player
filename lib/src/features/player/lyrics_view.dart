@@ -12,6 +12,7 @@ import '../../common/scroll/smooth_scroll.dart';
 import '../../common/ui_clock.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import 'lyric_alignment.dart';
+import '../../theme/tokens.dart';
 
 /// 歌词视图：当前行逐字染色、上下淡出。
 ///
@@ -2118,7 +2119,7 @@ class _LyricLineView extends StatelessWidget {
       onTap: () => unawaited(onSeek(line.timeMs.toInt() / 1000)),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          vertical: 9,
+          vertical: Spacing.sm,
           horizontal: _linePaddingX,
         ),
         child: Column(

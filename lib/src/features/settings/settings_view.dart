@@ -19,6 +19,7 @@ import 'about_dialog.dart';
 import 'font_picker_dialog.dart';
 import 'lyric_source_dialog.dart';
 import 'widgets/settings_rows.dart';
+import '../../theme/tokens.dart';
 
 /// 设置页骨架。
 ///
@@ -290,7 +291,7 @@ class SettingsView extends StatelessWidget {
         controller: controller,
         // 右侧不留滚动条槽：桌面滚动条本来就浮在视口右缘，留空只会让整页
         // 左边 16、右边 28，看着偏。让它压在卡片边上就行
-        padding: EdgeInsets.only(top: 4, bottom: bottomPadding),
+        padding: EdgeInsets.only(top: Spacing.xxs, bottom: bottomPadding),
         children: children,
       ),
     );
@@ -741,7 +742,10 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
     // 与 _SwitchRow / _InfoRow 保持同一套版式：40×40 圆形底 + 16 间距，
     // 否则这一行的图标既不圆、左边缘也对不齐旁边的行。
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.xs,
+        vertical: Spacing.xs,
+      ),
       child: Row(
         children: <Widget>[
           Container(
@@ -753,7 +757,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
             ),
             child: Icon(widget.icon, size: 20, color: scheme.onSurfaceVariant),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: Spacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -772,7 +776,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: Spacing.sm),
           // 设备名可能很长（"扬声器 (Realtek High Definition Audio)"）：
           // 限宽 + isExpanded 让它在框里截断，而不是把这一行撑破
           ConstrainedBox(
@@ -781,11 +785,16 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
               // 选择框自带一层底：与左侧图标同色，文字才不会看着浮在卡片上
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(Radii.sm),
               ),
               child: Padding(
                 // 上下各 6：让胶囊和左侧 40 的图标圈差不多高
-                padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.sm,
+                  Spacing.xs,
+                  Spacing.xs,
+                  Spacing.xs,
+                ),
                 child: DropdownButton<T>(
                   key: widget.choiceKey,
                   focusNode: _focus,
@@ -797,7 +806,7 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
                   // 选完不留高亮：焦点色透明，底色永远是上面那一层
                   focusColor: Colors.transparent,
                   underline: const SizedBox.shrink(),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   dropdownColor: scheme.surfaceContainerHighest,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurface,
@@ -903,7 +912,10 @@ class _SliderRowState extends State<_SliderRow> {
     final bool enabled = widget.onChanged != null;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.xs,
+        vertical: Spacing.xs,
+      ),
       child: Row(
         children: <Widget>[
           Container(
@@ -915,7 +927,7 @@ class _SliderRowState extends State<_SliderRow> {
             ),
             child: Icon(widget.icon, size: 20, color: scheme.onSurfaceVariant),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: Spacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -934,7 +946,7 @@ class _SliderRowState extends State<_SliderRow> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: Spacing.sm),
           _stepButton(Icons.remove, -1),
           const SizedBox(width: 2),
           SizedBox(
@@ -1079,11 +1091,14 @@ class _SwitchRow extends StatelessWidget implements SettingsSearchable {
     final ColorScheme scheme = theme.colorScheme;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(Radii.lg),
       hoverColor: scheme.surfaceContainerHigh,
       onTap: onChanged == null || busy ? null : () => onChanged!(!value),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.xs,
+        ),
         child: Row(
           children: <Widget>[
             Container(
@@ -1097,7 +1112,7 @@ class _SwitchRow extends StatelessWidget implements SettingsSearchable {
                   iconBuilder?.call(scheme.onSurfaceVariant) ??
                   Icon(icon, size: 20, color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1115,7 +1130,7 @@ class _SwitchRow extends StatelessWidget implements SettingsSearchable {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             if (busy)
               const SizedBox(
                 width: 20,
@@ -1163,7 +1178,12 @@ class _ThemeRow extends StatelessWidget implements SettingsSearchable {
     return Padding(
       // 横向与行的图标列对齐（卡片内边距 8 + 这里 8 = 32，和图标左边缘同一条线）；
       // 纵向上下各 10，取掉小标题后条带不会贴到卡片顶部的圆弧上
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.xs,
+        Spacing.sm,
+        Spacing.xs,
+        Spacing.sm,
+      ),
       child: SegmentedButton<ThemeMode>(
         key: const ValueKey<String>('theme-segments'),
         segments: _segments,
@@ -1337,11 +1357,14 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
     }
 
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(Radii.lg),
       onTap: controller == null ? null : () => _pick(context, controller),
       hoverColor: scheme.surfaceContainerHigh,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.sm,
+        ),
         child: Row(
           children: <Widget>[
             Container(
@@ -1357,7 +1380,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1373,7 +1396,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             // 当前生效色的小圆点，一眼看出现在用的哪个色
             Container(
               width: 20,
@@ -1406,7 +1429,12 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
           final ThemeController current = ThemeScope.of(dialogContext);
           return AlertDialog(
             title: const Text('配色'),
-            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            contentPadding: const EdgeInsets.fromLTRB(
+              Spacing.lg,
+              Spacing.sm,
+              Spacing.lg,
+              0,
+            ),
             content: SizedBox(
               width: 480,
               child: SmoothSingleChildScrollView(
@@ -1424,7 +1452,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                           // 「Looking up a deactivated widget's ancestor is unsafe」
                           style: Theme.of(dialogContext).textTheme.bodyMedium,
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: Spacing.sm),
                         Expanded(
                           child: DropdownButton<DynamicSchemeVariant>(
                             key: const ValueKey<String>('variant-dropdown'),
@@ -1448,7 +1476,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                             },
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: Spacing.md),
                         Text(
                           '高对比',
                           style: Theme.of(dialogContext).textTheme.bodyMedium,
@@ -1463,9 +1491,9 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: Spacing.xs),
                     _tipLabel('强调色 · 首格跟随系统'),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: Spacing.xs),
                     GridView.count(
                       crossAxisCount: 4,
                       shrinkWrap: true,
@@ -1504,7 +1532,7 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: Spacing.sm),
                   ],
                 ),
               ),
@@ -1541,7 +1569,12 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
           final ThemeController current = ThemeScope.readOf(inner)!;
           return AlertDialog(
             title: const Text('自定义颜色'),
-            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            contentPadding: const EdgeInsets.fromLTRB(
+              Spacing.lg,
+              Spacing.sm,
+              Spacing.lg,
+              0,
+            ),
             content: SizedBox(
               width: 320,
               child: _CustomSeedPicker(controller: current),
@@ -1596,7 +1629,7 @@ class _SeedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final BorderRadius radius = BorderRadius.circular(16);
+    final BorderRadius radius = BorderRadius.circular(Radii.md);
     // 底色交给 Material，边框留给 Container：否则 InkWell 的水波纹会被盖住。
     return Material(
       color: selected
@@ -1609,7 +1642,7 @@ class _SeedCard extends StatelessWidget {
         borderRadius: radius,
         hoverColor: scheme.onSurface.withValues(alpha: 0.08),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(Spacing.sm),
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(color: scheme.outlineVariant),
@@ -1906,7 +1939,7 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
           builder: (BuildContext context, HSVColor hsv, Widget? _) =>
               _hueRow(context, hsv),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: Spacing.sm),
         // 不要包 Center：Column 是 stretch，横向本来就是满宽；套一层 Center
         // 反而给了松约束，没有子节点的 CustomPaint 会把自己缩成 0×0
         SizedBox(
@@ -1928,7 +1961,7 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
                 onPanEnd: (DragEndDetails _) => _commit(_hsv.value),
                 onPanCancel: () => _commit(_hsv.value),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   child: CustomPaint(
                     painter: _FieldPainter(_hsv),
                     size: Size.infinite,
@@ -1938,7 +1971,7 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
             },
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: Spacing.sm),
         ValueListenableBuilder<HSVColor>(
           valueListenable: _hsv,
           builder: (BuildContext context, HSVColor hsv, Widget? _) =>
@@ -1949,7 +1982,7 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
   }
 
   static OutlineInputBorder _hexBorder(Color color) => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(10),
+    borderRadius: BorderRadius.circular(Radii.sm),
     borderSide: BorderSide(color: color),
   );
 
@@ -1964,7 +1997,7 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
           Container(
             height: 10,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(5),
+              borderRadius: BorderRadius.circular(Radii.pill),
               // 与 HSV 的色相对齐：0° 红、60° 黄、120° 绿 … 360° 回红
               gradient: const LinearGradient(
                 colors: <Color>[
@@ -2020,11 +2053,11 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
           height: 32,
           decoration: BoxDecoration(
             color: hsv.toColor(),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(Radii.xs),
             border: Border.all(color: scheme.outlineVariant),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: Spacing.sm),
         SizedBox(
           width: 118,
           child: TextField(
@@ -2042,8 +2075,8 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
               ),
               hintText: 'RRGGBB',
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 10,
+                horizontal: Spacing.xs,
+                vertical: Spacing.sm,
               ),
               // 颜色码不合法时只把边框染红：用 errorText 会多撑一行，
               // 弹窗高度跟着跳

@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart' show PointerHoverEvent;
 import 'package:flutter/material.dart';
 
 import 'slider_semantics_scope.dart';
+import '../../theme/tokens.dart';
 
 class SlimSlider extends StatefulWidget {
   const SlimSlider({
@@ -71,7 +72,10 @@ class _SlimSliderState extends State<SlimSlider> {
             ? (widget.value.clamp(0.0, widget.max) / widget.max)
             : _hoverFraction;
         final double? fraction =
-            (at != null && tipBuilder != null && widget.enabled && widget.max > 0)
+            (at != null &&
+                tipBuilder != null &&
+                widget.enabled &&
+                widget.max > 0)
             ? at
             : null;
 
@@ -186,7 +190,7 @@ class _SeekTip extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(Radii.xs),
         border: Border.all(color: scheme.outlineVariant),
         boxShadow: <BoxShadow>[
           BoxShadow(
@@ -197,7 +201,10 @@ class _SeekTip extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.xxs,
+        ),
         child: Text(
           text,
           maxLines: 1,

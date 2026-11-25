@@ -7,6 +7,7 @@ import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../player/equalizer.dart';
 import 'equalizer_curve.dart';
+import '../../theme/tokens.dart';
 
 /// 均衡器面板：开关 + 预设切换 + 10 段推子 + 自存预设。
 ///
@@ -95,7 +96,12 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool tooShort = constraints.maxHeight < 460;
         final Widget content = Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.md,
+            Spacing.xs,
+            Spacing.md,
+            Spacing.sm,
+          ),
           child: _pageColumn(context, compact: constraints.maxHeight < 620),
         );
         if (!tooShort) {
@@ -112,7 +118,7 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
   /// 标题行里的操作按钮：默认 48 高太占地方，压到 32
   static final ButtonStyle _compactAction = TextButton.styleFrom(
     minimumSize: const Size(0, 32),
-    padding: const EdgeInsets.symmetric(horizontal: 6),
+    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     visualDensity: VisualDensity.compact,
   );
@@ -147,10 +153,10 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
             secondary: const Icon(Icons.equalizer),
             // 单行紧凑排布：最小窗口（900×560）下推子才留得够长
             dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            contentPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         _SectionTitle(
           title: '预设',
           trailing: TextButton.icon(
@@ -173,16 +179,21 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
               _presetChip(preset, deletable: true),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         // 高度紧张时曲线自己缩一点，把空间让给推子
         _Card(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.sm,
+            Spacing.sm,
+            Spacing.sm,
+            Spacing.sm,
+          ),
           child: EqualizerCurveChart(
             gains: _gains,
             curveHeight: compact ? 76 : 132,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         _SectionTitle(
           title: _presetName == null ? '自定义曲线' : '预设：$_presetName',
           trailing: TextButton.icon(
@@ -195,7 +206,12 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
         ),
         Expanded(
           child: _Card(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.sm,
+              Spacing.sm,
+              Spacing.sm,
+              Spacing.sm,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -435,7 +451,7 @@ class _Card extends StatelessWidget {
       color: scheme.surface,
       shape: RoundedRectangleBorder(
         // 与设置页卡片同一档（28 留给弹窗）
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
@@ -456,7 +472,7 @@ class _SectionTitle extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     return Padding(
       // 左边距与卡片内容对齐（页面 16 + 卡片内边距 12）
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.fromLTRB(Spacing.sm, 0, Spacing.sm, Spacing.xs),
       child: Row(
         children: <Widget>[
           Expanded(

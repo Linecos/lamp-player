@@ -62,7 +62,7 @@ extension _AlbumsSection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(
           child: groups.isEmpty && _query.isNotEmpty
               ? _searchEmptyState('没有找到匹配的专辑')
@@ -117,8 +117,8 @@ extension _AlbumsSection on _LibraryPageState {
                 Padding(
                   padding: const EdgeInsets.only(
                     left: _detailHeaderInset,
-                    top: 8,
-                    bottom: 8,
+                    top: Spacing.xs,
+                    bottom: Spacing.xs,
                   ),
                   child: Row(
                     // 文字与按钮贴住封面底边：封面撑到 240 之后，顶对齐会让右侧
@@ -140,7 +140,7 @@ extension _AlbumsSection on _LibraryPageState {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: Spacing.lg),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,7 +151,7 @@ extension _AlbumsSection on _LibraryPageState {
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.headlineSmall,
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: Spacing.xs),
                             Text(
                               '${group.artist} · ${group.tracks.length} 首 · '
                               '${formatDuration(group.durationSecs)}',
@@ -159,7 +159,7 @@ extension _AlbumsSection on _LibraryPageState {
                                 color: scheme.onSurfaceVariant,
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: Spacing.md),
                             Row(
                               children: <Widget>[
                                 FilledButton.tonalIcon(
@@ -169,11 +169,11 @@ extension _AlbumsSection on _LibraryPageState {
                                   // 搜着的时候放的是命中结果，不是整张专辑
                                   label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: Spacing.sm),
                                 // 与其它功能按钮同行：多选原来在页面顶栏，
                                 // 要跨半个屏幕去点
                                 _buildSelectionToggle(context),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: Spacing.sm),
                                 // 默认「原序」＝专辑曲序；想看别的排序再点开
                                 _SortButton(
                                   mode: _detailSort,
@@ -198,7 +198,7 @@ extension _AlbumsSection on _LibraryPageState {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(
           child: tracks.isEmpty && _query.isNotEmpty
               ? _searchEmptyState('没有找到匹配的歌曲', scope: '这张专辑')

@@ -813,9 +813,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('进音乐库只预热一次统计；缓存失效后再打开会重查并显示新数字', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('进音乐库只预热一次统计；缓存失效后再打开会重查并显示新数字', (WidgetTester tester) async {
     final _MutableStatsRepository repo = _MutableStatsRepository();
     await pumpLibrary(tester, tracks: twoTracks(), statsRepository: repo);
     await openLibrarySettings(tester);

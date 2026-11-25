@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import './tokens.dart';
+
 /// 全局主题：Material 3 + 可配置 seed 色与调色板风格，深浅色模式跟随系统。
 ///
 /// seed 与调色板风格来自「外观 → 配色」：预设色板或系统强调色（动态取色）。
@@ -202,7 +204,9 @@ abstract final class AppTheme {
       // 的浮层，偏偏又是最常弹的曲目右键 / 排序菜单，周围全是 18~32 的圆角。
       popupMenuTheme: PopupMenuThemeData(
         color: scheme.surfaceContainerHigh,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.sm),
+        ),
       ),
     );
   }

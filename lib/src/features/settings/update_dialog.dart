@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_version.dart';
 import '../../app/update_check.dart';
 import '../../common/external_link.dart';
+import '../../theme/tokens.dart';
 
 /// 有新版本时的弹窗：版本号 + 发布说明 + 「前往下载」。
 ///
@@ -42,11 +43,13 @@ class UpdateAvailableDialog extends StatelessWidget {
     final String notes = release.notes.trim();
 
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       title: Row(
         children: <Widget>[
           Icon(Icons.system_update_alt, color: scheme.primary),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           Expanded(child: Text('发现新版本 v${release.version}')),
         ],
       ),
@@ -62,17 +65,17 @@ class UpdateAvailableDialog extends StatelessWidget {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Spacing.sm),
             if (notes.isEmpty)
               Text('新版本已发布，点「前往下载」打开下载页。', style: theme.textTheme.bodyMedium)
             else
               Container(
                 width: double.infinity,
                 constraints: const BoxConstraints(maxHeight: notesMaxHeight),
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(Spacing.sm),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                 ),
                 child: SingleChildScrollView(
                   child: Text(

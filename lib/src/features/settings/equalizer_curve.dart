@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../player/equalizer.dart';
+import '../../theme/tokens.dart';
 
 /// 均衡器曲线：把 10 段增益画成一条平滑曲线，底下跟着每段的读数。
 ///
@@ -37,7 +38,7 @@ class EqualizerCurveChart extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: Spacing.xs),
         Row(
           children: <Widget>[
             for (final double value in values)

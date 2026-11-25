@@ -43,7 +43,7 @@ extension _FolderDetailSection on _LibraryPageState {
               icon: const Icon(Icons.arrow_back),
               visualDensity: VisualDensity.compact,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: Spacing.xxs),
             Expanded(
               child: Text(
                 folder,
@@ -63,7 +63,7 @@ extension _FolderDetailSection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: Text(searching ? '播放结果' : '播放全部'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _buildSelectionToggle(context),
           ],
         ),
@@ -74,7 +74,7 @@ extension _FolderDetailSection on _LibraryPageState {
             color: scheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(
           child: list.isEmpty
               ? EmptyState(

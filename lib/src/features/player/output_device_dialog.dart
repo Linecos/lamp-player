@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../common/scroll/smooth_scroll.dart';
 import '../../rust/api/player.dart' as rust;
+import '../../theme/tokens.dart';
 
 /// 输出设备选择弹窗。
 ///
@@ -42,12 +43,17 @@ class _OutputDeviceDialog extends StatelessWidget {
       key: const ValueKey<String>('output-device-dialog'),
       // 子节点不允许画到 28px 圆角外面（与播放队列一致）
       clipBehavior: Clip.antiAlias,
-      titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
-      contentPadding: const EdgeInsets.only(bottom: 8),
+      titlePadding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.md,
+        Spacing.sm,
+        Spacing.xs,
+      ),
+      contentPadding: const EdgeInsets.only(bottom: Spacing.xs),
       title: Row(
         children: <Widget>[
           const Icon(Icons.speaker_outlined, size: 22),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           const Expanded(child: Text('输出设备')),
           IconButton(
             tooltip: '关闭',
@@ -66,7 +72,12 @@ class _OutputDeviceDialog extends StatelessWidget {
             type: MaterialType.transparency,
             child: SmoothListView(
               shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.xs,
+                Spacing.xxs,
+                Spacing.xs,
+                Spacing.xxs,
+              ),
               children: <Widget>[
                 _DeviceRow(
                   index: -1,
@@ -112,7 +123,7 @@ class _DeviceRow extends StatelessWidget {
           color: active
               ? scheme.primaryContainer.withValues(alpha: 0.35)
               : null,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(Radii.md),
         ),
         // 高亮底是 DecoratedBox 自己画的，ListTile 的水波纹得落在它上层：
         // 中间垫一层透明 Material，否则 ListTile 会断言「背景把墨迹挡住了」
@@ -122,9 +133,9 @@ class _DeviceRow extends StatelessWidget {
             key: ValueKey<String>('output-device-item-$index'),
             selected: active,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(Radii.md),
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            contentPadding: const EdgeInsets.symmetric(horizontal: Spacing.md),
             // 耳机类设备单独给一个耳机字形，其余（扬声器 / 声卡 / 系统默认）
             // 仍用音箱：原来那条「音箱柜子」对耳机端点确实不像，但换成清一色
             // 耳机又会让「这是台扬声器」的信息丢掉

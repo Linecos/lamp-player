@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../../app/app_version.dart';
 import '../../common/common.dart';
 import '../../common/external_link.dart';
+import '../../theme/tokens.dart';
 
 /// 「关于」弹窗：大图标 → 名字 → 版本行 → 标语 → 技术栈 → 2×2 链接 → 署名。
 ///
@@ -61,7 +62,7 @@ class AppAboutDialog extends StatefulWidget {
       applicationVersion: 'v$appVersion',
       applicationLegalese: '© 2026 Linecos',
       applicationIcon: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(Spacing.xs),
         child: Image.asset('assets/app_icon.png', width: 56, height: 56),
       ),
     );
@@ -155,7 +156,9 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: AppAboutDialog.designWidth * s),
         child: Stack(
@@ -170,7 +173,12 @@ class _AppAboutDialogState extends State<AppAboutDialog> {
               ),
               child: SingleChildScrollView(
                 controller: _scroll,
-                padding: EdgeInsets.fromLTRB(28 * s, 32 * s, 28 * s, 24 * s),
+                padding: EdgeInsets.fromLTRB(
+                  Spacing.lg * s,
+                  Spacing.xl * s,
+                  Spacing.lg * s,
+                  Spacing.lg * s,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
@@ -370,11 +378,11 @@ class _VersionRowState extends State<_VersionRow> {
     final double s = widget.scale;
     return Container(
       height: 52 * s,
-      padding: EdgeInsets.only(left: 16 * s, right: 6 * s),
+      padding: EdgeInsets.only(left: Spacing.md * s, right: Spacing.xs * s),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
         border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(12 * s),
+        borderRadius: BorderRadius.circular(Radii.sm * s),
       ),
       child: Row(
         children: <Widget>[
@@ -434,12 +442,12 @@ class _TechChip extends StatelessWidget {
     final Color color = colorOf(tech.brand, scheme);
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: 12 * scale,
-        vertical: 6 * scale,
+        horizontal: Spacing.sm * scale,
+        vertical: Spacing.xs * scale,
       ),
       decoration: BoxDecoration(
         border: Border.all(color: color.withValues(alpha: 0.55)),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(Radii.pill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -485,7 +493,7 @@ class _LinkButton extends StatelessWidget {
           foregroundColor: scheme.onSurface,
           side: BorderSide(color: scheme.outlineVariant),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12 * s),
+            borderRadius: BorderRadius.circular(Radii.sm * s),
           ),
           padding: EdgeInsets.zero,
           // 默认 64×48 的最小尺寸与 48 的点击区都比缩过的按钮高，会撑出描边

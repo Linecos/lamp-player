@@ -13,6 +13,7 @@ import '../features/library/library_repository.dart';
 import '../features/player/playback_service.dart';
 import '../features/settings/theme_controller.dart';
 import '../theme/app_theme.dart';
+import '../theme/tokens.dart';
 
 /// 应用支持的语言：中文优先，英文兜底。
 ///
@@ -206,7 +207,7 @@ class LampStartupErrorApp extends StatelessWidget {
             appBar: AppBar(title: const Text('Lamp Player')),
             body: Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(Spacing.lg),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
@@ -215,9 +216,9 @@ class LampStartupErrorApp extends StatelessWidget {
                       size: 56,
                       color: theme.colorScheme.error,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: Spacing.sm),
                     Text(title, style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: Spacing.xs),
                     SelectableText(
                       message,
                       textAlign: TextAlign.center,

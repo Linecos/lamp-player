@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 /// 一句话提示的胶囊外观。
 ///
 /// 全应用只有这一个样式：深色 `inverseSurface` 底 + 全圆角，宽度随文字走。
@@ -34,10 +36,11 @@ class ToastPill extends StatelessWidget {
     final Widget text = Flexible(
       child: Padding(
         padding: EdgeInsets.only(
-          left: 20,
-          right: hasAction ? 8 : 20,
-          top: 10,
-          bottom: 10,
+          left: Spacing.lg,
+          // 没有按钮时右侧要与左侧对称，不然文字在胶囊里偏左 2px
+          right: hasAction ? Spacing.xs : Spacing.lg,
+          top: Spacing.sm,
+          bottom: Spacing.sm,
         ),
         child: Text(
           message,
@@ -52,7 +55,7 @@ class ToastPill extends StatelessWidget {
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: Material(
         color: scheme.inverseSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(Radii.pill),
         elevation: 6,
         shadowColor: Colors.black.withValues(alpha: 0.35),
         child: Row(
@@ -65,9 +68,9 @@ class ToastPill extends StatelessWidget {
                 height: 18,
                 color: scheme.onInverseSurface.withValues(alpha: 0.18),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: Spacing.xxs),
               _PillAction(label: actionLabel!, onPressed: onAction!),
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
             ],
           ],
         ),
@@ -90,7 +93,10 @@ class _PillAction extends StatelessWidget {
       onPressed: onPressed,
       style: TextButton.styleFrom(
         foregroundColor: scheme.inversePrimary,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.xs,
+        ),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const StadiumBorder(),

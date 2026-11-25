@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 /// 睡眠定时浮窗：一个时钟轮盘，0~60 分钟、步长 1 分钟。
 ///
 /// 返回值：`minutes` 为分钟数（0 = 关闭定时），`extendToTrackEnd` 表示到点时
@@ -56,11 +58,18 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
 
     return Dialog(
       backgroundColor: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 16, 18),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.lg,
+            Spacing.lg,
+            Spacing.md,
+            Spacing.md,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -94,7 +103,7 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: Spacing.xs),
                   IconButton(
                     key: const ValueKey<String>('sleep-close'),
                     tooltip: '关闭',
@@ -108,14 +117,14 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Center(
                 child: _MinuteDial(
                   minutes: _minutes,
                   onChanged: (int value) => setState(() => _minutes = value),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Spacing.xs),
               Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 8,
@@ -136,7 +145,7 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: Spacing.xxs),
               SwitchListTile(
                 key: const ValueKey<String>('sleep-extend-switch'),
                 value: _extend,
@@ -149,7 +158,7 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
                 title: const Text('听完当前曲目再暂停'),
                 subtitle: const Text('到点时本曲没播完就顺延到播完'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Spacing.xs),
               Row(
                 children: <Widget>[
                   // 已在倒计时才给「关闭定时」：不然取消要先把轮盘拖回 0，太难发现
@@ -166,7 +175,7 @@ class _SleepTimerDialogState extends State<_SleepTimerDialog> {
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('取消'),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: Spacing.xs),
                   FilledButton(
                     key: const ValueKey<String>('sleep-confirm'),
                     onPressed: () => Navigator.of(context)

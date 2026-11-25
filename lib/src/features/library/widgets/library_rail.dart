@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../common/lamp_icons.dart';
 import '../../../common/scroll/smooth_scroll.dart';
+import '../../../theme/tokens.dart';
 
 /// 主界面左侧导航分区。
 ///
@@ -70,8 +71,8 @@ class LibraryRail extends StatefulWidget {
   /// 岛与窗口边缘、岛与岛之间留的间隙
   static const double islandGap = 12;
 
-  /// 岛卡片的圆角
-  static const double islandRadius = 18;
+  /// 岛卡片的圆角：与内容卡同一档（以前差 2px，看不出来却像随手写的两个数）
+  static const double islandRadius = Radii.md;
 
   /// 主内容区的左边界：侧栏宽度 + 两侧间隙。
   ///
@@ -146,7 +147,12 @@ class _LibraryRailState extends State<LibraryRail> {
                 // 折叠按钮已经沉到卡片底部，入口从卡片顶部起排：原来按钮占的
                 // 64dp 让整列入口整体下移一截，顶上留一块空。
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                  padding: const EdgeInsets.fromLTRB(
+                    Spacing.xs,
+                    Spacing.xs,
+                    Spacing.xs,
+                    Spacing.xxs,
+                  ),
                   child: SmoothScroll(
                     builder:
                         (BuildContext context, ScrollController controller) =>
@@ -179,7 +185,10 @@ class _LibraryRailState extends State<LibraryRail> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 12, bottom: 8),
+                    padding: const EdgeInsets.only(
+                      left: Spacing.sm,
+                      bottom: Spacing.xs,
+                    ),
                     child: IconButton(
                       onPressed: widget.onToggle,
                       padding: EdgeInsets.zero,
@@ -251,7 +260,10 @@ class _RailItem extends StatelessWidget {
                 // 两端半圆半径都是 28，形状才对得上。左内边距 16 与外面
                 // 那层 8 相加是 24，图标始终停在 x=36，这一层不需要动画
                 height: 56,
-                padding: const EdgeInsets.only(left: 16, right: 12),
+                padding: const EdgeInsets.only(
+                  left: Spacing.md,
+                  right: Spacing.sm,
+                ),
                 // 内容按固有宽度布局、交给外层裁剪：动画中途容器比文字窄时，
                 // 若让 Row 去挤，Text 在极窄约束下会撑破布局并触发溢出断言。
                 // 用 OverflowBox 而不是 UnconstrainedBox：后者会自己报溢出。
@@ -272,7 +284,7 @@ class _RailItem extends StatelessWidget {
                           color: foreground,
                         ),
                         if (showLabel) ...<Widget>[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: Spacing.xs),
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 164),
                             child: AnimatedOpacity(

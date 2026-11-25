@@ -6,6 +6,7 @@ import '../../common/common.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart' show splitArtistTag;
 import 'listening_stats_repository.dart';
+import '../../theme/tokens.dart';
 
 /// 听歌统计：累计时长、播放次数排行、每日热力图。
 ///
@@ -64,7 +65,9 @@ final Expando<Future<_StatsBundle>> _statsInflight =
     Expando<Future<_StatsBundle>>('listening-stats-inflight');
 
 /// 让在途结果失效的代数：`invalidateListeningStats` 之后，旧请求不许回填缓存
-final Expando<int> _statsGeneration = Expando<int>('listening-stats-generation');
+final Expando<int> _statsGeneration = Expando<int>(
+  'listening-stats-generation',
+);
 
 int _generationOf(ListeningStatsRepository repository) =>
     _statsGeneration[repository] ?? 0;
@@ -267,7 +270,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
                 ),
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: Spacing.xxs),
             Text(
               '听歌统计',
               style: theme.textTheme.headlineMedium?.copyWith(
@@ -323,7 +326,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     SizedBox(width: 340, child: overview),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: Spacing.md),
                     Expanded(child: heatmap),
                   ],
                 ),
@@ -331,7 +334,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
             : Column(
                 children: <Widget>[
                   overview,
-                  const SizedBox(height: 16),
+                  const SizedBox(height: Spacing.md),
                   heatmap,
                 ],
               );
@@ -341,7 +344,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
           slivers: <Widget>[
             SliverToBoxAdapter(child: head),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+              padding: const EdgeInsets.fromLTRB(0, Spacing.md, 0, Spacing.xs),
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: <Widget>[
@@ -444,7 +447,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
   }) {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
+        padding: const EdgeInsets.symmetric(vertical: Spacing.lg),
         child: EmptyState(icon: icon, title: title, message: message),
       ),
     );
@@ -503,10 +506,10 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
 
     return Container(
       key: const ValueKey<String>('stats-overview'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(Spacing.lg),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
@@ -518,7 +521,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
               color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: Spacing.xs),
           // 并排布局里这一栏只有 340 宽，'1234 小时 56 分钟' 这种量级会顶出去；
           // 缩放而不是省略号：数字被截掉比小一号更糟
           FittedBox(
@@ -531,7 +534,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: Spacing.md),
           Row(
             children: <Widget>[
               _Metric(label: '播放次数', value: '${stats.totalPlays}'),
@@ -542,9 +545,9 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
             ],
           ),
           if (recent.hasData) ...<Widget>[
-            const SizedBox(height: 16),
+            const SizedBox(height: Spacing.md),
             Divider(height: 1, color: scheme.outlineVariant),
-            const SizedBox(height: 14),
+            const SizedBox(height: Spacing.md),
             Row(
               children: <Widget>[
                 _Metric(
@@ -568,7 +571,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
             ),
           ],
           if (stats.totalSeconds == 0) ...<Widget>[
-            const SizedBox(height: 12),
+            const SizedBox(height: Spacing.sm),
             Text(
               '时长与热力图从本版本开始统计，之前的播放只计次数。',
               style: theme.textTheme.bodySmall?.copyWith(
@@ -627,7 +630,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
       ),
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Builder(
@@ -658,7 +661,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: Spacing.xs),
                   Text(
                     weeks >= 52 ? '近一年' : '近 $weeks 周',
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -674,6 +677,8 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
+                  // 这里跟着热力图自己的 3px 格子节奏，不能换成 8：
+                  // 行宽由格数算出来，差 2px 就会让网格右侧要横向滚才露出来
                   const SizedBox(width: 6),
                   for (int level = 0; level <= 4; level += 1) ...<Widget>[
                     _HeatCell(color: _heatColor(scheme, level)),
@@ -688,7 +693,7 @@ class _ListeningStatsViewState extends State<ListeningStatsView> {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: Spacing.md),
               // 和左边的总览卡等高时，把网格 + 脚注当成一块在剩余高度里居中：
               // 余量全部堆在两处之一（贴着标题或贴着底边）都像是漏排了
               if (fill)
@@ -728,7 +733,7 @@ Widget _heatGrid(Map<int, int> byDay, int weeks, double cell) {
 /// 「最长的一天」脚注：跟着网格走，不单独贴到卡片底边
 Widget _bestDayLine(int bestSeconds, DateTime bestDate) {
   return Padding(
-    padding: const EdgeInsets.only(top: 10),
+    padding: const EdgeInsets.only(top: Spacing.sm),
     child: Builder(
       builder: (BuildContext context) {
         final ThemeData theme = Theme.of(context);
@@ -771,7 +776,7 @@ class _MetricDivider extends StatelessWidget {
     return Container(
       width: 1,
       height: 30,
-      margin: const EdgeInsets.only(right: 16),
+      margin: const EdgeInsets.only(right: Spacing.md),
       color: color.withValues(alpha: 0.7),
     );
   }
@@ -891,7 +896,8 @@ class _Heatmap extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 6),
+        // 这 6 已算进 _weekdayColumnWidth（26 + 6），换档会让网格多出 2px
+        const SizedBox(width: _weekdayColumnWidth - 26),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -1044,7 +1050,7 @@ class _RankTabs extends StatelessWidget {
         // 用比页面底色亮一档的「轨道」色：只靠描边的话，未选中那段在深色
         // 主题下几乎看不见，整块读起来像只有一个按钮
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(Radii.sm),
         border: Border.all(color: scheme.outlineVariant),
       ),
       // 两段等宽铺在滑块上：等宽后滑块只需平移、不必同时改尺寸，
@@ -1066,7 +1072,7 @@ class _RankTabs extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: scheme.primary.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(11),
+                      borderRadius: BorderRadius.circular(Radii.sm),
                       border: Border.all(
                         color: scheme.primary.withValues(alpha: 0.55),
                       ),
@@ -1096,16 +1102,19 @@ class _RankTabs extends StatelessWidget {
 
     return InkWell(
       key: ValueKey<String>('rank-tab-${tab.name}'),
-      borderRadius: BorderRadius.circular(11),
+      borderRadius: BorderRadius.circular(Radii.sm),
       onTap: active ? null : () => onChanged(tab),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.xs,
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(tab.icon, size: 16, color: foreground),
-            const SizedBox(width: 6),
+            const SizedBox(width: Spacing.xs),
             // 文字颜色 / 字重也走同一个时长，和滑块一起过渡
             AnimatedDefaultTextStyle(
               duration: _slide,
@@ -1173,13 +1182,16 @@ class _RankTile extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(Radii.sm),
                   ),
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.xs,
+                vertical: Spacing.xs,
+              ),
               child: Row(
                 children: <Widget>[
                   SizedBox(
@@ -1193,9 +1205,9 @@ class _RankTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: Spacing.xxs),
                   avatar,
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Spacing.sm),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1217,7 +1229,7 @@ class _RankTile extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Spacing.sm),
                   SizedBox(
                     width: 76,
                     child: Text(
@@ -1240,7 +1252,7 @@ class _RankTile extends StatelessWidget {
                 type: MaterialType.transparency,
                 child: InkWell(
                   onTap: onTap,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   hoverColor: scheme.onSurface.withValues(alpha: 0.06),
                 ),
               ),

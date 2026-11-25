@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../player/lyric_source.dart';
+import '../../theme/tokens.dart';
 
 /// 「歌词来源优先级」弹窗：两条来源用六点抓手拖动排序，改完立刻回调。
 ///
@@ -49,18 +50,25 @@ class _LyricSourceOrderDialogState extends State<_LyricSourceOrderDialog> {
       key: const ValueKey<String>('lyric-source-dialog'),
       backgroundColor: scheme.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       child: SizedBox(
         width: 380,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.lg,
+                Spacing.md,
+                Spacing.sm,
+                Spacing.xxs,
+              ),
               child: Row(
                 children: <Widget>[
                   const Icon(Icons.swap_vert_rounded, size: 22),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: Spacing.sm),
                   Expanded(
                     child: Text('歌词来源优先级', style: theme.textTheme.titleLarge),
                   ),
@@ -73,7 +81,12 @@ class _LyricSourceOrderDialogState extends State<_LyricSourceOrderDialog> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.lg,
+                0,
+                Spacing.lg,
+                Spacing.sm,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -83,7 +96,7 @@ class _LyricSourceOrderDialogState extends State<_LyricSourceOrderDialog> {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: Spacing.sm),
                   ReorderableListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -106,7 +119,7 @@ class _LyricSourceOrderDialogState extends State<_LyricSourceOrderDialog> {
                       );
                     },
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: Spacing.xs),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -140,18 +153,23 @@ class _SourceTile extends StatelessWidget {
 
     // 底色交给 Material，水波纹才画得出来；圆角与描边在 Container 上
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: Spacing.xs),
       child: Material(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.md),
         clipBehavior: Clip.antiAlias,
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(Radii.md),
             border: Border.all(color: scheme.outlineVariant),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.md,
+              Spacing.sm,
+              Spacing.xs,
+              Spacing.sm,
+            ),
             child: Row(
               children: <Widget>[
                 Icon(
@@ -161,7 +179,7 @@ class _SourceTile extends StatelessWidget {
                   size: 20,
                   color: scheme.onSurfaceVariant,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: Spacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,7 +195,7 @@ class _SourceTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: Spacing.xs),
                 ReorderableDragStartListener(
                   index: index,
                   child: MouseRegion(
@@ -185,7 +203,7 @@ class _SourceTile extends StatelessWidget {
                     child: Tooltip(
                       message: '拖动排序',
                       child: Padding(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(Spacing.xs),
                         child: Icon(
                           Icons.drag_indicator,
                           size: 18,

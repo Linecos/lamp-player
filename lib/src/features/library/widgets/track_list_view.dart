@@ -8,6 +8,7 @@ import '../../../common/widgets/album_cover.dart';
 import '../../../rust/api/model.dart';
 import '../../player/player_bar.dart';
 import '../library_sort.dart';
+import '../../../theme/tokens.dart';
 
 /// 曲目右键菜单动作；具体行为由页面实现（测试里可只验证回调）。
 enum TrackContextAction {
@@ -235,7 +236,7 @@ class _TrackListViewState extends State<TrackListView> {
                             color: Theme.of(context)
                                 .colorScheme
                                 .surfaceContainerHigh,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(Radii.md),
                             child: child,
                           ),
                   itemBuilder: (BuildContext context, int index) =>
@@ -314,7 +315,7 @@ class _TrackHeader extends StatelessWidget {
 
     return Container(
       height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
@@ -342,17 +343,17 @@ class _TrackHeader extends StatelessWidget {
           // 让出封面的位置（宽度与行内封面一致）+ 它右边那段间距，
           // 否则「标题」列头会和下面的歌名错开
           const SizedBox(width: TrackListView.coverExtent),
-          const SizedBox(width: 12),
+          const SizedBox(width: Spacing.sm),
           Expanded(flex: 5, child: Text('标题', style: style)),
           if (showArtist) ...<Widget>[
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(flex: 2, child: Text('艺术家', style: style)),
           ],
           if (showAlbum) ...<Widget>[
-            const SizedBox(width: 16),
+            const SizedBox(width: Spacing.md),
             Expanded(flex: 2, child: Text('专辑', style: style)),
           ],
-          const SizedBox(width: 16),
+          const SizedBox(width: Spacing.md),
           SizedBox(
             width: 64,
             child: Text('时长', textAlign: TextAlign.right, style: style),
@@ -528,7 +529,7 @@ class _TrackRow extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Icon(icon, size: 18),
-          const SizedBox(width: 10),
+          const SizedBox(width: Spacing.sm),
           // 批量措辞会长一截（「下一首播放所选 12 首」），菜单宽度有限，
           // 给文字留弹性，别让它把 Row 撑出去
           Flexible(
@@ -543,7 +544,7 @@ class _TrackRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final BorderRadius radius = BorderRadius.circular(16);
+    final BorderRadius radius = BorderRadius.circular(Radii.md);
 
     final TextStyle? secondary = theme.textTheme.bodyMedium?.copyWith(
       color: scheme.onSurfaceVariant,
@@ -587,7 +588,7 @@ class _TrackRow extends StatelessWidget {
               borderRadius: radius,
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
               child: Row(
                 children: <Widget>[
                   if (selectionMode)
@@ -621,7 +622,7 @@ class _TrackRow extends StatelessWidget {
                     radius: 12,
                     playing: playing,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Spacing.sm),
                   Expanded(
                     flex: 5,
                     child: Text(
@@ -655,7 +656,7 @@ class _TrackRow extends StatelessWidget {
                         style: secondary,
                       ),
                     ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: Spacing.md),
                   SizedBox(
                     width: 64,
                     child: Text(

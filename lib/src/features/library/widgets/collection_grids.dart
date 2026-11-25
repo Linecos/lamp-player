@@ -7,6 +7,7 @@ import '../../player/player_bar.dart';
 import '../library_sort.dart';
 import 'alphabet_grid.dart';
 import 'cover_flight.dart';
+import '../../../theme/tokens.dart';
 
 /// 艺术家网格：圆形首字封面 + 名字 + 专辑/曲目数
 class ArtistGridView extends StatelessWidget {
@@ -90,7 +91,7 @@ class _ArtistCardState extends State<_ArtistCard> {
       color: scheme.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
@@ -101,7 +102,12 @@ class _ArtistCardState extends State<_ArtistCard> {
         ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.sm,
+            Spacing.lg,
+            Spacing.sm,
+            Spacing.md,
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -139,7 +145,7 @@ class _ArtistCardState extends State<_ArtistCard> {
                   },
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Text(
                 artist.name,
                 maxLines: 1,
@@ -243,7 +249,7 @@ class _AlbumCardState extends State<_AlbumCard> {
       color: scheme.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
@@ -254,7 +260,7 @@ class _AlbumCardState extends State<_AlbumCard> {
         ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(Spacing.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -280,7 +286,7 @@ class _AlbumCardState extends State<_AlbumCard> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: Spacing.sm),
               Text(
                 album.title,
                 maxLines: 1,

@@ -39,9 +39,9 @@ extension _MusicSection on _LibraryPageState {
               icon: const Icon(Icons.play_arrow),
               label: Text(_query.isEmpty ? '播放全部' : '播放结果'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _buildSelectionToggle(context),
-            const SizedBox(width: 8),
+            const SizedBox(width: Spacing.xs),
             _SortButton(
               mode: _sort,
               ascending: _sortAscending,
@@ -69,15 +69,15 @@ extension _MusicSection on _LibraryPageState {
         ),
         if (_searching)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: Spacing.xs),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(Radii.pill),
               child: const LinearProgressIndicator(minHeight: 2),
             ),
           ),
         if (_scanSlow)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: Spacing.xs),
             child: Row(
               children: <Widget>[
                 const SizedBox(
@@ -85,7 +85,7 @@ extension _MusicSection on _LibraryPageState {
                   height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: Spacing.xs),
                 Expanded(
                   child: Text(
                     _lastScanFolder == null
@@ -101,7 +101,7 @@ extension _MusicSection on _LibraryPageState {
               ],
             ),
           ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.xs),
         Expanded(child: _buildMusicBody(context)),
       ],
     );

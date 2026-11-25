@@ -89,7 +89,7 @@ void main() {
     final Rect change = tester.getRect(
       find.widgetWithText(FilledButton, '更换封面…'),
     );
-    final double actionsLeft = cover.right + 20;
+    final double actionsLeft = cover.right + 16;
     final double actionsRight = dialog.right - 12;
     expect(
       (change.left - actionsLeft) - (actionsRight - change.right),

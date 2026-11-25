@@ -16,6 +16,7 @@ import 'cover_spin.dart';
 import 'spectrum_bars.dart';
 import 'playback_mode.dart';
 import 'playback_queue.dart';
+import '../../theme/tokens.dart';
 
 /// 请播放条把音量浮层弹出来一下。
 ///
@@ -182,10 +183,10 @@ class PlayerBar extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: current == null ? null : onOpenNowPlaying,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(32),
+                borderRadius: BorderRadius.circular(Radii.xl),
                 border: Border.all(color: scheme.outlineVariant),
                 boxShadow: <BoxShadow>[
                   // 阴影向下收窄：offset 6 配 blur 18 会向上扩散 12px，
@@ -305,7 +306,7 @@ class PlayerBar extends StatelessWidget {
                   maxLines: 1,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
             ],
             Expanded(
               child: SizedBox(
@@ -326,10 +327,10 @@ class PlayerBar extends StatelessWidget {
               ),
             ),
             if (showTotal) ...<Widget>[
-              const SizedBox(width: 8),
+              const SizedBox(width: Spacing.xs),
               Text(formatDuration(total), style: timeStyle),
             ],
-            const SizedBox(width: 4),
+            const SizedBox(width: Spacing.xxs),
             // 播放模式与队列始终各占一个按钮：合并成菜单后要点两下才能切模式
             _BarIconButton(
               icon: playbackModeIcon(repeat, shuffle),
@@ -344,7 +345,7 @@ class PlayerBar extends StatelessWidget {
               size: buttonSize,
               onPressed: onShowQueue,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: Spacing.xxs),
             _VolumeControl(
               volume: volume,
               enabled: isAvailable,
@@ -409,12 +410,15 @@ class _PlayerBarLeft extends StatelessWidget {
       widthFactor: 1,
       child: InkWell(
         key: const ValueKey<String>('player-bar-open-now-playing-title'),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(Radii.sm),
         hoverColor: scheme.onSurface.withValues(alpha: 0.08),
         onTap: current == null ? null : onOpenNowPlaying,
         // Align 让高亮收缩到文字块大小，而不是整行高度
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.xs,
+            vertical: Spacing.xs,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -515,13 +519,13 @@ class _PlayerBarLeft extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: Spacing.sm),
             if (showSpectrum) ...<Widget>[
               ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: titleMax),
                 child: titleBlock,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Spacing.sm),
               // 频谱放在「曲名之后」剩下的整块空白正中间：两侧留白相等，
               // 才不会像被播放键挤在右边缘（原来按对半分，左边空一大片）
               Expanded(
@@ -787,9 +791,12 @@ class _VolumeControlState extends State<_VolumeControl> {
           child: Material(
             elevation: 8,
             color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(Radii.md),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.xs,
+                vertical: Spacing.sm,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
@@ -802,7 +809,7 @@ class _VolumeControlState extends State<_VolumeControl> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: Spacing.xs),
                   SizedBox(
                     width: 36,
                     height: 120,

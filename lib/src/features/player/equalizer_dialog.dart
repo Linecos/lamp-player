@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../player/equalizer.dart';
 import '../settings/equalizer_panel.dart';
+import '../../theme/tokens.dart';
 
 /// 均衡器弹窗：设置页与正在播放页共用同一个入口。
 ///
@@ -63,18 +64,25 @@ class _EqualizerDialog extends StatelessWidget {
       // 与设置页的均衡器页同底色，弹窗里看着是同一块面板
       backgroundColor: scheme.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.lg),
+      ),
       child: SizedBox(
         width: width,
         height: height,
         child: Column(
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.lg,
+                Spacing.md,
+                Spacing.sm,
+                Spacing.xxs,
+              ),
               child: Row(
                 children: <Widget>[
                   const Icon(Icons.equalizer, size: 22),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: Spacing.sm),
                   Expanded(
                     child: Text('均衡器', style: theme.textTheme.titleLarge),
                   ),

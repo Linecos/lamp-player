@@ -193,11 +193,7 @@ void main() {
     );
     await mouse.moveBy(const Offset(40, 0));
     await tester.pumpAndSettle();
-    expect(
-      find.textContaining('跳到'),
-      findsOneWidget,
-      reason: '拖动时也要显示目标时间',
-    );
+    expect(find.textContaining('跳到'), findsOneWidget, reason: '拖动时也要显示目标时间');
     expect(previews, isNotEmpty);
 
     await mouse.up();
