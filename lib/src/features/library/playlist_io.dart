@@ -21,8 +21,9 @@ import '../../rust/api/model.dart';
 /// 解码歌单文本：UTF-8 优先，失败退回 GBK。
 ///
 /// 国内播放器导出的 `.m3u` 很多还是 ANSI（GBK）编码，直接 `readAsString()`
-/// 会抛 FormatException，上层只能报「读取文件失败」。GBK 也解不开时退回
-/// latin1：至少路径原样保留，还能靠文件名兜底匹配。
+/// 会抛 FormatException，上层只能报「读取文件失败」。
+/// GBK 用 `allowMalformed: true` 兜底：什么字节都能解出文本，不会再有第三次
+/// 兜底分支——以前这里写着「GBK 也解不开时退回 latin1」，那条路径实际到不了。
 String decodePlaylistBytes(List<int> bytes) {
   try {
     return utf8.decode(bytes);

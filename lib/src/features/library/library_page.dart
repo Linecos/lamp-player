@@ -303,6 +303,9 @@ class _LibraryPageState extends State<LibraryPage>
 
   LibrarySection _section = LibrarySection.music;
 
+  /// 听歌统计是否已经预热过：只在第一次进入音乐库分区时查一趟
+  bool _statsPrefetched = false;
+
   /// 只驱动侧栏高亮的通知器：点导航时先只改它，整页不重建
   final ValueNotifier<LibrarySection> _sectionNotifier =
       ValueNotifier<LibrarySection>(LibrarySection.music);
@@ -1405,6 +1408,11 @@ class _LibraryPageState extends State<LibraryPage>
       // 立刻同步，免得界面先按方形画一遍再跳成圆形
       circularCovers.value = snapshot.circularCovers;
     });
+
+    // 会话恢复了「音乐库」分区：那时不会再走一次 _selectSection，得在这里预热
+    if (section == LibrarySection.library) {
+      _prefetchStatsOnce();
+    }
 
     if (!mounted) {
       return;
@@ -2879,6 +2887,9 @@ class _LibraryPageState extends State<LibraryPage>
     final bool leavingDetail = _selectionSignature(previous).isNotEmpty;
     _section = section;
     _sectionNotifier.value = section;
+    if (section == LibrarySection.library) {
+      _prefetchStatsOnce();
+    }
     // 离开音乐库就收起子页：下次进来是列表，统计的曲线与音质列表也不必
     // 留在 Offstage 里占着内存
     _libraryStatsOpen = false;

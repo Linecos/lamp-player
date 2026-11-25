@@ -5,15 +5,20 @@ part of '../library_page.dart';
 /// 目录管理、隐藏与清理原先塞在设置页里，现在独立成一个分区；「听歌统计」
 /// 也跟着搬过来，作为这个分区内部的子界面（侧栏与播放岛都不动）。
 extension _LibrarySection on _LibraryPageState {
+  /// 进入音乐库分区时预热一次听歌统计。
+
+  void _prefetchStatsOnce() {
+    if (_statsPrefetched) {
+      return;
+    }
+    _statsPrefetched = true;
+    prefetchListeningStats(repository: widget.statsRepository);
+  }
+
   Widget _buildLibrarySection(BuildContext context) {
     final bool statsOpen = _libraryStatsOpen;
     final AudioQuality? quality = _qualityDetail;
     final String? folder = _folderDetail;
-
-    // 分区一露头就把统计数据查好：用户点「听歌统计」时结果已经在手，
-    // 子界面第一帧直接是内容，不会闪一下「正在统计…」。
-    // 有缓存 / 已有请求在跑时这里是空调用，重复构建没有代价。
-    prefetchListeningStats(repository: widget.statsRepository);
 
     // 与设置页原来那套一样：列表 ↔ 子界面之间淡入上滑，两份子树各自
     // RepaintBoundary，过渡的 180ms 里才共存。

@@ -63,6 +63,21 @@ final Expando<DateTime> _statsCacheAt = Expando<DateTime>(
 final Expando<Future<_StatsBundle>> _statsInflight =
     Expando<Future<_StatsBundle>>('listening-stats-inflight');
 
+/// 让在途结果失效的代数：`invalidateListeningStats` 之后，旧请求不许回填缓存
+final Expando<int> _statsGeneration = Expando<int>('listening-stats-generation');
+
+int _generationOf(ListeningStatsRepository repository) =>
+    _statsGeneration[repository] ?? 0;
+
+/// 让统计缓存过期，但**保留上次的结果**。
+void invalidateListeningStats({ListeningStatsRepository? repository}) {
+  final ListeningStatsRepository repo =
+      repository ?? const RustListeningStatsRepository();
+  _statsGeneration[repo] = _generationOf(repo) + 1;
+  _statsCacheAt[repo] = null;
+  _statsInflight[repo] = null;
+}
+
 /// 缓存多久之内不重复查库：进进出出（返回设置再点回来）时不必每次都打库
 const Duration _statsCacheTtl = Duration(seconds: 15);
 
@@ -93,17 +108,26 @@ Future<_StatsBundle> _requestStats(
   if (!force && _statsCache[repository] != null && _isFresh(repository)) {
     return Future<_StatsBundle>.value(_statsCache[repository]);
   }
+  final int generation = _generationOf(repository);
   final DateTime start = DateTime.now();
-  final Future<_StatsBundle> future = _fetchStats(repository).then(
+  late final Future<_StatsBundle> future;
+  future = _fetchStats(repository).then(
     (_StatsBundle bundle) {
-      _statsCache[repository] = bundle;
-      // 用发起时刻算年龄：查库期间不该算「已经旧了」
-      _statsCacheAt[repository] = start;
-      _statsInflight[repository] = null;
+      if (identical(_statsInflight[repository], future)) {
+        _statsInflight[repository] = null;
+      }
+      // 查库期间被 invalidate 过：结果照旧交给调用方，但不许标记成「新的」
+      if (_generationOf(repository) == generation) {
+        _statsCache[repository] = bundle;
+        // 用发起时刻算年龄：查库期间不该算「已经旧了」
+        _statsCacheAt[repository] = start;
+      }
       return bundle;
     },
     onError: (Object error, StackTrace stack) {
-      _statsInflight[repository] = null;
+      if (identical(_statsInflight[repository], future)) {
+        _statsInflight[repository] = null;
+      }
       throw error;
     },
   );

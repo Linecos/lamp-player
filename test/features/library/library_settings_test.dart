@@ -812,6 +812,44 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+
+  testWidgets('进音乐库只预热一次统计；缓存失效后再打开会重查并显示新数字', (
+    WidgetTester tester,
+  ) async {
+    final _MutableStatsRepository repo = _MutableStatsRepository();
+    await pumpLibrary(tester, tracks: twoTracks(), statsRepository: repo);
+    await openLibrarySettings(tester);
+
+    expect(repo.playStatsCalls, 1, reason: '进音乐库分区预热一次');
+    // 多构建几帧不该再发请求（以前这句写在 build 里，靠缓存挡住而已）
+    await tester.pump();
+    await tester.pump();
+    expect(repo.playStatsCalls, 1, reason: 'build 里不应再发统计请求');
+
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
+    await tester.pumpAndSettle();
+    expect(find.text('12'), findsOneWidget, reason: '先画缓存里的次数');
+
+    // 模拟播完一首：次数 +1，并让缓存过期
+    repo.totalPlays = 13;
+    invalidateListeningStats(repository: repo);
+
+    await tester.tap(find.byKey(const ValueKey<String>('stats-back')));
+    await tester.pumpAndSettle();
+    final int callsBeforeReopen = repo.playStatsCalls;
+    await tester.tap(find.byKey(const ValueKey<String>('library-open-stats')));
+    await tester.pumpAndSettle();
+
+    expect(
+      repo.playStatsCalls,
+      callsBeforeReopen + 1,
+      reason: '缓存失效后要重查一次，而不是继续吃 15 秒内的旧结果',
+    );
+    expect(find.text('13'), findsOneWidget, reason: '重查后显示新次数');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
 }
 
 /// 统计子界面的假数据源：只给最小可用的一份，够断言「内容真的渲染了」
@@ -823,6 +861,35 @@ class _FakeStatsRepository implements ListeningStatsRepository {
     trackCount: 3,
     activeDays: 1,
   );
+
+  @override
+  Future<List<TrackPlayStat>> topTracks({int limit = 100}) async =>
+      <TrackPlayStat>[TrackPlayStat(track: sampleTrack(title: '夜航'), plays: 5)];
+
+  @override
+  Future<List<ArtistPlayStat>> topArtists({int limit = 100}) async =>
+      <ArtistPlayStat>[ArtistPlayStat(artist: '林间电台', plays: 5, trackCount: 1)];
+
+  @override
+  Future<List<DailyPlaytime>> dailyPlaytime(int sinceDay) async =>
+      const <DailyPlaytime>[];
+}
+
+/// 可变的统计假数据源：统计缓存失效用，记下 `playStats` 被调了几次
+class _MutableStatsRepository implements ListeningStatsRepository {
+  int totalPlays = 12;
+  int playStatsCalls = 0;
+
+  @override
+  Future<PlayStats> playStats() async {
+    playStatsCalls += 1;
+    return PlayStats(
+      totalSeconds: 3600,
+      totalPlays: totalPlays,
+      trackCount: 3,
+      activeDays: 1,
+    );
+  }
 
   @override
   Future<List<TrackPlayStat>> topTracks({int limit = 100}) async =>

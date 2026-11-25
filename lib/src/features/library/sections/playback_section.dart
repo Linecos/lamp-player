@@ -581,6 +581,8 @@ extension _PlaybackSection on _LibraryPageState {
   Future<void> _recordPlay(String path) async {
     try {
       await _repository.recordPlay(path);
+      // 次数变了：统计缓存标记为过期（下次打开仍先画旧内容，后台再刷）
+      invalidateListeningStats(repository: widget.statsRepository);
     } catch (error) {
       debugPrint('记录播放历史失败：$error');
     }
@@ -656,6 +658,7 @@ extension _PlaybackSection on _LibraryPageState {
     _playSessionSeconds -= seconds;
     try {
       await _repository.recordPlayTime(path, day, seconds);
+      invalidateListeningStats(repository: widget.statsRepository);
     } catch (error) {
       debugPrint('记录听歌时长失败：$error');
     }
