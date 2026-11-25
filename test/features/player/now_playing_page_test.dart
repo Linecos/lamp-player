@@ -1808,25 +1808,73 @@ void main() {
     );
     expect(volume.label, '62', reason: '音量给整数百分比，0.62 读起来不直观');
 
-    for (final String key in <String>[
-      'now-playing-progress',
-      'now-playing-volume',
-    ]) {
-      final SliderTheme theme = tester.widget<SliderTheme>(
-        find
-            .ancestor(
-              of: find.byKey(ValueKey<String>(key)),
-              matching: find.byType(SliderTheme),
-            )
-            .first,
-      );
-      expect(
-        theme.data.showValueIndicator,
-        ShowValueIndicator.onDrag,
-        reason: '常驻会一直挡住上方的控制区',
-      );
-      expect(theme.data.valueIndicatorTextStyle?.fontSize, 12);
-    }
+    // 音量条仍走框架自带的取值气泡：常驻会一直挡住上方的控制区
+    final SliderTheme volumeTheme = tester.widget<SliderTheme>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey<String>('now-playing-volume')),
+            matching: find.byType(SliderTheme),
+          )
+          .first,
+    );
+    expect(volumeTheme.data.showValueIndicator, ShowValueIndicator.onDrag);
+    expect(volumeTheme.data.valueIndicatorTextStyle?.fontSize, 12);
+  });
+
+  testWidgets('进度条悬停显示「跳到」时间气泡', (WidgetTester tester) async {
+    await _pump(tester, data: _data(position: 60, duration: 200));
+    final Finder slider = find.byKey(
+      const ValueKey<String>('now-playing-progress'),
+    );
+    expect(find.textContaining('跳到'), findsNothing, reason: '没悬停就不画气泡');
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer();
+    addTearDown(mouse.removePointer);
+
+    final Rect rect = tester.getRect(slider);
+    // 停在正中间 → 100 秒
+    await mouse.moveTo(Offset(rect.center.dx, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.text('跳到 01:40'), findsOneWidget);
+
+    await mouse.moveTo(Offset(rect.left - 60, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('跳到'), findsNothing);
+  });
+
+  testWidgets('拖动进度条松手后气泡消失，不留在拖动前的悬停位置', (WidgetTester tester) async {
+    await _pump(tester, data: _data(position: 60, duration: 200));
+    final Finder slider = find.byKey(
+      const ValueKey<String>('now-playing-progress'),
+    );
+
+    // 先悬停，让气泡落在某个位置
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer();
+    addTearDown(mouse.removePointer);
+    final Rect rect = tester.getRect(slider);
+    await mouse.moveTo(Offset(rect.center.dx, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('跳到'), findsOneWidget);
+
+    // 按住往右拖，松手
+    await mouse.down(Offset(rect.center.dx, rect.center.dy));
+    await mouse.moveTo(Offset(rect.center.dx + 30, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('跳到'), findsOneWidget, reason: '拖动时跟着拇指');
+
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('跳到'),
+      findsNothing,
+      reason: '松手就收气泡，不能留在拖动前的悬停位置',
+    );
   });
 }
 

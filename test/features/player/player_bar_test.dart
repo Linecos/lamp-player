@@ -151,6 +151,67 @@ void main() {
     expect(ends.single, lessThanOrEqualTo(200));
   });
 
+  testWidgets('进度条悬停显示时间气泡，移开就消失', (WidgetTester tester) async {
+    await _pumpBar(tester, track: sampleTrack(title: '夜航'), duration: 200);
+    final Finder slider = find.byKey(_progressKey);
+    expect(find.textContaining('跳到'), findsNothing, reason: '没悬停就不画气泡');
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer();
+    addTearDown(mouse.removePointer);
+
+    final Rect rect = tester.getRect(slider);
+    // 停在正中间 → 一半进度 = 100 秒
+    await mouse.moveTo(Offset(rect.center.dx, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.text('跳到 01:40'), findsOneWidget);
+
+    // 移到旁边的空白处（时间标签上）→ 气泡消失
+    await mouse.moveTo(Offset(rect.left - 60, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('跳到'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('拖动进度条时气泡跟着拇指走', (WidgetTester tester) async {
+    final List<double> previews = <double>[];
+    await _pumpBar(
+      tester,
+      track: sampleTrack(title: '夜航'),
+      position: 50,
+      duration: 200,
+      onSeekChanged: previews.add,
+    );
+
+    final TestGesture mouse = await tester.startGesture(
+      tester.getCenter(find.byKey(_progressKey)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.moveBy(const Offset(40, 0));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('跳到'),
+      findsOneWidget,
+      reason: '拖动时也要显示目标时间',
+    );
+    expect(previews, isNotEmpty);
+
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('跳到'),
+      findsNothing,
+      reason: '松手就收气泡，不能留在拖动前的悬停位置',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('拖动过程中时间标签跟随预览位置', (WidgetTester tester) async {
     await _pumpBar(
       tester,

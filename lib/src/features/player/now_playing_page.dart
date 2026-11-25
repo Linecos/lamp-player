@@ -18,6 +18,7 @@ import '../../common/ui_clock.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/marquee_title.dart';
+import '../../common/widgets/slim_slider.dart';
 import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
@@ -1578,73 +1579,54 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   .toDouble();
                               return Column(
                                 children: <Widget>[
-                                  SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 4,
-                                      thumbShape: const RoundSliderThumbShape(
-                                        enabledThumbRadius: 7,
-                                      ),
-                                      overlayShape:
-                                          const RoundSliderOverlayShape(
-                                            overlayRadius: 14,
-                                          ),
-                                      // 拖动进度时在圆点上方显示「指到的时间」：
-                                      // 底部左右两端的文字只说明当前与总时长，
-                                      // 拖动过程中看不出正要跳到哪儿
-                                      showValueIndicator:
-                                          ShowValueIndicator.onDrag,
-                                      valueIndicatorShape:
-                                          const RectangularSliderValueIndicatorShape(),
-                                      valueIndicatorColor:
-                                          scheme.inverseSurface,
-                                      valueIndicatorTextStyle:
-                                          _valueBubbleTextStyle(theme, scheme),
+                                  SlimSlider(
+                                    sliderKey: const ValueKey<String>(
+                                      'now-playing-progress',
                                     ),
-                                    child: SliderSemanticsScope(
-                                      child: Slider(
-                                        key: const ValueKey<String>(
-                                          'now-playing-progress',
-                                        ),
-                                        label: formatDuration(shown),
-                                        value: total > 0 ? shown : 0,
-                                        max: total > 0 ? total : 1,
-                                        onChanged: ready && total > 0
-                                            ? (double value) {
-                                                // 新的一次拖动：上一次还没回来的 seek
-                                                // 不再有权清掉预览值（见 onChangeEnd）
-                                                _seekToken += 1;
-                                                _dragPosition.value = value;
-                                              }
-                                            : null,
-                                        onChangeEnd: ready && total > 0
-                                            ? (double value) {
-                                                // 松手后别立刻丢掉预览值：seek 回来之前
-                                                // `data.position` 还是旧位置，这时候清掉会让
-                                                // 圆点和时间气泡先闪回原处再跳过去。等 seek
-                                                // 落地（位置已经写回 notifier）再交还。
-                                                //
-                                                // 用令牌区分「是哪一次交互的 seek」：seek 还在
-                                                // 飞的时候又点了别处，那次已完成回调不能把新的
-                                                // 预览值清掉，否则圆点会闪回旧位置一帧。
-                                                _dragPosition.value = value;
-                                                final int token = ++_seekToken;
-                                                unawaited(
-                                                  widget
-                                                      .onSeek(value)
-                                                      .whenComplete(() {
-                                                        if (!mounted ||
-                                                            token !=
-                                                                _seekToken) {
-                                                          return;
-                                                        }
-                                                        _dragPosition.value =
-                                                            null;
-                                                      }),
-                                                );
-                                              }
-                                            : null,
-                                      ),
-                                    ),
+                                    label: formatDuration(shown),
+                                    value: total > 0 ? shown : 0,
+                                    max: total > 0 ? total : 1,
+                                    // 悬停 / 拖动都在拇指上方显示「指到的时间」：
+                                    // 底部左右两端的文字只说明当前与总时长，
+                                    // 拖动过程中看不出正要跳到哪儿
+                                    enabled: ready && total > 0,
+                                    tipBuilder: total > 0
+                                        ? (double value) =>
+                                              '跳到 ${formatDuration(value)}'
+                                        : null,
+                                    onChanged: ready && total > 0
+                                        ? (double value) {
+                                            // 新的一次拖动：上一次还没回来的 seek
+                                            // 不再有权清掉预览值（见 onChangeEnd）
+                                            _seekToken += 1;
+                                            _dragPosition.value = value;
+                                          }
+                                        : null,
+                                    onChangeEnd: ready && total > 0
+                                        ? (double value) {
+                                            // 松手后别立刻丢掉预览值：seek 回来之前
+                                            // `data.position` 还是旧位置，这时候清掉会让
+                                            // 圆点和时间气泡先闪回原处再跳过去。等 seek
+                                            // 落地（位置已经写回 notifier）再交还。
+                                            //
+                                            // 用令牌区分「是哪一次交互的 seek」：seek 还在
+                                            // 飞的时候又点了别处，那次已完成回调不能把新的
+                                            // 预览值清掉，否则圆点会闪回旧位置一帧。
+                                            _dragPosition.value = value;
+                                            final int token = ++_seekToken;
+                                            unawaited(
+                                              widget.onSeek(value).whenComplete(
+                                                () {
+                                                  if (!mounted ||
+                                                      token != _seekToken) {
+                                                    return;
+                                                  }
+                                                  _dragPosition.value = null;
+                                                },
+                                              ),
+                                            );
+                                          }
+                                        : null,
                                   ),
                                   Padding(
                                     // 12 与上面滑块的 overlay 半径对齐，时间才落在轨道两端内侧

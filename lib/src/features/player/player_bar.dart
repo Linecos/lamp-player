@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import '../../common/formatters/duration.dart';
 import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
-import '../../common/widgets/slider_semantics_scope.dart';
+import '../../common/widgets/slim_slider.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../../rust/api/model.dart';
 import '../library/library_sort.dart';
@@ -311,7 +311,7 @@ class PlayerBar extends StatelessWidget {
               child: SizedBox(
                 // Slider 默认 48 高，压到 28 才塞得进 88 的播放条
                 height: 28,
-                child: _SlimSlider(
+                child: SlimSlider(
                   key: const ValueKey<String>('player-progress'),
                   value: shown,
                   max: total > 0 ? total : 1,
@@ -319,6 +319,9 @@ class PlayerBar extends StatelessWidget {
                   onChangeStart: onSeekStart,
                   onChanged: onSeekChanged,
                   onChangeEnd: onSeekEnd,
+                  tipBuilder: total > 0
+                      ? (double value) => '跳到 ${formatDuration(value)}'
+                      : null,
                 ),
               ),
             ),
@@ -809,7 +812,7 @@ class _VolumeControlState extends State<_VolumeControl> {
                       // 竖过来：上端 100%，下端 0%
                       child: RotatedBox(
                         quarterTurns: 3,
-                        child: _SlimSlider(
+                        child: SlimSlider(
                           key: const ValueKey<String>('player-volume'),
                           value: level,
                           max: 1,
@@ -823,60 +826,6 @@ class _VolumeControlState extends State<_VolumeControl> {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 扁平滑块：播放条的 88px 高度塞不下默认尺寸的 Slider。
-class _SlimSlider extends StatelessWidget {
-  const _SlimSlider({
-    super.key,
-    required this.value,
-    required this.max,
-    required this.enabled,
-    this.onChangeStart,
-    this.onChanged,
-    this.onChangeEnd,
-  });
-
-  final double value;
-  final double max;
-  final bool enabled;
-  final ValueChanged<double>? onChangeStart;
-  final ValueChanged<double>? onChanged;
-  final ValueChanged<double>? onChangeEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final SliderThemeData base = SliderTheme.of(context);
-
-    return SliderTheme(
-      data: base.copyWith(
-        trackHeight: 4,
-        activeTrackColor: scheme.primary,
-        inactiveTrackColor: scheme.surfaceContainerHighest,
-        disabledActiveTrackColor: scheme.outlineVariant,
-        disabledInactiveTrackColor: scheme.surfaceContainerHighest,
-        thumbColor: scheme.primary,
-        disabledThumbColor: scheme.outline,
-        overlayColor: scheme.primary.withValues(alpha: 0.12),
-        thumbShape: RoundSliderThumbShape(
-          enabledThumbRadius: 7,
-          disabledThumbRadius: 5,
-        ),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-        trackShape: const RoundedRectSliderTrackShape(),
-      ),
-      child: SliderSemanticsScope(
-        child: Slider(
-          value: value.clamp(0.0, max).toDouble(),
-          max: max,
-          onChangeStart: enabled ? onChangeStart : null,
-          onChanged: enabled ? onChanged : null,
-          onChangeEnd: enabled ? onChangeEnd : null,
         ),
       ),
     );
