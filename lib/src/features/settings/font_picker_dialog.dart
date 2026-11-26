@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/text/bundled_fonts.dart';
 import '../../common/text/lyric_font.dart';
 import '../../common/text/system_fonts.dart';
@@ -371,20 +372,28 @@ class _FontPickerDialogState extends State<_FontPickerDialog> {
                     )
                   : Material(
                       type: MaterialType.transparency,
-                      child: ListView.builder(
-                        itemCount: shown.length,
-                        itemExtent: 44,
-                        addAutomaticKeepAlives: false,
-                        addSemanticIndexes: false,
-                        itemBuilder: (BuildContext context, int index) {
-                          final _FontChoice choice = shown[index];
-                          return _FontRow(
-                            choice: choice,
-                            current: normalized,
-                            onTap: () =>
-                                Navigator.of(context).pop(choice.value),
-                          );
-                        },
+                      // 字体列表动辄上百行，滚轮一格一帧跳太顿
+                      child: SmoothScroll(
+                        builder:
+                            (
+                              BuildContext context,
+                              ScrollController controller,
+                            ) => ListView.builder(
+                              controller: controller,
+                              itemCount: shown.length,
+                              itemExtent: 44,
+                              addAutomaticKeepAlives: false,
+                              addSemanticIndexes: false,
+                              itemBuilder: (BuildContext context, int index) {
+                                final _FontChoice choice = shown[index];
+                                return _FontRow(
+                                  choice: choice,
+                                  current: normalized,
+                                  onTap: () =>
+                                      Navigator.of(context).pop(choice.value),
+                                );
+                              },
+                            ),
                       ),
                     ),
             ),

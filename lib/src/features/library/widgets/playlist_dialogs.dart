@@ -295,7 +295,23 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
     );
 
     return AlertDialog(
-      title: Text('添加到「${widget.playlistName}」'),
+      titlePadding: const EdgeInsets.fromLTRB(
+        Spacing.lg,
+        Spacing.md,
+        Spacing.sm,
+        Spacing.xs,
+      ),
+      title: Row(
+        children: <Widget>[
+          Expanded(child: Text('添加到「${widget.playlistName}」')),
+          IconButton(
+            key: const ValueKey<String>('playlist-add-close'),
+            tooltip: '关闭',
+            onPressed: () => Navigator.of(context).pop(_count),
+            icon: const Icon(Icons.close, size: 20),
+          ),
+        ],
+      ),
       content: SizedBox(
         width: 520,
         height: 420,
@@ -325,65 +341,69 @@ class _AddTracksDialogState extends State<_AddTracksDialog> {
                         ),
                       ),
                     )
-                  : ListView.separated(
-                      itemCount: candidates.length,
-                      separatorBuilder: (_, _) => Divider(
-                        height: 1,
-                        color: scheme.outlineVariant.withValues(alpha: 0.5),
-                      ),
-                      itemBuilder: (BuildContext context, int index) {
-                        final Track track = candidates[index];
-                        final bool added = _added.contains(track.path);
-                        final bool busy = _busy.contains(track.path);
-                        return ListTile(
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(
-                              Radius.circular(Radii.md),
+                  : SmoothScroll(
+                      builder:
+                          (
+                            BuildContext context,
+                            ScrollController controller,
+                          ) => ListView.separated(
+                            controller: controller,
+                            itemCount: candidates.length,
+                            separatorBuilder: (_, _) => Divider(
+                              height: 1,
+                              color: scheme.outlineVariant.withValues(
+                                alpha: 0.5,
+                              ),
                             ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.xxs,
-                          ),
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(Radii.sm),
-                            ),
-                            child: Icon(
-                              Icons.music_note,
-                              size: 20,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          title: Text(
-                            track.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${trackArtist(track)} · ${trackAlbum(track)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: added
-                              ? Icon(Icons.check, color: scheme.primary)
-                              : IconButton(
-                                  tooltip: '添加到歌单',
-                                  onPressed: busy ? null : () => _add(track),
-                                  icon: busy
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.add),
+                            itemBuilder: (BuildContext context, int index) {
+                              final Track track = candidates[index];
+                              final bool added = _added.contains(track.path);
+                              final bool busy = _busy.contains(track.path);
+                              return ListTile(
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.all(
+                                    Radius.circular(Radii.md),
+                                  ),
                                 ),
-                        );
-                      },
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: Spacing.xxs,
+                                ),
+                                leading: AlbumCover(
+                                  path: track.coverPath,
+                                  size: 40,
+                                  radius: 12,
+                                ),
+                                title: Text(
+                                  track.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '${trackArtist(track)} · ${trackAlbum(track)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: added
+                                    ? Icon(Icons.check, color: scheme.primary)
+                                    : IconButton(
+                                        tooltip: '添加到歌单',
+                                        onPressed: busy
+                                            ? null
+                                            : () => _add(track),
+                                        icon: busy
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                              )
+                                            : const Icon(Icons.add),
+                                      ),
+                              );
+                            },
+                          ),
                     ),
             ),
           ],

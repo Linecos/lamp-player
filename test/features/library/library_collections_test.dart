@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:lamp_player/src/common/scroll/smooth_scroll.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/library_page.dart';
 import 'package:lamp_player/src/features/library/widgets/collection_grids.dart';
@@ -1238,6 +1239,59 @@ void main() {
     expect(find.text('已有同名歌单'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('添加歌曲弹窗：右上角关闭叉 + 行内带封面', (WidgetTester tester) async {
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(
+          title: '夜航',
+          album: '夜之专辑',
+          path: '/music/夜航.mp3',
+          coverPath: '/covers/夜航.jpg',
+        ),
+        sampleTrack(title: '潮汐', album: '玻璃海', path: '/music/潮汐.mp3'),
+      ],
+    );
+    await openPlaylists(tester);
+    await createPlaylistThroughUi(tester, '通勤');
+    await tester.tap(find.text('通勤'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加音乐'));
+    await tester.pumpAndSettle();
+
+    final Finder close = find.byKey(
+      const ValueKey<String>('playlist-add-close'),
+    );
+    expect(close, findsOneWidget);
+
+    final Finder coverInDialog = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(AlbumCover),
+    );
+    expect(coverInDialog, findsNWidgets(2));
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) => w is AlbumCover && w.path == '/covers/夜航.jpg',
+      ),
+      findsOneWidget,
+      reason: '有封面的曲目应当把 coverPath 交给 AlbumCover',
+    );
+    expect(tester.widget<AlbumCover>(coverInDialog.first).size, 40);
+
+    // 桌面滚轮要平滑：列表必须挂在 SmoothScrollController 上
+    final ListView list = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(ListView),
+      ),
+    );
+    expect(list.controller, isA<SmoothScrollController>());
+
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
   });
 
   testWidgets('歌单详情可添加曲目、从歌单移除', (WidgetTester tester) async {

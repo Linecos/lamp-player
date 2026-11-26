@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_version.dart';
 import '../../app/update_check.dart';
 import '../../common/external_link.dart';
+import '../../common/scroll/smooth_scroll.dart';
 import '../../common/text/mini_markdown.dart';
 import '../../theme/tokens.dart';
 
@@ -78,7 +79,8 @@ class UpdateAvailableDialog extends StatelessWidget {
                   color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(Radii.sm),
                 ),
-                child: SingleChildScrollView(
+                // 发布说明可能很长，滚轮也要平滑
+                child: SmoothSingleChildScrollView(
                   child: MiniMarkdown(
                     data: notes,
                     style: theme.textTheme.bodySmall?.copyWith(height: 1.5),

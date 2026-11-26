@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lamp_player/src/common/scroll/smooth_scroll.dart';
 import 'package:lamp_player/src/features/settings/font_picker_dialog.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
 
@@ -55,6 +56,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Microsoft YaHei'), findsNothing);
     expect(find.text('Arial'), findsOneWidget);
+
+    // 字体列表上百行，滚轮必须走平滑控制器
+    expect(
+      tester
+          .widget<ListView>(
+            find.descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(ListView),
+            ),
+          )
+          .controller,
+      isA<SmoothScrollController>(),
+    );
 
     await tester.tap(find.byKey(const ValueKey<String>('font-choice-Arial')));
     await tester.pumpAndSettle();
