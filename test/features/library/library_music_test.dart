@@ -851,7 +851,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('library-sort')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('艺术家').last);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-sort-item-artist')),
+    );
     await tester.pumpAndSettle();
 
     expect(

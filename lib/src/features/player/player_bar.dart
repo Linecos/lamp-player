@@ -181,12 +181,21 @@ class PlayerBar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(Radii.xl),
                 border: Border.all(color: scheme.outlineVariant),
                 boxShadow: <BoxShadow>[
-                  // 阴影向下收窄：offset 6 配 blur 18 会向上扩散 12px，
-                  // 盖住列表最后一行的悬停高亮
+                  // 两层都只往下走（offset 6 / blur 16 时向上只剩约 3px，
+                  // 不盖列表末行；窗口底那 12px 外边距正好吃下它）。
                   BoxShadow(
-                    color: scheme.shadow.withValues(alpha: 0.06),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    color: scheme.shadow.withValues(
+                      alpha: scheme.brightness == Brightness.dark ? 0.60 : 0.16,
+                    ),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                  BoxShadow(
+                    color: scheme.shadow.withValues(
+                      alpha: scheme.brightness == Brightness.dark ? 0.45 : 0.10,
+                    ),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),

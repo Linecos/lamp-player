@@ -229,10 +229,10 @@ void main() {
     expect(controller.effectiveSeed, custom);
   });
 
-  test('默认 Tonal spot 且非高对比', () {
+  test('默认 Expressive 且非高对比', () {
     final ThemeController controller = ThemeController();
 
-    expect(controller.schemeVariant, DynamicSchemeVariant.tonalSpot);
+    expect(controller.schemeVariant, AppTheme.defaultVariant);
     expect(controller.highContrast, isFalse);
   });
 
@@ -257,7 +257,7 @@ void main() {
     final ThemeController controller = ThemeController();
     await controller.restore();
 
-    expect(controller.schemeVariant, DynamicSchemeVariant.tonalSpot);
+    expect(controller.schemeVariant, AppTheme.defaultVariant);
   });
 
   test('setHighContrast 持久化并可恢复', () async {
@@ -380,18 +380,18 @@ void main() {
 
   test('跟随封面时调色板风格固定为 Fidelity', () async {
     final ThemeController controller = ThemeController();
-    expect(controller.effectiveVariant, DynamicSchemeVariant.tonalSpot);
+    expect(controller.effectiveVariant, AppTheme.defaultVariant);
 
     await controller.setFollowCover(true);
     expect(controller.effectiveVariant, ThemeController.coverVariant);
     expect(
       controller.schemeVariant,
-      DynamicSchemeVariant.tonalSpot,
+      AppTheme.defaultVariant,
       reason: '用户的选择不丢',
     );
 
     await controller.setFollowCover(false);
-    expect(controller.effectiveVariant, DynamicSchemeVariant.tonalSpot);
+    expect(controller.effectiveVariant, AppTheme.defaultVariant);
   });
 
   test('界面字体默认是空串，切换后落盘并通知界面', () async {

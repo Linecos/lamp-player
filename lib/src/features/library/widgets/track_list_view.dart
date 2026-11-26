@@ -561,7 +561,8 @@ class _TrackRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Material(
         color: playing
-            ? scheme.primaryContainer.withValues(alpha: 0.35)
+            // 正在播放的行与「选中」同一套次色容器；主色留给播放键与图标
+            ? scheme.secondaryContainer.withValues(alpha: 0.7)
             : Colors.transparent,
         borderRadius: radius,
         // 不裁剪：每行一个 ClipRRect 就是一层裁剪层，滚动 / 变宽时整行都要
@@ -705,21 +706,40 @@ class _TrackRow extends StatelessWidget {
                   if (onRemove != null)
                     SizedBox(
                       width: 40,
-                      child: PopupMenuButton<String>(
-                        tooltip: '更多操作',
-                        icon: Icon(
-                          Icons.more_vert,
-                          size: 20,
-                          color: scheme.onSurfaceVariant,
+                      child: MenuAnchor(
+                        // 三点贴在最右端：菜单往左开，不然会顶出窗口
+                        style: const MenuStyle(
+                          alignment: AlignmentDirectional.bottomEnd,
                         ),
-                        onSelected: (_) => onRemove!(),
-                        itemBuilder: (BuildContext context) =>
-                            <PopupMenuEntry<String>>[
-                              const PopupMenuItem<String>(
-                                value: 'remove',
-                                child: Text('从歌单中移除'),
+                        alignmentOffset: const Offset(0, Spacing.xxs),
+                        menuChildren: <Widget>[
+                          MenuItemButton(
+                            key: const ValueKey<String>('track-menu-remove'),
+                            leadingIcon: Icon(
+                              Icons.playlist_remove,
+                              size: 18,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            onPressed: onRemove,
+                            child: const Text('从歌单中移除'),
+                          ),
+                        ],
+                        builder:
+                            (
+                              BuildContext context,
+                              MenuController controller,
+                              Widget? child,
+                            ) => IconButton(
+                              tooltip: '更多操作',
+                              icon: Icon(
+                                Icons.more_vert,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
                               ),
-                            ],
+                              onPressed: () => controller.isOpen
+                                  ? controller.close()
+                                  : controller.open(),
+                            ),
                       ),
                     ),
                 ],

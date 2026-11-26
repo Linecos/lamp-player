@@ -1276,6 +1276,61 @@ void main() {
     await _settleToast(tester);
   });
 
+  testWidgets('浅色模式下只有页面本身是深色前景，浮层与弹窗走应用级浅色主题', (WidgetTester tester) async {
+    final ValueNotifier<List<rust.PlayerDevice>> devices =
+        ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[
+          rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
+        ]);
+    final ValueNotifier<int> selected = ValueNotifier<int>(-1);
+    addTearDown(devices.dispose);
+    addTearDown(selected.dispose);
+
+    await _pump(
+      tester,
+      data: _data(),
+      devices: devices,
+      selectedDevice: selected,
+      onSelectDevice: (int _) {},
+      onVolumeChanged: (double _) {},
+    );
+
+    // 页面为了压住封面流光，自己套的是深色前景
+    expect(
+      Theme.of(
+        tester.element(find.byKey(const ValueKey<String>('now-playing-more'))),
+      ).brightness,
+      Brightness.dark,
+      reason: '页面本身仍然深色，否则深底上会出现浅字',
+    );
+
+    // 音量浮层：跟全站浮层一样浅色，不能跟着这一页变黑
+    await _hoverVolume(tester);
+    expect(
+      Theme.of(
+        tester.element(
+          find.byKey(const ValueKey<String>('now-playing-volume')),
+        ),
+      ).colorScheme.brightness,
+      Brightness.light,
+      reason: '音量浮层压在封面上，但它属于浮层，不该是黑块',
+    );
+
+    // 输出设备弹窗：同一页弹出来的，也得跟睡眠定时 / 播放队列同色，
+    // 所以比「页面本身是深色」那一层要浅
+    await _openMore(tester);
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-output')));
+    await tester.pumpAndSettle();
+    expect(
+      Theme.of(
+        tester.element(
+          find.byKey(const ValueKey<String>('output-device-dialog')),
+        ),
+      ).colorScheme.brightness,
+      Brightness.light,
+      reason: '弹窗不该被页面那层深色前景捕获过去',
+    );
+  });
+
   testWidgets('封面随窗口放大，但有上限', (WidgetTester tester) async {
     await _pump(tester, data: _data());
 

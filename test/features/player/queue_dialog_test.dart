@@ -8,6 +8,7 @@ import 'package:lamp_player/src/features/player/playback_queue.dart';
 import 'package:lamp_player/src/features/player/queue_dialog.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
+import 'package:lamp_player/src/theme/tokens.dart';
 
 import '../../support/fake_library.dart';
 
@@ -104,11 +105,11 @@ void main() {
     final ColorScheme scheme = AppTheme.schemeOf(
       _seed,
       Brightness.light,
-      DynamicSchemeVariant.tonalSpot,
+      AppTheme.defaultVariant,
     );
     final Color background = scheme.surfaceContainerHigh;
     final Color highlight = Color.alphaBlend(
-      scheme.primaryContainer.withValues(alpha: 0.35),
+      scheme.secondaryContainer.withValues(alpha: 0.7),
       background,
     );
 
@@ -161,7 +162,7 @@ void main() {
         tester.widget<DecoratedBox>(highlightBox).decoration as BoxDecoration;
     expect(
       decoration.borderRadius,
-      BorderRadius.circular(16),
+      BorderRadius.circular(Radii.md),
       reason: '通栏直角色块在 28 圆角的弹窗里很扎眼，也会被弹窗圆角切掉一角',
     );
 

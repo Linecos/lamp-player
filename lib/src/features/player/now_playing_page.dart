@@ -219,6 +219,11 @@ class NowPlayingPage extends StatefulWidget {
 }
 
 class _NowPlayingPageState extends State<NowPlayingPage> {
+  /// 应用级主题。本页在浅色模式下会给整页套一层深色前景（压住封面流光），
+  /// 但弹窗、菜单、音量浮层仍是压在页面上的独立一层，该跟全站其余浮层一样
+  /// 走应用级主题——不然就会出现「睡眠定时是白的、输出设备是黑的」。
+  ThemeData? _appTheme;
+
   /// 窄屏上下排时留给歌词的最小高度（含封面与歌词之间的 12px 间距）
   static const double _narrowLyricMinHeight = 132;
 
@@ -360,6 +365,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       initialMinutes: timer.remainingMinutes ?? 30,
       hasTimer: timer.active,
       extendToTrackEnd: timer.extendToTrackEnd,
+      theme: _appTheme,
     );
     if (choice == null || !mounted) {
       return;
@@ -446,6 +452,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // 这一层拿到的就是应用级主题（页面自己那层深色前景在 build 里才套）
+    _appTheme = Theme.of(context);
     final Animation<double>? animation = ModalRoute.of(context)?.animation;
     if (identical(animation, _routeAnimation)) {
       return;
@@ -751,8 +759,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     if (base.brightness == Brightness.dark) {
       return _buildPage(context);
     }
+    final ThemeData dark = AppTheme.darkOf(base.colorScheme);
+    // 这一页只有「页面本身」该是深色前景；浮在它上面的东西（提示条、菜单、
+    // 音量浮层、弹窗）跟全站一样走浅色，否则压在亮封面上就是几块黑斑
     return Theme(
-      data: AppTheme.dark(base.colorScheme.primary),
+      data: dark.copyWith(
+        tooltipTheme: base.tooltipTheme,
+        popupMenuTheme: base.popupMenuTheme,
+      ),
       child: Builder(builder: _buildPage),
     );
   }
@@ -1080,6 +1094,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       context,
       artists: artists,
       coverPathOf: widget.artistCoverOf,
+      theme: _appTheme,
     );
     // 弹窗期间可能已经把播放页退掉了（比如又点了别处），别再去动曲库状态
     if (picked == null || !mounted) {
@@ -1234,7 +1249,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     path: track.coverPath,
                     size: size,
                     // 外层阴影容器的圆角必须与封面一致，否则角上会露一圈光晕
-                    radius: 28,
+                    radius: Radii.xl,
                     // 只有播放岛与正在播放页跟着「圆形封面」设置走
                     circular: true,
                     playing: playing,
@@ -1320,7 +1335,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   // 另一端是播放岛的小封面：圆角按两端插值
                                   fromSize: playerBarCoverSize,
                                   fromRadius: playerBarCoverRadius,
-                                  toRadius: 28,
+                                  toRadius: Radii.xl,
                                   // 飞行途中接着转：shuttle 是另一棵子树，
                                   // 不自己盯着相位就会退回正面
                                   turns: circularCovers.value
@@ -1331,7 +1346,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             // 还杵在原地
                             child: CoverShadow(
                               key: _coverKey,
-                              radius: 28,
+                              radius: Radii.xl,
                               circular: true,
                               // 旋转用「Transform 在上、RepaintBoundary 在下」：
                               // Transform 才会被提升成图层矩阵（只改矩阵、复用下面的
@@ -1508,6 +1523,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       onToggleMute: widget.onToggleMute,
       muteKey: const ValueKey<String>('now-playing-mute'),
       sliderKey: const ValueKey<String>('now-playing-volume'),
+      // 浮层跟随应用级主题：浅色模式下这一页只有背景是深的
+      panelTheme: _appTheme,
     );
   }
 
@@ -1623,6 +1640,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       context,
       devices: available,
       selected: selected.value,
+      theme: _appTheme,
     );
     if (picked == null || !mounted) {
       return;

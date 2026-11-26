@@ -7,6 +7,7 @@ import '../../common/widgets/slider_semantics_scope.dart';
 import '../../common/widgets/wheel_step.dart';
 import '../player/equalizer.dart';
 import 'equalizer_curve.dart';
+import '../../common/widgets/section_label.dart';
 import '../../theme/tokens.dart';
 
 /// 均衡器面板：开关 + 预设切换 + 10 段推子 + 自存预设。
@@ -287,6 +288,10 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                     quarterTurns: 3,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
+                        // 手柄自己定的圆点，保留 2023 的连续轨道；
+                        // 跟主题里的 2024 规格混着来会在轨道末端多出停靠点
+                        // ignore: deprecated_member_use
+                        year2023: true,
                         trackHeight: 3,
                         overlayShape: const RoundSliderOverlayShape(
                           overlayRadius: 12,
@@ -468,24 +473,8 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    return Padding(
-      // 左边距与卡片内容对齐（页面 16 + 卡片内边距 12）
-      padding: const EdgeInsets.fromLTRB(Spacing.sm, 0, Spacing.sm, Spacing.xs),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              title,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: scheme.primary,
-              ),
-            ),
-          ),
-          ?trailing,
-        ],
-      ),
-    );
+    // 左右各缩 12：与卡片内容对齐（页面 16 + 卡片内边距 12）；字号 / 颜色
+    // / 上下留白由 SectionLabel 统一（设置页那几组用的是同一份）
+    return SectionLabel(title, indent: Spacing.sm, trailing: trailing);
   }
 }

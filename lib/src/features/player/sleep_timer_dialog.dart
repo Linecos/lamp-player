@@ -12,19 +12,26 @@ import '../../theme/tokens.dart';
 /// 轮盘把 0~60 映射到整圈：
 /// 12 点位置是 0（关闭），顺时针走到 60 后又回到 0——所以想要整整一小时
 /// 时用下面的快选，别在接缝上抠。
+///
+/// `theme` 用于「正在播放页」：那一页在浅色模式下给自己套了深色前景，
+/// 弹窗会跟着捕获过去；这里覆回应用级主题，弹窗与全站其余弹窗同色。
 Future<SleepTimerResult?> showSleepTimerDialog(
   BuildContext context, {
   int initialMinutes = 30,
   bool hasTimer = false,
   bool extendToTrackEnd = true,
+  ThemeData? theme,
 }) {
   return showDialog<SleepTimerResult>(
     context: context,
-    builder: (BuildContext dialogContext) => _SleepTimerDialog(
-      initialMinutes: initialMinutes,
-      hasTimer: hasTimer,
-      extendToTrackEnd: extendToTrackEnd,
-    ),
+    builder: (BuildContext dialogContext) {
+      final Widget dialog = _SleepTimerDialog(
+        initialMinutes: initialMinutes,
+        hasTimer: hasTimer,
+        extendToTrackEnd: extendToTrackEnd,
+      );
+      return theme == null ? dialog : Theme(data: theme, child: dialog);
+    },
   );
 }
 

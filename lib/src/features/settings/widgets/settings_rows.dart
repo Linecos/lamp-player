@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/widgets/section_label.dart';
 import '../../../theme/tokens.dart';
 
 /// 设置类页面的行索引：顶部常驻搜索框按 [searchText] 就地过滤。
@@ -10,24 +11,15 @@ abstract interface class SettingsSearchable {
 }
 
 /// 分组标题。水平不缩进：要和下面卡片的左边缘对齐（卡片自身有内边距）。
+///
+/// 样式与均衡器那页共用的 [SectionLabel] 同一份，别再各写一遍。
 class SettingsSectionLabel extends StatelessWidget {
   const SettingsSectionLabel(this.text, {super.key});
 
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, Spacing.md, 0, Spacing.xs),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SectionLabel(text);
 }
 
 /// 卡片用 Material 承载底色：内部 InkWell 的水波纹与 hover 高光必须画在
@@ -43,7 +35,8 @@ class SettingsCard extends StatelessWidget {
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.xl),
+        // 与外层胶囊、行高亮同一族：40 的弧在宽而扁的长条卡上大出一整圈
+        borderRadius: BorderRadius.circular(Radii.md),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
@@ -79,6 +72,7 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
     required this.subtitle,
     required this.onTap,
     this.trailing,
+    this.badge = false,
   });
 
   final IconData icon;
@@ -86,6 +80,10 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// 标题后跟一枚「新」徽标（M3 的 `Badge`）：有新版本这类「等你点一下」
+  /// 的状态用它提示，不必靠副标题去读
+  final bool badge;
 
   @override
   String get searchText => '$title $subtitle';
@@ -120,7 +118,21 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(title, style: theme.textTheme.bodyLarge),
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(title, style: theme.textTheme.bodyLarge),
+                      ),
+                      if (badge) ...<Widget>[
+                        const SizedBox(width: Spacing.xs),
+                        Badge(
+                          backgroundColor: scheme.primary,
+                          textColor: scheme.onPrimary,
+                          label: const Text('新'),
+                        ),
+                      ],
+                    ],
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,

@@ -224,7 +224,7 @@ void main() {
     // 重新扫描收进每行的「更多」菜单，点第一行的
     await tester.tap(find.byTooltip('更多操作').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('重新扫描'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-rescan')));
     await tester.pumpAndSettle();
 
     expect(repo.scannedFolders, <String>[r'D:\Music']);
@@ -239,7 +239,7 @@ void main() {
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('移除目录…'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-remove')));
     await tester.pumpAndSettle();
     // 移除是不可逆的配置改动：先确认
     await tester.tap(find.widgetWithText(FilledButton, '移除'));
@@ -307,7 +307,7 @@ void main() {
 
     await tester.tap(find.byTooltip('更多操作').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('重新扫描'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-rescan')));
     await tester.pump();
 
     // 前 400ms 什么都不显示：短扫描就是靠这一点避免副标题闪一下

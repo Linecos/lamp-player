@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import '../common/widgets/field_border.dart';
 import './tokens.dart';
 
 /// 全局主题：Material 3 + 可配置 seed 色与调色板风格，深浅色模式跟随系统。
@@ -12,9 +13,12 @@ abstract final class AppTheme {
   /// 系统强调色」时的兜底。
   static const Color defaultSeed = Color(0xFFFFB300);
 
-  /// 默认调色板风格：Material 3 的 Tonal spot（与历史版本行为一致）。
+  /// 默认调色板风格：Material 3 Expressive。
+  ///
+  /// 过渡色更浓、明暗层次拉得更开；浅色下会被 [_tintLightSurfaces] 按 seed
+  /// 色相重铺一层，差别不如深色明显。设置页仍可切回 Tonal spot 等旧风格。
   static const DynamicSchemeVariant defaultVariant =
-      DynamicSchemeVariant.tonalSpot;
+      DynamicSchemeVariant.expressive;
 
   /// 「强调色跟随封面」时强制使用的调色板风格。
   ///
@@ -143,6 +147,25 @@ abstract final class AppTheme {
     String? fontFamily,
   }) => _build(Brightness.dark, seed, variant, contrastLevel, fontFamily);
 
+  /// 由当前浅色配色派生的「深色孪生」：只换亮度，色相和彩度跟着现有主色走。
+  ///
+  /// 播放详情页背景是封面流光、天生是深的，浅色模式下要给本页套一套深色前景。
+  /// 那里不能直接 `dark(scheme.primary)`：等于把「已经是结果」的主色又当 seed
+  /// 重算一遍，而 [defaultVariant] 是 Expressive —— 它的主色相是 seed 相 + 240°，
+  /// 于是绿封面的绿色主色被再转一轮，变成粉色按钮配绿色背景。
+  /// Content 风格只取 seed 的色相与彩度（彩度保底 48），正是这里要的。
+  static ThemeData darkOf(
+    ColorScheme light, {
+    double contrastLevel = 0,
+    String? fontFamily,
+  }) => _build(
+    Brightness.dark,
+    light.primary,
+    DynamicSchemeVariant.content,
+    contrastLevel,
+    fontFamily,
+  );
+
   /// 清掉字阶里的字距。
   ///
   /// Material 的两套几何（`englishLike2021` 与中文用的 `dense2021`）给 body /
@@ -182,6 +205,15 @@ abstract final class AppTheme {
     );
 
     final String? chosen = fontFamily?.trim();
+    final RoundedRectangleBorder cardShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radii.md),
+    );
+    // 提示条要压在岛 / 卡片之上：浅色取最亮的那档底，深色取最亮的容器色，
+    // 再配描边与阴影；同一档 `surfaceContainerHigh` 会被岛自己吃掉
+    final bool schemeIsDark = brightness == Brightness.dark;
+    final Color tooltipFill = schemeIsDark
+        ? scheme.surfaceContainerHighest
+        : scheme.surfaceContainerLowest;
     final ThemeData theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -191,10 +223,54 @@ abstract final class AppTheme {
       fontFamilyFallback: fontFallback,
       appBarTheme: const AppBarTheme(centerTitle: false),
       visualDensity: VisualDensity.adaptivePlatformDensity,
-      // Flutter 默认 `Clip.none`：弹窗里的子节点（ListTile 的选中背景、水波纹
-      // 都是画在 Material 上的墨迹）可以画到 28px 圆角外面，露出直角方块。
-      // 统一裁到弹窗形状，避免任何墨迹越界。
-      dialogTheme: const DialogThemeData(clipBehavior: Clip.antiAlias),
+      // 按钮走 Expressive 的胶囊形（高度不动：一排按钮挤在 40 的格子里，
+      // 加高会把底栏与设置行顶出去）
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      // 输入框统一到 Radii.xs 圆角：描边只留一条细线、不加填充（卡片本身
+      // 已有底色，再铺一层会比卡片还亮）；弹窗里那些写死默认 4 圆角的字段
+      // 只要不传 border 就跟着这里走
+      inputDecorationTheme: InputDecorationTheme(
+        border: fieldBorder(scheme.outline),
+        enabledBorder: fieldBorder(scheme.outlineVariant),
+        focusedBorder: fieldBorder(scheme.primary, width: 1.6),
+        disabledBorder: fieldBorder(scheme.outlineVariant),
+      ),
+      cardTheme: CardThemeData(shape: cardShape, clipBehavior: Clip.antiAlias),
+      // 悬停提示默认是 4 圆角的小方块，贴在满屏 24~40 的圆角里像一格直角补丁。
+      // 底色不能取 `surfaceContainerHigh`：播放岛、卡片用的就是这档色，提示压在
+      // 它们上面等于泡进背景（实测差 2/255）。浅色取最亮的那档、深色取最亮的
+      // 容器色，再加一圈描边和一层阴影，两种底色上都能看出「浮在上面」
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: tooltipFill,
+          borderRadius: BorderRadius.circular(Radii.xs),
+          border: Border.all(color: scheme.outlineVariant),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: const Color(0xFF000000)
+                  .withValues(alpha: schemeIsDark ? 0.45 : 0.10),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        textStyle: TextStyle(color: scheme.onSurface, fontSize: 12),
+      ),
+      // 弹窗 28、菜单 20：Expressive 里浮层比卡片更圆，层级一眼能分开
+      dialogTheme: DialogThemeData(
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.lg),
+        ),
+      ),
     );
 
     return theme.copyWith(
@@ -207,6 +283,38 @@ abstract final class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Radii.sm),
         ),
+      ),
+      // `MenuAnchor` / `MenuItemButton` 那套菜单自己有一套默认（surfaceContainer +
+      // 4 圆角 + 抬升 3），和上面的右键菜单不是一个样。这里对齐成同一份底、圆角
+      // 与阴影，同一屏里两种菜单才看不出接缝。
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll<Color>(
+            scheme.surfaceContainerHigh,
+          ),
+          shape: WidgetStatePropertyAll<OutlinedBorder>(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.sm),
+            ),
+          ),
+          // 不用抬升：小圆角面板上的高 elevation 阴影会画成一圈硬黑边，
+          // 改 1px 描边，和悬停提示、音量面板同一套浮层外观
+          elevation: const WidgetStatePropertyAll<double>(0),
+          side: WidgetStatePropertyAll<BorderSide>(
+            BorderSide(color: scheme.outlineVariant),
+          ),
+        ),
+      ),
+      // 官方 M3 2024 规格（Flutter 用 `year2023: false` 打开）：滑块手柄从圆点
+      // 变竖条、进度条有 trackGap 与末端 stop 圆点。自绘的 SlimSlider 有自己的
+      // thumbShape，不受影响；这里只管标准 Slider / 进度指示器。
+      // 这个 flag 本身被标了 deprecated（「以后默认就是 false」），但现在要新版
+      // 外观只有这一个入口，所以按官方注释关掉这条 lint
+      // ignore: deprecated_member_use
+      sliderTheme: const SliderThemeData(year2023: false),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        // ignore: deprecated_member_use
+        year2023: false,
       ),
     );
   }

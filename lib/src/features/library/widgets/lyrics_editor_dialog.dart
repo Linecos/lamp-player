@@ -175,7 +175,6 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
                         ),
                         decoration: const InputDecoration(
                           hintText: '还没有歌词。可以直接粘贴 LRC 文本…',
-                          border: OutlineInputBorder(),
                           contentPadding: EdgeInsets.all(Spacing.sm),
                         ),
                       ),
@@ -266,7 +265,6 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
       decoration: InputDecoration(
         labelText: label,
         isDense: true,
-        border: const OutlineInputBorder(),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: Spacing.xs,
           vertical: Spacing.sm,

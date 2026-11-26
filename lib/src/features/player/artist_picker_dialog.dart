@@ -15,15 +15,24 @@ import '../../theme/tokens.dart';
 /// [coverPathOf] 由调用方注入：弹窗自己没有曲库，只知道名字。给了就按名字取
 /// 这位艺术家的头像（曲库里第一首带封面的曲目 / 自定义封面），取不到才回退
 /// 首字母——两位候选各自有封面，才认得出谁是谁。
+///
+/// `theme` 用于「正在播放页」：那一页在浅色模式下给自己套了深色前景，
+/// 弹窗会跟着捕获过去；这里覆回应用级主题，弹窗与全站其余弹窗同色。
 Future<String?> showArtistPickerDialog(
   BuildContext context, {
   required List<String> artists,
   String? Function(String artist)? coverPathOf,
+  ThemeData? theme,
 }) {
   return showDialog<String>(
     context: context,
-    builder: (BuildContext context) =>
-        _ArtistPickerDialog(artists: artists, coverPathOf: coverPathOf),
+    builder: (BuildContext dialogContext) {
+      final Widget dialog = _ArtistPickerDialog(
+        artists: artists,
+        coverPathOf: coverPathOf,
+      );
+      return theme == null ? dialog : Theme(data: theme, child: dialog);
+    },
   );
 }
 
