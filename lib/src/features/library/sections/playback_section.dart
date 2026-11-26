@@ -506,8 +506,6 @@ extension _PlaybackSection on _LibraryPageState {
                   : null,
               onToggleDesktopLyrics: () =>
                   unawaited(_setDesktopLyrics(!_desktopLyrics)),
-              onToggleDesktopLyricLock: () =>
-                  unawaited(_setDesktopLyricLocked(!_desktopLyricLocked)),
               // 点歌手 / 专辑：退出播放页，进曲库对应的详情
               onOpenArtist: _openArtistFromNowPlaying,
               onOpenAlbum: _openAlbumFromNowPlaying,

@@ -19,7 +19,6 @@ import '../../common/widgets/album_cover.dart';
 import '../../common/widgets/cover_shape.dart';
 import '../../common/widgets/marquee_title.dart';
 import '../../common/widgets/slim_slider.dart';
-import '../../common/widgets/slider_semantics_scope.dart';
 import '../../rust/api/lyrics.dart' as lyrics_api;
 import '../../rust/api/model.dart';
 import '../../rust/api/player.dart' as rust;
@@ -38,6 +37,7 @@ import 'sleep_timer.dart';
 import 'sleep_timer_dialog.dart';
 import 'spectrum_wave.dart';
 import 'widgets/cover_flow_background.dart';
+import 'widgets/volume_control.dart';
 import '../../theme/tokens.dart';
 
 /// 正在播放页的实时快照。
@@ -105,7 +105,6 @@ class NowPlayingPage extends StatefulWidget {
     this.shortcuts = kDefaultShortcuts,
     this.sleepTimer,
     this.onToggleDesktopLyrics,
-    this.onToggleDesktopLyricLock,
     this.onOpenArtist,
     this.onOpenAlbum,
     this.artistCoverOf,
@@ -152,9 +151,6 @@ class NowPlayingPage extends StatefulWidget {
 
   /// 开关桌面歌词；为空时不显示该按钮
   final VoidCallback? onToggleDesktopLyrics;
-
-  /// 锁定 / 解锁桌面歌词（锁定 = 鼠标穿透，桌面上点不到，只能从这里解开）
-  final VoidCallback? onToggleDesktopLyricLock;
 
   /// 频谱数据：传了才在歌词下层铺一条全宽音频丝带
   final ValueListenable<List<double>>? spectrum;
@@ -334,6 +330,9 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 
   /// 无时间轴歌词（整段文本）的滚动位置：滚轮也要平滑
   final SmoothScrollController _plainLyricsScroll = SmoothScrollController();
+
+  /// 底栏右侧那串次要图标是否展开（三点按钮点开 / 收起）
+  bool _moreOpen = false;
 
   /// 沉浸模式：长按播放键切换，只留封面 / 歌名 / 歌词与三个控制键。
   ///
@@ -1496,53 +1495,146 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  /// 音量：只留一枚图标，悬停向上弹出竖条（和播放岛同一个控件）。
+  ///
+  /// 底栏已经要摆一串按钮，再放一条 120px 常驻滑块，整排的重心全压在左边。
   Widget _volumeControl(BuildContext context, NowPlayingData data, bool ready) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final double volume = data.volume.clamp(0.0, 1.0).toDouble();
-    final IconData icon = volume == 0
-        ? Icons.volume_off
-        : (volume < 0.5 ? Icons.volume_down : Icons.volume_up);
+    return VolumeControl(
+      volume: data.volume,
+      enabled: ready,
+      size: 40,
+      iconSize: 22,
+      onChanged: widget.onVolumeChanged,
+      onToggleMute: widget.onToggleMute,
+      muteKey: const ValueKey<String>('now-playing-mute'),
+      sliderKey: const ValueKey<String>('now-playing-volume'),
+    );
+  }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        IconButton(
-          key: const ValueKey<String>('now-playing-mute'),
-          tooltip: volume == 0 ? '取消静音' : '静音',
-          onPressed: ready ? widget.onToggleMute : null,
-          iconSize: 22,
-          icon: Icon(icon, color: scheme.onSurfaceVariant),
-        ),
-        SizedBox(
-          width: 120,
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              // 拖动时才出气泡：平时那 120px 太窄，常驻会一直挡住上方的按钮
-              showValueIndicator: ShowValueIndicator.onDrag,
-              valueIndicatorShape: const RectangularSliderValueIndicatorShape(),
-              valueIndicatorColor: scheme.inverseSurface,
-              valueIndicatorTextStyle: _valueBubbleTextStyle(theme, scheme),
-            ),
-            child: SliderSemanticsScope(
-              child: Slider(
-                key: const ValueKey<String>('now-playing-volume'),
-                // 气泡里给整数百分比：0.62 读起来没有 62 直观
-                label: '${(volume * 100).round()}',
-                value: volume,
-                max: 1,
-                onChanged: ready && widget.onVolumeChanged != null
-                    ? widget.onVolumeChanged
-                    : null,
+  /// 三点按钮展开后滑出来的那一串：还是原来底栏上的按钮，只是默认收着。
+  ///
+  /// 顺序「开关在前、设置在后」：译文 / 歌词对齐 / 桌面歌词 / 锁定 / 均衡器 /
+  /// 输出设备 / 睡眠定时；哪个回调为空就不出现哪一枚。
+  List<Widget> _moreIcons(BuildContext context, NowPlayingData data) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return <Widget>[
+      if (widget.onToggleTranslation != null && widget.showTranslation != null)
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.showTranslation!,
+          builder: (BuildContext context, bool shown, Widget? child) =>
+              IconButton(
+                key: const ValueKey<String>('now-playing-translation'),
+                tooltip: shown ? '隐藏译文' : '显示译文',
+                onPressed: widget.onToggleTranslation,
+                icon: Icon(
+                  Icons.translate,
+                  size: 24,
+                  color: shown ? scheme.primary : scheme.onSurfaceVariant,
+                ),
               ),
+        ),
+      if (widget.onCycleLyricAlignment != null && widget.lyricAlignment != null)
+        ValueListenableBuilder<LyricAlignment>(
+          valueListenable: widget.lyricAlignment!,
+          builder:
+              (BuildContext context, LyricAlignment alignment, Widget? child) =>
+                  IconButton(
+                    key: const ValueKey<String>('now-playing-lyric-align'),
+                    tooltip: '歌词对齐：${alignment.label}（点击切换）',
+                    onPressed: widget.onCycleLyricAlignment,
+                    icon: Icon(
+                      alignment.icon,
+                      size: 24,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+        ),
+      if (widget.onToggleDesktopLyrics != null)
+        IconButton(
+          key: const ValueKey<String>('now-playing-desktop-lyrics'),
+          tooltip: data.desktopLyrics ? '关闭桌面歌词' : '桌面歌词',
+          onPressed: widget.onToggleDesktopLyrics,
+          icon: Icon(
+            data.desktopLyrics ? Icons.subtitles : Icons.subtitles_outlined,
+            size: 24,
+            color: data.desktopLyrics
+                ? scheme.primary
+                : scheme.onSurfaceVariant,
+          ),
+        ),
+      if (widget.onOpenEqualizer != null)
+        IconButton(
+          key: const ValueKey<String>('now-playing-equalizer'),
+          tooltip: '均衡器',
+          onPressed: widget.onOpenEqualizer,
+          icon: const Icon(Icons.equalizer, size: 24),
+        ),
+      if (widget.onSelectDevice != null &&
+          widget.devices != null &&
+          widget.selectedDevice != null)
+        ValueListenableBuilder<int>(
+          valueListenable: widget.selectedDevice!,
+          builder: (BuildContext context, int active, Widget? child) =>
+              IconButton(
+                key: const ValueKey<String>('now-playing-output'),
+                tooltip: '输出设备',
+                onPressed: () => unawaited(_pickOutputDevice(context)),
+                icon: Icon(
+                  Icons.speaker_outlined,
+                  size: 24,
+                  // 选中了具体设备时用主色提示「不是系统默认」
+                  color: active >= 0 ? scheme.primary : scheme.onSurfaceVariant,
+                ),
+              ),
+        ),
+      // 计时在页面之外（SleepTimer），到点暂停、顺延都由它自己判断
+      if (widget.sleepTimer != null)
+        ListenableBuilder(
+          listenable: widget.sleepTimer!,
+          builder: (BuildContext context, Widget? child) => IconButton(
+            key: const ValueKey<String>('now-playing-sleep'),
+            tooltip: widget.sleepTimer!.tooltip,
+            onPressed: () => unawaited(_openSleepTimer()),
+            icon: Icon(
+              Icons.timer_outlined,
+              size: 24,
+              color: widget.sleepTimer!.active
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant,
             ),
           ),
         ),
-      ],
+    ];
+  }
+
+  /// 选输出设备：弹窗列「系统默认 + 枚举到的设备」，选完提示一句
+  Future<void> _pickOutputDevice(BuildContext context) async {
+    final ValueListenable<List<rust.PlayerDevice>>? devices = widget.devices;
+    final ValueListenable<int>? selected = widget.selectedDevice;
+    final ValueChanged<int>? onSelect = widget.onSelectDevice;
+    if (devices == null || selected == null || onSelect == null) {
+      return;
+    }
+    final List<rust.PlayerDevice> available = devices.value;
+    if (available.isEmpty) {
+      return;
+    }
+    final int? picked = await showOutputDeviceDialog(
+      context,
+      devices: available,
+      selected: selected.value,
     );
+    if (picked == null || !mounted) {
+      return;
+    }
+    String name = '系统默认';
+    for (final rust.PlayerDevice device in available) {
+      if (device.index == picked) {
+        name = device.name;
+      }
+    }
+    onSelect(picked);
+    _showToast('输出设备：$name');
   }
 
   /// 播放控制区。
@@ -1660,23 +1752,20 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               SizedBox(height: _immersive ? 0 : 4),
               Row(
                 children: <Widget>[
-                  Expanded(
-                    child: _fadeWhenImmersive(
-                      chromeKey: const ValueKey<String>(
-                        'now-playing-chrome-volume',
-                      ),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: Spacing.lg),
-                          child: _volumeControl(context, data, ready),
-                        ),
-                      ),
-                    ),
-                  ),
+                  // 左边不摆东西：音量已经挪进中间那一块，贴着「上一首」
+                  const Spacer(),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
+                      // 音量贴在上一首左边、循环方式贴在下一首右边，
+                      // 传输这一块两头各有一枚，整体仍在窗口中间
+                      _fadeWhenImmersive(
+                        chromeKey: const ValueKey<String>(
+                          'now-playing-chrome-volume',
+                        ),
+                        child: _volumeControl(context, data, ready),
+                      ),
+                      const SizedBox(width: Spacing.sm),
                       IconButton(
                         key: const ValueKey<String>('now-playing-previous'),
                         iconSize: 30,
@@ -1719,6 +1808,28 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                             : null,
                         icon: const Icon(Icons.skip_next),
                       ),
+                      const SizedBox(width: Spacing.sm),
+                      // 循环方式挂在传输这一块的右边：左边是音量图标，
+                      // 右边有它，整条底栏才不会一边重一边空。
+                      // 沉浸模式跟着两侧控件一起淡出（占位保留，三个键不挪）
+                      _fadeWhenImmersive(
+                        chromeKey: const ValueKey<String>(
+                          'now-playing-chrome-mode',
+                        ),
+                        child: IconButton(
+                          key: const ValueKey<String>('now-playing-mode'),
+                          tooltip:
+                              '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
+                          onPressed: ready ? widget.onCyclePlayMode : null,
+                          icon: Icon(
+                            playbackModeIcon(data.repeat, data.shuffle),
+                            size: 24,
+                            color: playbackModeActive(data.repeat, data.shuffle)
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   Expanded(
@@ -1727,38 +1838,18 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                         'now-playing-chrome-extra',
                       ),
                       child: Align(
-                        alignment: Alignment.centerLeft,
+                        // 贴右：三点按钮钉在窗口右缘，展开时弹出来的图标往左长
+                        alignment: Alignment.centerRight,
                         child: Padding(
-                          padding: const EdgeInsets.only(left: Spacing.lg),
+                          padding: const EdgeInsets.only(right: Spacing.lg),
                           // 这一串图标加起来会顶出窄窗口的可用宽度（900 宽、桌面歌词
                           // 打开时实测溢出 33px）。整串等比缩一点，比裁掉按钮好
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
+                            alignment: Alignment.centerRight,
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: <Widget>[
-                                IconButton(
-                                  key: const ValueKey<String>(
-                                    'now-playing-mode',
-                                  ),
-                                  tooltip:
-                                      '播放模式：${playbackModeLabel(data.repeat, data.shuffle)}',
-                                  onPressed: ready
-                                      ? widget.onCyclePlayMode
-                                      : null,
-                                  icon: Icon(
-                                    playbackModeIcon(data.repeat, data.shuffle),
-                                    size: 24,
-                                    color:
-                                        playbackModeActive(
-                                          data.repeat,
-                                          data.shuffle,
-                                        )
-                                        ? scheme.primary
-                                        : scheme.onSurfaceVariant,
-                                  ),
-                                ),
                                 IconButton(
                                   key: const ValueKey<String>(
                                     'now-playing-queue',
@@ -1767,136 +1858,27 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                   onPressed: ready ? widget.onShowQueue : null,
                                   icon: const Icon(Icons.queue_music, size: 24),
                                 ),
-                                if (widget.onSelectDevice != null)
-                                  _OutputDeviceButton(
-                                    devices: widget.devices,
-                                    selected: widget.selectedDevice,
-                                    onSelect: widget.onSelectDevice!,
-                                    onToast: _showToast,
+                                // 三点右侧固定，点开时这七枚从它左边依次滑出来
+                                _ExpandingIcons(
+                                  open: _moreOpen,
+                                  children: _moreIcons(context, data),
+                                ),
+                                IconButton(
+                                  key: const ValueKey<String>(
+                                    'now-playing-more',
                                   ),
-                                // 计时在页面之外（SleepTimer），到点暂停、
-                                // 顺延都由它自己判断，这里只跟着画按钮
-                                if (widget.sleepTimer != null)
-                                  ListenableBuilder(
-                                    listenable: widget.sleepTimer!,
-                                    builder:
-                                        (BuildContext context, Widget? child) =>
-                                            IconButton(
-                                              key: const ValueKey<String>(
-                                                'now-playing-sleep',
-                                              ),
-                                              tooltip:
-                                                  widget.sleepTimer!.tooltip,
-                                              padding: EdgeInsets.zero,
-                                              // 秒表比月亮更能表达「倒计时到点暂停」
-                                              onPressed: () =>
-                                                  unawaited(_openSleepTimer()),
-                                              icon: Icon(
-                                                Icons.timer_outlined,
-                                                size: 24,
-                                                color: widget.sleepTimer!.active
-                                                    ? scheme.primary
-                                                    : scheme.onSurfaceVariant,
-                                              ),
-                                            ),
+                                  tooltip: _moreOpen ? '收起' : '更多',
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () =>
+                                      setState(() => _moreOpen = !_moreOpen),
+                                  icon: Icon(
+                                    Icons.more_vert,
+                                    size: 24,
+                                    color: _moreOpen
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
                                   ),
-                                if (widget.onOpenEqualizer != null)
-                                  IconButton(
-                                    key: const ValueKey<String>(
-                                      'now-playing-equalizer',
-                                    ),
-                                    tooltip: '均衡器',
-                                    onPressed: widget.onOpenEqualizer,
-                                    icon: const Icon(Icons.equalizer, size: 24),
-                                  ),
-                                if (widget.onToggleTranslation != null)
-                                  ValueListenableBuilder<bool>(
-                                    valueListenable: _showTranslationListenable,
-                                    builder:
-                                        (
-                                          BuildContext context,
-                                          bool shown,
-                                          Widget? child,
-                                        ) => IconButton(
-                                          key: const ValueKey<String>(
-                                            'now-playing-translation',
-                                          ),
-                                          tooltip: shown ? '隐藏译文' : '显示译文',
-                                          onPressed: widget.onToggleTranslation,
-                                          icon: Icon(
-                                            Icons.translate,
-                                            size: 24,
-                                            color: shown
-                                                ? scheme.primary
-                                                : scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                  ),
-                                if (widget.onCycleLyricAlignment != null)
-                                  // 图标本身就画着当前对齐，tooltip 再报一次名字
-                                  ValueListenableBuilder<LyricAlignment>(
-                                    valueListenable: _lyricAlignmentListenable,
-                                    builder:
-                                        (
-                                          BuildContext context,
-                                          LyricAlignment alignment,
-                                          Widget? child,
-                                        ) => IconButton(
-                                          key: const ValueKey<String>(
-                                            'now-playing-lyric-align',
-                                          ),
-                                          tooltip:
-                                              '歌词对齐：${alignment.label}（点击切换）',
-                                          onPressed:
-                                              widget.onCycleLyricAlignment,
-                                          icon: Icon(
-                                            alignment.icon,
-                                            size: 24,
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                  ),
-                                if (widget.onToggleDesktopLyrics != null)
-                                  IconButton(
-                                    key: const ValueKey<String>(
-                                      'now-playing-desktop-lyrics',
-                                    ),
-                                    tooltip: data.desktopLyrics
-                                        ? '关闭桌面歌词'
-                                        : '桌面歌词',
-                                    onPressed: widget.onToggleDesktopLyrics,
-                                    icon: Icon(
-                                      data.desktopLyrics
-                                          ? Icons.subtitles
-                                          : Icons.subtitles_outlined,
-                                      size: 24,
-                                      color: data.desktopLyrics
-                                          ? scheme.primary
-                                          : scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                // 锁定后桌面歌词窗口鼠标穿透，点不到也拖不动，
-                                // 这个开关是唯一的解锁入口，所以常驻在歌词按钮旁边
-                                if (widget.onToggleDesktopLyricLock != null &&
-                                    data.desktopLyrics)
-                                  IconButton(
-                                    key: const ValueKey<String>(
-                                      'now-playing-desktop-lyrics-lock',
-                                    ),
-                                    tooltip: data.desktopLyricLocked
-                                        ? '解锁桌面歌词'
-                                        : '锁定桌面歌词（鼠标穿透）',
-                                    onPressed: widget.onToggleDesktopLyricLock,
-                                    icon: Icon(
-                                      data.desktopLyricLocked
-                                          ? Icons.lock
-                                          : Icons.lock_open,
-                                      size: 24,
-                                      color: data.desktopLyricLocked
-                                          ? scheme.primary
-                                          : scheme.onSurfaceVariant,
-                                    ),
-                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1919,7 +1901,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 }
 
-/// 输出设备按钮：点开弹窗列「系统默认 + 枚举到的设备」，当前项打勾。
 /// 曲目信息行里的可点文字（歌手 / 专辑）。
 ///
 /// 悬停时变主题色 + 下划线、光标变手型；[onTap] 为空时退化成普通文本，
@@ -1985,91 +1966,6 @@ class _MetaLinkState extends State<_MetaLink> {
   }
 }
 
-class _OutputDeviceButton extends StatelessWidget {
-  const _OutputDeviceButton({
-    required this.devices,
-    required this.selected,
-    required this.onSelect,
-    required this.onToast,
-  });
-
-  final ValueListenable<List<rust.PlayerDevice>>? devices;
-  final ValueListenable<int>? selected;
-
-  /// 选中某块声卡（-1 表示回到系统默认）
-  final ValueChanged<int> onSelect;
-
-  /// 选完弹一句提示（位置由页面统一决定）
-  final ValueChanged<String> onToast;
-
-  /// 打开设备弹窗；选中后回调给页面并提示一句
-  Future<void> _pick(
-    BuildContext context,
-    List<rust.PlayerDevice> available,
-    int active,
-  ) async {
-    final int? picked = await showOutputDeviceDialog(
-      context,
-      devices: available,
-      selected: active,
-    );
-    if (picked == null) {
-      return;
-    }
-    String name = '系统默认';
-    for (final rust.PlayerDevice device in available) {
-      if (device.index == picked) {
-        name = device.name;
-      }
-    }
-    onSelect(picked);
-    onToast('输出设备：$name');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final ValueListenable<List<rust.PlayerDevice>>? list = devices;
-    final ValueListenable<int>? current = selected;
-    if (list == null || current == null) {
-      return const SizedBox.shrink();
-    }
-    return ValueListenableBuilder<int>(
-      valueListenable: current,
-      builder: (BuildContext context, int active, Widget? child) =>
-          ValueListenableBuilder<List<rust.PlayerDevice>>(
-            valueListenable: list,
-            builder:
-                (
-                  BuildContext context,
-                  List<rust.PlayerDevice> available,
-                  Widget? child,
-                ) {
-                  final bool hasDevices = available.isNotEmpty;
-                  return IconButton(
-                    key: const ValueKey<String>('now-playing-output'),
-                    tooltip: '输出设备',
-                    padding: EdgeInsets.zero,
-                    onPressed: hasDevices
-                        ? () => unawaited(_pick(context, available, active))
-                        : null,
-                    icon: Icon(
-                      Icons.speaker_outlined,
-                      size: 24,
-                      // 选中了具体设备时用主色提示「不是系统默认」
-                      color: active >= 0
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
-                    ),
-                  );
-                },
-          ),
-    );
-  }
-}
-
-/// Sleep timer 的选项
-
 /// 进入沉浸模式时的轻提示：淡入 → 停留 → 淡出后自删。
 class _ImmersiveToast extends StatefulWidget {
   const _ImmersiveToast({required this.message, required this.onDone});
@@ -2134,16 +2030,80 @@ class _ImmersiveToastState extends State<_ImmersiveToast>
   }
 }
 
-/// 滑块气泡（拖动时才出现）里那行字的样式。
+/// 底栏右侧「更多」点开后滑出来的那串图标。
 ///
-/// 12sp + 等宽数字：气泡会跟着指尖左右跑，比例数字会让宽度一直变化、看着发抖；
-/// 颜色走 `inverseSurface` / `onInverseSurface` 这组，深浅色主题下都自带对比度。
-TextStyle _valueBubbleTextStyle(ThemeData theme, ColorScheme scheme) {
-  return (theme.textTheme.labelMedium ?? const TextStyle()).copyWith(
-    color: scheme.onInverseSurface,
-    fontSize: 12,
-    height: 1.1,
-    fontWeight: FontWeight.w600,
-    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+/// 用 [AnimationController] 推 `Align.widthFactor`：容器的布局宽度跟着走，
+/// 子级仍按原尺寸排版、靠右对齐，外面套一层 [ClipRect] 把溢出的部分裁掉——
+/// 看起来是图标从三点按钮左边被「推」出来，而不是整排突然换个布局。
+/// 收起到 0 时顺手关掉命中测试，免得看不见的按钮还能点到。
+class _ExpandingIcons extends StatefulWidget {
+  const _ExpandingIcons({required this.open, required this.children});
+
+  final bool open;
+  final List<Widget> children;
+
+  @override
+  State<_ExpandingIcons> createState() => _ExpandingIconsState();
+}
+
+class _ExpandingIconsState extends State<_ExpandingIcons>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+    value: widget.open ? 1 : 0,
   );
+
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
+  );
+
+  @override
+  void didUpdateWidget(covariant _ExpandingIcons oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.open != widget.open) {
+      if (widget.open) {
+        unawaited(_controller.forward());
+      } else {
+        unawaited(_controller.reverse());
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return ClipRect(
+      child: AnimatedBuilder(
+        animation: _curve,
+        builder: (BuildContext context, Widget? child) {
+          final double t = _curve.value;
+          // 收干净就把整串摘出树：看不见的按钮不该还能被 Tab / 测试找到
+          if (t == 0 && !widget.open) {
+            return const SizedBox.shrink();
+          }
+          return IgnorePointer(
+            ignoring: t == 0,
+            child: Align(
+              alignment: Alignment.centerRight,
+              widthFactor: t,
+              child: child,
+            ),
+          );
+        },
+        child: Row(mainAxisSize: MainAxisSize.min, children: widget.children),
+      ),
+    );
+  }
 }

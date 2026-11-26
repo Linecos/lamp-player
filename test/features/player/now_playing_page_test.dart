@@ -95,7 +95,6 @@ Future<ValueNotifier<NowPlayingData>> _pump(
   ValueChanged<int>? onSelectDevice,
   VoidCallback? onOpenEqualizer,
   VoidCallback? onToggleDesktopLyrics,
-  VoidCallback? onToggleDesktopLyricLock,
   void Function(Track track, String artist)? onOpenArtist,
   ValueChanged<Track>? onOpenAlbum,
   String? Function(String artist)? artistCoverOf,
@@ -144,7 +143,6 @@ Future<ValueNotifier<NowPlayingData>> _pump(
         onSelectDevice: onSelectDevice,
         onOpenEqualizer: onOpenEqualizer,
         onToggleDesktopLyrics: onToggleDesktopLyrics,
-        onToggleDesktopLyricLock: onToggleDesktopLyricLock,
         onOpenArtist: onOpenArtist,
         onOpenAlbum: onOpenAlbum,
         artistCoverOf: artistCoverOf,
@@ -172,6 +170,31 @@ Future<ValueNotifier<NowPlayingData>> _pump(
 /// 不推完的话，测试结束时还挂着定时器，flutter_test 会判失败。
 Future<void> _settleToast(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 1400));
+  await tester.pumpAndSettle();
+}
+
+/// 点开「更多」：七枚图标从三点按钮左边滑出来（再点一下收回）。
+Future<void> _openMore(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey<String>('now-playing-more')));
+  await tester.pumpAndSettle();
+}
+
+/// 收起「更多」：还是点那枚三点按钮
+Future<void> _closeMore(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey<String>('now-playing-more')));
+  await tester.pumpAndSettle();
+}
+
+/// 鼠标停在音量图标上，把竖条浮层唤出来（和播放岛同一套行为）。
+Future<void> _hoverVolume(WidgetTester tester) async {
+  final TestGesture mouse = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  await mouse.addPointer(location: const Offset(10, 10));
+  addTearDown(mouse.removePointer);
+  await mouse.moveTo(
+    tester.getCenter(find.byKey(const ValueKey<String>('now-playing-mute'))),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -457,9 +480,11 @@ void main() {
       onCyclePlayMode: () => modes += 1,
     );
 
+    // 音量只留一枚图标：竖条要悬停才出，不再常驻占一条 120px
     expect(
       find.byKey(const ValueKey<String>('now-playing-volume')),
-      findsOneWidget,
+      findsNothing,
+      reason: '没悬停时不该有常驻滑块',
     );
     expect(
       find.byKey(const ValueKey<String>('now-playing-mode')),
@@ -477,8 +502,41 @@ void main() {
     expect(modes, 1);
     expect(queues, 1);
 
+    // 音量贴「上一首」、循环方式贴「下一首」：传输这一块两头各一枚，
+    // 不再散在窗口两端（左簇原来靠右对齐，中间那段空档看着像音量跑远了）
+    Rect rect(String key) => tester.getRect(find.byKey(ValueKey<String>(key)));
+    final Rect mute = rect('now-playing-mute');
+    final Rect prev = rect('now-playing-previous');
+    expect(mute.right, lessThan(prev.left), reason: '音量在上一首左边');
+    expect(
+      prev.left - mute.right,
+      lessThanOrEqualTo(12),
+      reason: '两者要贴着，别又隔出一条空档',
+    );
+    expect(
+      rect('now-playing-mode').left,
+      greaterThan(rect('now-playing-next').right),
+      reason: '模式按钮紧跟在「下一首」右边',
+    );
+    expect(
+      rect('now-playing-mode').right,
+      lessThan(rect('now-playing-queue').left),
+      reason: '队列 / 三点仍在最右那簇',
+    );
+    expect(
+      tester
+          .getCenter(find.byKey(const ValueKey<String>('now-playing-toggle')))
+          .dx,
+      closeTo(tester.view.physicalSize.width / 2, 8),
+      reason: '左右两枚宽度差 8，播放键最多偏 4，不能被带出中线',
+    );
+
+    await _hoverVolume(tester);
     final Slider slider = tester.widget<Slider>(
-      find.byKey(const ValueKey<String>('now-playing-volume')),
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('now-playing-volume')),
+        matching: find.byType(Slider),
+      ),
     );
     slider.onChanged!(0.3);
     expect(volume, closeTo(0.3, 0.001));
@@ -600,13 +658,20 @@ void main() {
     int opens = 0;
     await _pump(tester, data: _data(), onOpenEqualizer: () => opens += 1);
 
-    final Finder button = find.byKey(
+    // 默认收着：底栏只剩 模式 / 队列 / 更多
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-equalizer')),
+      findsNothing,
+    );
+
+    await _openMore(tester);
+    final Finder item = find.byKey(
       const ValueKey<String>('now-playing-equalizer'),
     );
-    expect(button, findsOneWidget);
+    expect(item, findsOneWidget);
     expect(find.byTooltip('均衡器'), findsOneWidget);
 
-    await tester.tap(button);
+    await tester.tap(item);
     await tester.pump();
     expect(opens, 1);
   });
@@ -615,13 +680,14 @@ void main() {
     int taps = 0;
     await _pump(tester, data: _data(), onToggleDesktopLyrics: () => taps += 1);
 
-    final Finder button = find.byKey(
+    await _openMore(tester);
+    final Finder item = find.byKey(
       const ValueKey<String>('now-playing-desktop-lyrics'),
     );
-    expect(button, findsOneWidget);
+    expect(item, findsOneWidget);
     expect(find.byTooltip('桌面歌词'), findsOneWidget);
 
-    await tester.tap(button);
+    await tester.tap(item);
     await tester.pump();
     expect(taps, 1);
   });
@@ -639,36 +705,41 @@ void main() {
       onCycleLyricAlignment: () => cycles += 1,
     );
 
-    final Finder button = find.byKey(
+    await _openMore(tester);
+    final Finder item = find.byKey(
       const ValueKey<String>('now-playing-lyric-align'),
     );
-    expect(button, findsOneWidget);
+    expect(item, findsOneWidget);
     expect(
       find.descendant(
-        of: button,
+        of: item,
         matching: find.byIcon(Icons.format_align_center),
       ),
       findsOneWidget,
     );
 
+    // 收起来，换对齐后再开一次：图标要跟着当前对齐走
+    await _closeMore(tester);
     alignment.value = LyricAlignment.right;
     await tester.pump();
-    expect(
-      find.descendant(
-        of: button,
-        matching: find.byIcon(Icons.format_align_right),
-      ),
-      findsOneWidget,
-      reason: '按钮要跟着当前对齐换图标',
-    );
-    expect(find.byTooltip('歌词对齐：右对齐（点击切换）'), findsOneWidget);
     expect(
       tester.widget<LyricsView>(find.byType(LyricsView)).alignment,
       LyricAlignment.right,
       reason: '对齐要真的传到歌词视图，否则按钮只是换了个图标',
     );
 
-    await tester.tap(button);
+    await _openMore(tester);
+    expect(
+      find.descendant(
+        of: item,
+        matching: find.byIcon(Icons.format_align_right),
+      ),
+      findsOneWidget,
+      reason: '按钮要跟着当前对齐换图标',
+    );
+    expect(find.byTooltip('歌词对齐：右对齐（点击切换）'), findsOneWidget);
+
+    await tester.tap(item);
     await tester.pump();
     expect(cycles, 1);
   });
@@ -685,64 +756,59 @@ void main() {
       onToggleTranslation: () => toggles += 1,
     );
 
-    final Finder button = find.byKey(
+    await _openMore(tester);
+    final Finder item = find.byKey(
       const ValueKey<String>('now-playing-translation'),
     );
-    expect(button, findsOneWidget);
+    expect(item, findsOneWidget);
     expect(find.byTooltip('隐藏译文'), findsOneWidget);
     expect(
       tester.widget<LyricsView>(find.byType(LyricsView)).showTranslation,
       isTrue,
     );
 
+    await _closeMore(tester);
     shown.value = false;
     await tester.pump();
-    expect(find.byTooltip('显示译文'), findsOneWidget);
     expect(
       tester.widget<LyricsView>(find.byType(LyricsView)).showTranslation,
       isFalse,
       reason: '开关要真的传到歌词，否则按钮只是换了个提示',
     );
 
-    await tester.tap(button);
+    await _openMore(tester);
+    expect(find.byTooltip('显示译文'), findsOneWidget);
+
+    await tester.tap(item);
     await tester.pump();
     expect(toggles, 1);
   });
 
-  testWidgets('锁定开关只在桌面歌词打开时出现，锁定后是实心锁', (WidgetTester tester) async {
-    int locks = 0;
+  testWidgets('打开桌面歌词也不会多长出一枚锁定按钮', (WidgetTester tester) async {
     final ValueNotifier<NowPlayingData> notifier = await _pump(
       tester,
       data: _data(),
       onToggleDesktopLyrics: () {},
-      onToggleDesktopLyricLock: () => locks += 1,
     );
 
-    final Finder lock = find.byKey(
-      const ValueKey<String>('now-playing-desktop-lyrics-lock'),
-    );
-    expect(lock, findsNothing, reason: '歌词没打开时没有可锁的东西');
+    await _openMore(tester);
+    expect(find.byTooltip('桌面歌词'), findsOneWidget, reason: '未打开时是空心字幕图标');
+    final int iconsBefore = tester
+        .widgetList<IconButton>(find.byType(IconButton))
+        .length;
 
     notifier.value = _data(desktopLyrics: true, desktopLyricLocked: true);
     await tester.pump();
-    expect(lock, findsOneWidget);
-    expect(find.byTooltip('解锁桌面歌词'), findsOneWidget);
+    expect(find.byTooltip('关闭桌面歌词'), findsOneWidget, reason: '图标转成实心并亮主色');
     expect(
-      find.descendant(of: lock, matching: find.byIcon(Icons.lock)),
-      findsOneWidget,
-      reason: '锁定状态要看得出来，否则用户不知道点哪里解锁',
+      tester.widgetList<IconButton>(find.byType(IconButton)).length,
+      iconsBefore,
+      reason: '开 / 关桌面歌词不该让这一排多出或少掉按钮',
     );
-
-    await tester.tap(lock);
-    await tester.pump();
-    expect(locks, 1);
-
-    notifier.value = _data(desktopLyrics: true);
-    await tester.pump();
-    expect(find.byTooltip('锁定桌面歌词（鼠标穿透）'), findsOneWidget);
     expect(
-      find.descendant(of: lock, matching: find.byIcon(Icons.lock_open)),
-      findsOneWidget,
+      find.byKey(const ValueKey<String>('now-playing-desktop-lyrics-lock')),
+      findsNothing,
+      reason: '锁定 / 解锁走托盘菜单与设置页，底栏不再挂一枚',
     );
   });
 
@@ -1075,6 +1141,8 @@ void main() {
       onTogglePlay: () => toggles += 1,
     );
 
+    await _openMore(tester);
+
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('sleep-dial')), findsOneWidget);
@@ -1106,6 +1174,8 @@ void main() {
       onTogglePlay: () => toggles += 1,
     );
 
+    await _openMore(tester);
+
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('sleep-preset-15')));
@@ -1127,6 +1197,8 @@ void main() {
     int toggles = 0;
     await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
 
+    await _openMore(tester);
+
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('sleep-preset-15')));
@@ -1134,6 +1206,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('sleep-confirm')));
     await tester.pumpAndSettle();
 
+    // 点了定时按钮这排图标不自动收起，直接再点一次重开弹窗
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('sleep-clear')));
@@ -1146,6 +1219,8 @@ void main() {
   testWidgets('睡眠定时弹窗右上角的叉号能直接关掉，不改动现有定时', (WidgetTester tester) async {
     int toggles = 0;
     await _pump(tester, data: _data(), onTogglePlay: () => toggles += 1);
+
+    await _openMore(tester);
 
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
@@ -1180,6 +1255,8 @@ void main() {
       selectedDevice: selected,
       onSelectDevice: picks.add,
     );
+
+    await _openMore(tester);
 
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-output')));
     await tester.pumpAndSettle();
@@ -1420,8 +1497,7 @@ void main() {
   });
 
   testWidgets('最小窗口下开满底部按钮也不溢出', (WidgetTester tester) async {
-    // 底部左侧那一串图标一字排开，900 宽是最挤的情况：设备、均衡器、桌面歌词、
-    // 锁定、歌词对齐全都亮着，两侧各占一半宽度
+    // 900 宽是最挤的情况：底栏右侧只剩 模式 / 队列 / 更多，其余都收进菜单
     final ValueNotifier<List<rust.PlayerDevice>> devices =
         ValueNotifier<List<rust.PlayerDevice>>(const <rust.PlayerDevice>[
           rust.PlayerDevice(index: 1, name: '扬声器', isDefault: true),
@@ -1443,7 +1519,6 @@ void main() {
       onSelectDevice: (_) {},
       onOpenEqualizer: () {},
       onToggleDesktopLyrics: () {},
-      onToggleDesktopLyricLock: () {},
       lyricAlignment: alignment,
       onCycleLyricAlignment: () {},
       showTranslation: shown,
@@ -1453,9 +1528,41 @@ void main() {
 
     expect(tester.takeException(), isNull, reason: '最小窗口下按钮不该挤到溢出');
     expect(
+      find.byKey(const ValueKey<String>('now-playing-more')),
+      findsOneWidget,
+      reason: '所有设置都在这一枚里，它必须常驻',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-lyric-align')),
+      findsNothing,
+      reason: '对齐已经不在底栏了',
+    );
+
+    // 点开三点后这排图标从按钮左边滑出来，最小窗口下也不能挤出屏幕
+    final Rect more = tester.getRect(
+      find.byKey(const ValueKey<String>('now-playing-more')),
+    );
+    await _openMore(tester);
+    expect(tester.takeException(), isNull);
+    expect(
       find.byKey(const ValueKey<String>('now-playing-lyric-align')),
       findsOneWidget,
     );
+    // 整簇靠右贴着窗口：所有滑出来的按钮都在三点左边，且不出屏
+    for (final String key in <String>[
+      'now-playing-translation',
+      'now-playing-lyric-align',
+      'now-playing-desktop-lyrics',
+      'now-playing-equalizer',
+    ]) {
+      final Rect icon = tester.getRect(find.byKey(ValueKey<String>(key)));
+      expect(
+        icon.right,
+        lessThanOrEqualTo(more.left + 1),
+        reason: '$key 在三点左边',
+      );
+      expect(icon.left, greaterThanOrEqualTo(0), reason: '$key 不出左缘');
+    }
   });
 
   testWidgets('窗口压到最小高度时封面自动缩小，不溢出', (WidgetTester tester) async {
@@ -1794,7 +1901,11 @@ void main() {
   });
 
   testWidgets('拖动时才出取值气泡：进度给时间、音量给整数', (WidgetTester tester) async {
-    await _pump(tester, data: _data(position: 60, duration: 249, volume: 0.62));
+    await _pump(
+      tester,
+      data: _data(position: 60, duration: 249, volume: 0.62),
+      onVolumeChanged: (_) {},
+    );
 
     // 底部两行文字只有「当前位置 / 总时长」，拖动时看不出正要跳到哪儿，
     // 所以滑块自己带一条 label，由取值气泡在拖动期间显示
@@ -1803,22 +1914,10 @@ void main() {
     );
     expect(progress.label, formatDuration(60));
 
-    final Slider volume = tester.widget<Slider>(
-      find.byKey(const ValueKey<String>('now-playing-volume')),
-    );
-    expect(volume.label, '62', reason: '音量给整数百分比，0.62 读起来不直观');
-
-    // 音量条仍走框架自带的取值气泡：常驻会一直挡住上方的控制区
-    final SliderTheme volumeTheme = tester.widget<SliderTheme>(
-      find
-          .ancestor(
-            of: find.byKey(const ValueKey<String>('now-playing-volume')),
-            matching: find.byType(SliderTheme),
-          )
-          .first,
-    );
-    expect(volumeTheme.data.showValueIndicator, ShowValueIndicator.onDrag);
-    expect(volumeTheme.data.valueIndicatorTextStyle?.fontSize, 12);
+    // 音量收成图标 + 悬停浮层：百分比常驻在浮层顶上，不必靠拖动气泡
+    expect(find.text('62%'), findsNothing, reason: '没悬停就不该有浮层');
+    await _hoverVolume(tester);
+    expect(find.text('62%'), findsOneWidget, reason: '浮层顶上报整数百分比');
   });
 
   testWidgets('进度条悬停显示「跳到」时间气泡', (WidgetTester tester) async {

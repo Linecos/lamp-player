@@ -1581,6 +1581,8 @@ void main() {
     );
 
     // 设 15 分钟，并关掉「顺延到曲目结束」——这里测的是到点就停
+    await tester.tap(find.byKey(const ValueKey<String>('now-playing-more')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('now-playing-sleep')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('sleep-extend-switch')));
