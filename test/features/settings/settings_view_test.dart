@@ -32,6 +32,11 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// 选择胶囊当前显示的文案：胶囊里第一个 Text 就是当前值（菜单没开时）
+String? _choiceLabel(WidgetTester tester, Finder pill) => tester
+    .widget<Text>(find.descendant(of: pill, matching: find.byType(Text)).first)
+    .data;
+
 Widget _harness({ThemeController? controller}) {
   final Widget view = Scaffold(body: SettingsView());
   return controller == null
@@ -826,6 +831,63 @@ void main() {
     expect(controller.seedColor, AppTheme.defaultSeed);
   });
 
+  testWidgets('配色与取色弹窗右上角有关闭按钮', (WidgetTester tester) async {
+    tester.view.physicalSize = canvas;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final ThemeController controller = ThemeController();
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? child) => ThemeScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: AppTheme.light(controller.effectiveSeed),
+            home: child,
+          ),
+        ),
+        child: const Scaffold(body: SettingsView()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await reveal(tester, find.text('强调色'));
+    await tester.tap(find.text('强调色'));
+    await tester.pumpAndSettle();
+
+    // 和输出设备 / 播放队列那些弹窗一样：右上角一个关闭叉，别只能靠「完成」
+    final Finder paletteClose = find.byKey(
+      const ValueKey<String>('palette-close'),
+    );
+    expect(paletteClose, findsOneWidget);
+    expect(
+      tester.getCenter(paletteClose).dy,
+      lessThan(tester.getCenter(find.text('配色')).dy + 4),
+      reason: '叉在标题这一行',
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('seed-card-custom')));
+    await tester.pumpAndSettle();
+
+    final Finder customClose = find.byKey(
+      const ValueKey<String>('custom-seed-close'),
+    );
+    expect(find.text('自定义颜色'), findsOneWidget);
+    expect(customClose, findsOneWidget);
+
+    // 叉只关自己那一层：回到配色弹窗，再叉一次才整条退出
+    await tester.tap(customClose);
+    await tester.pumpAndSettle();
+    expect(find.text('自定义颜色'), findsNothing);
+    expect(find.text('配色'), findsOneWidget);
+
+    await tester.tap(paletteClose);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
   testWidgets('配色可切回跟随系统', (WidgetTester tester) async {
     tester.view.physicalSize = canvas;
     tester.view.devicePixelRatio = 1;
@@ -1102,9 +1164,14 @@ void main() {
       const ValueKey<String>('settings-replay-gain-reference'),
     );
     await reveal(tester, referenceRow);
-    expect(tester.widget<DropdownButton<double>>(referenceRow).value, -18.0);
+    expect(_choiceLabel(tester, referenceRow), '-18 LUFS');
     await tester.tap(referenceRow);
     await tester.pumpAndSettle();
+    // 菜单从胶囊左缘右开：这样面板右缘落在胶囊右缘附近，不会被挤去顶窗口右边
+    final MenuAnchor anchor = tester.widget<MenuAnchor>(
+      find.ancestor(of: referenceRow, matching: find.byType(MenuAnchor)),
+    );
+    expect(anchor.style?.alignment, AlignmentDirectional.bottomStart);
     await tester.tap(find.text('-14 LUFS').last);
     await tester.pumpAndSettle();
     expect(references, <double>[-14]);
@@ -1114,7 +1181,7 @@ void main() {
       const ValueKey<String>('settings-replay-gain-peak'),
     );
     await reveal(tester, peakRow);
-    expect(tester.widget<DropdownButton<bool>>(peakRow).value, isFalse);
+    expect(_choiceLabel(tester, peakRow), '采样峰值');
     await tester.tap(peakRow);
     await tester.pumpAndSettle();
     await tester.tap(find.text('真实峰值').last);
@@ -1146,10 +1213,7 @@ void main() {
       const ValueKey<String>('settings-replay-gain-reference'),
     );
     await reveal(tester, referenceRow);
-    expect(
-      tester.widget<DropdownButton<double>>(referenceRow).onChanged,
-      isNull,
-    );
+    expect(tester.widget<InkWell>(referenceRow).onTap, isNull);
   });
 
   testWidgets('自定义取色：弹窗按内容收紧，拖动中不重算主题', (WidgetTester tester) async {

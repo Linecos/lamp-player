@@ -727,15 +727,6 @@ class _ChoiceRow<T> extends StatefulWidget implements SettingsSearchable {
 }
 
 class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
-  /// 选完立刻收掉焦点：DropdownButton 会一直挂着高亮底色，看着像没生效
-  final FocusNode _focus = FocusNode();
-
-  @override
-  void dispose() {
-    _focus.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -785,61 +776,108 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
           ),
           const SizedBox(width: Spacing.sm),
           // 设备名可能很长（"扬声器 (Realtek High Definition Audio)"）：
-          // 限宽 + isExpanded 让它在框里截断，而不是把这一行撑破
+          // 限宽 + 省略号让它在胶囊里截断，而不是把这一行撑破
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 220),
-            child: DecoratedBox(
-              // 选择框自带一层底：与左侧图标同色，文字才不会看着浮在卡片上
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(Radii.sm),
+            // 取值从下拉框换成「胶囊 + 菜单」：胶囊本身就是一个按钮，
+            // 点开是同一套 MenuItemButton，当前项右端打勾
+            child: MenuAnchor(
+              // 胶囊在行右端：菜单从胶囊左缘往右展开（跨轴宽度天然接近胶囊宽），
+              // 右缘就落在胶囊右缘附近；若按 bottomEnd 贴胶囊右下角右开，
+              // 面板宽于胶囊必然溢出、被推去顶窗口右边
+              style: const MenuStyle(
+                alignment: AlignmentDirectional.bottomStart,
               ),
-              child: Padding(
-                // 上下各 6：让胶囊和左侧 40 的图标圈差不多高
-                padding: const EdgeInsets.fromLTRB(
-                  Spacing.sm,
-                  Spacing.xs,
-                  Spacing.xs,
-                  Spacing.xs,
-                ),
-                child: DropdownButton<T>(
-                  key: widget.choiceKey,
-                  focusNode: _focus,
-                  value: current,
-                  isDense: true,
-                  isExpanded: true,
-                  iconSize: 20,
-                  iconEnabledColor: scheme.onSurfaceVariant,
-                  // 选完不留高亮：焦点色透明，底色永远是上面那一层
-                  focusColor: Colors.transparent,
-                  underline: const SizedBox.shrink(),
-                  borderRadius: BorderRadius.circular(Radii.sm),
-                  dropdownColor: scheme.surfaceContainerHighest,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurface,
+              alignmentOffset: const Offset(0, Spacing.xxs),
+              menuChildren: <Widget>[
+                for (final (T value, String label) item in widget.choices)
+                  MenuItemButton(
+                    trailingIcon: item.$1 == current
+                        ? Icon(Icons.check, size: 18, color: scheme.primary)
+                        : null,
+                    onPressed: widget.onChanged == null
+                        ? null
+                        : () => widget.onChanged!(item.$1),
+                    child: Text(
+                      item.$2,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          (widget.itemStyle?.call(item.$1) ??
+                                  theme.textTheme.bodyMedium)
+                              ?.copyWith(
+                                color: item.$1 == current
+                                    ? scheme.primary
+                                    : null,
+                              ),
+                    ),
                   ),
-                  onChanged: widget.onChanged == null
-                      ? null
-                      : (T? next) {
-                          _focus.unfocus();
-                          if (next != null) {
-                            widget.onChanged!(next);
-                          }
-                        },
-                  items: <DropdownMenuItem<T>>[
-                    for (final (T value, String label) item in widget.choices)
-                      DropdownMenuItem<T>(
-                        value: item.$1,
-                        child: Text(
-                          item.$2,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: widget.itemStyle?.call(item.$1),
+              ],
+              builder:
+                  (
+                    BuildContext context,
+                    MenuController controller,
+                    Widget? child,
+                  ) => Material(
+                    color: scheme.surfaceContainerHigh,
+                    shape: const StadiumBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    // 选择框自带一层底：与左侧图标同色，文字才不会看着浮在卡片上
+                    child: InkWell(
+                      key: widget.choiceKey,
+                      onTap: widget.onChanged == null
+                          ? null
+                          : () => controller.isOpen
+                                ? controller.close()
+                                : controller.open(),
+                      child: Padding(
+                        // 上下各 8：胶囊和左侧 40 的图标圈差不多高
+                        padding: const EdgeInsets.fromLTRB(
+                          Spacing.md,
+                          Spacing.xs,
+                          Spacing.sm,
+                          Spacing.xs,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Flexible(
+                              child: Text(
+                                widget.choices
+                                    .firstWhere(
+                                      ((T, String) item) => item.$1 == current,
+                                    )
+                                    .$2,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                // 字体行用它自己的字体显示当前值，选前就能看出差别
+                                style:
+                                    (widget.itemStyle?.call(current) ??
+                                            theme.textTheme.bodyMedium)
+                                        ?.copyWith(
+                                          color: widget.onChanged == null
+                                              ? scheme.onSurface.withValues(
+                                                  alpha: 0.38,
+                                                )
+                                              : scheme.onSurface,
+                                        ),
+                              ),
+                            ),
+                            const SizedBox(width: Spacing.xxs),
+                            Icon(
+                              Icons.arrow_drop_down,
+                              size: 20,
+                              color: widget.onChanged == null
+                                  ? scheme.onSurfaceVariant.withValues(
+                                      alpha: 0.38,
+                                    )
+                                  : scheme.onSurfaceVariant,
+                            ),
+                          ],
                         ),
                       ),
-                  ],
-                ),
-              ),
+                    ),
+                  ),
             ),
           ),
         ],
@@ -1435,7 +1473,24 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
           // 读取 scope 注册依赖：控制器变化（选色 / 切风格）时弹窗内容跟着刷新
           final ThemeController current = ThemeScope.of(dialogContext);
           return AlertDialog(
-            title: const Text('配色'),
+            titlePadding: const EdgeInsets.fromLTRB(
+              Spacing.lg,
+              Spacing.md,
+              Spacing.sm,
+              Spacing.xs,
+            ),
+            title: Row(
+              children: <Widget>[
+                const Expanded(child: Text('配色')),
+                // 与输出设备 / 输出队列等弹窗一致：右上角给一个关闭按钮
+                IconButton(
+                  key: const ValueKey<String>('palette-close'),
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close, size: 20),
+                ),
+              ],
+            ),
             contentPadding: const EdgeInsets.fromLTRB(
               Spacing.lg,
               Spacing.sm,
@@ -1575,7 +1630,23 @@ class _AccentColorRow extends StatelessWidget implements SettingsSearchable {
           // Theme 上；少一条依赖就少一次「树在拆时被叫醒」的机会
           final ThemeController current = ThemeScope.readOf(inner)!;
           return AlertDialog(
-            title: const Text('自定义颜色'),
+            titlePadding: const EdgeInsets.fromLTRB(
+              Spacing.lg,
+              Spacing.md,
+              Spacing.sm,
+              Spacing.xs,
+            ),
+            title: Row(
+              children: <Widget>[
+                const Expanded(child: Text('自定义颜色')),
+                IconButton(
+                  key: const ValueKey<String>('custom-seed-close'),
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.of(inner).pop(),
+                  icon: const Icon(Icons.close, size: 20),
+                ),
+              ],
+            ),
             contentPadding: const EdgeInsets.fromLTRB(
               Spacing.lg,
               Spacing.sm,

@@ -60,12 +60,15 @@ void main() {
     );
     expect(find.text('每天'), findsOneWidget);
 
-    // 关着自动检查时频率下拉不可用
-    final DropdownButton<UpdateCheckPeriod> dropdown = tester
-        .widget<DropdownButton<UpdateCheckPeriod>>(
-          find.byKey(const ValueKey<String>('settings-update-period')),
-        );
-    expect(dropdown.onChanged, isNull);
+    // 关着自动检查时频率胶囊点不开
+    expect(
+      tester
+          .widget<InkWell>(
+            find.byKey(const ValueKey<String>('settings-update-period')),
+          )
+          .onTap,
+      isNull,
+    );
   });
 
   testWidgets('发现新版本时「检查更新」标题旁挂「新」徽标', (WidgetTester tester) async {
@@ -124,11 +127,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(toggled, isFalse, reason: '点开关是把当前值取反');
 
-    final DropdownButton<UpdateCheckPeriod> dropdown = tester
-        .widget<DropdownButton<UpdateCheckPeriod>>(
-          find.byKey(const ValueKey<String>('settings-update-period')),
-        );
-    expect(dropdown.onChanged, isNotNull, reason: '自动检查打开时频率可选');
+    expect(
+      tester
+          .widget<InkWell>(
+            find.byKey(const ValueKey<String>('settings-update-period')),
+          )
+          .onTap,
+      isNotNull,
+      reason: '自动检查打开时频率可选',
+    );
 
     // 选「每周」
     await tester.tap(find.text('每天'));
