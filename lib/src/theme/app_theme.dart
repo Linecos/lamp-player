@@ -284,6 +284,17 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.circular(Radii.sm),
         ),
       ),
+      // 官方 M3 2024 规格（Flutter 用 `year2023: false` 打开）：滑块手柄从圆点
+      // 变竖条、进度条有 trackGap 与末端 stop 圆点。自绘的 SlimSlider 有自己的
+      // thumbShape，不受影响；这里只管标准 Slider / 进度指示器。
+      // 这个 flag 本身被标了 deprecated（「以后默认就是 false」），但现在要新版
+      // 外观只有这一个入口，所以按官方注释关掉这条 lint
+      // ignore: deprecated_member_use
+      sliderTheme: const SliderThemeData(year2023: false),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        // ignore: deprecated_member_use
+        year2023: false,
+      ),
     );
   }
 }

@@ -288,6 +288,10 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                     quarterTurns: 3,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
+                        // 手柄自己定的圆点，保留 2023 的连续轨道；
+                        // 跟主题里的 2024 规格混着来会在轨道末端多出停靠点
+                        // ignore: deprecated_member_use
+                        year2023: true,
                         trackHeight: 3,
                         overlayShape: const RoundSliderOverlayShape(
                           overlayRadius: 12,

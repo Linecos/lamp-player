@@ -878,6 +878,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// 最近一次检查结果的短句，显示在「检查更新」那一行的副标题
   String? _updateStatus;
 
+  /// 已确认有新版本可用：设置页「检查更新」行的图标上挂圆点
+  bool _updateAvailable = false;
+
   /// 正在播放页歌词的水平对齐（居中 / 左 / 右），按钮点一下循环。
   ///
   /// 用通知器而不是普通字段：正在播放页是独立路由，只在 push 时构建一次，

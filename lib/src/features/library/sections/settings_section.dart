@@ -93,6 +93,7 @@ extension _SettingsSection on _LibraryPageState {
             onUpdateCheckPeriodChanged: _setUpdateCheckPeriod,
             checkingUpdate: _checkingUpdate,
             updateStatus: _updateStatus,
+            updateAvailable: _updateAvailable,
             onCheckUpdate: () => unawaited(_checkUpdates(manual: true)),
             // 底部播放岛是浮层：列表末尾要让出它的高度，「关于」才滚得出来
             bottomPadding: PlayerBar.occupiedHeight + 8,

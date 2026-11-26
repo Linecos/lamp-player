@@ -87,6 +87,7 @@ class SettingsView extends StatelessWidget {
     this.onUpdateCheckPeriodChanged,
     this.checkingUpdate = false,
     this.updateStatus,
+    this.updateAvailable = false,
     this.onCheckUpdate,
     this.bottomPadding = 16,
     this.query = '',
@@ -253,6 +254,10 @@ class SettingsView extends StatelessWidget {
 
   /// 上一次手动检查的结果短句；为空时显示当前版本
   final String? updateStatus;
+
+  /// 已经确认有新版本可用：在「检查更新」行的图标上挂一枚「新」徽标，
+  /// 用户不必滚到这行才知道该点哪儿
+  final bool updateAvailable;
 
   /// 手动检查更新；为空表示不可操作（测试或未注入）
   final VoidCallback? onCheckUpdate;
@@ -612,6 +617,8 @@ class SettingsView extends StatelessWidget {
       SettingsActionRow(
         icon: Icons.system_update_alt,
         title: '检查更新',
+        // 发现新版本时图标上挂一枚圆点：副标题被行高限制，长版本号未必看得见
+        badge: updateAvailable,
         subtitle: checkingUpdate
             ? '正在检查…'
             : (updateStatus ?? '当前 v$appVersion'),
@@ -2016,6 +2023,10 @@ class _CustomSeedPickerState extends State<_CustomSeedPicker> {
           ),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
+              // 这条是叠在色带上的白圆点（轨道全透明），2024 规格会在
+              // 右端画一个停靠点露出来，所以保留 2023 形态
+              // ignore: deprecated_member_use
+              year2023: true,
               trackHeight: 0,
               activeTrackColor: Colors.transparent,
               inactiveTrackColor: Colors.transparent,

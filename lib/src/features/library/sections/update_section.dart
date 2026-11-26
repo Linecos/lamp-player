@@ -28,6 +28,7 @@ extension _UpdateSection on _LibraryPageState {
     }
     _update(() {
       _checkingUpdate = false;
+      _updateAvailable = outcome.hasUpdate;
       if (outcome.hasUpdate) {
         _updateStatus = '发现新版本 v${outcome.release!.version}';
       } else if (outcome.failed) {

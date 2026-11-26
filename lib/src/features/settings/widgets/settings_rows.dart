@@ -71,6 +71,7 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
     required this.subtitle,
     required this.onTap,
     this.trailing,
+    this.badge = false,
   });
 
   final IconData icon;
@@ -78,6 +79,10 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// 标题后跟一枚「新」徽标（M3 的 `Badge`）：有新版本这类「等你点一下」
+  /// 的状态用它提示，不必靠副标题去读
+  final bool badge;
 
   @override
   String get searchText => '$title $subtitle';
@@ -112,7 +117,21 @@ class SettingsActionRow extends StatelessWidget implements SettingsSearchable {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(title, style: theme.textTheme.bodyLarge),
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(title, style: theme.textTheme.bodyLarge),
+                      ),
+                      if (badge) ...<Widget>[
+                        const SizedBox(width: Spacing.xs),
+                        Badge(
+                          backgroundColor: scheme.primary,
+                          textColor: scheme.onPrimary,
+                          label: const Text('新'),
+                        ),
+                      ],
+                    ],
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,

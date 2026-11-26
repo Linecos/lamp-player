@@ -10,6 +10,7 @@ Widget _harness({
   ValueChanged<UpdateCheckPeriod>? onPeriodChanged,
   UpdateCheckPeriod period = UpdateCheckPeriod.daily,
   bool checking = false,
+  bool available = false,
   VoidCallback? onCheck,
 }) {
   return MaterialApp(
@@ -21,6 +22,7 @@ Widget _harness({
         updateCheckPeriod: period,
         onUpdateCheckPeriodChanged: onPeriodChanged,
         checkingUpdate: checking,
+        updateAvailable: available,
         onCheckUpdate: onCheck,
       ),
     ),
@@ -64,6 +66,38 @@ void main() {
           find.byKey(const ValueKey<String>('settings-update-period')),
         );
     expect(dropdown.onChanged, isNull);
+  });
+
+  testWidgets('发现新版本时「检查更新」标题旁挂「新」徽标', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_harness(autoUpdateCheck: false));
+    await tester.pumpAndSettle();
+    await _scrollToUpdate(tester);
+    // 没新版本时徽标整个不建，免得留个空壳占着行宽
+    expect(find.text('新'), findsNothing);
+    expect(find.byType(Badge), findsNothing);
+
+    await tester.pumpWidget(_harness(autoUpdateCheck: false, available: true));
+    await tester.pumpAndSettle();
+    await _scrollToUpdate(tester);
+    expect(find.text('新'), findsOneWidget);
+    expect(
+      find.ancestor(of: find.text('新'), matching: find.byType(Badge)),
+      findsOneWidget,
+    );
+    // 徽标和标题在同一个 Row 里，紧贴着「检查更新」
+    expect(
+      tester.getCenter(find.text('新')).dy,
+      moreOrLessEquals(tester.getCenter(find.text('检查更新')).dy, epsilon: 2),
+    );
+    expect(
+      tester.getTopLeft(find.text('新')).dx,
+      greaterThan(tester.getTopRight(find.text('检查更新')).dx),
+    );
   });
 
   testWidgets('打开开关后可改频率，开关回调带新值', (WidgetTester tester) async {
