@@ -35,7 +35,8 @@ class SettingsCard extends StatelessWidget {
     return Material(
       color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.xl),
+        // 与外层胶囊、行高亮同一族：40 的弧在宽而扁的长条卡上大出一整圈
+        borderRadius: BorderRadius.circular(Radii.md),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
