@@ -561,7 +561,8 @@ class _TrackRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 1),
       child: Material(
         color: playing
-            ? scheme.primaryContainer.withValues(alpha: 0.35)
+            // 正在播放的行与「选中」同一套次色容器；主色留给播放键与图标
+            ? scheme.secondaryContainer.withValues(alpha: 0.7)
             : Colors.transparent,
         borderRadius: radius,
         // 不裁剪：每行一个 ClipRRect 就是一层裁剪层，滚动 / 变宽时整行都要

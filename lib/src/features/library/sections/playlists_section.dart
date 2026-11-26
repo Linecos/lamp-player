@@ -658,7 +658,7 @@ extension _PlaylistsSection on _LibraryPageState {
                             ? AlbumCover(
                                 path: coverPath,
                                 size: detailCoverSize,
-                                radius: 32,
+                                radius: Radii.xl,
                               )
                             : Container(
                                 width: detailCoverSize,

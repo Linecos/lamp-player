@@ -109,7 +109,7 @@ void main() {
     );
     final Color background = scheme.surfaceContainerHigh;
     final Color highlight = Color.alphaBlend(
-      scheme.primaryContainer.withValues(alpha: 0.35),
+      scheme.secondaryContainer.withValues(alpha: 0.7),
       background,
     );
 

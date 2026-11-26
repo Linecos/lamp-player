@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/widgets/section_label.dart';
 import '../../../theme/tokens.dart';
 
 /// 设置类页面的行索引：顶部常驻搜索框按 [searchText] 就地过滤。
@@ -10,24 +11,15 @@ abstract interface class SettingsSearchable {
 }
 
 /// 分组标题。水平不缩进：要和下面卡片的左边缘对齐（卡片自身有内边距）。
+///
+/// 样式与均衡器那页共用的 [SectionLabel] 同一份，别再各写一遍。
 class SettingsSectionLabel extends StatelessWidget {
   const SettingsSectionLabel(this.text, {super.key});
 
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, Spacing.md, 0, Spacing.xs),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SectionLabel(text);
 }
 
 /// 卡片用 Material 承载底色：内部 InkWell 的水波纹与 hover 高光必须画在

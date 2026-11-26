@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import '../common/widgets/field_border.dart';
 import './tokens.dart';
 
 /// 全局主题：Material 3 + 可配置 seed 色与调色板风格，深浅色模式跟随系统。
@@ -207,6 +208,12 @@ abstract final class AppTheme {
     final RoundedRectangleBorder cardShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(Radii.md),
     );
+    // 提示条要压在岛 / 卡片之上：浅色取最亮的那档底，深色取最亮的容器色，
+    // 再配描边与阴影；同一档 `surfaceContainerHigh` 会被岛自己吃掉
+    final bool schemeIsDark = brightness == Brightness.dark;
+    final Color tooltipFill = schemeIsDark
+        ? scheme.surfaceContainerHighest
+        : scheme.surfaceContainerLowest;
     final ThemeData theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -227,7 +234,36 @@ abstract final class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(shape: const StadiumBorder()),
       ),
+      // 输入框统一到 Radii.xs 圆角：描边只留一条细线、不加填充（卡片本身
+      // 已有底色，再铺一层会比卡片还亮）；弹窗里那些写死默认 4 圆角的字段
+      // 只要不传 border 就跟着这里走
+      inputDecorationTheme: InputDecorationTheme(
+        border: fieldBorder(scheme.outline),
+        enabledBorder: fieldBorder(scheme.outlineVariant),
+        focusedBorder: fieldBorder(scheme.primary, width: 1.6),
+        disabledBorder: fieldBorder(scheme.outlineVariant),
+      ),
       cardTheme: CardThemeData(shape: cardShape, clipBehavior: Clip.antiAlias),
+      // 悬停提示默认是 4 圆角的小方块，贴在满屏 24~40 的圆角里像一格直角补丁。
+      // 底色不能取 `surfaceContainerHigh`：播放岛、卡片用的就是这档色，提示压在
+      // 它们上面等于泡进背景（实测差 2/255）。浅色取最亮的那档、深色取最亮的
+      // 容器色，再加一圈描边和一层阴影，两种底色上都能看出「浮在上面」
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: tooltipFill,
+          borderRadius: BorderRadius.circular(Radii.xs),
+          border: Border.all(color: scheme.outlineVariant),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: const Color(0xFF000000)
+                  .withValues(alpha: schemeIsDark ? 0.45 : 0.10),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        textStyle: TextStyle(color: scheme.onSurface, fontSize: 12),
+      ),
       // 弹窗 28、菜单 20：Expressive 里浮层比卡片更圆，层级一眼能分开
       dialogTheme: DialogThemeData(
         clipBehavior: Clip.antiAlias,

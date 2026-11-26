@@ -33,7 +33,13 @@ class VolumeControl extends StatefulWidget {
     this.peek,
     this.muteKey,
     this.sliderKey,
+    this.panelTheme,
   });
+
+  /// 浮层用的主题。正在播放页在浅色模式下会给整页套一层深色前景（为了压住
+  /// 封面流光），浮层却该和全站的弹窗、菜单一样是浅色的，所以由页面把应用级
+  /// 主题传进来；播放条不传，跟着外层走。
+  final ThemeData? panelTheme;
 
   /// 两个页面各用自己的 key：同一进程里播放条和正在播放页同时存在，
   /// 共用一套 key 会让 `find.byKey` 撞车
@@ -199,65 +205,72 @@ class _VolumeControlState extends State<VolumeControl> {
   }
 
   Widget _panel(double level) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final ThemeData theme = Theme.of(context);
+    final ThemeData theme = widget.panelTheme ?? Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
 
     return Positioned(
       // 读数只写到滑块下面、不带百分号，
       width: 44,
-      child: CompositedTransformFollower(
-        link: _link,
-        showWhenUnlinked: false,
-        // 贴图标右侧对齐：图标在最右边时，居中对齐会让浮层超出窗口被裁
-        targetAnchor: Alignment.topRight,
-        followerAnchor: Alignment.bottomRight,
-        offset: const Offset(8, -8),
-        child: MouseRegion(
-          onEnter: (PointerEnterEvent _) {
-            _overPanel = true;
-            _syncVisibility();
-          },
-          onExit: (PointerExitEvent _) {
-            _overPanel = false;
-            _syncVisibility();
-          },
-          child: Material(
-            elevation: 8,
-            color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(Radii.md),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.xs,
-                vertical: Spacing.sm,
+      child: Theme(
+        data: theme,
+        child: CompositedTransformFollower(
+          link: _link,
+          showWhenUnlinked: false,
+          // 贴图标右侧对齐：图标在最右边时，居中对齐会让浮层超出窗口被裁
+          targetAnchor: Alignment.topRight,
+          followerAnchor: Alignment.bottomRight,
+          offset: const Offset(8, -8),
+          child: MouseRegion(
+            onEnter: (PointerEnterEvent _) {
+              _overPanel = true;
+              _syncVisibility();
+            },
+            onExit: (PointerExitEvent _) {
+              _overPanel = false;
+              _syncVisibility();
+            },
+            child: Material(
+              // 不开 elevation：Flutter 的抬升阴影在这么窄的面板上是一圈硬黑边，
+              // 浅色面板下很扎眼；改用一圈细描边收边，和卡片同一套语言
+              color: scheme.surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Radii.md),
+                side: BorderSide(color: scheme.outlineVariant),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  SizedBox(
-                    width: 36,
-                    height: 120,
-                    child: RotatedBox(
-                      quarterTurns: 3,
-                      child: SlimSlider(
-                        key: widget.sliderKey,
-                        value: level,
-                        max: 1,
-                        enabled: widget.enabled,
-                        onChanged: widget.onChanged,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.xs,
+                  vertical: Spacing.sm,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 36,
+                      height: 120,
+                      child: RotatedBox(
+                        quarterTurns: 3,
+                        child: SlimSlider(
+                          key: widget.sliderKey,
+                          value: level,
+                          max: 1,
+                          enabled: widget.enabled,
+                          onChanged: widget.onChanged,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: Spacing.xs),
-                  Text(
-                    '${(level * 100).round()}',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontFeatures: const <FontFeature>[
-                        FontFeature.tabularFigures(),
-                      ],
+                    const SizedBox(height: Spacing.xs),
+                    Text(
+                      '${(level * 100).round()}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontFeatures: const <FontFeature>[
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

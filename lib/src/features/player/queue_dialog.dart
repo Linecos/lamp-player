@@ -239,8 +239,10 @@ class _PlaybackQueueDialogState extends State<_PlaybackQueueDialog> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: current
-                                ? scheme.primaryContainer.withValues(
-                                    alpha: 0.35,
+                                // 选中底用次色容器（另一组色相），与主色的
+                                // 播放键 / 图标错开，整屏不至于只有一个颜色
+                                ? scheme.secondaryContainer.withValues(
+                                    alpha: 0.7,
                                   )
                                 : null,
                             // 与其它列表行一致：通栏直角色块在圆角弹窗里很扎眼

@@ -105,9 +105,15 @@ class _SlimSliderState extends State<SlimSlider> {
                   data: base.copyWith(
                     trackHeight: 4,
                     activeTrackColor: scheme.primary,
-                    inactiveTrackColor: scheme.surfaceContainerHighest,
+                    // 未播放的那一段用半透明前景色：深浅两套主题下都跟文字同族，
+                    // 不会在亮底上压出一条近乎纯黑的重线
+                    inactiveTrackColor: scheme.onSurface.withValues(
+                      alpha: 0.28,
+                    ),
                     disabledActiveTrackColor: scheme.outlineVariant,
-                    disabledInactiveTrackColor: scheme.surfaceContainerHighest,
+                    disabledInactiveTrackColor: scheme.onSurface.withValues(
+                      alpha: 0.16,
+                    ),
                     thumbColor: scheme.primary,
                     disabledThumbColor: scheme.outline,
                     overlayColor: scheme.primary.withValues(alpha: 0.12),

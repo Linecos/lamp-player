@@ -12,15 +12,24 @@ import '../../theme/tokens.dart';
 ///
 /// 返回值：选中的设备下标（-1 = 系统默认）；用户直接关掉时返回 `null`，
 /// 调用方不要当成「选了第一项」。
+///
+/// `theme` 用于「正在播放页」：那一页在浅色模式下给自己套了深色前景，
+/// 弹窗会跟着捕获过去；这里覆回应用级主题，弹窗与全站其余弹窗同色。
 Future<int?> showOutputDeviceDialog(
   BuildContext context, {
   required List<rust.PlayerDevice> devices,
   required int selected,
+  ThemeData? theme,
 }) {
   return showDialog<int>(
     context: context,
-    builder: (BuildContext context) =>
-        _OutputDeviceDialog(devices: devices, selected: selected),
+    builder: (BuildContext dialogContext) {
+      final Widget dialog = _OutputDeviceDialog(
+        devices: devices,
+        selected: selected,
+      );
+      return theme == null ? dialog : Theme(data: theme, child: dialog);
+    },
   );
 }
 
@@ -121,7 +130,8 @@ class _DeviceRow extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: active
-              ? scheme.primaryContainer.withValues(alpha: 0.35)
+              // 选中底与播放队列同一套：次色容器，和主色的图标错开
+              ? scheme.secondaryContainer.withValues(alpha: 0.7)
               : null,
           borderRadius: BorderRadius.circular(Radii.md),
         ),

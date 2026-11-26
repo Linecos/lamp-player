@@ -149,6 +149,32 @@ void main() {
     }
   });
 
+  test('悬停提示不泡进背景：底色避开岛 / 卡片那一档，另有描边与阴影', () {
+    for (final ThemeData theme in <ThemeData>[
+      AppTheme.light(AppTheme.defaultSeed),
+      AppTheme.dark(AppTheme.defaultSeed),
+    ]) {
+      final BoxDecoration? decoration =
+          theme.tooltipTheme.decoration as BoxDecoration?;
+      expect(decoration, isNotNull);
+      final ColorScheme scheme = theme.colorScheme;
+      // 播放岛、卡片用的就是 surfaceContainerHigh：提示压在它们上面时
+      // 同色会让整条提示泡进背景（实测只差 2/255）
+      expect(
+        decoration!.color,
+        isNot(scheme.surfaceContainerHigh),
+        reason: '提示底不能和岛 / 卡片同色',
+      );
+      expect(
+        decoration.color!.computeLuminance(),
+        greaterThan(scheme.surfaceContainerHigh.computeLuminance()),
+        reason: '两种主题下提示都比岛亮一档，压在岛上才看得出轮廓',
+      );
+      expect(decoration.border, isNotNull, reason: '底色接近时靠描边收边');
+      expect(decoration.boxShadow, isNotEmpty, reason: '再垫一层阴影说明它浮着');
+    }
+  });
+
   test('浅色派生的深色主题只换亮度，不转色相', () {
     // 播放详情页在浅色模式下套深色前景，走 darkOf。以前是 dark(primary)：
     // 主色被当 seed 又算一遍，Expressive 的主色相是 seed + 240°，绿封面
