@@ -12,9 +12,12 @@ abstract final class AppTheme {
   /// 系统强调色」时的兜底。
   static const Color defaultSeed = Color(0xFFFFB300);
 
-  /// 默认调色板风格：Material 3 的 Tonal spot（与历史版本行为一致）。
+  /// 默认调色板风格：Material 3 Expressive。
+  ///
+  /// 过渡色更浓、明暗层次拉得更开；浅色下会被 [_tintLightSurfaces] 按 seed
+  /// 色相重铺一层，差别不如深色明显。设置页仍可切回 Tonal spot 等旧风格。
   static const DynamicSchemeVariant defaultVariant =
-      DynamicSchemeVariant.tonalSpot;
+      DynamicSchemeVariant.expressive;
 
   /// 「强调色跟随封面」时强制使用的调色板风格。
   ///
@@ -143,6 +146,25 @@ abstract final class AppTheme {
     String? fontFamily,
   }) => _build(Brightness.dark, seed, variant, contrastLevel, fontFamily);
 
+  /// 由当前浅色配色派生的「深色孪生」：只换亮度，色相和彩度跟着现有主色走。
+  ///
+  /// 播放详情页背景是封面流光、天生是深的，浅色模式下要给本页套一套深色前景。
+  /// 那里不能直接 `dark(scheme.primary)`：等于把「已经是结果」的主色又当 seed
+  /// 重算一遍，而 [defaultVariant] 是 Expressive —— 它的主色相是 seed 相 + 240°，
+  /// 于是绿封面的绿色主色被再转一轮，变成粉色按钮配绿色背景。
+  /// Content 风格只取 seed 的色相与彩度（彩度保底 48），正是这里要的。
+  static ThemeData darkOf(
+    ColorScheme light, {
+    double contrastLevel = 0,
+    String? fontFamily,
+  }) => _build(
+    Brightness.dark,
+    light.primary,
+    DynamicSchemeVariant.content,
+    contrastLevel,
+    fontFamily,
+  );
+
   /// 清掉字阶里的字距。
   ///
   /// Material 的两套几何（`englishLike2021` 与中文用的 `dense2021`）给 body /
@@ -182,6 +204,9 @@ abstract final class AppTheme {
     );
 
     final String? chosen = fontFamily?.trim();
+    final RoundedRectangleBorder cardShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radii.md),
+    );
     final ThemeData theme = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -191,10 +216,25 @@ abstract final class AppTheme {
       fontFamilyFallback: fontFallback,
       appBarTheme: const AppBarTheme(centerTitle: false),
       visualDensity: VisualDensity.adaptivePlatformDensity,
-      // Flutter 默认 `Clip.none`：弹窗里的子节点（ListTile 的选中背景、水波纹
-      // 都是画在 Material 上的墨迹）可以画到 28px 圆角外面，露出直角方块。
-      // 统一裁到弹窗形状，避免任何墨迹越界。
-      dialogTheme: const DialogThemeData(clipBehavior: Clip.antiAlias),
+      // 按钮走 Expressive 的胶囊形（高度不动：一排按钮挤在 40 的格子里，
+      // 加高会把底栏与设置行顶出去）
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: const StadiumBorder()),
+      ),
+      cardTheme: CardThemeData(shape: cardShape, clipBehavior: Clip.antiAlias),
+      // 弹窗 28、菜单 20：Expressive 里浮层比卡片更圆，层级一眼能分开
+      dialogTheme: DialogThemeData(
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.lg),
+        ),
+      ),
     );
 
     return theme.copyWith(

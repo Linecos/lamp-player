@@ -13,6 +13,7 @@ import 'package:lamp_player/src/features/library/widgets/playlist_grid.dart';
 import 'package:lamp_player/src/features/library/widgets/track_list_view.dart';
 import 'package:lamp_player/src/features/player/player_bar.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
+import 'package:lamp_player/src/theme/tokens.dart';
 
 import '../../support/fake_library.dart';
 import '../../support/page_harness.dart';
@@ -72,6 +73,55 @@ void main() {
       '/covers/b.jpg',
       reason: '取最新加入的那首（潮汐）的封面',
     );
+  });
+
+  testWidgets('歌单卡片的小封面内缩到位，内外圆角平行', (WidgetTester tester) async {
+    // 卡片外框是 Radii.xl，封面离左缘只留一点内边距：框的圆弧一变大，
+    // 封面贴着 12 就会被弧线「切」进去，看着往左歪。内边距抬到 Spacing.md，
+    // 封面圆角跟着取 xl - md，弧线才和外框平行。
+    await pumpLibrary(
+      tester,
+      tracks: <Track>[
+        sampleTrack(
+          title: '夜航',
+          path: '/music/夜航.mp3',
+          coverPath: '/covers/a.jpg',
+        ),
+      ],
+      seed: (FakeLibraryRepository repo) async {
+        final Playlist playlist = await repo.createPlaylist('晨间');
+        await repo.addTrackToPlaylist(playlist.id.toInt(), '/music/夜航.mp3');
+      },
+    );
+    await openPlaylists(tester);
+
+    final Finder cover = find.descendant(
+      of: find.byType(PlaylistGridView),
+      matching: find.byType(AlbumCover),
+    );
+    // 卡片那一层是带 xl 圆角的 Material，别拿页面级 Material 顶替
+    final Element cardElement = find
+        .ancestor(of: cover, matching: find.byType(Material))
+        .evaluate()
+        .firstWhere((Element element) {
+          final Material material = element.widget as Material;
+          final ShapeBorder? shape = material.shape;
+          return shape is RoundedRectangleBorder &&
+              (shape.borderRadius as BorderRadius).topLeft.x == Radii.xl;
+        });
+    final Rect cardRect = tester.getRect(
+      find.byElementPredicate((Element element) => element == cardElement),
+    );
+    final Rect coverRect = tester.getRect(cover);
+    expect(
+      coverRect.left - cardRect.left,
+      closeTo(Spacing.md, 0.5),
+      reason: '封面离卡片左缘留一个 md 的内边距',
+    );
+
+    final AlbumCover coverWidget = tester.widget<AlbumCover>(cover);
+    expect(coverWidget.radius, Radii.md, reason: '内圆角 = 外圆角 - 内边距');
+    expect(Radii.xl - Radii.md, Spacing.md, reason: '内边距与内外圆角差要相等');
   });
 
   testWidgets('歌单列表与详情之间有淡入上滑的过场', (WidgetTester tester) async {

@@ -9,21 +9,24 @@
 library;
 
 /// 圆角档位
+///
+/// 数字是 M3 Expressive 的观感：整体比原版圆两档（弹窗 32、卡片 24、播放岛 40），
+/// 细条与胶囊照旧夹到半高。
 abstract final class Radii {
   /// 小件：徽标、细条里的装饰块、输入框描边
-  static const double xs = 8;
+  static const double xs = 16;
 
   /// 菜单、输入框、列表项里的小卡
-  static const double sm = 12;
+  static const double sm = 20;
 
   /// 卡片与侧栏「岛」
-  static const double md = 16;
+  static const double md = 24;
 
   /// 弹窗、设置页的行卡
-  static const double lg = 24;
+  static const double lg = 32;
 
   /// 播放岛、大卡片
-  static const double xl = 32;
+  static const double xl = 40;
 
   /// 胶囊与细条：RRect 会把半径夹到短边一半，所以对细条等于「全圆」
   static const double pill = 999;

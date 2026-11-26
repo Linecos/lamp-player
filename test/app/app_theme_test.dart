@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
+import 'package:lamp_player/src/theme/tokens.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
 Hct _hct(Color color) => Hct.fromInt(color.toARGB32());
+
+/// 色相差（0~180），跨 0 / 360 绕回来
+double _hueDistance(double a, double b) {
+  final double raw = (a - b).abs() % 360;
+  return raw > 180 ? 360 - raw : raw;
+}
 
 void main() {
   test('深浅色主题默认雅黑 Light，并带中文字体回退', () {
@@ -124,7 +131,7 @@ void main() {
     }
   });
 
-  test('弹层收进主题：12 圆角 + 高一级的底', () {
+  test('弹层收进主题：菜单小圆角 + 高一级的底', () {
     for (final ThemeData theme in <ThemeData>[
       AppTheme.light(AppTheme.defaultSeed),
       AppTheme.dark(AppTheme.defaultSeed),
@@ -133,12 +140,33 @@ void main() {
       expect(shape, isA<RoundedRectangleBorder>(), reason: '别再用默认的 4px 方角');
       expect(
         (shape! as RoundedRectangleBorder).borderRadius,
-        BorderRadius.circular(12),
+        BorderRadius.circular(Radii.sm),
       );
       expect(
         theme.popupMenuTheme.color,
         theme.colorScheme.surfaceContainerHigh,
       );
+    }
+  });
+
+  test('浅色派生的深色主题只换亮度，不转色相', () {
+    // 播放详情页在浅色模式下套深色前景，走 darkOf。以前是 dark(primary)：
+    // 主色被当 seed 又算一遍，Expressive 的主色相是 seed + 240°，绿封面
+    // 就会变成粉色按钮配绿色背景。
+    for (final (Color seed, DynamicSchemeVariant variant)
+        in <(Color, DynamicSchemeVariant)>[
+          (const Color(0xFF4CAF50), DynamicSchemeVariant.fidelity),
+          (AppTheme.defaultSeed, AppTheme.defaultVariant),
+        ]) {
+      final ThemeData light = AppTheme.light(seed, variant: variant);
+      final ColorScheme dark = AppTheme.darkOf(light.colorScheme).colorScheme;
+      final double delta = _hueDistance(
+        _hct(light.colorScheme.primary).hue,
+        _hct(dark.primary).hue,
+      );
+      expect(delta, lessThan(12), reason: '派生深色不能把主色相转走');
+      expect(dark.brightness, Brightness.dark);
+      expect(_hct(dark.primary).tone, greaterThan(70), reason: '深色主色要亮');
     }
   });
 

@@ -752,7 +752,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       return _buildPage(context);
     }
     return Theme(
-      data: AppTheme.dark(base.colorScheme.primary),
+      data: AppTheme.darkOf(base.colorScheme),
       child: Builder(builder: _buildPage),
     );
   }

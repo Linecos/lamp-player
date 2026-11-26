@@ -96,8 +96,10 @@ class _PlaylistCard extends StatelessWidget {
         onTap: onOpen,
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
+          // 卡片外框是 Radii.xl（40），左内边距跟着放大到 16：外圆角越大，
+          // 贴着左缘的封面越容易被弧线「切」进去，靠左 12 看着是往左歪的
           padding: const EdgeInsets.fromLTRB(
-            Spacing.sm,
+            Spacing.md,
             Spacing.sm,
             Spacing.xs,
             Spacing.sm,
@@ -107,14 +109,14 @@ class _PlaylistCard extends StatelessWidget {
               // 歌单自己没有封面图：拿最新加入那首歌的（由仓储一次查出来），
               // 一首都没封面时才退回歌单图标
               if (coverPath != null && coverPath.isNotEmpty)
-                AlbumCover(path: coverPath, size: 56, radius: 20)
+                AlbumCover(path: coverPath, size: 56, radius: Radii.md)
               else
                 Container(
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
                     color: scheme.secondaryContainer,
-                    // 32 外框 - 12 内边距 = 20，内外圆角才平行
+                    // 40 外框 - 16 内边距 = 24，内外圆角才平行
                     borderRadius: BorderRadius.circular(Radii.md),
                   ),
                   child: Icon(
