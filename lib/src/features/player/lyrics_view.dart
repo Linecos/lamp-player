@@ -335,6 +335,15 @@ const double _linePaddingX = 12;
 /// 放大留余量，否则文字按块宽折好、再放大 1.27 倍就超出歌词视口，两头被裁掉。
 const double _lyricBlockWidth = 640;
 
+/// 间奏行出场：从 0 高度长到一行歌词的高度
+const Duration _interludeEnterDuration = Duration(milliseconds: 420);
+
+/// 间奏行退场：反向收回 0 高度
+const Duration _interludeExitDuration = Duration(milliseconds: 380);
+
+/// 三个圆点本身的绘制高度（行高另按「一行歌词的高度」算）
+const double _interludeDotsHeight = 22;
+
 /// 当前行放大 `scale` 倍之后，一行文字最多能折多宽。
 ///
 /// 放大是绘制变换（`AnimatedScale`），不参与布局：文字按 [band] 折好行，放大后
@@ -432,6 +441,22 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
 
   double _base = 0;
   late final ValueNotifier<int> _activeNotifier = ValueNotifier<int>(-1);
+
+  /// 前奏 / 间奏指示：没有逐字歌词的那段空白里冒出来的「● ● ●」。
+  ///
+  /// 它**不浮着**，而是真的插在列表里占一行歌词的空间（见 [_InterludeRow]）：
+  /// 出场时把下面的行平滑推下去，唱完再收回 0 高度、下一句原样落到原位。
+  final ValueNotifier<LyricInterlude?> _interlude =
+      ValueNotifier<LyricInterlude?>(null);
+
+  /// 间奏行此刻在不在列表里（决定 `itemCount` 要不要 +1），以及它是展开还是
+  /// 正在收起。只在状态翻转时 `setState`；进度推进只走 [_interlude] 通知器，
+  /// 不整页重建。
+  bool _interludeRowShown = false;
+  bool _interludeRowExpanded = false;
+
+  /// 当前这一行间奏挂在第几句之后（换段 / 跳进度时用来判断要不要换一行）
+  int _interludeRowAfter = -2;
   int get _active => _activeNotifier.value;
   bool _playing = false;
   bool _userScrolling = false;
@@ -487,6 +512,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     _smooth.value = _base;
     _activeNotifier.value = _indexAt(_base);
     _playing = widget.playing.value;
+    _updateInterlude();
     widget.position.addListener(_onPosition);
     widget.playing.addListener(_onPlaying);
     _scroll.addListener(_onScrollOffset);
@@ -535,6 +561,10 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
       _activeNotifier.value = -1;
       _smooth.value = _base;
       _activeNotifier.value = _indexAt(_base);
+      _interludeRowShown = false;
+      _interludeRowExpanded = false;
+      _interludeRowAfter = -2;
+      _updateInterlude();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToActive(animate: false);
         _refreshRowOpacity();
@@ -582,6 +612,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     _jump.dispose();
     _translation.dispose();
     _activeNotifier.dispose();
+    _interlude.dispose();
     for (final ValueNotifier<double> notifier in _rowOpacity) {
       notifier.dispose();
     }
@@ -850,6 +881,7 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     final double now = UiClock.instance.seconds;
     _smooth.value = _base + (now - _baseAt);
     _updateActive();
+    _updateInterlude();
   }
 
   void _onPosition() {
@@ -857,6 +889,55 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     _baseAt = UiClock.instance.seconds;
     _smooth.value = _base;
     _updateActive();
+    _updateInterlude();
+  }
+
+  /// 刷新间奏指示：进度一直在动，所以每个 tick 都要算一次。
+  ///
+  /// 只在这一行的「出现 / 该收起了 / 换了一段空白」这几个时刻 `setState`，
+  /// 进度推进只写 [_interlude] 通知器（只有那一行在听），不整页重建。
+  void _updateInterlude() {
+    final LyricInterlude? now = lyricInterludeAt(widget.lines, _smooth.value);
+    _interlude.value = now;
+    // 整段空白都占着位；收起不是按时间提前触发，而是**等下一句开口那一刻**由
+    // [_updateActive] 和换行的滚动一起起步（提前收会先顶动一次排列）
+    final bool want = now != null;
+    if (want) {
+      if (!_interludeRowShown) {
+        setState(() {
+          _interludeRowShown = true;
+          _interludeRowExpanded = true;
+          _interludeRowAfter = now.afterLine;
+        });
+        return;
+      }
+      if (now.afterLine != _interludeRowAfter) {
+        // 换了一段空白：新行按 afterLine 换 key，重新从 0 高度长出来
+        setState(() {
+          _interludeRowAfter = now.afterLine;
+          _interludeRowExpanded = true;
+        });
+        return;
+      }
+      if (!_interludeRowExpanded) {
+        setState(() => _interludeRowExpanded = true);
+      }
+      return;
+    }
+    if (_interludeRowShown && _interludeRowExpanded) {
+      setState(() => _interludeRowExpanded = false);
+    }
+  }
+
+  /// 收起动画播完：把那一行从列表里摘掉（这时它高度已经是 0，摘掉看不出变化）
+  void _onInterludeCollapsed() {
+    if (!_interludeRowShown) {
+      return;
+    }
+    setState(() {
+      _interludeRowShown = false;
+      _interludeRowAfter = -2;
+    });
   }
 
   void _onPlaying() {
@@ -911,8 +992,21 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
     // 上一行还是当前行时带着「正文与译文之间的间距补偿」，这一帧它不再是当前行、
     // 补偿收回去，整列会在它下面少掉这一截。跳转目标算的是旧布局，得先把这段
     // 高差减掉，否则落位之后再补一下就是一次回弹（[_emphasisGapAt]）。
-    final double shrink = _emphasisGapAt(oldActive);
-    if (_playing) {
+    double shrink = _emphasisGapAt(oldActive);
+    // 间奏行正占着上一句下面那一行（下一句开口的时刻就是这个空白结束的时刻）：
+    // 它的收起和这次换行必须是**同一段动画**。分开做的话先收行、把下面几句顶
+    // 上来，再换行把下一句拉到中间，看着是两次排列。这里两件事同时起步，并把
+    // 跳转目标减掉这一行的高度——行收掉之后内容本来就矮了这么多，不减就多滚
+    // 一截；也不走弹簧那套，弹簧会先把整列推到新位置，和同时进行的收缩叠在一起。
+    final bool interludeExit =
+        _interludeRowShown &&
+        _interludeRowExpanded &&
+        _interludeRowAfter == oldActive;
+    if (interludeExit) {
+      shrink += _interludeRowHeight();
+      setState(() => _interludeRowExpanded = false);
+      _scrollToActive(shrink: shrink);
+    } else if (_playing) {
       _jumpToActive(multiLine: multiLine, shrink: shrink);
     } else {
       // 暂停时没有 tick，点歌词 / 拖进度条换行只能一次性滑过去
@@ -1336,31 +1430,59 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
                       scrollCacheExtent: const ScrollCacheExtent.pixels(400),
                       addAutomaticKeepAlives: false,
                       addRepaintBoundaries: false,
-                      itemCount: widget.lines.length,
-                      itemBuilder: (BuildContext context, int index) => Center(
-                        child: SizedBox(
-                          width: band,
-                          child: _LyricLineWrapper(
-                            index: index,
-                            activeNotifier: _activeNotifier,
-                            lineKey: _lineKeys[index],
-                            anchorKey: _keys[index],
-                            translationKey: _translationKeys[index],
-                            jump: _jump,
-                            line: widget.lines[index],
-                            position: _smooth,
-                            textTheme: _lyricTheme(theme.textTheme),
-                            alignment: widget.alignment,
-                            textWidth: textWidth,
-                            type: _type,
-                            translation: _translation,
-                            userScrolling: _userScrolling,
-                            blurEnabled: widget.blurEnabled,
-                            edgeOpacity: _edgeOpacityAt(index),
-                            onSeek: widget.onSeek,
+                      itemCount:
+                          widget.lines.length + (_interludeRowShown ? 1 : 0),
+                      itemBuilder: (BuildContext context, int index) {
+                        // 插行只动 index 映射（`_keys` / `_lineKeys` 仍按歌词
+                        // 序号存），弹簧、渐隐、锚点位移全不受影响
+                        final int insertAt = _interludeRowAfter + 1;
+                        if (_interludeRowShown && index == insertAt) {
+                          return Center(
+                            child: SizedBox(
+                              width: band,
+                              child: _InterludeRow(
+                                key: ValueKey<String>(
+                                  'lyric-interlude-row-$_interludeRowAfter',
+                                ),
+                                expanded: _interludeRowExpanded,
+                                height: _interludeRowHeight(),
+                                interlude: _interlude,
+                                playing: _playing,
+                                fontSize: _type.fontSize,
+                                alignment: widget.alignment.blockAlignment,
+                                onCollapsed: _onInterludeCollapsed,
+                              ),
+                            ),
+                          );
+                        }
+                        final int line = _interludeRowShown && index > insertAt
+                            ? index - 1
+                            : index;
+                        return Center(
+                          child: SizedBox(
+                            width: band,
+                            child: _LyricLineWrapper(
+                              index: line,
+                              activeNotifier: _activeNotifier,
+                              lineKey: _lineKeys[line],
+                              anchorKey: _keys[line],
+                              translationKey: _translationKeys[line],
+                              jump: _jump,
+                              line: widget.lines[line],
+                              position: _smooth,
+                              textTheme: _lyricTheme(theme.textTheme),
+                              alignment: widget.alignment,
+                              textWidth: textWidth,
+                              type: _type,
+                              translation: _translation,
+                              userScrolling: _userScrolling,
+                              blurEnabled: widget.blurEnabled,
+                              edgeOpacity: _edgeOpacityAt(line),
+                              onSeek: widget.onSeek,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -1370,6 +1492,24 @@ class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  /// 间奏那一行占的高度：**一行正文**的排版高度（不含译文行，也不含当前行的
+  /// 放大与强调间距），这样它和上下两句的正文之间是等距的。
+  double _interludeRowHeight() {
+    for (int i = 0; i < _keys.length; i += 1) {
+      if (i == _active) {
+        continue;
+      }
+      final RenderObject? box = _keys[i].currentContext?.findRenderObject();
+      if (box is RenderBox &&
+          box.attached &&
+          box.hasSize &&
+          box.size.height > 1) {
+        return box.size.height;
+      }
+    }
+    return _type.fontSize * 1.6;
   }
 
   /// 取第 [i] 行的边界不透明度通知器（按需补齐，行数变化时跟着变）
@@ -1564,6 +1704,151 @@ int lyricIndexAt(List<lyrics_api.LyricLine> lines, double seconds) {
     }
   }
   return found;
+}
+
+/// 短于这个秒数的空白不算间奏：正常换气的半秒停顿也冒三个点会一直闪，更吵
+const double interludeMinSeconds = 4;
+
+/// 前奏超过这个秒数多半是时间轴录错了，宁可不显示
+const double interludeMaxIntroSeconds = 60;
+
+/// 歌词之间那段「没有逐字歌词」的空白（前奏 / 间奏）此刻的状态。
+@immutable
+class LyricInterlude {
+  const LyricInterlude({
+    required this.start,
+    required this.end,
+    required this.progress,
+    required this.afterLine,
+  });
+
+  /// 空白开始 / 结束（秒）
+  final double start;
+  final double end;
+
+  /// 0..1 的推进进度
+  final double progress;
+
+  /// 空白挂在第几行之后；-1 表示前奏（第一行之前）
+  final int afterLine;
+
+  double get duration => end - start;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LyricInterlude &&
+          start == other.start &&
+          end == other.end &&
+          progress == other.progress &&
+          afterLine == other.afterLine;
+
+  @override
+  int get hashCode => Object.hash(start, end, progress, afterLine);
+}
+
+/// 算此刻该不该显示间奏指示；不该显示返回 null。
+///
+/// 判据只看「当前行唱完之后、下一行开口之前」的那段空白：短于
+/// [interludeMinSeconds] 不显示。返回整段空白（`progress` 0..1），什么时候
+/// 收起由界面按「还剩几秒」决定（[_interludeExitLead]），好让收起动画正好在
+/// 下一句开口前走完。
+@visibleForTesting
+LyricInterlude? lyricInterludeAt(
+  List<lyrics_api.LyricLine> lines,
+  double seconds,
+) {
+  if (lines.isEmpty) {
+    return null;
+  }
+  final int active = lyricIndexAt(lines, seconds);
+  final double start;
+  final double end;
+  if (active < 0) {
+    // 前奏：从 0 到第一行
+    start = 0;
+    end = lines.first.timeMs.toInt() / 1000;
+    if (end > interludeMaxIntroSeconds) {
+      return null;
+    }
+  } else if (active >= lines.length - 1) {
+    // 最后一行之后没有下一句，不算间奏
+    return null;
+  } else {
+    final double? sungEnd = lineSungEnd(lines[active]);
+    if (sungEnd == null) {
+      // 没有逐字轴：分不清「还在唱」和「唱完了」，不显示
+      return null;
+    }
+    start = math.max(lines[active].timeMs.toInt() / 1000, sungEnd);
+    end = lines[active + 1].timeMs.toInt() / 1000;
+  }
+  if (end - start < interludeMinSeconds) {
+    return null;
+  }
+  final double progress = (seconds - start) / (end - start);
+  if (progress < 0 || progress >= 1) {
+    return null;
+  }
+  return LyricInterlude(
+    start: start,
+    end: end,
+    progress: progress.clamp(0.0, 1.0),
+    afterLine: active,
+  );
+}
+
+/// 最后一个**有字**的逐字片段的下标；没有逐字轴返回 -1。
+///
+/// LRC 每行末尾常有 `[mm:ss.xx]` 这种「只有时间、没有字」的标签（标的是这一行的
+/// 结束时刻），Rust 侧会把它也当成一个字。拿它当收声时刻的话，间奏又会整段
+/// 「还在唱」——所以往下找有字的那个。
+int _lastSungWordIndex(lyrics_api.LyricLine line) {
+  final List<lyrics_api.LyricWord> words = line.words;
+  for (int i = words.length - 1; i >= 0; i -= 1) {
+    if (words[i].text.trim().isNotEmpty) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/// 这一句唱到哪一秒结束（秒）。
+///
+/// **不能用 `LyricLine.endMs`**：Rust 侧把 `end_ms` 取成下一句的起始时间，行与行
+/// 首尾相接，拿它减开始时间永远是 0，空白一条都算不出来。真正的收声时刻只有逐字
+/// 轴知道——最后一个字的起点（这个字自己的时长未知，差那零点几秒无所谓）。
+/// 没有逐字轴时没法判断，返回 `null`，宁可不显示。
+@visibleForTesting
+double? lineSungEnd(lyrics_api.LyricLine line) {
+  final int index = _lastSungWordIndex(line);
+  if (index < 0) {
+    return null;
+  }
+  return line.words[index].timeMs.toInt() / 1000;
+}
+
+/// 逐字高亮该收到哪一刻（毫秒）。
+///
+/// 同样不能用 `endMs`（= 下一句起点）：那样最后一个字会在整个间奏里慢慢填，
+/// 看上去「间奏期间逐字还在上一句末尾走」。最后一个字没有 duration，按前一个有字
+/// 片段的间隔估一个名目时长，让它在唱完后立刻收满。
+@visibleForTesting
+int lineSungEndMs(lyrics_api.LyricLine line) {
+  final int index = _lastSungWordIndex(line);
+  if (index < 0) {
+    return line.endMs.toInt();
+  }
+  final int end = line.words[index].timeMs.toInt();
+  if (index == 0) {
+    return end + 120;
+  }
+  int prev = index - 1;
+  while (prev >= 0 && line.words[prev].text.trim().isEmpty) {
+    prev -= 1;
+  }
+  final int gap = prev < 0 ? 120 : end - line.words[prev].timeMs.toInt();
+  return end + gap.clamp(40, 600);
 }
 
 /// 一次换行：整列已经 `jumpTo` 到位，各行按 [deltaY] 把自己推回去再弹回。
@@ -2030,7 +2315,9 @@ class _LyricLineView extends StatelessWidget {
       main = _KaraokeText(
         text: line.text,
         words: line.words,
-        lineEndMs: line.endMs.toInt(),
+        // **不能用 line.endMs**（= 下一句起点）：那样最后一个字会在整个间奏里
+        // 慢慢填，看着像「间奏时逐字还在上一句末尾走」
+        lineEndMs: lineSungEndMs(line),
         position: position,
         style: style,
         // 底色是「还没唱到」的部分。要和已唱的白拉开差距才看得出唱到哪了，
@@ -2829,4 +3116,281 @@ class _RenderAnchorShift extends RenderProxyBox {
       position: position - Offset(0, _shift),
     );
   }
+}
+
+/// 间奏占的那一行：真的插在列表里，高度和一行歌词一样。
+///
+/// 出场从 0 高度长出来（下面的行被平滑推下去），唱完再反向收回 0 高度、把自己
+/// 从列表里摘掉——下一句原样落到原位，看不出「占位被清理」这一步。
+class _InterludeRow extends StatefulWidget {
+  const _InterludeRow({
+    super.key,
+    required this.expanded,
+    required this.height,
+    required this.interlude,
+    required this.playing,
+    required this.fontSize,
+    required this.alignment,
+    required this.onCollapsed,
+  });
+
+  /// true = 展开占位，false = 开始收起
+  final bool expanded;
+
+  /// 一行歌词的高度
+  final double height;
+
+  /// 进度源：只让这一行重绘，页面不重建
+  final ValueListenable<LyricInterlude?> interlude;
+
+  final bool playing;
+  final double fontSize;
+
+  /// 横向落点，跟歌词行同一套对齐
+  final Alignment alignment;
+
+  /// 收起到 0 高度后通知父级把这一行从列表里摘掉
+  final VoidCallback onCollapsed;
+
+  @override
+  State<_InterludeRow> createState() => _InterludeRowState();
+}
+
+class _InterludeRowState extends State<_InterludeRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _size = AnimationController(
+    vsync: this,
+    duration: _interludeEnterDuration,
+    reverseDuration: _interludeExitDuration,
+  );
+
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _size,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
+  );
+
+  /// 收起过程中进度可能已经被算成下一段空白（甚至 null），这里留一份最后的值，
+  /// 免得三个点在退场时忽然变暗
+  double _progress = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _progress = widget.interlude.value?.progress ?? 0;
+    widget.interlude.addListener(_onProgress);
+    _size.addStatusListener(_onStatus);
+    if (widget.expanded) {
+      _size.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_InterludeRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.interlude != widget.interlude) {
+      oldWidget.interlude.removeListener(_onProgress);
+      widget.interlude.addListener(_onProgress);
+    }
+    if (widget.expanded != oldWidget.expanded) {
+      if (widget.expanded) {
+        _size.forward();
+      } else {
+        _size.reverse();
+      }
+    }
+  }
+
+  void _onProgress() {
+    final double next = widget.interlude.value?.progress ?? _progress;
+    if (next > _progress) {
+      setState(() => _progress = next);
+    } else if (next <= 0) {
+      // 换了一段空白：新的从 0 开始
+      setState(() => _progress = next);
+    }
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed && !widget.expanded) {
+      widget.onCollapsed();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.interlude.removeListener(_onProgress);
+    _size.removeStatusListener(_onStatus);
+    _curve.dispose();
+    _size.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizeTransition(
+      axis: Axis.vertical,
+      sizeFactor: _curve,
+      child: FadeTransition(
+        opacity: _curve,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.86, end: 1).animate(_curve),
+          alignment: widget.alignment,
+          // 和歌词行用同一套内边距：正文行左右各让出 [_linePaddingX]，
+          // 这里不让的话左 / 右对齐时会比文字多凸出去 12px
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _linePaddingX),
+            child: SizedBox(
+              height: widget.height,
+              width: double.infinity,
+              child: Align(
+                alignment: widget.alignment,
+                child: _InterludeDots(
+                  progress: _progress,
+                  playing: widget.playing,
+                  size: widget.fontSize,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 前奏 / 间奏里的「● ● ●」：三个点按进度依次点亮，整组轻微呼吸。
+///
+/// 没有逐字歌词可唱的时候，歌词区要是完全静止，长间奏看着就像卡住了；
+/// 这一行随进度推进的小提示就是给它一个「还在走」的念想。
+class _InterludeDots extends StatefulWidget {
+  const _InterludeDots({
+    required this.progress,
+    required this.playing,
+    required this.size,
+  });
+
+  /// 0..1：点亮的比例
+  final double progress;
+
+  /// 暂停时停止呼吸（点还留着，进度也就停在原地）
+  final bool playing;
+
+  /// 歌词字号：点的大小跟着它一起缩放
+  final double size;
+
+  @override
+  State<_InterludeDots> createState() => _InterludeDotsState();
+}
+
+class _InterludeDotsState extends State<_InterludeDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _breath = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _syncBreath();
+  }
+
+  @override
+  void didUpdateWidget(_InterludeDots oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playing != widget.playing) {
+      _syncBreath();
+    }
+  }
+
+  void _syncBreath() {
+    if (widget.playing) {
+      _breath.repeat(reverse: true);
+    } else {
+      _breath.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double radius = (widget.size * 0.2).clamp(4.0, 8.0);
+    final double gap = radius * 2.8;
+    // 首尾两点的外边缘正好压在排版边界上（见 painter 里的 cx = radius）
+    final double step = radius + gap;
+    final double width = radius * 2 + step * 2;
+    final double height = _interludeDotsHeight;
+    return RepaintBoundary(
+      child: SizedBox(
+        key: const ValueKey<String>('lyric-interlude'),
+        width: width,
+        height: height,
+        child: AnimatedBuilder(
+          animation: _breath,
+          builder: (BuildContext context, Widget? child) => CustomPaint(
+            painter: _InterludeDotsPainter(
+              progress: widget.progress,
+              radius: radius,
+              gap: gap,
+              breath: _breath.value,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InterludeDotsPainter extends CustomPainter {
+  _InterludeDotsPainter({
+    required this.progress,
+    required this.radius,
+    required this.gap,
+    required this.breath,
+  });
+
+  final double progress;
+  final double radius;
+  final double gap;
+
+  /// 0..1 的呼吸相位
+  final double breath;
+
+  /// 已唱过的那一部分用亮白，没走到的地方是暗白——和歌词的白色系保持一致
+  static const Color lit = Color(0xF2FFFFFF);
+  static const Color dim = Color(0x5CFFFFFF);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const int count = 3;
+    // 呼吸：整组在原地放大 4%，位置跟着半径一起缩放，不会自己跑偏
+    final double scale = 1 + 0.04 * breath;
+    final double r = radius * scale;
+    final double step = radius + gap;
+    // 左右不留内边距：第一个点的左边缘就是排版左边缘（右对齐时是右边缘），
+    // 这样和歌词正文的左右边对齐，不会「凸出去」一截
+    final double cx = radius;
+    final double cy = size.height / 2;
+    final double litProgress = progress * count;
+    final Paint paint = Paint()..style = PaintingStyle.fill;
+    for (int i = 0; i < count; i++) {
+      // 每个点自己有一段 0..1 的点亮过程，前一个点还没满就不动后一个
+      final double t = (litProgress - i).clamp(0.0, 1.0);
+      paint.color = Color.lerp(dim, lit, t)!;
+      canvas.drawCircle(Offset(cx + step * i, cy), r, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_InterludeDotsPainter old) =>
+      old.progress != progress ||
+      old.radius != radius ||
+      old.gap != gap ||
+      old.breath != breath;
 }
