@@ -853,7 +853,11 @@ void main() {
     await tester.tap(sort);
     await tester.pumpAndSettle();
     expect(find.text('自定义'), findsNothing, reason: '这里不该有「自定义」');
-    await tester.tap(find.text('时长').last);
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('library-sort-album-detail-item-duration'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(label).data, '时长');
     expect(topOf('B 曲'), lessThan(topOf('A 曲')));
@@ -861,7 +865,11 @@ void main() {
     // 切回标题
     await tester.tap(sort);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('标题').last);
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('library-sort-album-detail-item-title'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(topOf('A 曲'), lessThan(topOf('B 曲')));
   });
@@ -903,7 +911,9 @@ void main() {
     // 按标题排
     await tester.tap(sort);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('标题').last);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('library-sort-favorites-item-title')),
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(label).data, '标题');
     expect(topOf('A 曲'), lessThan(topOf('B 曲')));
@@ -968,7 +978,11 @@ void main() {
     // 先按标题（此时顺序刚好也是 A、B、C）
     await tester.tap(sort);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('标题').last);
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('library-sort-playlist-detail-item-title'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(label).data, '标题');
 
@@ -1257,7 +1271,7 @@ void main() {
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('从歌单中移除'));
+    await tester.tap(find.byKey(const ValueKey<String>('track-menu-remove')));
     await tester.pumpAndSettle();
 
     expect(find.text('歌单还是空的'), findsOneWidget);

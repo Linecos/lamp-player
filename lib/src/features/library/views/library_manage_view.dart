@@ -763,31 +763,49 @@ class _FolderRow extends StatelessWidget {
               ),
               // 扫描中不换控件、只禁用：以前这里换成一个小转圈，那个转圈
               // 比「更多」按钮矮一截，行高跟着变，目录块里就闪一下
-              PopupMenuButton<String>(
-                tooltip: '更多操作',
-                enabled: !scanning,
-                icon: Icon(
-                  Icons.more_vert,
-                  size: 18,
-                  color: scheme.onSurfaceVariant,
+              MenuAnchor(
+                // 三点贴着行右端：菜单往左开
+                style: const MenuStyle(
+                  alignment: AlignmentDirectional.bottomEnd,
                 ),
-                onSelected: (String action) {
-                  if (action == 'rescan') {
-                    onRescan?.call();
-                  } else if (action == 'remove') {
-                    unawaited(_confirmRemove(context));
-                  }
-                },
-                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                  const PopupMenuItem<String>(
-                    value: 'rescan',
-                    child: Text('重新扫描'),
+                alignmentOffset: const Offset(0, Spacing.xxs),
+                menuChildren: <Widget>[
+                  MenuItemButton(
+                    key: const ValueKey<String>('folder-menu-rescan'),
+                    leadingIcon: const Icon(Icons.refresh, size: 18),
+                    onPressed: scanning ? null : () => onRescan?.call(),
+                    child: const Text('重新扫描'),
                   ),
-                  const PopupMenuItem<String>(
-                    value: 'remove',
-                    child: Text('移除目录…'),
+                  MenuItemButton(
+                    key: const ValueKey<String>('folder-menu-remove'),
+                    leadingIcon: const Icon(
+                      Icons.folder_delete_outlined,
+                      size: 18,
+                    ),
+                    onPressed: scanning
+                        ? null
+                        : () => unawaited(_confirmRemove(context)),
+                    child: const Text('移除目录…'),
                   ),
                 ],
+                builder:
+                    (
+                      BuildContext context,
+                      MenuController controller,
+                      Widget? child,
+                    ) => IconButton(
+                      tooltip: '更多操作',
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      onPressed: scanning
+                          ? null
+                          : () => controller.isOpen
+                                ? controller.close()
+                                : controller.open(),
+                    ),
               ),
             ],
           ),

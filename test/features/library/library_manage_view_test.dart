@@ -326,9 +326,9 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(
       tester
-          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
-          .enabled,
-      isFalse,
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.more_vert))
+          .onPressed,
+      isNull,
       reason: '扫描中「更多」菜单要禁用，避免并发的第二次扫描',
     );
   });
@@ -367,13 +367,13 @@ void main() {
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('重新扫描'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-rescan')));
     await tester.pumpAndSettle();
     expect(rescanned, <String>[r'D:\Music']);
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('移除目录…'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-remove')));
     await tester.pumpAndSettle();
 
     expect(removed, isEmpty, reason: '先弹确认，不能点一下就移除');
@@ -383,7 +383,7 @@ void main() {
 
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('移除目录…'));
+    await tester.tap(find.byKey(const ValueKey<String>('folder-menu-remove')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '移除'));
     await tester.pumpAndSettle();

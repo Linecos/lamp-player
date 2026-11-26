@@ -3298,18 +3298,6 @@ IconData _sortIconOf(LibrarySort sort) => switch (sort) {
   LibrarySort.added => Icons.fiber_new_outlined,
 };
 
-/// 排序菜单里的一项。
-///
-/// `PopupMenuButton` 把选中的 `null` 当成「用户点了菜单外面取消」，所以
-/// 「自定义」不能直接用 `null` 当值——包一层才能选中它。
-class _SortChoice {
-  const _SortChoice(this.sort);
-
-  final LibrarySort? sort;
-
-  static const _SortChoice manual = _SortChoice(null);
-}
-
 /// 两段式排序控件：
 ///
 /// 左段点开选方式（标题 / 艺术家 / …），右段一个箭头翻升降序。
@@ -3349,6 +3337,38 @@ class _SortButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+
+    // 菜单里的每一项：左边是排序图标，当前那一项标主色 + 右端一枚勾
+    Widget entry(
+      IconData icon,
+      String label,
+      bool selected,
+      LibrarySort? sort,
+    ) {
+      return MenuItemButton(
+        // 菜单弹在 Overlay 里，同一个词在侧栏、列头也可能出现，
+        // 测试要点菜单得靠这个 key，不要用 find.text(...).last
+        key: ValueKey<String>(
+          '$_key-item-${sort == null ? 'manual' : sort.name}',
+        ),
+        leadingIcon: Icon(
+          icon,
+          size: 18,
+          color: selected ? scheme.primary : scheme.onSurfaceVariant,
+        ),
+        trailingIcon: selected
+            ? Icon(Icons.check, size: 18, color: scheme.primary)
+            : null,
+        onPressed: () => onSelected(sort),
+        child: Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: selected ? scheme.primary : null,
+          ),
+        ),
+      );
+    }
+
     return Container(
       key: ValueKey<String>(_key),
       height: _headerControlHeight,
@@ -3365,88 +3385,76 @@ class _SortButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            PopupMenuButton<_SortChoice>(
-              tooltip: '排序方式',
-              onSelected: (_SortChoice choice) => onSelected(choice.sort),
-              itemBuilder: (BuildContext context) =>
-                  <PopupMenuEntry<_SortChoice>>[
-                    // 「自定义」排第一位：拖完想回到手动顺序时最好找
-                    if (allowManual)
-                      PopupMenuItem<_SortChoice>(
-                        value: _SortChoice.manual,
-                        child: Row(
-                          children: <Widget>[
-                            Icon(
-                              _manualOrderIcon,
-                              size: 18,
-                              color: mode == null
-                                  ? scheme.primary
-                                  : scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: Spacing.sm),
-                            Text(
-                              '自定义',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: mode == null ? scheme.primary : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    for (final LibrarySort item in LibrarySort.values)
-                      PopupMenuItem<_SortChoice>(
-                        value: _SortChoice(item),
-                        child: Row(
-                          children: <Widget>[
-                            Icon(
-                              _sortIconOf(item),
-                              size: 18,
-                              color: item == mode
-                                  ? scheme.primary
-                                  : scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: Spacing.sm),
-                            Text(
-                              item.label,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: item == mode ? scheme.primary : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-              // 撑满胶囊高度：InkWell 的高亮跟着 child 走，child 只有文字
-              // 那么高的话，悬停高亮就是贴着文字的一条，铺不满左段
-              child: SizedBox(
-                height: _headerControlHeight,
-                // 没放前导图标：文字块从这里就开始，左段不至于头重脚轻
-                child: Padding(
-                  padding: const EdgeInsets.only(
-                    left: Spacing.md,
-                    right: Spacing.xs,
+            MenuAnchor(
+              // 从胶囊左下角往下开：菜单本身比胶囊宽，居中开的话会压到
+              // 右边那枚升降序箭头上
+              style: const MenuStyle(
+                alignment: AlignmentDirectional.bottomStart,
+              ),
+              alignmentOffset: const Offset(0, Spacing.xxs),
+              menuChildren: <Widget>[
+                // 菜单项长得都一样，先标一句这是「排序方式」
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Spacing.md,
+                    Spacing.xxs,
+                    Spacing.md,
+                    Spacing.xxs,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      // 按钮上只显示「标题」这类顺序名，不写「排序：」
-                      Text(
-                        mode?.label ?? '自定义',
-                        key: ValueKey<String>('$_key-label'),
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: scheme.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Icon(
-                        Icons.arrow_drop_down,
-                        size: 20,
-                        color: scheme.primary,
-                      ),
-                    ],
+                  child: Text(
+                    '排序方式',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
+                // 「自定义」排第一位：拖完想回到手动顺序时最好找
+                if (allowManual)
+                  entry(_manualOrderIcon, '自定义', mode == null, null),
+                for (final LibrarySort item in LibrarySort.values)
+                  entry(_sortIconOf(item), item.label, item == mode, item),
+              ],
+              // 撑满胶囊高度：InkWell 的高亮跟着 child 走，child 只有文字
+              // 那么高的话，悬停高亮就是贴着文字的一条，铺不满左段
+              builder:
+                  (
+                    BuildContext context,
+                    MenuController controller,
+                    Widget? child,
+                  ) => SizedBox(
+                    height: _headerControlHeight,
+                    // 没放前导图标：文字块从这里就开始，左段不至于头重脚轻
+                    child: InkWell(
+                      onTap: () => controller.isOpen
+                          ? controller.close()
+                          : controller.open(),
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          left: Spacing.md,
+                          right: Spacing.xs,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            // 按钮上只显示「标题」这类顺序名，不写「排序：」
+                            Text(
+                              mode?.label ?? '自定义',
+                              key: ValueKey<String>('$_key-label'),
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: scheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            Icon(
+                              Icons.arrow_drop_down,
+                              size: 20,
+                              color: scheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
             ),
             Container(width: 1, height: 20, color: scheme.outlineVariant),
             // 原序没有方向可言：箭头压暗且不可点，免得点了没反应

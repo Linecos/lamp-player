@@ -706,21 +706,40 @@ class _TrackRow extends StatelessWidget {
                   if (onRemove != null)
                     SizedBox(
                       width: 40,
-                      child: PopupMenuButton<String>(
-                        tooltip: '更多操作',
-                        icon: Icon(
-                          Icons.more_vert,
-                          size: 20,
-                          color: scheme.onSurfaceVariant,
+                      child: MenuAnchor(
+                        // 三点贴在最右端：菜单往左开，不然会顶出窗口
+                        style: const MenuStyle(
+                          alignment: AlignmentDirectional.bottomEnd,
                         ),
-                        onSelected: (_) => onRemove!(),
-                        itemBuilder: (BuildContext context) =>
-                            <PopupMenuEntry<String>>[
-                              const PopupMenuItem<String>(
-                                value: 'remove',
-                                child: Text('从歌单中移除'),
+                        alignmentOffset: const Offset(0, Spacing.xxs),
+                        menuChildren: <Widget>[
+                          MenuItemButton(
+                            key: const ValueKey<String>('track-menu-remove'),
+                            leadingIcon: Icon(
+                              Icons.playlist_remove,
+                              size: 18,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            onPressed: onRemove,
+                            child: const Text('从歌单中移除'),
+                          ),
+                        ],
+                        builder:
+                            (
+                              BuildContext context,
+                              MenuController controller,
+                              Widget? child,
+                            ) => IconButton(
+                              tooltip: '更多操作',
+                              icon: Icon(
+                                Icons.more_vert,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
                               ),
-                            ],
+                              onPressed: () => controller.isOpen
+                                  ? controller.close()
+                                  : controller.open(),
+                            ),
                       ),
                     ),
                 ],

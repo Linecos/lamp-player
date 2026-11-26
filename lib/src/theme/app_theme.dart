@@ -284,6 +284,27 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.circular(Radii.sm),
         ),
       ),
+      // `MenuAnchor` / `MenuItemButton` 那套菜单自己有一套默认（surfaceContainer +
+      // 4 圆角 + 抬升 3），和上面的右键菜单不是一个样。这里对齐成同一份底、圆角
+      // 与阴影，同一屏里两种菜单才看不出接缝。
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll<Color>(
+            scheme.surfaceContainerHigh,
+          ),
+          shape: WidgetStatePropertyAll<OutlinedBorder>(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.sm),
+            ),
+          ),
+          // 不用抬升：小圆角面板上的高 elevation 阴影会画成一圈硬黑边，
+          // 改 1px 描边，和悬停提示、音量面板同一套浮层外观
+          elevation: const WidgetStatePropertyAll<double>(0),
+          side: WidgetStatePropertyAll<BorderSide>(
+            BorderSide(color: scheme.outlineVariant),
+          ),
+        ),
+      ),
       // 官方 M3 2024 规格（Flutter 用 `year2023: false` 打开）：滑块手柄从圆点
       // 变竖条、进度条有 trackGap 与末端 stop 圆点。自绘的 SlimSlider 有自己的
       // thumbShape，不受影响；这里只管标准 Slider / 进度指示器。
