@@ -682,7 +682,7 @@ void main() {
       findsOneWidget,
       reason: '键盘调音量应弹出浮层，方便看到百分比',
     );
-    expect(find.text('95%'), findsOneWidget);
+    expect(find.text('95'), findsOneWidget, reason: '浮层下方写整数读数');
 
     await tester.pump(const Duration(milliseconds: 1300));
     await tester.pump();

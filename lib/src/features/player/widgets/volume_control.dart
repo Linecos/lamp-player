@@ -143,39 +143,42 @@ class _VolumeControlState extends State<VolumeControl> {
       overlayChildBuilder: (BuildContext context) => _panel(level),
       child: CompositedTransformTarget(
         link: _link,
-        child: MouseRegion(
-          onEnter: showPanel
-              ? (PointerEnterEvent _) {
-                  _overButton = true;
-                  _syncVisibility();
-                }
-              : null,
-          onExit: showPanel
-              ? (PointerExitEvent _) {
-                  _overButton = false;
-                  _syncVisibility();
-                }
-              : null,
-          child: IconButton(
-            key: widget.muteKey,
-            onPressed: widget.enabled ? widget.onToggleMute : null,
-            tooltip: level > 0 ? '静音' : '取消静音',
-            iconSize: widget.iconSize,
-            // 与其他播放条按钮同尺寸，否则图标间距会忽大忽小
-            style: IconButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        child: WheelStep(
+          onStep: (int direction) => _nudge(direction * 0.05),
+          child: MouseRegion(
+            onEnter: showPanel
+                ? (PointerEnterEvent _) {
+                    _overButton = true;
+                    _syncVisibility();
+                  }
+                : null,
+            onExit: showPanel
+                ? (PointerExitEvent _) {
+                    _overButton = false;
+                    _syncVisibility();
+                  }
+                : null,
+            child: IconButton(
+              key: widget.muteKey,
+              onPressed: widget.enabled ? widget.onToggleMute : null,
+              tooltip: level > 0 ? '静音' : '取消静音',
+              iconSize: widget.iconSize,
+              // 与其他播放条按钮同尺寸，否则图标间距会忽大忽小
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              constraints: BoxConstraints.tightFor(
+                width: widget.size,
+                height: widget.size,
+              ),
+              padding: EdgeInsets.zero,
+              color: scheme.onSurfaceVariant,
+              icon: Icon(switch (level) {
+                <= 0 => Icons.volume_off,
+                < 0.5 => Icons.volume_down,
+                _ => Icons.volume_up,
+              }),
             ),
-            constraints: BoxConstraints.tightFor(
-              width: widget.size,
-              height: widget.size,
-            ),
-            padding: EdgeInsets.zero,
-            color: scheme.onSurfaceVariant,
-            icon: Icon(switch (level) {
-              <= 0 => Icons.volume_off,
-              < 0.5 => Icons.volume_down,
-              _ => Icons.volume_up,
-            }),
           ),
         ),
       ),
@@ -200,8 +203,8 @@ class _VolumeControlState extends State<VolumeControl> {
     final ThemeData theme = Theme.of(context);
 
     return Positioned(
-      // 不给宽度的话 Material 会吃满 overlay 的约束，变成一整块蒙版
-      width: 56,
+      // 读数只写到滑块下面、不带百分号，
+      width: 44,
       child: CompositedTransformFollower(
         link: _link,
         showWhenUnlinked: false,
@@ -230,33 +233,28 @@ class _VolumeControlState extends State<VolumeControl> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
+                  SizedBox(
+                    width: 36,
+                    height: 120,
+                    child: RotatedBox(
+                      quarterTurns: 3,
+                      child: SlimSlider(
+                        key: widget.sliderKey,
+                        value: level,
+                        max: 1,
+                        enabled: widget.enabled,
+                        onChanged: widget.onChanged,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
                   Text(
-                    '${(level * 100).round()}%',
-                    style: theme.textTheme.labelSmall?.copyWith(
+                    '${(level * 100).round()}',
+                    style: theme.textTheme.labelMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       fontFeatures: const <FontFeature>[
                         FontFeature.tabularFigures(),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.xs),
-                  SizedBox(
-                    width: 36,
-                    height: 120,
-                    child: WheelStep(
-                      // 一格 10%：桌面播放器的常规粒度，拖拽仍是细调
-                      onStep: (int direction) => _nudge(direction * 0.1),
-                      // 竖过来：上端 100%，下端 0%
-                      child: RotatedBox(
-                        quarterTurns: 3,
-                        child: SlimSlider(
-                          key: widget.sliderKey,
-                          value: level,
-                          max: 1,
-                          enabled: widget.enabled,
-                          onChanged: widget.onChanged,
-                        ),
-                      ),
                     ),
                   ),
                 ],

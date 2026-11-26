@@ -230,24 +230,34 @@ void main() {
     expect(find.text('00:00'), findsNothing);
   });
 
-  testWidgets('音量滚轮向上滚加 10%', (WidgetTester tester) async {
+  testWidgets('音量滚轮向上滚加 5%', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
+
+    await _hoverVolume(tester);
+    await _scrollAt(tester, _volumeIcon(), -40);
+
+    expect(volumes.single, closeTo(0.55, 0.001));
+  });
+
+  testWidgets('音量滚轮向下滚减 5%', (WidgetTester tester) async {
+    final List<double> volumes = <double>[];
+    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
+
+    await _hoverVolume(tester);
+    await _scrollAt(tester, _volumeIcon(), 40);
+
+    expect(volumes.single, closeTo(0.45, 0.001));
+  });
+
+  testWidgets('浮层里滚轮不再调音量，只认拖拽', (WidgetTester tester) async {
     final List<double> volumes = <double>[];
     await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
 
     await _hoverVolume(tester);
     await _scrollAt(tester, find.byKey(_volumeKey), -40);
 
-    expect(volumes.single, closeTo(0.6, 0.001));
-  });
-
-  testWidgets('音量滚轮向下滚减 10%', (WidgetTester tester) async {
-    final List<double> volumes = <double>[];
-    await _pumpBar(tester, volume: 0.5, onVolumeChanged: volumes.add);
-
-    await _hoverVolume(tester);
-    await _scrollAt(tester, find.byKey(_volumeKey), 40);
-
-    expect(volumes.single, closeTo(0.4, 0.001));
+    expect(volumes, isEmpty, reason: '浮层里滚轮不再生效，手一抖不该跳音量');
   });
 
   testWidgets('音量滚轮到顶夹在 1.0', (WidgetTester tester) async {
@@ -255,7 +265,7 @@ void main() {
     await _pumpBar(tester, volume: 0.95, onVolumeChanged: volumes.add);
 
     await _hoverVolume(tester);
-    await _scrollAt(tester, find.byKey(_volumeKey), -40);
+    await _scrollAt(tester, _volumeIcon(), -40);
 
     expect(volumes.single, closeTo(1.0, 0.001), reason: '不越界，也不发 1.05');
   });

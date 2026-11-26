@@ -1914,10 +1914,21 @@ void main() {
     );
     expect(progress.label, formatDuration(60));
 
-    // 音量收成图标 + 悬停浮层：百分比常驻在浮层顶上，不必靠拖动气泡
-    expect(find.text('62%'), findsNothing, reason: '没悬停就不该有浮层');
+    // 音量收成图标 + 悬停浮层：读数是滑块下面的一行数字，
+    // 不必靠拖动气泡
+    expect(find.text('62'), findsNothing, reason: '没悬停就不该有浮层');
     await _hoverVolume(tester);
-    expect(find.text('62%'), findsOneWidget, reason: '浮层顶上报整数百分比');
+    final Rect read = tester.getRect(find.text('62'));
+    expect(read, isNotNull, reason: '浮层下方写整数读数');
+    expect(
+      read.top,
+      greaterThan(
+        tester
+            .getRect(find.byKey(const ValueKey<String>('now-playing-volume')))
+            .bottom,
+      ),
+      reason: '数字在竖条下面，宽度才能收窄',
+    );
   });
 
   testWidgets('进度条悬停显示「跳到」时间气泡', (WidgetTester tester) async {
