@@ -39,7 +39,7 @@ class ArtistGridView extends StatelessWidget {
       labelOf: (ArtistGroup artist) => artist.name,
       storageKey: storageKey,
       tileWidth: 190,
-      tileHeight: 250,
+      tileExtraHeight: 56,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, ArtistGroup artist, int index) {
         return _ArtistCard(
@@ -102,17 +102,13 @@ class _ArtistCardState extends State<_ArtistCard> {
         ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.sm,
-            Spacing.lg,
-            Spacing.sm,
-            Spacing.md,
-          ),
+          // 与专辑卡片同档 16：两套网格在同一页里来回切，卡片留白不能一宽一窄
+          padding: const EdgeInsets.all(Spacing.md),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               // 头像吃满卡片剩下的高度，再由宽度封顶。写死尺寸两头不对：
-              // 卡片高度固定 250，宽度却会随列数在 170~183 之间变，
+              // 卡片高度跟着列宽走（见 tileExtraHeight），宽度也会随列数变，
               // 而按「宽度 - 内边距」算又不一定塞得进卡片高度。
               Expanded(
                 child: LayoutBuilder(
@@ -198,7 +194,9 @@ class AlbumGridView extends StatelessWidget {
       labelOf: (AlbumGroup album) => album.title,
       storageKey: storageKey,
       tileWidth: 190,
-      tileHeight: 264,
+      // 卡片 = 16 上内边距 + 正方形封面（列宽 − 32）+ 16 行距 + 两行字 42
+      // + 24 下内边距 ≈ 列宽 + 66
+      tileExtraHeight: 66,
       bottomPadding: PlayerBar.occupiedHeight + 8,
       itemBuilder: (BuildContext context, AlbumGroup album, int index) {
         return _AlbumCard(
@@ -260,7 +258,15 @@ class _AlbumCardState extends State<_AlbumCard> {
         ),
         hoverColor: scheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.all(Spacing.sm),
+          // 四边都收到 16：12 的时候封面几乎顶到卡边，封面自带白底的专辑
+          // （白卡 + 印在下面的专辑名）会显得字贴着边缘。
+          // 下面比上面多 8：卡片底缘要留出一口气，跟封面上方不能等宽
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.md,
+            Spacing.md,
+            Spacing.md,
+            Spacing.lg,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -286,7 +292,9 @@ class _AlbumCardState extends State<_AlbumCard> {
                   ),
                 ),
               ),
-              const SizedBox(height: Spacing.sm),
+              // 封面与歌名之间留 16：内边距收到 16 之后，字的左缘已经让开封面
+              // 左下角那段圆弧，不用再靠行距躲（24 时中间那条空当比卡底还宽）
+              const SizedBox(height: Spacing.md),
               Text(
                 album.title,
                 maxLines: 1,

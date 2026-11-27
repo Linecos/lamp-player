@@ -139,7 +139,7 @@ class AlphabetGridView<T> extends StatefulWidget {
     required this.labelOf,
     required this.itemBuilder,
     required this.tileWidth,
-    required this.tileHeight,
+    required this.tileExtraHeight,
     this.storageKey,
     this.bottomPadding = 0,
     this.topPadding = 8,
@@ -157,9 +157,11 @@ class AlphabetGridView<T> extends StatefulWidget {
   final Widget Function(BuildContext context, T item, int index) itemBuilder;
 
   /// 卡片宽度上限：窗口变宽只加列数，列宽把剩余空间均分（所以可能比它略窄）。
-  /// 卡片高度固定（见 [tileHeight]），切窗口化 / 全屏时视觉尺寸不变。
   final double tileWidth;
-  final double tileHeight;
+
+  /// 卡片比列宽多出的高度（见 [AlphabetGridMetrics.tileExtraHeight]）：
+  /// 卡片里只有封面随宽度变高，剩下的内边距与两行字是定高的
+  final double tileExtraHeight;
 
   /// 滚动位置的存储键：切分区再切回来还停在原处
   final Key? storageKey;
@@ -461,7 +463,7 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
               tileWidth: widget.tileWidth,
               crossAxisSpacing: widget.crossAxisSpacing,
               mainAxisSpacing: widget.mainAxisSpacing,
-              tileHeight: widget.tileHeight,
+              tileExtraHeight: widget.tileExtraHeight,
               headerExtent: alphabetHeaderExtent,
               topPadding: widget.topPadding,
             );
@@ -503,7 +505,8 @@ class _AlphabetGridViewState<T> extends State<AlphabetGridView<T>> {
                 _controller.hasClients &&
                 (previous.viewportWidth != metrics.viewportWidth ||
                     previous.crossAxisCount != metrics.crossAxisCount ||
-                    previous.tileHeight != metrics.tileHeight)) {
+                    previous.childMainAxisExtent !=
+                        metrics.childMainAxisExtent)) {
               _queueAnchorRestore(previous, metrics, offsets);
             }
             _lastMetrics = metrics;

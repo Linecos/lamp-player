@@ -136,7 +136,7 @@ extension _AlbumsSection on _LibraryPageState {
                           child: AlbumCover(
                             path: group.coverPath,
                             size: detailCoverSize,
-                            radius: Radii.xl,
+                            radius: albumDetailCoverRadius,
                           ),
                         ),
                       ),

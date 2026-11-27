@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/widgets/album_cover.dart';
 import 'package:lamp_player/src/features/library/library_sort.dart';
 import 'package:lamp_player/src/features/library/widgets/collection_grids.dart';
+import 'package:lamp_player/src/features/library/widgets/cover_flight.dart';
 import 'package:lamp_player/src/rust/api/model.dart';
 import 'package:lamp_player/src/theme/app_theme.dart';
+import 'package:lamp_player/src/theme/tokens.dart';
 
 import '../../support/fake_library.dart';
 
@@ -43,6 +45,13 @@ void main() {
     await tester.pump();
 
     expect(find.byType(Image), findsOneWidget);
+    // 卡片封面与卡片外框同心：40（外框）− 16（内边距）= 24
+    final AlbumCover cover0 = tester.widget<AlbumCover>(
+      find.byType(AlbumCover),
+    );
+    expect(cover0.radius, albumCardCoverRadius);
+    expect(albumCardCoverRadius, albumDetailCoverRadius);
+    expect(albumCardCoverRadius, Radii.xl - Spacing.md);
   });
 
   testWidgets('艺术家网格的圆头像按满档解码，不能比旁边专辑卡糊', (WidgetTester tester) async {

@@ -549,7 +549,7 @@ void main() {
     expect(
       end.radius * endScale,
       closeTo(albumCardCoverRadius, 1),
-      reason: '落地前圆角要收到卡片的 20，否则最后一下四角会突然被填上',
+      reason: '落地前圆角要收到卡片那一档，否则最后一下四角会突然被填上',
     );
     await tester.pumpAndSettle();
   });

@@ -163,7 +163,7 @@ void main() {
       final AlphabetGridMetrics metrics = AlphabetGridMetrics(
         viewportWidth: width - gridRightReserve,
         tileWidth: 190,
-        tileHeight: 246,
+        tileExtraHeight: 60,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
         headerExtent: alphabetHeaderExtent,
@@ -243,7 +243,7 @@ void main() {
     AlphabetGridMetrics metricsAt(double w) => AlphabetGridMetrics(
       viewportWidth: w - gridRightReserve,
       tileWidth: 190,
-      tileHeight: 246,
+      tileExtraHeight: 60,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
       headerExtent: alphabetHeaderExtent,
@@ -376,9 +376,9 @@ void main() {
     }
   });
 
-  testWidgets('侧栏动画途中列数不变，卡片高度不变', (WidgetTester tester) async {
-    // 卡片宽度固定：侧栏收起时内容区从 868 连续变到 1000，卡片一个像素都不该
-    // 动。列数按最窄那一档（展开态，868）算，整段过渡里也不会中途多挤一列。
+  testWidgets('侧栏动画途中列数不变，卡片高度只跟着列宽走', (WidgetTester tester) async {
+    // 卡片宽度固定：侧栏收起时内容区从 868 连续变到 1000，卡片只在列宽那点
+    // 浮动里长高几个像素（高度 = 列宽 + 定高余量），不会整排重排。
     final List<AlbumGroup> albums = <AlbumGroup>[
       for (int i = 0; i < 12; i += 1) _album('专辑 $i', '林间电台'),
     ];
@@ -423,9 +423,9 @@ void main() {
 
     for (final (int _, Size card) in rows) {
       expect(
-        card.height,
-        closeTo(rows.first.$2.height, 0.01),
-        reason: '行高是固定值，内容区变宽也不该变',
+        card.height - card.width,
+        closeTo(rows.first.$2.height - rows.first.$2.width, 0.01),
+        reason: '行高 = 列宽 + 定高余量，多出来的那一截不该变',
       );
       expect(
         (card.width - rows.first.$2.width).abs() / rows.first.$2.width,
@@ -464,12 +464,23 @@ void main() {
     await tester.tap(find.byTooltip('收起导航栏'));
     await tester.pumpAndSettle();
 
-    // 收起态是 7 列：每段 13 位 → 2 行，段高 = 34 + 2×250 + 16 = 550，
-    // L 是第 12 段，段首偏移 = 8 + 11 × 550
+    // 按真实几何算 L 段段首（每段 13 位艺术家）：L 是第 12 段。
+    // 卡片高度跟着列宽走以后，段高不能再写成常数，直接从 metrics 拿
+    final double gridWidth = tester.getRect(find.byType(ArtistGridView)).width;
+    final AlphabetGridMetrics closed = AlphabetGridMetrics(
+      viewportWidth: gridWidth - gridRightReserve,
+      tileWidth: 190,
+      tileExtraHeight: 56,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      headerExtent: alphabetHeaderExtent,
+      topPadding: 8,
+    );
+    final List<int> counts = List<int>.filled(26, 13);
     tester
         .state<ScrollableState>(find.byType(Scrollable).last)
         .position
-        .jumpTo(6058);
+        .jumpTo(closed.sectionOffsets(counts)[11]);
     await tester.pumpAndSettle();
     final double closedTop = headerTop('L');
     expect(closedTop, lessThan(200), reason: 'L 段应该在视口顶部附近');

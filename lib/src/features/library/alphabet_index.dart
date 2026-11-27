@@ -124,17 +124,18 @@ bool _isLatinLetter(int rune) =>
 ///
 /// 和 [AlphabetGridView] 的布局共用一套算式：列数 = 可用宽度能放下几列
 /// （向上取整，与 delegate 的取值规则一致），列宽把剩余空间均分，
-/// 行高是**固定**的 [tileHeight]。
+/// 行高 = 列宽 + [tileExtraHeight]。
 ///
-/// 行高固定是关键：窗口化与全屏之间来回切时，卡片只会因为列数变化而在宽度上
-/// 浮动几个百分点，高度一个像素都不动，看着就是同一个尺寸。
-/// 跳转要落得准，就不能靠「估」，两侧任何一边改了布局参数，都要把这里一起改
-/// ——测试里有「点了字母，该段标题就在顶上」的断言兜底。
+/// 行高跟着列宽走，是因为卡片内容本身只随宽度变高：封面就是一个按宽度撑满的
+/// 正方形，底下只有固定几行字。写死一个高度的话，列宽一变（开关侧栏、加减
+/// 列数）卡片就会在底下空出一截或挤到封面。跳转要落得准，就不能靠「估」，
+/// 两侧任何一边改了布局参数，都要把这里一起改 —— 测试里有「点了字母，该段
+/// 标题就在顶上」的断言兜底。
 class AlphabetGridMetrics {
   const AlphabetGridMetrics({
     required this.viewportWidth,
     required this.tileWidth,
-    required this.tileHeight,
+    required this.tileExtraHeight,
     required this.crossAxisSpacing,
     required this.mainAxisSpacing,
     required this.headerExtent,
@@ -147,8 +148,8 @@ class AlphabetGridMetrics {
   /// 卡片宽度上限：列数按它算，实际列宽把剩余空间均分，可能比它略窄
   final double tileWidth;
 
-  /// 卡片高度：固定值，不随可用宽度变
-  final double tileHeight;
+  /// 卡片高度比列宽多出的那一截（封面以外：上下内边距、行距、两行字）
+  final double tileExtraHeight;
 
   final double crossAxisSpacing;
   final double mainAxisSpacing;
@@ -166,7 +167,7 @@ class AlphabetGridMetrics {
       (viewportWidth - crossAxisSpacing * (crossAxisCount - 1)) /
       crossAxisCount;
 
-  double get childMainAxisExtent => tileHeight;
+  double get childMainAxisExtent => childCrossAxisExtent + tileExtraHeight;
 
   /// 一段网格自身的高度（行数按列数折算，行间距只算在行与行之间）
   double gridExtent(int count) {

@@ -2,14 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/features/library/alphabet_index.dart';
 import 'package:lamp_player/src/features/library/widgets/alphabet_grid.dart';
 
-/// 卡片宽度固定，内容区一变宽就只是多一列、零头进留白；列数一变行高跟着变，
-/// 而滚动偏移是像素，同一个像素在新布局里指向另一条 —— 所以要把「视口顶上
-/// 是谁」换算过去。
+/// 卡片宽度有上限，内容区一变宽就只是多一列、零头进留白；列数一变行高跟着变
+/// （卡片高度 = 列宽 + 定高余量），而滚动偏移是像素，同一个像素在新布局里指向
+/// 另一条 —— 所以要把「视口顶上是谁」换算过去。
 AlphabetGridMetrics metrics({required double viewportWidth}) {
   return AlphabetGridMetrics(
     viewportWidth: viewportWidth,
     tileWidth: 220,
-    tileHeight: 246,
+    tileExtraHeight: 26,
     crossAxisSpacing: 16,
     mainAxisSpacing: 16,
     headerExtent: alphabetHeaderExtent,
@@ -29,12 +29,16 @@ void main() {
   final AlphabetGridMetrics narrow = metrics(viewportWidth: 420);
   final List<double> narrowOffsets = narrow.sectionOffsets(counts);
 
-  test('收缩侧栏多一列，卡片尺寸基本不动', () {
+  test('收缩侧栏多一列，卡片只跟着列宽长高一点点', () {
     expect(collapsed.crossAxisCount, expanded.crossAxisCount + 1);
+    // 行高不再写死：卡片高度 = 列宽 + 定高余量，列宽变多少，高度就变多少
     expect(
-      collapsed.childMainAxisExtent,
-      expanded.childMainAxisExtent,
-      reason: '行高是固定值，不该跟着内容区宽度变',
+      collapsed.childMainAxisExtent - collapsed.childCrossAxisExtent,
+      closeTo(26, 0.001),
+    );
+    expect(
+      expanded.childMainAxisExtent - expanded.childCrossAxisExtent,
+      closeTo(26, 0.001),
     );
     expect(
       (collapsed.childCrossAxisExtent - expanded.childCrossAxisExtent).abs(),

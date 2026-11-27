@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../theme/tokens.dart';
+
 /// 量某个 key 对应 widget 在屏幕上的矩形；量不到（还没布局 / 已卸载）返回 null。
 Rect? rectOfKey(GlobalKey key) {
   final RenderObject? box = key.currentContext?.findRenderObject();
@@ -50,11 +52,18 @@ String artistCoverTag(String name) => 'artist:$name';
 
 String albumCoverTag(String key) => 'album:$key';
 
-/// 专辑卡片封面的圆角（32 的卡片外框 - 12 内边距 = 20，与卡片圆角同心）
-const double albumCardCoverRadius = 20;
+/// 专辑卡片封面的圆角：跟卡片外框同心。
+///
+/// 卡片外框是 [Radii.xl](40)，封面在里面还收了一圈 [Spacing.md](16) 的内边距，
+/// 同心算法就是 40 − 16 = 24。直接取 40 会让封面和卡片边框同半径，两条弧线
+/// 并行跑一段、四个角看着「外方内圆」地错开；取 20 又偏方。
+const double albumCardCoverRadius = Radii.xl - Spacing.md;
 
 /// 专辑详情头部封面的圆角
-const double albumDetailCoverRadius = 32;
+///
+/// 与列表卡片取同一个值：从列表飞进详情的过程中圆角不变，看上去才是「同一
+/// 张图被放大」，落地也不会跳。列表端若调整，这里一起跟着走。
+const double albumDetailCoverRadius = albumCardCoverRadius;
 
 /// 在 Overlay 上让一张封面从 [from] 飞到 [to]。
 ///

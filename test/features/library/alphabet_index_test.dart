@@ -67,35 +67,39 @@ void main() {
     const AlphabetGridMetrics metrics = AlphabetGridMetrics(
       viewportWidth: 1000,
       tileWidth: 220,
-      tileHeight: 260,
+      tileExtraHeight: 60,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
       headerExtent: 34,
       topPadding: 8,
     );
 
-    test('列数向上取整，列宽均分，行高是固定值', () {
+    test('列数向上取整，列宽均分，行高 = 列宽 + 定高余量', () {
       // ceil(1000 / (220 + 16)) = 5
       expect(metrics.crossAxisCount, 5);
       expect(metrics.childCrossAxisExtent, closeTo((1000 - 64) / 5, 0.001));
-      expect(metrics.childMainAxisExtent, 260);
+      expect(
+        metrics.childMainAxisExtent,
+        closeTo(metrics.childCrossAxisExtent + 60, 0.001),
+      );
     });
 
-    test('内容区变宽只加列数，卡片高度不变', () {
+    test('内容区变宽只加列数，卡片高度跟着列宽走', () {
       const AlphabetGridMetrics wide = AlphabetGridMetrics(
         viewportWidth: 1300,
         tileWidth: 220,
-        tileHeight: 260,
+        tileExtraHeight: 60,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
         headerExtent: 34,
         topPadding: 8,
       );
       expect(wide.crossAxisCount, 6);
+      // 高度不再写死：卡片里只有封面随宽度变，多出来的那一截是固定的，
+      // 所以行高跟着列宽一起变，底下才不会空出或挤掉一截
       expect(
-        wide.childMainAxisExtent,
-        metrics.childMainAxisExtent,
-        reason: '窗口化 / 全屏来回切，卡片高度必须一样',
+        wide.childMainAxisExtent - wide.childCrossAxisExtent,
+        closeTo(60, 0.001),
       );
       // 宽度只在列数变化带来的均分误差里浮动：186.7 ~ 203.3
       expect(
@@ -108,7 +112,7 @@ void main() {
       const AlphabetGridMetrics tiny = AlphabetGridMetrics(
         viewportWidth: 180,
         tileWidth: 220,
-        tileHeight: 260,
+        tileExtraHeight: 60,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
         headerExtent: 34,
