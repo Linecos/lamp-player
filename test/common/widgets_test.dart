@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lamp_player/src/common/common.dart';
+import 'package:lamp_player/src/common/widgets/section_label.dart';
 import 'package:lamp_player/src/common/widgets/toast_pill.dart';
+import 'package:lamp_player/src/theme/app_theme.dart';
 
 // 组件测试：只验证渲染与回调，不触碰 Rust 接口。
 Future<void> _pumpInScaffold(WidgetTester tester, Widget child) async {
@@ -719,6 +721,30 @@ void main() {
         lessThanOrEqualTo(80),
         reason: '两行文字 + 上下 12 内边距，超过就说明又开始按内容长了',
       );
+    });
+  });
+
+  group('SectionLabel', () {
+    testWidgets('颜色跟主色同源，不再取第三色', (WidgetTester tester) async {
+      final ThemeData theme = AppTheme.light(AppTheme.defaultSeed);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: const Scaffold(body: SectionLabel('外观')),
+        ),
+      );
+
+      expect(find.text('外观'), findsOneWidget);
+      final Text label = tester.widget<Text>(find.text('外观'));
+      expect(label.style?.color, theme.colorScheme.primary);
+      // 第三色是偏出主色色相的那一组对比色（青绿主题下会落到暖橙），
+      // 分组标题不该用它
+      expect(
+        theme.colorScheme.tertiary,
+        isNot(theme.colorScheme.primary),
+        reason: '前提不成立时这条断言没有意义',
+      );
+      expect(label.style?.color, isNot(theme.colorScheme.tertiary));
     });
   });
 }

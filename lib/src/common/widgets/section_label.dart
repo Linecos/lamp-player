@@ -9,9 +9,10 @@ import '../../theme/tokens.dart';
 /// 现在字号 / 颜色 / 上下留白都收在这里，需要跟卡片内容对齐时传 [indent]，
 /// 右端要挂状态文字或按钮时传 [trailing]。
 ///
-/// 颜色用第三色（tertiary）而不是主色：Expressive 的色板里主色、次色、第三色
-/// 是三组不同的色相，整页只给主色会显得单薄；分组标题是「读一眼就过」的那层，
-/// 正好让另一组色相出面。
+/// 颜色跟 [ColorScheme.primary] 同源，不取第三色（tertiary）：M3 的 tertiary
+/// 是色相偏出去约 60° 的一组对比色，青绿主色下它会落到暖橙那一档（动态取色
+/// 跟着封面走时尤其跳），分组标题压在卡片外面、字号又小，一暖一冷很刺眼。
+/// 三组色相仍留给真正需要区分的地方（选中行、开关、播放键）。
 class SectionLabel extends StatelessWidget {
   const SectionLabel(this.text, {super.key, this.indent = 0, this.trailing});
 
@@ -29,7 +30,7 @@ class SectionLabel extends StatelessWidget {
     final Widget label = Text(
       text,
       style: theme.textTheme.labelLarge?.copyWith(
-        color: theme.colorScheme.tertiary,
+        color: theme.colorScheme.primary,
       ),
     );
     return Padding(
