@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner.jpg" alt="Lamp Player：一款现代化的本地音乐播放器" width="100%">
+  <img src="docs/images/banner.webp" alt="Lamp Player：一款现代化的本地音乐播放器" width="100%">
 </p>
 
 <h1 align="center">Lamp Player</h1>
@@ -23,10 +23,16 @@
 
 | 浅色主题 | 深色主题 |
 |:---:|:---:|
-| ![浅色主题：曲库列表、排序与播放条](docs/images/light-music.png) | ![深色主题：曲库列表、排序与播放条](docs/images/dark-music.png) |
-| ![浅色主题：歌单](docs/images/light-playlists.png) | ![深色主题：歌单](docs/images/dark-playlists.png) |
-| ![浅色主题：专辑，右侧字母导航](docs/images/light-albums.jpg) | ![深色主题：专辑，右侧字母导航](docs/images/dark-albums.jpg) |
-| ![浅色主题：设置](docs/images/light-settings.png) | ![深色主题：设置](docs/images/dark-settings.png) |
+| ![浅色主题：曲库列表、排序与播放条](docs/images/light-music.webp) | ![深色主题：曲库列表、排序与播放条](docs/images/dark-music.webp) |
+| ![浅色主题：歌单](docs/images/light-playlists.webp) | ![深色主题：歌单](docs/images/dark-playlists.webp) |
+| ![浅色主题：歌单详情，大封面与曲目表](docs/images/light-playlist-detail.webp) | ![深色主题：歌单详情，大封面与曲目表](docs/images/dark-playlist-detail.webp) |
+| ![浅色主题：专辑，右侧字母导航](docs/images/light-albums.webp) | ![深色主题：专辑，右侧字母导航](docs/images/dark-albums.webp) |
+| ![浅色主题：设置](docs/images/light-settings.webp) | ![深色主题：设置](docs/images/dark-settings.webp) |
+| ![浅色主题：听歌统计，累计时长与每日热力图](docs/images/light-stats.webp) | ![深色主题：听歌统计，累计时长与每日热力图](docs/images/dark-stats.webp) |
+
+**正在播放**：大封面、逐字歌词与译文，背景随当前封面取色。
+
+![正在播放页：大封面、逐字歌词与译文](docs/images/nowplaying.webp)
 
 ## 特性
 
