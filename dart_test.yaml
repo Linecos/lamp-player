@@ -1,0 +1,12 @@
+# 测试配置。
+#
+# `golden` 标签用于像素级基准比对（test/golden/）：它依赖本机的字体与渲染栈，
+# 换一台机器、换个 Flutter 版本都可能整体偏移，所以不放进 CI。CI 一律用
+#
+#     flutter test --exclude-tags golden
+#
+# 本地改了界面之后重建基准图：
+#
+#     flutter test --update-goldens test/golden
+tags:
+  golden:
